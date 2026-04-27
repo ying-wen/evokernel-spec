@@ -265,3 +265,47 @@ test.describe('Production-readiness extras', () => {
     expect(r?.headers()['content-type']).toMatch(/xml/);
   });
 });
+
+test.describe.serial('Iter-10 features', () => {
+  test('hardware filter sidebar narrows results to China when toggled', async ({ page }) => {
+    await page.goto('/hardware/');
+    await page.waitForSelector('input[type="search"]', { state: 'visible', timeout: 10000 });
+    // Click "国产" toggle
+    await page.getByRole('button', { name: '国产', exact: true }).click();
+    // Counter shows 13 / 28
+    await expect(page.getByText(/13 \/ 28 显示/i)).toBeVisible();
+    // Overseas section should disappear
+    await expect(page.getByRole('heading', { name: /^海外/ })).not.toBeVisible();
+  });
+
+  test('hardware filter: FP4 checkbox limits to FP4-capable cards', async ({ page }) => {
+    await page.goto('/hardware/');
+    await page.waitForSelector('input[type="search"]', { state: 'visible' });
+    await page.getByRole('checkbox', { name: /FP4/i }).check();
+    // Should show fewer than total
+    await expect(page.getByText(/\/ 28 显示/)).toBeVisible();
+    // FP4 cards exist (B200, B300, MI355X, etc.)
+    await expect(page.getByText(/B200|B300|MI355X/).first()).toBeVisible();
+  });
+
+  test('calculator URL hydration works with full state', async ({ page }) => {
+    await page.goto('/calculator/?model=llama-4-scout&hw=h100-sxm5&prec=fp8&tp=4&batch=8');
+    await page.waitForSelector('button[type="button"]', { state: 'visible' });
+    // Result should auto-render
+    await expect(page.getByRole('heading', { name: /理论上界/i })).toBeVisible();
+    // Share/Export bar should be there
+    await expect(page.getByRole('button', { name: /复制链接/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /导出 YAML/ })).toBeVisible();
+  });
+
+  test('calculator share URL includes state in querystring', async ({ page }) => {
+    await page.goto('/calculator/');
+    await page.waitForSelector('button[type="button"]', { state: 'visible' });
+    await page.getByRole('button', { name: /Llama 4 Scout/i }).click();
+    await page.getByRole('button', { name: /H100 SXM5/i }).click();
+    await page.waitForFunction(() => {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('model') === 'llama-4-scout' && u.searchParams.get('hw') === 'h100-sxm5';
+    }, { timeout: 5000 });
+  });
+});

@@ -39,6 +39,43 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
   const [decode, setDecode] = useState(256);
   const [engineId, setEngineId] = useState('vllm');
 
+  // Hydrate full state from URL (?model=...&hw=...&hwCount=...&prec=...&tp=...&pp=...&ep=...&batch=...&prefill=...&decode=...&engine=...)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const hw = p.get('hw'); if (hw && hardware.some((h) => h.id === hw)) setHwId(hw);
+    const hc = p.get('hwCount'); if (hc) setHwCount(Math.max(1, Math.min(384, +hc)));
+    const pr = p.get('prec'); if (pr && ['fp4', 'fp8', 'bf16', 'fp16', 'int8'].includes(pr)) setPrecision(pr as Precision);
+    const tpv = p.get('tp'); if (tpv) setTp(Math.max(1, +tpv));
+    const ppv = p.get('pp'); if (ppv) setPp(Math.max(1, +ppv));
+    const epv = p.get('ep'); if (epv) setEp(Math.max(1, +epv));
+    const bv = p.get('batch'); if (bv) setBatch(Math.max(1, +bv));
+    const pre = p.get('prefill'); if (pre) setPrefill(Math.max(1, +pre));
+    const dec = p.get('decode'); if (dec) setDecode(Math.max(1, +dec));
+    const en = p.get('engine'); if (en && engines.some((e) => e.id === en)) setEngineId(en);
+    // If hw and model both present → jump to step 3 to show result immediately
+    const m = p.get('model');
+    if (m && hw) setStep(3);
+  }, [hardware, engines]);
+
+  // Sync state to URL on every change (replaceState — clean history)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const p = new URLSearchParams();
+    if (modelId) p.set('model', modelId);
+    if (hwId) p.set('hw', hwId);
+    if (hwCount !== 8) p.set('hwCount', String(hwCount));
+    if (precision !== 'bf16') p.set('prec', precision);
+    if (tp !== 8) p.set('tp', String(tp));
+    if (pp !== 1) p.set('pp', String(pp));
+    if (ep !== 1) p.set('ep', String(ep));
+    if (batch !== 16) p.set('batch', String(batch));
+    if (prefill !== 1024) p.set('prefill', String(prefill));
+    if (decode !== 256) p.set('decode', String(decode));
+    if (engineId !== 'vllm') p.set('engine', engineId);
+    const qs = p.toString();
+    window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+  }, [modelId, hwId, hwCount, precision, tp, pp, ep, batch, prefill, decode, engineId]);
+
   const result = useMemo(() => {
     if (!modelId || !hwId) return null;
     const m = models.find((x) => x.id === modelId);
@@ -159,7 +196,21 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
           </section>
         )}
 
-        {result && <ResultPanel result={result} cases={cases} hwCount={hwCount} hwTdpW={hardware.find((h) => h.id === hwId)?.power.tdp_w?.value ?? 700} />}
+        {result && (
+          <>
+            <ShareExport
+              modelId={modelId}
+              hwId={hwId}
+              hwCount={hwCount}
+              precision={precision}
+              tp={tp} pp={pp} ep={ep}
+              batch={batch} prefill={prefill} decode={decode}
+              engineId={engineId}
+              result={result}
+            />
+            <ResultPanel result={result} cases={cases} hwCount={hwCount} hwTdpW={hardware.find((h) => h.id === hwId)?.power.tdp_w?.value ?? 700} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -248,6 +299,94 @@ function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNu
         </pre>
       </details>
     </section>
+  );
+}
+
+interface ShareExportProps {
+  modelId: string; hwId: string; hwCount: number;
+  precision: Precision; tp: number; pp: number; ep: number;
+  batch: number; prefill: number; decode: number;
+  engineId: string;
+  result: NonNullable<ReturnType<typeof calculate>>;
+}
+
+function ShareExport(p: ShareExportProps) {
+  const [copied, setCopied] = useState<'url' | 'json' | 'yaml' | null>(null);
+
+  const flash = (k: 'url' | 'json' | 'yaml') => { setCopied(k); setTimeout(() => setCopied(null), 1500); };
+
+  const copyUrl = async () => {
+    await navigator.clipboard.writeText(window.location.href);
+    flash('url');
+  };
+
+  const buildConfig = () => ({
+    model: p.modelId,
+    hardware: { id: p.hwId, count: p.hwCount },
+    precision: p.precision,
+    parallel: { tp: p.tp, pp: p.pp, ep: p.ep, sp: 1 },
+    scenario: { prefill_seq_len: p.prefill, decode_seq_len: p.decode, batch_size: p.batch, max_concurrent_requests: 64 },
+    engine: p.engineId,
+    expected: {
+      decode_throughput_upper_bound_tok_s_per_card: Math.round(p.result.tier1Roofline.decodeThroughputUpperBound),
+      bottleneck: p.result.tier1Roofline.isComputeBound ? 'compute' : 'memory-bandwidth',
+      memory_required_gb: +p.result.configCheck.memoryRequiredGb.toFixed(1),
+      feasible: p.result.configCheck.feasible
+    }
+  });
+
+  const copyJson = async () => {
+    await navigator.clipboard.writeText(JSON.stringify(buildConfig(), null, 2));
+    flash('json');
+  };
+
+  const copyYaml = async () => {
+    const cfg = buildConfig();
+    const yaml = [
+      `model: ${cfg.model}`,
+      `hardware:`,
+      `  id: ${cfg.hardware.id}`,
+      `  count: ${cfg.hardware.count}`,
+      `precision: ${cfg.precision}`,
+      `parallel:`,
+      `  tp: ${cfg.parallel.tp}`,
+      `  pp: ${cfg.parallel.pp}`,
+      `  ep: ${cfg.parallel.ep}`,
+      `  sp: ${cfg.parallel.sp}`,
+      `scenario:`,
+      `  prefill_seq_len: ${cfg.scenario.prefill_seq_len}`,
+      `  decode_seq_len: ${cfg.scenario.decode_seq_len}`,
+      `  batch_size: ${cfg.scenario.batch_size}`,
+      `engine: ${cfg.engine}`,
+      `expected:`,
+      `  decode_throughput_upper_bound_tok_s_per_card: ${cfg.expected.decode_throughput_upper_bound_tok_s_per_card}`,
+      `  bottleneck: ${cfg.expected.bottleneck}`,
+      `  memory_required_gb: ${cfg.expected.memory_required_gb}`,
+      `  feasible: ${cfg.expected.feasible}`
+    ].join('\n');
+    await navigator.clipboard.writeText(yaml);
+    flash('yaml');
+  };
+
+  const btnCls = 'text-xs px-3 py-1.5 rounded border inline-flex items-center gap-1';
+  const btnStyle = { borderColor: 'var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', cursor: 'pointer' } as const;
+
+  return (
+    <div className="flex flex-wrap gap-2 items-center pb-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
+      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>分享 / 导出:</span>
+      <button type="button" onClick={copyUrl} className={btnCls} style={btnStyle}>
+        🔗 {copied === 'url' ? '已复制!' : '复制链接'}
+      </button>
+      <button type="button" onClick={copyJson} className={btnCls} style={btnStyle}>
+        {} {copied === 'json' ? '已复制!' : '导出 JSON'}
+      </button>
+      <button type="button" onClick={copyYaml} className={btnCls} style={btnStyle}>
+        ≣ {copied === 'yaml' ? '已复制!' : '导出 YAML'}
+      </button>
+      <span className="text-xs ml-auto" style={{ color: 'var(--color-text-muted)' }}>
+        URL 包含全部状态, 直接分享即可
+      </span>
+    </div>
   );
 }
 

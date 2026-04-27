@@ -2,84 +2,34 @@
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
-import Badge from '~/components/ui/Badge.astro';
-import { getResolvedHardware } from '~/lib/data';
+import HardwareGrid from '~/components/hardware/HardwareGrid.tsx';
 import HwTimeline from '~/components/hardware/HwTimeline.astro';
+import { getResolvedHardware } from '~/lib/data';
 
 const all = await getResolvedHardware();
-const cn = all.filter((h) => h.vendor.country === 'CN').sort((a, b) => b.release_year - a.release_year);
-const overseas = all.filter((h) => h.vendor.country !== 'CN').sort((a, b) => b.release_year - a.release_year);
-
-function fmtBw(bw: number | undefined): string {
-  if (!bw) return '—';
-  return bw >= 1000 ? `${(bw / 1000).toFixed(1)} TB/s` : `${bw} GB/s`;
-}
+const cn = all.filter((h) => h.vendor.country === 'CN');
+// React island only needs a slim vendor projection
+const lite = all.map((h) => ({
+  ...h,
+  vendor: {
+    id: h.vendor.id,
+    name: h.vendor.name,
+    country: h.vendor.country,
+    chinese_names: h.vendor.chinese_names
+  }
+}));
 ---
 <BaseLayout title="硬件目录">
   <Container>
     <section class="py-12">
-      <SectionHeader eyebrow="HARDWARE" title="硬件目录" subtitle={`${all.length} 张加速卡 · ${cn.length} 张国产 · 数据均带 evidence 标签`} />
+      <SectionHeader eyebrow="HARDWARE" title="硬件目录"
+        subtitle={`${all.length} 张加速卡 · ${cn.length} 张国产 · 多维筛选 · 时间线 · 数据均带 evidence`} />
 
       <div class="mt-8 mb-12">
         <HwTimeline hardware={all} />
       </div>
 
-      <h3 class="text-xl font-semibold mt-12 mb-4" style="color: var(--color-china);">国产 ({cn.length})</h3>
-      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {cn.map((h) => (
-          <a href={`/hardware/${h.id}`} class="block">
-            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
-                     style="background: var(--color-surface-raised); border-color: color-mix(in oklch, var(--color-china) 25%, var(--color-border));">
-              <div class="flex justify-between items-start mb-3">
-                <div>
-                  <div class="text-xs font-medium" style="color: var(--color-china);">{h.vendor.chinese_names[0] ?? h.vendor.name}</div>
-                  <h4 class="text-base font-semibold mt-0.5">{h.name}</h4>
-                </div>
-                <Badge variant="china">国产</Badge>
-              </div>
-              <dl class="grid grid-cols-3 gap-2 text-xs">
-                <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span style="color: var(--color-text-muted);"> TF</span></dd></div>
-                <div><dt style="color: var(--color-text-muted);">Memory</dt><dd class="font-mono mt-0.5">{h.memory.capacity_gb?.value ?? '—'}<span style="color: var(--color-text-muted);"> GB</span></dd></div>
-                <div><dt style="color: var(--color-text-muted);">BW</dt><dd class="font-mono mt-0.5">{fmtBw(h.memory.bandwidth_gbps?.value)}</dd></div>
-              </dl>
-              <div class="flex gap-1 mt-3 flex-wrap">
-                <Badge>{h.form_factor.toUpperCase()}</Badge>
-                <Badge>{h.status === 'in-production' ? '在售' : h.status}</Badge>
-                {h.compute.fp8_tflops && <Badge variant="success">FP8</Badge>}
-                {h.compute.fp4_tflops && <Badge variant="success">FP4</Badge>}
-              </div>
-            </article>
-          </a>
-        ))}
-      </div>
-
-      <h3 class="text-xl font-semibold mt-16 mb-4">海外 ({overseas.length})</h3>
-      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {overseas.map((h) => (
-          <a href={`/hardware/${h.id}`} class="block">
-            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
-                     style="background: var(--color-surface-raised); border-color: var(--color-border);">
-              <div class="flex justify-between items-start mb-3">
-                <div>
-                  <div class="text-xs font-medium" style="color: var(--color-text-muted);">{h.vendor.name}</div>
-                  <h4 class="text-base font-semibold mt-0.5">{h.name}</h4>
-                </div>
-              </div>
-              <dl class="grid grid-cols-3 gap-2 text-xs">
-                <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span style="color: var(--color-text-muted);"> TF</span></dd></div>
-                <div><dt style="color: var(--color-text-muted);">Memory</dt><dd class="font-mono mt-0.5">{h.memory.capacity_gb?.value ?? '—'}<span style="color: var(--color-text-muted);"> GB</span></dd></div>
-                <div><dt style="color: var(--color-text-muted);">BW</dt><dd class="font-mono mt-0.5">{fmtBw(h.memory.bandwidth_gbps?.value)}</dd></div>
-              </dl>
-              <div class="flex gap-1 mt-3 flex-wrap">
-                <Badge>{h.form_factor.toUpperCase()}</Badge>
-                <Badge>{h.status === 'in-production' ? '在售' : h.status}</Badge>
-                {h.compute.fp8_tflops && <Badge variant="success">FP8</Badge>}
-                {h.compute.fp4_tflops && <Badge variant="success">FP4</Badge>}
-              </div>
-            </article>
-          </a>
-        ))}
-      </div>
+      <HardwareGrid hardware={lite} client:load />
     </section>
   </Container>
 </BaseLayout>

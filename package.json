@@ -9,6 +9,7 @@
     "build": "pnpm --filter web build",
     "validate": "tsx scripts/validate-data.ts",
     "check-links": "tsx scripts/check-evidence-links.ts",
+    "audit:data": "tsx scripts/audit-data.ts",
     "test": "pnpm --filter web test && pnpm --filter @evokernel/schemas test && pnpm --filter @evokernel/scripts test",
     "lint": "biome check .",
     "format": "biome format --write ."
