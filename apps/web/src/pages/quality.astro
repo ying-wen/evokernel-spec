@@ -1,0 +1,238 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import { getResolvedHardware, getModels, getCases, getServers, getEngines, getQuantizations } from '~/lib/data';
+
+const hardware = await getResolvedHardware();
+const models = await getModels();
+const cases = await getCases();
+const servers = await getServers();
+const engines = await getEngines();
+const quantizations = await getQuantizations();
+
+// === Coverage ===
+const hwWithCases = new Set(cases.map((c) => c.stack.hardware.id));
+const modelsWithCases = new Set(cases.map((c) => c.stack.model.id));
+const hwNoCase = hardware.filter((h) => !hwWithCases.has(h.id));
+const modelsNoCase = models.filter((m) => !modelsWithCases.has(m.id));
+const modelsNoOpDecomp = models.filter((m) => m.operator_decomposition.length === 0);
+
+// === Evidence depth ===
+const evCounts = hardware.map((h) => h.evidence.length);
+const avgEvidence = (evCounts.reduce((a, b) => a + b, 0) / Math.max(hardware.length, 1)).toFixed(1);
+const singleEvidence = hardware.filter((h) => h.evidence.length === 1);
+
+// === Tier breakdown ===
+let tierOfficial = 0, tierMeasured = 0, tierEstimated = 0;
+for (const h of hardware) for (const e of h.evidence) {
+  if (e.tier === 'official') tierOfficial++;
+  else if (e.tier === 'measured') tierMeasured++;
+  else if (e.tier === 'estimated') tierEstimated++;
+}
+for (const c of cases) for (const e of c.evidence) {
+  if (e.tier === 'official') tierOfficial++;
+  else if (e.tier === 'measured') tierMeasured++;
+  else if (e.tier === 'estimated') tierEstimated++;
+}
+const totalTier = tierOfficial + tierMeasured + tierEstimated;
+
+// === China coverage ===
+const cnHw = hardware.filter((h) => h.vendor.country === 'CN');
+const cnHwWithCases = cnHw.filter((h) => hwWithCases.has(h.id));
+const cnHwGap = cnHw.filter((h) => !hwWithCases.has(h.id));
+
+// === Quantization adoption ===
+const quantUsage = quantizations.map((q) => ({
+  q,
+  hwCount: hardware.filter((h) => h.software_support.quantizations.includes(q.id)).length,
+  caseCount: cases.filter((c) => c.stack.quantization === q.id).length
+}));
+
+// === Engine adoption ===
+const engineUsage = engines.map((e) => ({
+  engine: e,
+  hwCount: hardware.filter((h) => h.software_support.engines.some((se) => se.id === e.id)).length,
+  caseCount: cases.filter((c) => c.stack.engine.id === e.id).length
+}));
+---
+<BaseLayout title="数据质量">
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="QUALITY" title="数据质量与覆盖" subtitle="实时统计 · 透明 · 用于发现贡献机会" />
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-8">
+        <KpiCard label="实体总数" sublabel="across all types"><span style="font-size: 1.75rem;">{hardware.length + models.length + cases.length + servers.length}</span></KpiCard>
+        <KpiCard label="平均 evidence" sublabel="per 硬件"><span style="font-size: 1.75rem;">{avgEvidence}</span></KpiCard>
+        <KpiCard label="国产案例覆盖" sublabel="cards with cases"><span style="font-size: 1.75rem;">{cnHwWithCases.length}<span class="text-base opacity-60">/{cnHw.length}</span></span></KpiCard>
+        <KpiCard label="实测 / 总 evidence" sublabel="measured tier"><span style="font-size: 1.75rem;">{tierMeasured}<span class="text-base opacity-60">/{totalTier}</span></span></KpiCard>
+      </div>
+
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-4">Evidence Tier 分布</h3>
+        <div class="flex h-10 rounded overflow-hidden" style="background: var(--color-surface);">
+          {tierOfficial > 0 && (
+            <div style={`width: ${(tierOfficial / totalTier) * 100}%; background: var(--color-tier-official); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;`}>
+              📄 {tierOfficial}
+            </div>
+          )}
+          {tierMeasured > 0 && (
+            <div style={`width: ${(tierMeasured / totalTier) * 100}%; background: var(--color-tier-measured); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;`}>
+              ✅ {tierMeasured}
+            </div>
+          )}
+          {tierEstimated > 0 && (
+            <div style={`width: ${(tierEstimated / totalTier) * 100}%; background: var(--color-tier-estimated); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;`}>
+              ⚠️ {tierEstimated}
+            </div>
+          )}
+        </div>
+        <div class="flex gap-4 text-xs mt-2" style="color: var(--color-text-muted);">
+          <span>📄 官方声称 {((tierOfficial / totalTier) * 100).toFixed(0)}%</span>
+          <span>✅ 实测验证 {((tierMeasured / totalTier) * 100).toFixed(0)}%</span>
+          <span>⚠️ 社区估算 {((tierEstimated / totalTier) * 100).toFixed(0)}%</span>
+        </div>
+        <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+          目标: 让 measured (✅) 占比逐年提升, 减少 official-only 依赖。每条 measured evidence 都需要 contributor attestation。
+        </p>
+      </section>
+
+      <section class="mt-12 grid lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-xl font-semibold mb-4">硬件覆盖缺口 ({hwNoCase.length})</h3>
+          <p class="text-sm mb-3" style="color: var(--color-text-muted);">这些硬件还没有任何部署案例 — 是贡献的好机会。</p>
+          {hwNoCase.length === 0 ? (
+            <p class="text-sm" style="color: var(--color-tier-measured);">✓ 所有硬件均有案例</p>
+          ) : (
+            <ul class="space-y-1 text-sm">
+              {hwNoCase.slice(0, 16).map((h) => (
+                <li>
+                  <a href={`/hardware/${h.id}/`} class="block p-2 rounded border transition-transform hover:translate-x-0.5"
+                     style={`border-color: ${h.vendor.country === 'CN' ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+                    <span class="font-medium">{h.name}</span>
+                    <span class="text-xs ml-2" style={`color: ${h.vendor.country === 'CN' ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
+                      {h.vendor.country === 'CN' ? '国产' : h.vendor.country}
+                    </span>
+                  </a>
+                </li>
+              ))}
+              {hwNoCase.length > 16 && <li class="text-xs" style="color: var(--color-text-muted);">… 另外 {hwNoCase.length - 16} 张</li>}
+            </ul>
+          )}
+        </div>
+
+        <div>
+          <h3 class="text-xl font-semibold mb-4">模型缺口</h3>
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold mb-2">无算子拆解 ({modelsNoOpDecomp.length})</h4>
+            <p class="text-xs mb-2" style="color: var(--color-text-muted);">影响计算器 — Tier 1 Roofline 无法工作。</p>
+            <ul class="space-y-1 text-sm">
+              {modelsNoOpDecomp.slice(0, 8).map((m) => (
+                <li>
+                  <a href={`/models/${m.id}/`} class="block p-2 rounded border" style="border-color: var(--color-tier-estimated); background: var(--color-surface-raised);">
+                    {m.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold mb-2">无案例 ({modelsNoCase.length})</h4>
+            <ul class="space-y-1 text-sm">
+              {modelsNoCase.slice(0, 8).map((m) => (
+                <li class="block p-2 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                  <a href={`/models/${m.id}/`} class="font-medium">{m.name}</a>
+                  <span class="text-xs ml-2" style="color: var(--color-text-muted);">{m.lab}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-4">单 evidence 硬件 ({singleEvidence.length})</h3>
+        <p class="text-sm mb-3" style="color: var(--color-text-muted);">建议补充第二条引证 — 第三方实测、MLPerf、HotChips 等。</p>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+          {singleEvidence.slice(0, 24).map((h) => (
+            <a href={`/hardware/${h.id}/`} class="block p-2 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              {h.name}
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-4">引擎采用</h3>
+        <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+          <table class="w-full text-sm">
+            <thead style="background: var(--color-surface);">
+              <tr>
+                <th class="text-left px-4 py-2">引擎</th>
+                <th class="text-right px-4 py-2">支持硬件</th>
+                <th class="text-right px-4 py-2">案例数</th>
+              </tr>
+            </thead>
+            <tbody>
+              {engineUsage.sort((a, b) => b.caseCount - a.caseCount).map((u) => (
+                <tr class="border-t" style="border-color: var(--color-border);">
+                  <td class="px-4 py-2"><a href={`/engines/${u.engine.id}/`} class="font-medium underline" style="color: var(--color-accent);">{u.engine.name}</a></td>
+                  <td class="text-right px-4 py-2 font-mono">{u.hwCount}</td>
+                  <td class="text-right px-4 py-2 font-mono">{u.caseCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-4">量化采用</h3>
+        <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+          <table class="w-full text-sm">
+            <thead style="background: var(--color-surface);">
+              <tr>
+                <th class="text-left px-4 py-2">量化</th>
+                <th class="text-right px-4 py-2">支持硬件</th>
+                <th class="text-right px-4 py-2">案例数</th>
+              </tr>
+            </thead>
+            <tbody>
+              {quantUsage.sort((a, b) => b.caseCount - a.caseCount).map((u) => (
+                <tr class="border-t" style="border-color: var(--color-border);">
+                  <td class="px-4 py-2"><a href={`/quantizations/${u.q.id}/`} class="font-medium underline" style="color: var(--color-accent);">{u.q.name}</a></td>
+                  <td class="text-right px-4 py-2 font-mono">{u.hwCount}</td>
+                  <td class="text-right px-4 py-2 font-mono">{u.caseCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="mt-12 p-5 rounded-lg border" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2" style="color: var(--color-china);">国产硬件覆盖优先级 ({cnHwGap.length} 张缺口)</h3>
+        <p class="text-sm mb-3">最迫切的贡献机会 — 帮助国产芯片生态获得透明的实测数据。</p>
+        {cnHwGap.length === 0 ? (
+          <p style="color: var(--color-tier-measured);">✓ 所有国产硬件都已有案例!</p>
+        ) : (
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {cnHwGap.map((h) => (
+              <a href={`/hardware/${h.id}/`} class="block p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+                 style="border-color: color-mix(in oklch, var(--color-china) 30%, var(--color-border)); background: var(--color-surface-raised);">
+                <div class="font-medium">{h.name}</div>
+                <div class="text-xs" style="color: var(--color-text-muted);">{h.vendor.chinese_names[0] ?? h.vendor.name}</div>
+              </a>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <p class="mt-12 text-xs text-center" style="color: var(--color-text-muted);">
+        本页基于实时数据生成 (build time). 完整审计请运行 <code style="font-family: var(--font-mono); background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem;">pnpm audit:data</code>
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

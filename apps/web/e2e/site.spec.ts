@@ -309,3 +309,33 @@ test.describe.serial('Iter-10 features', () => {
     }, { timeout: 5000 });
   });
 });
+
+test.describe.serial('Iter-11 features', () => {
+  test('quality dashboard renders', async ({ page }) => {
+    await page.goto('/quality/');
+    await expect(page.getByRole('heading', { name: /数据质量与覆盖/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Evidence Tier 分布/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /国产硬件覆盖优先级/ })).toBeVisible();
+  });
+
+  test('per-operator breakdown chart renders in calculator', async ({ page }) => {
+    await page.goto('/calculator/?model=deepseek-v4-pro&hw=h100-sxm5');
+    await page.waitForSelector('button[type="button"]', { state: 'visible' });
+    await expect(page.getByText(/算子级时间分布/i)).toBeVisible();
+    // Operator names from deepseek-v4-pro decomposition
+    await expect(page.getByText(/matmul|attention/i).first()).toBeVisible();
+  });
+
+  test('disaggregated mode UI toggle works', async ({ page }) => {
+    await page.goto('/calculator/?model=deepseek-v4-pro&hw=h100-sxm5');
+    await page.waitForSelector('button[type="button"]', { state: 'visible' });
+    // Toggle disagg checkbox
+    await page.getByRole('checkbox', { name: /解耦部署/i }).check();
+    await expect(page.getByText(/Prefill 卡数/i)).toBeVisible();
+    await expect(page.getByText(/Decode 卡数/i)).toBeVisible();
+    // Result panel shows disagg estimate
+    await expect(page.getByRole('heading', { name: /解耦部署估算/i })).toBeVisible();
+    // KV transfer label
+    await expect(page.locator('dt').filter({ hasText: /KV transfer/i })).toBeVisible();
+  });
+});

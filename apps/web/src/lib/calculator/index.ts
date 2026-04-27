@@ -1,7 +1,10 @@
 import type { Hardware, Model, Case } from '@evokernel/schemas';
-import type { CalcInput, CalcOutput, Precision, CaseMatch, RooflineOutput } from './types.ts';
+import type {
+  CalcInput, CalcOutput, Precision, CaseMatch, RooflineOutput,
+  OperatorBreakdown, DisaggregatedOutput
+} from './types.ts';
 
-export type { CalcInput, CalcOutput, Precision, CaseMatch, RooflineOutput };
+export type { CalcInput, CalcOutput, Precision, CaseMatch, RooflineOutput, OperatorBreakdown, DisaggregatedOutput };
 
 const PEAK_BY_PRECISION = (h: Hardware, p: Precision): number | null => {
   const c = h.compute;
@@ -136,9 +139,47 @@ export function calculate(input: { calc: CalcInput; hardware: Hardware; model: M
   const warnings: string[] = [];
   if (peakTflops === 0) warnings.push(`硬件 ${hardware.id} 不支持 ${calc.precision} 精度。`);
 
+  // Per-operator timing breakdown
+  const peakFlops = peakTflops * 1e12;
+  const peakBytes = peakBwGbps * 1e9;
+  const efficiency = roofline.utilizationCeiling || 0.5;
+  const breakdown: OperatorBreakdown[] = model.operator_decomposition.map((op) => {
+    const computeMs = peakFlops > 0 ? (op.flops_per_token / (peakFlops * efficiency)) * 1000 : 0;
+    const memoryMs = peakBytes > 0 ? (op.bytes_per_token / (peakBytes * efficiency)) * 1000 : 0;
+    const timeMsPerToken = Math.max(computeMs, memoryMs);
+    return {
+      operator: op.operator,
+      flopsPerToken: op.flops_per_token,
+      bytesPerToken: op.bytes_per_token,
+      timeMsPerToken,
+      share: 0,
+      isComputeBound: computeMs >= memoryMs
+    };
+  });
+  const totalMs = breakdown.reduce((a, b) => a + b.timeMsPerToken, 0) || 1;
+  for (const b of breakdown) b.share = b.timeMsPerToken / totalMs;
+
+  // Disaggregated output (only if enabled)
+  let disagg: DisaggregatedOutput | null = null;
+  if (calc.disaggregated.enabled && calc.disaggregated.prefillCards && calc.disaggregated.decodeCards) {
+    const perCardUpper = roofline.decodeThroughputUpperBound;
+    // KV cache transfer: per token, layers × kv_heads × head_dim × 2 × bytesPerWeight
+    const kvBytesPerToken = 2 * model.architecture.layers * model.architecture.num_kv_heads * model.architecture.head_dim * bytesPerWeight;
+    const interconnectBwBytes = hardware.scale_out.bandwidth_gbps_per_card * 1e9 / 8;
+    disagg = {
+      enabled: true,
+      prefillThroughput: perCardUpper * calc.disaggregated.prefillCards,
+      decodeThroughput: perCardUpper * calc.disaggregated.decodeCards,
+      kvTransferLatencyMs: interconnectBwBytes > 0 ? (kvBytesPerToken / interconnectBwBytes) * 1000 : 0
+    };
+    trace.push(`disaggregated: prefill ${calc.disaggregated.prefillCards} + decode ${calc.disaggregated.decodeCards} cards, KV transfer ${disagg.kvTransferLatencyMs.toFixed(2)} ms/token`);
+  }
+
   return {
     tier0Cases: tier0,
     tier1Roofline: roofline,
+    operatorBreakdown: breakdown,
+    disaggregated: disagg,
     configCheck: {
       feasible: totalGb <= memAvail && peakTflops > 0,
       warnings,

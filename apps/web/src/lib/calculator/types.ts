@@ -34,9 +34,30 @@ export interface CaseMatch {
   matchScore: number;
 }
 
+export interface OperatorBreakdown {
+  operator: string;
+  flopsPerToken: number;
+  bytesPerToken: number;
+  /** Estimated time per token, ms — limited by min(compute, memory_bw) per op. */
+  timeMsPerToken: number;
+  /** Share of total step time, 0..1. */
+  share: number;
+  /** Whether THIS op is compute-bound. */
+  isComputeBound: boolean;
+}
+
+export interface DisaggregatedOutput {
+  enabled: boolean;
+  prefillThroughput: number;
+  decodeThroughput: number;
+  kvTransferLatencyMs: number;
+}
+
 export interface CalcOutput {
   tier0Cases: CaseMatch[];
   tier1Roofline: RooflineOutput;
+  operatorBreakdown: OperatorBreakdown[];
+  disaggregated: DisaggregatedOutput | null;
   configCheck: {
     feasible: boolean;
     warnings: string[];

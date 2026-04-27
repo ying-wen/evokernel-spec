@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceDot, ResponsiveContainer, Legend
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceDot, ResponsiveContainer, Legend,
+  BarChart, Bar
 } from 'recharts';
 import type { Hardware, Model, Case, Engine } from '@evokernel/schemas';
 import { calculate } from '~/lib/calculator';
@@ -38,6 +39,9 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
   const [prefill, setPrefill] = useState(1024);
   const [decode, setDecode] = useState(256);
   const [engineId, setEngineId] = useState('vllm');
+  const [disagg, setDisagg] = useState(false);
+  const [disaggPrefill, setDisaggPrefill] = useState(8);
+  const [disaggDecode, setDisaggDecode] = useState(8);
 
   // Hydrate full state from URL (?model=...&hw=...&hwCount=...&prec=...&tp=...&pp=...&ep=...&batch=...&prefill=...&decode=...&engine=...)
   useEffect(() => {
@@ -89,11 +93,11 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
         precision,
         parallel: { tp, pp, ep, sp: 1 },
         engineId,
-        disaggregated: { enabled: false }
+        disaggregated: disagg ? { enabled: true, prefillCards: disaggPrefill, decodeCards: disaggDecode } : { enabled: false }
       },
       hardware: h, model: m, cases
     });
-  }, [modelId, hwId, hwCount, precision, tp, pp, ep, batch, prefill, decode, engineId, models, hardware, cases]);
+  }, [modelId, hwId, hwCount, precision, tp, pp, ep, batch, prefill, decode, engineId, disagg, disaggPrefill, disaggDecode, models, hardware, cases]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[14rem,1fr] gap-8">
@@ -193,6 +197,30 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
                 </select>
               </label>
             </div>
+
+            <div className="mt-6 p-4 rounded border" style={{ borderColor: disagg ? 'var(--color-china)' : 'var(--color-border)', background: disagg ? 'color-mix(in oklch, var(--color-china) 5%, var(--color-bg))' : 'var(--color-surface)' }}>
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={disagg} onChange={(e) => setDisagg(e.target.checked)} />
+                <span>解耦部署 (Disaggregated prefill/decode)</span>
+              </label>
+              {disagg && (
+                <>
+                  <p className="text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
+                    Prefill 池 (compute-heavy) + Decode 池 (memory-bw heavy) 分离, KV cache 通过 scale-out 网络传输 (Mooncake / DistServe / SGLang disagg)。
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 mt-3 text-sm">
+                    <label>Prefill 卡数
+                      <input type="number" min={1} max={384} value={disaggPrefill} onChange={(e) => setDisaggPrefill(Math.max(1, +e.target.value))}
+                             className="ml-2 w-20 px-2 py-1 border rounded font-mono" style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }} />
+                    </label>
+                    <label>Decode 卡数
+                      <input type="number" min={1} max={384} value={disaggDecode} onChange={(e) => setDisaggDecode(Math.max(1, +e.target.value))}
+                             className="ml-2 w-20 px-2 py-1 border rounded font-mono" style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }} />
+                    </label>
+                  </div>
+                </>
+              )}
+            </div>
           </section>
         )}
 
@@ -289,6 +317,8 @@ function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNu
         </div>
       )}
 
+      <OperatorBreakdownChart result={result} />
+      {result.disaggregated && <DisaggregatedPanel disagg={result.disaggregated} />}
       <ConcurrencySweep result={result} hwCount={hwCount} />
       <TCOPanel result={result} hwCount={hwCount} defaultTdpW={hwTdpW} />
 
@@ -299,6 +329,83 @@ function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNu
         </pre>
       </details>
     </section>
+  );
+}
+
+function OperatorBreakdownChart({ result }: { result: NonNullable<ReturnType<typeof calculate>> }) {
+  const data = result.operatorBreakdown.slice().sort((a, b) => b.share - a.share);
+  if (data.length === 0) {
+    return (
+      <div className="rounded-lg border p-5" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
+        <h4 className="font-semibold mb-2">算子级时间分布</h4>
+        <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+          此模型尚无 operator_decomposition 数据。
+          <a href="https://github.com/evokernel/evokernel-spec" className="underline ml-1" style={{ color: 'var(--color-accent)' }}>贡献拆解 →</a>
+        </p>
+      </div>
+    );
+  }
+  const chartData = data.map((d) => ({
+    operator: d.operator,
+    'time ms/token': Number(d.timeMsPerToken.toFixed(3)),
+    bound: d.isComputeBound ? 'compute' : 'memory'
+  }));
+  return (
+    <div className="rounded-lg border p-5" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
+      <h4 className="font-semibold mb-2">算子级时间分布 (per token)</h4>
+      <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
+        每个算子 = max(FLOPs/peakCompute, bytes/peakBW) × efficiency · 总和 = 单 token 理想步进时间
+      </p>
+      <ResponsiveContainer width="100%" height={Math.max(180, data.length * 32 + 40)}>
+        <BarChart data={chartData} layout="vertical" margin={{ left: 12, right: 12, top: 8, bottom: 4 }}>
+          <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+          <XAxis type="number" tick={{ fontSize: 10 }} label={{ value: 'ms/token', position: 'insideBottomRight', offset: -2, fontSize: 10 }} />
+          <YAxis type="category" dataKey="operator" tick={{ fontSize: 11 }} width={120} />
+          <Tooltip contentStyle={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', fontSize: 11 }} />
+          <Bar dataKey="time ms/token" fill="var(--color-accent)" />
+        </BarChart>
+      </ResponsiveContainer>
+      <ul className="mt-3 text-xs space-y-1" style={{ color: 'var(--color-text-muted)' }}>
+        {data.slice(0, 5).map((d) => (
+          <li key={d.operator}>
+            <span style={{ color: 'var(--color-text)' }}>{d.operator}</span>
+            {' — '}
+            {(d.share * 100).toFixed(0)}% 占比 · {d.isComputeBound ? '计算受限' : '内存带宽受限'}
+            {' · '}
+            <a href={`/operators/${d.operator}/`} className="underline" style={{ color: 'var(--color-accent)' }}>详情 →</a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DisaggregatedPanel({ disagg }: { disagg: NonNullable<NonNullable<ReturnType<typeof calculate>>['disaggregated']> }) {
+  return (
+    <div className="rounded-lg border p-5"
+         style={{ borderColor: 'var(--color-china)', background: 'color-mix(in oklch, var(--color-china) 5%, var(--color-bg))' }}>
+      <h4 className="font-semibold mb-2">解耦部署估算 (Disaggregated)</h4>
+      <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
+        Prefill 池 + Decode 池分离 · KV cache 通过 scale-out 网络传输
+      </p>
+      <dl className="grid grid-cols-3 gap-3 text-sm">
+        <div>
+          <dt style={{ color: 'var(--color-text-muted)' }}>Prefill 池吞吐</dt>
+          <dd className="font-mono text-lg">{disagg.prefillThroughput.toFixed(0)} <span className="text-xs opacity-60">tok/s</span></dd>
+        </div>
+        <div>
+          <dt style={{ color: 'var(--color-text-muted)' }}>Decode 池吞吐</dt>
+          <dd className="font-mono text-lg">{disagg.decodeThroughput.toFixed(0)} <span className="text-xs opacity-60">tok/s</span></dd>
+        </div>
+        <div>
+          <dt style={{ color: 'var(--color-text-muted)' }}>KV transfer</dt>
+          <dd className="font-mono text-lg">{disagg.kvTransferLatencyMs.toFixed(2)} <span className="text-xs opacity-60">ms/token</span></dd>
+        </div>
+      </dl>
+      <p className="mt-3 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+        参考方案: <a href="/cases/case-dsv4flash-disagg-h100-h200-001/" className="underline" style={{ color: 'var(--color-accent)' }}>Mooncake disagg 案例</a> · <a href="/patterns/disaggregated-prefill-decode/" className="underline" style={{ color: 'var(--color-accent)' }}>优化模式</a>
+      </p>
+    </div>
   );
 }
 
