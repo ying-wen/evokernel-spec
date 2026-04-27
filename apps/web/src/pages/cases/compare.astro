@@ -1,0 +1,18 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import CaseCompare from '~/components/case/CaseCompare.tsx';
+import { getCases } from '~/lib/data';
+
+const cases = await getCases();
+---
+<BaseLayout title="案例对比">
+  <Container width="wide">
+    <section class="py-12">
+      <SectionHeader eyebrow="CASE COMPARE" title="案例对比"
+        subtitle="选最多 4 个部署案例 · 雷达图 + 完整指标对照表 · ★ 标记每行最佳" />
+      <CaseCompare cases={cases} client:load />
+    </section>
+  </Container>
+</BaseLayout>

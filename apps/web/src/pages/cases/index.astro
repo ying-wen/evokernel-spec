@@ -10,7 +10,12 @@ const cases = await getCases();
 <BaseLayout title="部署案例">
   <Container>
     <section class="py-12">
-      <SectionHeader eyebrow="CASES" title="部署案例 · 排行榜" subtitle={`${cases.length} 条实测部署 recipe · 按吞吐 / 延迟 / 日期排序 · 多维筛选`} />
+      <div class="flex justify-between items-end mb-4">
+        <SectionHeader eyebrow="CASES" title="部署案例 · 排行榜" subtitle={`${cases.length} 条实测部署 recipe · 表格 / 散点图 / 柱状图 · 多维筛选 · CSV 导出`} />
+        <a href="/cases/compare/" class="text-sm px-4 py-2 rounded border" style="border-color: var(--color-accent); color: var(--color-accent); white-space: nowrap;">
+          ⇄ 对比案例
+        </a>
+      </div>
       <Leaderboard cases={cases} client:load />
     </section>
   </Container>

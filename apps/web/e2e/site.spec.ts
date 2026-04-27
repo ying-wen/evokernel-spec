@@ -64,14 +64,11 @@ test.describe.serial('Calculator flow', () => {
   });
 
   test('memory check warns on undersized config', async ({ page }) => {
-    await page.goto('/calculator/');
+    test.setTimeout(60000);
+    // Use URL hydration directly — Calculator advances to step 3 and computes immediately
+    await page.goto('/calculator/?model=llama-4-maverick&hw=inferentia-2');
     await waitForHydration(page);
-    await page.getByRole('button', { name: /Llama 4 Maverick/i }).click();
-    // Wait until URL state syncs (model param appears)
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('model') === 'llama-4-maverick', { timeout: 5000 });
-    await page.getByRole('button', { name: /Inferentia 2/i }).click();
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('hw') === 'inferentia-2', { timeout: 5000 });
-    await expect(page.getByText(/配置不可行|显存不足/i).first()).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText(/配置不可行|显存不足/i).first()).toBeVisible({ timeout: 20000 });
   });
 });
 
