@@ -60,8 +60,11 @@ test.describe.serial('Calculator flow', () => {
     await page.goto('/calculator/');
     await waitForHydration(page);
     await page.getByRole('button', { name: /Llama 4 Maverick/i }).click();
+    // Wait until URL state syncs (model param appears)
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('model') === 'llama-4-maverick', { timeout: 5000 });
     await page.getByRole('button', { name: /Inferentia 2/i }).click();
-    await expect(page.getByText(/配置不可行|显存不足/i).first()).toBeVisible();
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('hw') === 'inferentia-2', { timeout: 5000 });
+    await expect(page.getByText(/配置不可行|显存不足/i).first()).toBeVisible({ timeout: 8000 });
   });
 });
 

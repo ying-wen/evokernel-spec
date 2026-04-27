@@ -10,7 +10,8 @@ import Topology from '~/components/hardware/Topology.astro';
 import Substitutes from '~/components/hardware/Substitutes.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import { hardwareLD, breadcrumbLD } from '~/lib/jsonld';
-import { buildMeta } from '~/lib/build-meta';
+import { buildMeta, lastUpdatedFor } from '~/lib/build-meta';
+import VendorBadge from '~/components/ui/VendorBadge.astro';
 
 export async function getStaticPaths() {
   const all = await getResolvedHardware();
@@ -39,6 +40,9 @@ const ldBreadcrumbs = breadcrumbLD([
   { name: hw.name, url: canonicalUrl }
 ]);
 const meta = buildMeta();
+// Source yaml path (vendored under <vendor-id>/<hw-id>.yaml)
+const sourcePath = `data/hardware/${hw.vendor.id}/${hw.id}.yaml`;
+const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
 ---
 <BaseLayout title={hw.name}>
   <Fragment slot="head">
@@ -55,10 +59,14 @@ const meta = buildMeta();
     </section>
     <section class="pt-3 pb-6">
       <header class="flex items-center gap-3 mb-4">
+        <VendorBadge vendorId={hw.vendor.id} vendorName={hw.vendor.name} country={hw.vendor.country} size="md" />
         <a href={`/vendors/${hw.vendor.id}/`} class="text-sm font-medium underline" style={`color: ${isChina ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
           {isChina ? (hw.vendor.chinese_names[0] ?? hw.vendor.name) : hw.vendor.name}
         </a>
         {isChina && <Badge variant="china">国产</Badge>}
+        <span class="ml-auto text-xs font-mono" style="color: var(--color-text-muted);" title={`Source last modified: ${lastUpdated}`}>
+          Last verified <time datetime={lastUpdated}>{lastUpdated.slice(0, 10)}</time>
+        </span>
       </header>
       <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{hw.name}</h1>
       <div class="flex gap-2 mt-3 flex-wrap">

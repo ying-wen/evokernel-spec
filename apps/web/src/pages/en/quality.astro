@@ -1,0 +1,202 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import { getResolvedHardware, getModels, getCases, getServers, getEngines, getQuantizations } from '~/lib/data';
+
+const hardware = await getResolvedHardware();
+const models = await getModels();
+const cases = await getCases();
+const servers = await getServers();
+const engines = await getEngines();
+const quantizations = await getQuantizations();
+
+const hwWithCases = new Set(cases.map((c) => c.stack.hardware.id));
+const modelsWithCases = new Set(cases.map((c) => c.stack.model.id));
+const hwNoCase = hardware.filter((h) => !hwWithCases.has(h.id));
+const modelsNoCase = models.filter((m) => !modelsWithCases.has(m.id));
+const modelsNoOpDecomp = models.filter((m) => m.operator_decomposition.length === 0);
+
+const evCounts = hardware.map((h) => h.evidence.length);
+const avgEvidence = (evCounts.reduce((a, b) => a + b, 0) / Math.max(hardware.length, 1)).toFixed(1);
+const singleEvidence = hardware.filter((h) => h.evidence.length === 1);
+
+let tierOfficial = 0, tierMeasured = 0, tierEstimated = 0;
+for (const h of hardware) for (const e of h.evidence) {
+  if (e.tier === 'official') tierOfficial++;
+  else if (e.tier === 'measured') tierMeasured++;
+  else if (e.tier === 'estimated') tierEstimated++;
+}
+for (const c of cases) for (const e of c.evidence) {
+  if (e.tier === 'official') tierOfficial++;
+  else if (e.tier === 'measured') tierMeasured++;
+  else if (e.tier === 'estimated') tierEstimated++;
+}
+const totalTier = tierOfficial + tierMeasured + tierEstimated;
+
+const cnHw = hardware.filter((h) => h.vendor.country === 'CN');
+const cnHwWithCases = cnHw.filter((h) => hwWithCases.has(h.id));
+const cnHwGap = cnHw.filter((h) => !hwWithCases.has(h.id));
+
+const engineUsage = engines.map((e) => ({
+  engine: e,
+  hwCount: hardware.filter((h) => h.software_support.engines.some((se) => se.id === e.id)).length,
+  caseCount: cases.filter((c) => c.stack.engine.id === e.id).length
+}));
+---
+<BaseLayout title="Data quality" locale="en">
+  <Container>
+    <section class="py-12">
+      <div class="text-xs uppercase tracking-widest font-medium mb-2" style="color: var(--color-accent);">QUALITY</div>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">Data quality &amp; coverage</h1>
+      <p class="text-base mt-2" style="color: var(--color-text-muted);">Live build-time stats · transparency · spot contribution opportunities.</p>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-8">
+        <KpiCard label="Total entities" sublabel="all types"><span style="font-size: 1.75rem;">{hardware.length + models.length + cases.length + servers.length}</span></KpiCard>
+        <KpiCard label="Avg evidence" sublabel="per hardware"><span style="font-size: 1.75rem;">{avgEvidence}</span></KpiCard>
+        <KpiCard label="China case coverage" sublabel="cards with cases"><span style="font-size: 1.75rem;">{cnHwWithCases.length}<span class="text-base opacity-60">/{cnHw.length}</span></span></KpiCard>
+        <KpiCard label="Measured / total" sublabel="evidence tier"><span style="font-size: 1.75rem;">{tierMeasured}<span class="text-base opacity-60">/{totalTier}</span></span></KpiCard>
+      </div>
+
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-4">Evidence tier distribution</h3>
+        <div class="flex h-10 rounded overflow-hidden" style="background: var(--color-surface);">
+          {tierOfficial > 0 && (
+            <div style={`width: ${(tierOfficial / totalTier) * 100}%; background: var(--color-tier-official); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;`}>
+              📄 {tierOfficial}
+            </div>
+          )}
+          {tierMeasured > 0 && (
+            <div style={`width: ${(tierMeasured / totalTier) * 100}%; background: var(--color-tier-measured); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;`}>
+              ✅ {tierMeasured}
+            </div>
+          )}
+          {tierEstimated > 0 && (
+            <div style={`width: ${(tierEstimated / totalTier) * 100}%; background: var(--color-tier-estimated); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;`}>
+              ⚠️ {tierEstimated}
+            </div>
+          )}
+        </div>
+        <div class="flex gap-4 text-xs mt-2" style="color: var(--color-text-muted);">
+          <span>📄 Vendor-claimed {((tierOfficial / totalTier) * 100).toFixed(0)}%</span>
+          <span>✅ Measured {((tierMeasured / totalTier) * 100).toFixed(0)}%</span>
+          <span>⚠️ Estimated {((tierEstimated / totalTier) * 100).toFixed(0)}%</span>
+        </div>
+        <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+          Goal: increase the measured (✅) share over time, reducing dependency on vendor-claimed numbers. Each measured evidence requires contributor attestation.
+        </p>
+      </section>
+
+      <section class="mt-12 grid lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-xl font-semibold mb-4">Hardware coverage gaps ({hwNoCase.length})</h3>
+          <p class="text-sm mb-3" style="color: var(--color-text-muted);">No deployment cases yet — high-priority contribution opportunity.</p>
+          {hwNoCase.length === 0 ? (
+            <p class="text-sm" style="color: var(--color-tier-measured);">✓ Every hardware has at least one case</p>
+          ) : (
+            <ul class="space-y-1 text-sm">
+              {hwNoCase.slice(0, 16).map((h) => (
+                <li>
+                  <a href={`/hardware/${h.id}/`} class="block p-2 rounded border transition-transform hover:translate-x-0.5"
+                     style={`border-color: ${h.vendor.country === 'CN' ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+                    <span class="font-medium">{h.name}</span>
+                    <span class="text-xs ml-2" style={`color: ${h.vendor.country === 'CN' ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
+                      {h.vendor.country}
+                    </span>
+                  </a>
+                </li>
+              ))}
+              {hwNoCase.length > 16 && <li class="text-xs" style="color: var(--color-text-muted);">… and {hwNoCase.length - 16} more</li>}
+            </ul>
+          )}
+        </div>
+
+        <div>
+          <h3 class="text-xl font-semibold mb-4">Models</h3>
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold mb-2">No operator decomposition ({modelsNoOpDecomp.length})</h4>
+            <p class="text-xs mb-2" style="color: var(--color-text-muted);">Calculator Tier 1 Roofline can't run without these.</p>
+            <ul class="space-y-1 text-sm">
+              {modelsNoOpDecomp.slice(0, 8).map((m) => (
+                <li>
+                  <a href={`/models/${m.id}/`} class="block p-2 rounded border" style="border-color: var(--color-tier-estimated); background: var(--color-surface-raised);">
+                    {m.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold mb-2">No cases ({modelsNoCase.length})</h4>
+            <ul class="space-y-1 text-sm">
+              {modelsNoCase.slice(0, 8).map((m) => (
+                <li class="block p-2 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                  <a href={`/models/${m.id}/`} class="font-medium">{m.name}</a>
+                  <span class="text-xs ml-2" style="color: var(--color-text-muted);">{m.lab}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-4">Single-evidence hardware ({singleEvidence.length})</h3>
+        <p class="text-sm mb-3" style="color: var(--color-text-muted);">Suggest adding corroboration from third-party benchmarks, MLPerf, or HotChips.</p>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+          {singleEvidence.slice(0, 24).map((h) => (
+            <a href={`/hardware/${h.id}/`} class="block p-2 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              {h.name}
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-4">Engine adoption</h3>
+        <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+          <table class="w-full text-sm">
+            <thead style="background: var(--color-surface);">
+              <tr>
+                <th class="text-left px-4 py-2">Engine</th>
+                <th class="text-right px-4 py-2">Supported hardware</th>
+                <th class="text-right px-4 py-2">Cases</th>
+              </tr>
+            </thead>
+            <tbody>
+              {engineUsage.sort((a, b) => b.caseCount - a.caseCount).map((u) => (
+                <tr class="border-t" style="border-color: var(--color-border);">
+                  <td class="px-4 py-2"><a href={`/engines/${u.engine.id}/`} class="font-medium underline" style="color: var(--color-accent);">{u.engine.name}</a></td>
+                  <td class="text-right px-4 py-2 font-mono">{u.hwCount}</td>
+                  <td class="text-right px-4 py-2 font-mono">{u.caseCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="mt-12 p-5 rounded-lg border" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2" style="color: var(--color-china);">China hardware priority gap ({cnHwGap.length})</h3>
+        <p class="text-sm mb-3">Highest-impact contribution opportunity — help Chinese accelerator ecosystem get transparent measured data.</p>
+        {cnHwGap.length === 0 ? (
+          <p style="color: var(--color-tier-measured);">✓ All Chinese hardware has cases!</p>
+        ) : (
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {cnHwGap.map((h) => (
+              <a href={`/hardware/${h.id}/`} class="block p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+                 style="border-color: color-mix(in oklch, var(--color-china) 30%, var(--color-border)); background: var(--color-surface-raised);">
+                <div class="font-medium">{h.name}</div>
+                <div class="text-xs" style="color: var(--color-text-muted);">{h.vendor.name}</div>
+              </a>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <p class="mt-12 text-xs text-center" style="color: var(--color-text-muted);">
+        Generated at build time. Run <code style="font-family: var(--font-mono); background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem;">pnpm audit:data</code> for the full audit.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

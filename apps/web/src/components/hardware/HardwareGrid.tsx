@@ -157,6 +157,29 @@ export default function HardwareGrid({ hardware }: Props) {
   );
 }
 
+function VendorBadgeInline({ vendorId, vendorName, country }: { vendorId: string; vendorName: string; country: string }) {
+  let hash = 0;
+  for (let i = 0; i < vendorId.length; i++) hash = (hash * 31 + vendorId.charCodeAt(i)) | 0;
+  const base = Math.abs(hash) % 360;
+  const hue = country === 'CN' ? base % 60 : ((base % 200) + 200) % 360;
+  const initial = vendorName.charAt(0).toUpperCase();
+  const id = `vg-${vendorId}-card`;
+  return (
+    <svg viewBox="0 0 36 36" width={32} height={32} aria-label={`${vendorName} logo`}
+         xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0, display: 'inline-block' }}>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor={`oklch(60% 0.18 ${hue})`} />
+          <stop offset="100%" stopColor={`oklch(40% 0.18 ${(hue + 30) % 360})`} />
+        </linearGradient>
+      </defs>
+      <circle cx="18" cy="18" r="16" fill={`url(#${id})`} stroke="rgba(0,0,0,0.08)" strokeWidth="1" />
+      <text x="18" y="18" textAnchor="middle" dominantBaseline="central" fontSize="16" fontWeight="700" fill="white"
+            fontFamily="system-ui, sans-serif" letterSpacing="-0.02em">{initial}</text>
+    </svg>
+  );
+}
+
 function HwCard({ h, isCN = false }: { h: ResolvedHw; isCN?: boolean }) {
   return (
     <a href={`/hardware/${h.id}/`} className="block">
@@ -165,14 +188,17 @@ function HwCard({ h, isCN = false }: { h: ResolvedHw; isCN?: boolean }) {
                  background: 'var(--color-surface-raised)',
                  borderColor: isCN ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'
                }}>
-        <div className="flex justify-between items-start mb-3">
-          <div>
-            <div className="text-xs font-medium" style={{ color: isCN ? 'var(--color-china)' : 'var(--color-text-muted)' }}>
-              {isCN ? (h.vendor.chinese_names[0] ?? h.vendor.name) : h.vendor.name}
+        <div className="flex justify-between items-start mb-3 gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <VendorBadgeInline vendorId={h.vendor.id} vendorName={h.vendor.name} country={h.vendor.country} />
+            <div className="min-w-0">
+              <div className="text-xs font-medium truncate" style={{ color: isCN ? 'var(--color-china)' : 'var(--color-text-muted)' }}>
+                {isCN ? (h.vendor.chinese_names[0] ?? h.vendor.name) : h.vendor.name}
+              </div>
+              <h4 className="text-base font-semibold mt-0.5">{h.name}</h4>
             </div>
-            <h4 className="text-base font-semibold mt-0.5">{h.name}</h4>
           </div>
-          {isCN && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-china) 14%, var(--color-bg))', color: 'var(--color-china)' }}>国产</span>}
+          {isCN && <span className="text-xs px-2 py-0.5 rounded flex-shrink-0" style={{ background: 'color-mix(in oklch, var(--color-china) 14%, var(--color-bg))', color: 'var(--color-china)' }}>国产</span>}
         </div>
         <dl className="grid grid-cols-3 gap-2 text-xs">
           <div><dt style={{ color: 'var(--color-text-muted)' }}>BF16</dt><dd className="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span style={{ color: 'var(--color-text-muted)' }}> TF</span></dd></div>

@@ -1,0 +1,51 @@
+---
+// Auto-generates an SVG "logo" for a vendor: gradient circle + initial letter.
+// Color seeded from vendor id so it stays stable across renders.
+// Falls back gracefully when no logo image is available (which is currently all vendors).
+
+interface Props {
+  vendorId: string;
+  vendorName: string;
+  country?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+}
+
+const { vendorId, vendorName, country, size = 'md' } = Astro.props;
+
+// Deterministic hue from vendor id
+function hashHue(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  // Map to 0..360 but bias toward two clusters: warm (CN) and cool (overseas)
+  const base = Math.abs(h) % 360;
+  if (country === 'CN') return (base % 60) + 0;          // warm: 0-60 (red-orange)
+  return ((base % 200) + 200) % 360;                      // cool: 200-360 (blue-purple)
+}
+
+const hue = hashHue(vendorId);
+const initial = vendorName.charAt(0).toUpperCase();
+
+const sizeMap = {
+  xs: { px: 16, font: 9 },
+  sm: { px: 24, font: 12 },
+  md: { px: 36, font: 18 },
+  lg: { px: 56, font: 28 }
+};
+const { px, font } = sizeMap[size];
+
+const id = `vg-${vendorId}-${size}`;
+---
+<svg viewBox="0 0 36 36" width={px} height={px} role="img" aria-label={`${vendorName} logo`}
+     xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0; display: inline-block;">
+  <defs>
+    <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color={`oklch(60% 0.18 ${hue})`}/>
+      <stop offset="100%" stop-color={`oklch(40% 0.18 ${(hue + 30) % 360})`}/>
+    </linearGradient>
+  </defs>
+  <circle cx="18" cy="18" r="16" fill={`url(#${id})`} stroke="rgba(0,0,0,0.08)" stroke-width="1"/>
+  <text x="18" y="18" text-anchor="middle" dominant-baseline="central"
+        font-size={font} font-weight="700" fill="white"
+        font-family="system-ui, -apple-system, sans-serif"
+        letter-spacing="-0.02em">{initial}</text>
+</svg>
