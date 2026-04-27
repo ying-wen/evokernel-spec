@@ -2,36 +2,96 @@
 
 > AI 推理硬件 × 模型 × 部署的开源知识库 — 国产芯片覆盖最全 / 可信度可引证 / 计算器透明
 
-## 项目状态: 🚧 V1 开发中 (Phase 0 — 数据预填 + 站点开发并行)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
+[![Tests](https://img.shields.io/badge/tests-117_passing-success)](#)
+[![Pages](https://img.shields.io/badge/pages-134-blue)](#)
 
-详见 [设计文档](docs/superpowers/specs/2026-04-28-evokernel-spec-design.md) 和 [实施计划](docs/superpowers/plans/2026-04-28-evokernel-spec-v1.md)。
+![Home](docs/screenshots/home.png)
 
 ## Highlights
 
-- **28 张加速卡**: NVIDIA / AMD / Intel / AWS / Google + 9 家国产
-- **14+ frontier 开源模型**: DeepSeek V4 / Kimi K2.6 / GLM-5.1 / Qwen 3.6+ / Llama 4 / Mistral / Gemma 4 ...
-- **Tier 0 + Tier 1 计算器**: 实测查表 + Roofline 上界, 公式公开
-- **国产芯片专题**: 矩阵热力图 / 代际谱系 / 生态对照
-- **可信度可引证**: 每个数字带 evidence 标签 (官方 / 实测 / 估算)
+- **28 加速卡**: NVIDIA / AMD / Intel / AWS / Google + **9 家国产** (昇腾 · 寒武纪 · 海光 · 摩尔线程 · 燧原 · 壁仞 · 沐曦 · 天数智芯 · 平头哥)
+- **14 frontier 开源模型**: DeepSeek V4 Pro / Flash / R1, Kimi K2.6, GLM-5.1, Qwen 3.5/3.6, Llama 4, Mistral Small 4, Gemma 4, MiniMax M2.7, gpt-oss
+- **20 部署案例**: 含 CloudMatrix 384 超节点、disaggregated 部署、所有 9 家国产卡
+- **Tier 0 实测查表 + Tier 1 透明 Roofline 计算器**: 含 per-operator breakdown / concurrency sweep / TCO ($/M tokens) / disaggregated mode
+- **国产芯片专题**: 矩阵热力图 + 代际谱系 + 软件生态对照
+- **数据可信度三档**: 📄 官方声称 · ✅ 实测验证 · ⚠️ 社区估算
+- **5 个 JSON API**: `/api/{index,hardware,models,cases,openapi}.json` (CC-BY-SA 4.0)
+- **WCAG 2 AA 兼容**, 中文+英文, 支持深色主题
+- **完整 CI**: 5 jobs, 117 测试, 0 类型错误, 周度 evidence 链接健康检查
+
+## 截图
+
+### 首页 + 计算器
+| | |
+|---|---|
+| ![Home](docs/screenshots/home.png) | ![Calculator](docs/screenshots/calculator.png) |
+| **首页** — 数据规模 + 入口 + 最新案例 | **计算器** — Tier 0 + Tier 1 + Roofline + 算子拆解 + concurrency + TCO |
+
+### 国产专题 + 硬件对比
+| | |
+|---|---|
+| ![China Hub](docs/screenshots/china-hub.png) | ![Compare](docs/screenshots/compare-roofline.png) |
+| **国产专题** — 矩阵热力图 + 代际谱系 + 生态对照 | **对比** — 雷达图 / 柱状图 / Roofline 叠加 / 表格 |
+
+### 案例库 + 数据质量
+| | |
+|---|---|
+| ![Cases](docs/screenshots/cases.png) | ![Quality](docs/screenshots/quality.png) |
+| **案例排行榜** — 多维筛选 + 排序 | **数据质量** — 实时审计 + 覆盖缺口 |
 
 ## 本地开发
 
 ```bash
+git clone https://github.com/evokernel/evokernel-spec
+cd evokernel-spec
 pnpm install
-pnpm dev          # 启动 dev server (http://localhost:4321)
-pnpm build        # 生产构建
-pnpm preview      # 预览构建结果
-pnpm test         # 运行单元测试
-pnpm validate     # 校验 data/ 下所有 yaml
-pnpm check-links  # 检查 evidence URL 可达性
-pnpm lint         # Biome lint
+
+# Development
+pnpm dev          # http://localhost:4321
+pnpm build        # static build to apps/web/dist
+pnpm preview      # serve dist locally
+
+# Data quality
+pnpm validate     # zod schema + cross-references
+pnpm check-links  # evidence URL reachability
+pnpm audit:data   # outliers + coverage gaps
+
+# Testing
+pnpm test                                       # unit (vitest)
+pnpm --filter web exec playwright test          # e2e + a11y + perf
 ```
 
-## English Summary
+## 数据 API
 
-Open-source knowledge base for AI inference deployment across hardware (incl. 9 Chinese vendors) and frontier open-source models, with a transparent Tier 0/1 calculator. Currently in V1 development.
+所有数据通过静态 JSON API 提供 (CC-BY-SA 4.0):
+
+```bash
+curl https://evokernel.dev/api/hardware.json | jq '.items[] | select(.vendor.country=="CN") | .id'
+# ascend-910b, ascend-910c, mlu370-x8, mlu590, dcu-z100, dcu-k100, ...
+
+curl https://evokernel.dev/api/openapi.json | jq '.info.version'
+# "1.0.0"
+```
+
+完整 OpenAPI 3.1 规范: [`/api/openapi.json`](https://evokernel.dev/api/openapi.json)
+
+## 贡献
+
+每个数字都需要 evidence 引证。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+最高优先级贡献机会: [实时 /quality 数据质量页](https://evokernel.dev/quality/) 中标记的国产硬件无 case 的卡。
+
+## 部署
+
+详见 [DEPLOYMENT.md](DEPLOYMENT.md)。推荐 Cloudflare Pages (本项目静态构建, 完全适配)。
+
+## English
+
+Open-source knowledge base for AI inference deployment across hardware (incl. 9 Chinese vendors) and frontier open-source models, with transparent Tier 0/1 calculator. Inspired by [SemiAnalysis InferenceX](https://inferencex.semianalysis.com/), differentiated by Chinese accelerator coverage + evidence-backed data + open API.
 
 ## License
 
-- Code: [Apache 2.0](LICENSE)
-- Data: [CC-BY-SA 4.0](DATA_LICENSE)
+- 代码 / Code: [Apache 2.0](LICENSE)
+- 数据 / Data: [CC-BY-SA 4.0](DATA_LICENSE)
