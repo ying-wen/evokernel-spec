@@ -1,9 +1,12 @@
 ---
 import { t, localePath, type Locale } from '~/lib/i18n';
+import { buildMeta } from '~/lib/build-meta';
 
 interface Props { locale?: Locale }
 const { locale = 'zh' } = Astro.props as Props;
 const isEn = locale === 'en';
+const meta = buildMeta();
+const builtLabel = isEn ? 'Built' : '构建于';
 ---
 <footer class="border-t mt-16" style="border-color: var(--color-border); background: var(--color-surface);">
   <div class="max-w-7xl mx-auto py-12 px-6 text-sm" style="color: var(--color-text-muted);">
@@ -39,8 +42,12 @@ const isEn = locale === 'en';
         </ul>
       </div>
     </div>
-    <div class="text-xs pt-4 border-t" style="border-color: var(--color-border);">
-      <p>{t(locale, 'footer.disclaimer')}</p>
+    <div class="text-xs pt-4 border-t flex flex-wrap justify-between items-center gap-3" style="border-color: var(--color-border);">
+      <p class="flex-1 min-w-0">{t(locale, 'footer.disclaimer')}</p>
+      <p class="font-mono text-xs whitespace-nowrap">
+        {builtLabel} <time datetime={meta.builtAt}>{meta.builtAt.slice(0, 10)}</time>
+        · <span data-build-sha>{meta.sha}</span>
+      </p>
     </div>
   </div>
 </footer>

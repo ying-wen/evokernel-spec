@@ -8,6 +8,9 @@ import TierChip from '~/components/ui/TierChip.astro';
 import { getResolvedHardware, getCases, getEngines, getQuantizations } from '~/lib/data';
 import Topology from '~/components/hardware/Topology.astro';
 import Substitutes from '~/components/hardware/Substitutes.astro';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import { hardwareLD, breadcrumbLD } from '~/lib/jsonld';
+import { buildMeta } from '~/lib/build-meta';
 
 export async function getStaticPaths() {
   const all = await getResolvedHardware();
@@ -27,12 +30,31 @@ const tierFor = (ref?: string) => {
 };
 
 const c = hw.compute;
+
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://evokernel.dev').toString();
+const ldHardware = hardwareLD(hw, canonicalUrl);
+const ldBreadcrumbs = breadcrumbLD([
+  { name: '首页', url: new URL('/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: '硬件', url: new URL('/hardware/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: hw.name, url: canonicalUrl }
+]);
+const meta = buildMeta();
 ---
 <BaseLayout title={hw.name}>
+  <Fragment slot="head">
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldHardware)} />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldBreadcrumbs)} />
+  </Fragment>
   <Container>
-    <section class="pt-12 pb-6">
-      <a href="/hardware" class="text-sm" style="color: var(--color-text-muted);">← 硬件目录</a>
-      <header class="mt-4 flex items-center gap-3 mb-4">
+    <section class="pt-12 pb-3">
+      <Breadcrumbs items={[
+        { name: '首页', href: '/' },
+        { name: '硬件', href: '/hardware/' },
+        { name: hw.name }
+      ]} />
+    </section>
+    <section class="pt-3 pb-6">
+      <header class="flex items-center gap-3 mb-4">
         <a href={`/vendors/${hw.vendor.id}/`} class="text-sm font-medium underline" style={`color: ${isChina ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
           {isChina ? (hw.vendor.chinese_names[0] ?? hw.vendor.name) : hw.vendor.name}
         </a>

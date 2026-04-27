@@ -5,6 +5,8 @@ import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { getModels, getResolvedHardware, getCases } from '~/lib/data';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import { modelLD, breadcrumbLD } from '~/lib/jsonld';
 
 export async function getStaticPaths() {
   const models = await getModels();
@@ -13,6 +15,13 @@ export async function getStaticPaths() {
 
 const { model } = Astro.props;
 const arch = model.architecture;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://evokernel.dev').toString();
+const ldModel = modelLD(model, canonicalUrl);
+const ldCrumbs = breadcrumbLD([
+  { name: '首页', url: new URL('/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: '模型', url: new URL('/models/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: model.name, url: canonicalUrl }
+]);
 const hardware = await getResolvedHardware();
 const cases = await getCases();
 
@@ -24,10 +33,20 @@ const colorMap = { measured: 'var(--color-tier-measured)', claimed: 'var(--color
 const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '— 未知' };
 ---
 <BaseLayout title={model.name}>
+  <Fragment slot="head">
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldModel)} />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldCrumbs)} />
+  </Fragment>
   <Container>
-    <section class="pt-12 pb-6">
-      <a href="/models" class="text-sm" style="color: var(--color-text-muted);">← 模型目录</a>
-      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">{model.name}</h1>
+    <section class="pt-12 pb-3">
+      <Breadcrumbs items={[
+        { name: '首页', href: '/' },
+        { name: '模型', href: '/models/' },
+        { name: model.name }
+      ]} />
+    </section>
+    <section class="pt-3 pb-6">
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{model.name}</h1>
       <div class="flex gap-2 mt-3 flex-wrap">
         <Badge>{model.lab}</Badge>
         <Badge variant={arch.family === 'moe' ? 'accent' : 'default'}>{arch.family.toUpperCase()}</Badge>

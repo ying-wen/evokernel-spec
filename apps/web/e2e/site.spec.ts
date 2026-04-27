@@ -384,3 +384,38 @@ test.describe('i18n English mirror', () => {
     expect(await page.locator('link[hreflang="x-default"]').count()).toBe(1);
   });
 });
+
+test.describe('SEO structured data', () => {
+  test('hardware detail has Product JSON-LD + breadcrumbs', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    const ldCount = await page.locator('script[type="application/ld+json"]').count();
+    expect(ldCount).toBe(2);
+    const productLD = await page.locator('script[type="application/ld+json"]').first().textContent();
+    expect(productLD).toContain('"@type":"Product"');
+    expect(productLD).toContain('NVIDIA');
+    // Breadcrumb nav present
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toBeVisible();
+  });
+
+  test('model detail has SoftwareApplication JSON-LD', async ({ page }) => {
+    await page.goto('/models/deepseek-v4-pro/');
+    const productLD = await page.locator('script[type="application/ld+json"]').first().textContent();
+    expect(productLD).toContain('"@type":"SoftwareApplication"');
+  });
+
+  test('case detail has TechArticle JSON-LD + print button', async ({ page }) => {
+    await page.goto('/cases/case-dsv4pro-cm384-mindie-001/');
+    const article = await page.locator('script[type="application/ld+json"]').first().textContent();
+    expect(article).toContain('"@type":"TechArticle"');
+    expect(article).toContain('CloudMatrix');
+    // Print button visible (hidden in print mode via class print:hidden)
+    await expect(page.getByRole('button', { name: /打印 \/ 导出 PDF/i })).toBeVisible();
+  });
+
+  test('footer shows build SHA + timestamp', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('[data-build-sha]')).toBeVisible();
+    const sha = await page.locator('[data-build-sha]').textContent();
+    expect(sha?.trim()).toMatch(/^[a-f0-9]+|dev$/);
+  });
+});

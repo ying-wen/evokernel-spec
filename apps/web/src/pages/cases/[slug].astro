@@ -6,6 +6,8 @@ import SpecRow from '~/components/ui/SpecRow.astro';
 import TierChip from '~/components/ui/TierChip.astro';
 import { getCases } from '~/lib/data';
 import CaseChart from '~/components/case/CaseChart.tsx';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import { caseLD, breadcrumbLD } from '~/lib/jsonld';
 
 export async function getStaticPaths() {
   const cases = await getCases();
@@ -17,13 +19,36 @@ const related = allCases.filter((x) => x.stack.model.id === c.stack.model.id);
 const r = c.results;
 const u = r.utilization;
 const others = Math.max(0, 100 - u.compute_pct - u.memory_bw_pct);
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://evokernel.dev').toString();
+const ldCase = caseLD(c, canonicalUrl);
+const ldCrumbs = breadcrumbLD([
+  { name: '首页', url: new URL('/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: '案例', url: new URL('/cases/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: c.title, url: canonicalUrl }
+]);
 ---
 <BaseLayout title={c.title}>
+  <Fragment slot="head">
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldCase)} />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldCrumbs)} />
+  </Fragment>
   <Container>
-    <section class="pt-12 pb-6">
-      <a href="/cases" class="text-sm" style="color: var(--color-text-muted);">← 案例</a>
-      <h1 style="font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem); margin-top: 1rem; font-weight: 600;">{c.title}</h1>
-      <div class="text-xs mt-2" style="color: var(--color-text-muted);">由 <span style="color: var(--color-accent);">{c.submitter.github}</span> 于 {c.submitted_at} 提交</div>
+    <article class="case-detail">
+    <section class="pt-12 pb-3 print:hidden">
+      <Breadcrumbs items={[
+        { name: '首页', href: '/' },
+        { name: '案例', href: '/cases/' },
+        { name: c.title }
+      ]} />
+    </section>
+    <section class="pt-3 pb-6">
+      <h1 style="font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem); font-weight: 600;">{c.title}</h1>
+      <div class="text-xs mt-2" style="color: var(--color-text-muted);">由 <span style="color: var(--color-accent);">{c.submitter.github}</span> 于 {c.submitted_at} 提交 · <a href={canonicalUrl} style="color: var(--color-text-muted);">{canonicalUrl}</a></div>
+      <div class="mt-3 print:hidden">
+        <button type="button" onclick="window.print()" class="text-xs px-3 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-surface);">
+          🖨 打印 / 导出 PDF
+        </button>
+      </div>
     </section>
 
     <section class="pb-8">
@@ -130,5 +155,24 @@ const others = Math.max(0, 100 - u.compute_pct - u.memory_bw_pct);
         ))}
       </ol>
     </section>
+    </article>
   </Container>
 </BaseLayout>
+
+<style is:global>
+  @media print {
+    /* Hide navigation, footer, and interactive controls when printing */
+    header[role="banner"], header.sticky, footer, .print\:hidden { display: none !important; }
+    body { background: white !important; color: black !important; }
+    .case-detail { max-width: 100% !important; }
+    .case-detail a { color: #0a4ca0 !important; text-decoration: underline; }
+    .case-detail h1 { font-size: 24pt !important; }
+    .case-detail h3 { font-size: 14pt !important; page-break-after: avoid; }
+    /* Avoid breaking inside KPI cards or tables */
+    .case-detail .grid > * { page-break-inside: avoid; }
+    .case-detail pre { page-break-inside: avoid; white-space: pre-wrap !important; word-break: break-word; font-size: 9pt; }
+    .case-detail dl { page-break-inside: avoid; }
+    /* Show URL after links so PDFs are still useful offline */
+    .case-detail a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 8pt; color: #555; }
+  }
+</style>
