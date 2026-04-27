@@ -4,7 +4,7 @@ import {
   BarChart, Bar
 } from 'recharts';
 import type { Hardware, Model, Case, Engine } from '@evokernel/schemas';
-import { calculate } from '~/lib/calculator';
+import { calculate, buildEfficiencyMap } from '~/lib/calculator';
 import type { Precision } from '~/lib/calculator';
 
 interface HistoryEntry {
@@ -104,12 +104,16 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
     } catch { /* ignore parse errors */ }
   }, []);
 
+  // Build efficiency map once per session — derived from cases corpus.
+  const efficiencyMap = useMemo(() => buildEfficiencyMap(cases, hardware, models), [cases, hardware, models]);
+
   const result = useMemo(() => {
     if (!modelId || !hwId) return null;
     const m = models.find((x) => x.id === modelId);
     const h = hardware.find((x) => x.id === hwId);
     if (!m || !h) return null;
     return calculate({
+      efficiencyMap,
       calc: {
         modelId,
         hardware: { id: hwId, count: hwCount },

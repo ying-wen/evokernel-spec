@@ -5,7 +5,8 @@ import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
-import { getResolvedHardware, getCases, getEngines, getQuantizations } from '~/lib/data';
+import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware } from '~/lib/data';
+import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
 import Topology from '~/components/hardware/Topology.astro';
 import Substitutes from '~/components/hardware/Substitutes.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
@@ -40,6 +41,10 @@ const ldBreadcrumbs = breadcrumbLD([
   { name: hw.name, url: canonicalUrl }
 ]);
 const meta = buildMeta();
+const allHardwareRaw = await getHardware();
+const allModels = await getModels();
+const efficiencyMap = buildEfficiencyMap(allCases, allHardwareRaw, allModels);
+const efficiency = getEfficiency(hw.id, efficiencyMap);
 // Source yaml path (vendored under <vendor-id>/<hw-id>.yaml)
 const sourcePath = `data/hardware/${hw.vendor.id}/${hw.id}.yaml`;
 const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
@@ -214,6 +219,21 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
     </section>
 
     <section class="pb-12">
+      {efficiency.isCalibrated && (
+        <div class="mb-6 p-4 rounded-lg border" style="border-color: var(--color-tier-measured); background: color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg));">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-xs uppercase tracking-wide font-semibold" style="color: var(--color-tier-measured);">实测校准 efficiency factor</div>
+              <p class="text-sm mt-1">基于 <strong>{efficiency.sampleCount}</strong> 个该硬件的实测案例计算得出, 计算器使用此值替代默认 0.5。</p>
+            </div>
+            <div class="text-right">
+              <div class="text-3xl font-mono font-semibold" style="color: var(--color-tier-measured);">{efficiency.factor.toFixed(2)}</div>
+              <div class="text-xs" style="color: var(--color-text-muted);">measured / theoretical</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <h3 class="text-lg font-semibold mb-3">已有部署案例 ({relatedCases.length})</h3>
       {relatedCases.length === 0 ? (
         <div class="text-sm p-6 rounded-lg border" style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-surface);">

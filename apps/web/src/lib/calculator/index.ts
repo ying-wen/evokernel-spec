@@ -3,8 +3,10 @@ import type {
   CalcInput, CalcOutput, Precision, CaseMatch, RooflineOutput,
   OperatorBreakdown, DisaggregatedOutput
 } from './types.ts';
+import { buildEfficiencyMap, getEfficiency, type EfficiencyEntry } from './calibration.ts';
 
-export type { CalcInput, CalcOutput, Precision, CaseMatch, RooflineOutput, OperatorBreakdown, DisaggregatedOutput };
+export type { CalcInput, CalcOutput, Precision, CaseMatch, RooflineOutput, OperatorBreakdown, DisaggregatedOutput, EfficiencyEntry };
+export { buildEfficiencyMap, getEfficiency };
 
 const PEAK_BY_PRECISION = (h: Hardware, p: Precision): number | null => {
   const c = h.compute;
@@ -88,9 +90,25 @@ export function findSimilarCases(cases: Case[], input: CalcInput, topN = 3): Cas
   return scored.sort((a, b) => b.matchScore - a.matchScore).slice(0, topN).filter((m) => m.matchScore > 0.3);
 }
 
-export function calculate(input: { calc: CalcInput; hardware: Hardware; model: Model; cases: Case[] }): CalcOutput {
-  const { calc, hardware, model, cases } = input;
+export function calculate(input: {
+  calc: CalcInput;
+  hardware: Hardware;
+  model: Model;
+  cases: Case[];
+  /** Optional pre-built efficiency map from cases. If omitted, uses default 0.5. */
+  efficiencyMap?: Map<string, EfficiencyEntry>;
+}): CalcOutput {
+  const { calc, hardware, model, cases, efficiencyMap } = input;
   const trace: string[] = [];
+
+  const efficiency = efficiencyMap
+    ? getEfficiency(hardware.id, efficiencyMap)
+    : { factor: 0.5, isCalibrated: false, sampleCount: 0 };
+  if (efficiency.isCalibrated) {
+    trace.push(`efficiency: ${efficiency.factor.toFixed(2)} (calibrated from ${efficiency.sampleCount} case${efficiency.sampleCount === 1 ? '' : 's'} on ${hardware.id})`);
+  } else {
+    trace.push('efficiency: 0.5 (default — no measured cases for this hardware yet)');
+  }
 
   const totalFlops = model.operator_decomposition.reduce((a, op) => a + op.flops_per_token, 0);
   const totalBytes = model.operator_decomposition.reduce((a, op) => a + op.bytes_per_token, 0);
@@ -105,7 +123,7 @@ export function calculate(input: { calc: CalcInput; hardware: Hardware; model: M
     bytesPerToken: totalBytes || 1,
     peakComputeTflops: peakTflops,
     peakMemoryBwGbps: peakBwGbps,
-    efficiencyFactor: 0.5
+    efficiencyFactor: efficiency.factor
   });
 
   const tier0 = findSimilarCases(cases, calc);
@@ -142,10 +160,10 @@ export function calculate(input: { calc: CalcInput; hardware: Hardware; model: M
   // Per-operator timing breakdown
   const peakFlops = peakTflops * 1e12;
   const peakBytes = peakBwGbps * 1e9;
-  const efficiency = roofline.utilizationCeiling || 0.5;
+  const opEfficiency = roofline.utilizationCeiling || 0.5;
   const breakdown: OperatorBreakdown[] = model.operator_decomposition.map((op) => {
-    const computeMs = peakFlops > 0 ? (op.flops_per_token / (peakFlops * efficiency)) * 1000 : 0;
-    const memoryMs = peakBytes > 0 ? (op.bytes_per_token / (peakBytes * efficiency)) * 1000 : 0;
+    const computeMs = peakFlops > 0 ? (op.flops_per_token / (peakFlops * opEfficiency)) * 1000 : 0;
+    const memoryMs = peakBytes > 0 ? (op.bytes_per_token / (peakBytes * opEfficiency)) * 1000 : 0;
     const timeMsPerToken = Math.max(computeMs, memoryMs);
     return {
       operator: op.operator,
