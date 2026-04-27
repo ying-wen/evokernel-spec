@@ -1,0 +1,64 @@
+:root {
+  /* Surface palette (light, default) */
+  --color-bg: oklch(99% 0.005 250);
+  --color-surface: oklch(98% 0.005 250);
+  --color-surface-raised: oklch(100% 0 0);
+  --color-text: oklch(18% 0.01 260);
+  --color-text-muted: oklch(45% 0.015 260);
+  --color-border: oklch(90% 0.005 260);
+
+  /* Brand */
+  --color-accent: oklch(58% 0.18 255);
+  --color-accent-soft: oklch(94% 0.04 255);
+  --color-china: oklch(54% 0.22 25);
+  --color-china-soft: oklch(96% 0.04 25);
+
+  /* Tier semantic */
+  --color-tier-official: oklch(55% 0.01 260);
+  --color-tier-measured: oklch(58% 0.16 145);
+  --color-tier-estimated: oklch(70% 0.16 80);
+
+  /* Typography */
+  --font-sans: 'Inter Variable', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --font-serif: 'Source Serif Pro', 'Songti SC', serif;
+
+  --text-xs: clamp(0.75rem, 0.7rem + 0.1vw, 0.8rem);
+  --text-sm: clamp(0.875rem, 0.82rem + 0.15vw, 0.95rem);
+  --text-base: clamp(1rem, 0.92rem + 0.4vw, 1.125rem);
+  --text-lg: clamp(1.125rem, 1.05rem + 0.4vw, 1.25rem);
+  --text-xl: clamp(1.5rem, 1.3rem + 0.8vw, 1.875rem);
+  --text-2xl: clamp(2rem, 1.6rem + 1.5vw, 3rem);
+  --text-hero: clamp(2.5rem, 1rem + 6vw, 6rem);
+
+  /* Spacing rhythm */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-section: clamp(3rem, 2rem + 4vw, 8rem);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-normal: 280ms;
+  --duration-slow: 480ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quad: cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: oklch(14% 0.01 260);
+    --color-surface: oklch(17% 0.01 260);
+    --color-surface-raised: oklch(20% 0.01 260);
+    --color-text: oklch(95% 0.005 250);
+    --color-text-muted: oklch(70% 0.015 260);
+    --color-border: oklch(28% 0.01 260);
+    --color-accent: oklch(72% 0.18 255);
+    --color-accent-soft: oklch(28% 0.04 255);
+  }
+}

@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+@import './tokens.css';
+@import './typography.css';
+
+@theme {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-text: var(--color-text);
+  --color-accent: var(--color-accent);
+  --color-china: var(--color-china);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
