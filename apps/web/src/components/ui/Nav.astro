@@ -1,19 +1,38 @@
 ---
 import Search from './Search.tsx';
 import ThemeToggle from './ThemeToggle.astro';
+import { t, localePath, type Locale } from '~/lib/i18n';
+
+interface Props { locale?: Locale }
+const { locale = 'zh' } = Astro.props as Props;
 
 const links = [
-  { href: '/hardware', label: '硬件' },
-  { href: '/compare', label: '对比' },
-  { href: '/models', label: '模型' },
-  { href: '/cases', label: '案例' },
-  { href: '/calculator', label: '计算器' },
-  { href: '/china', label: '国产专题', accent: true }
+  { href: localePath(locale, '/hardware'), label: t(locale, 'nav.hardware') },
+  { href: localePath(locale, '/compare'), label: t(locale, 'nav.compare') },
+  { href: localePath(locale, '/models'), label: t(locale, 'nav.models') },
+  { href: localePath(locale, '/cases'), label: t(locale, 'nav.cases') },
+  { href: localePath(locale, '/calculator'), label: t(locale, 'nav.calculator') },
+  { href: localePath(locale, '/china'), label: t(locale, 'nav.china'), accent: true }
 ];
+
+// Build "switch locale" target: keep current path, swap prefix
+const currentPath = Astro.url.pathname;
+const otherLocale: Locale = locale === 'zh' ? 'en' : 'zh';
+const localeSwitchHref = (() => {
+  if (locale === 'zh') {
+    // zh → en: prepend /en
+    if (currentPath === '/') return '/en/';
+    return '/en' + (currentPath.startsWith('/') ? currentPath : '/' + currentPath);
+  } else {
+    // en → zh: strip /en prefix
+    if (currentPath === '/en' || currentPath === '/en/') return '/';
+    return currentPath.replace(/^\/en/, '') || '/';
+  }
+})();
 ---
 <header class="border-b sticky top-0 z-30" style="border-color: var(--color-border); background: color-mix(in oklch, var(--color-surface) 92%, transparent); backdrop-filter: blur(8px);">
   <nav class="flex items-center justify-between py-3 px-6 max-w-7xl mx-auto" aria-label="Main navigation">
-    <a href="/" class="font-semibold text-lg flex items-center gap-2" style="color: var(--color-text);">
+    <a href={localePath(locale, '/')} class="font-semibold text-lg flex items-center gap-2" style="color: var(--color-text);">
       <span style="font-size: 1.25rem;">⚛</span>
       EvoKernel<span style="color: var(--color-accent);">·Spec</span>
     </a>
@@ -32,8 +51,11 @@ const links = [
     <div class="flex items-center gap-2">
       <Search client:idle />
       <ThemeToggle />
+      <a href={localeSwitchHref} class="text-xs px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);" aria-label="Switch language">
+        {otherLocale === 'en' ? 'EN' : '中'}
+      </a>
       <a href="https://github.com/evokernel/evokernel-spec" class="hidden sm:inline-flex text-xs px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">GitHub</a>
-      <button id="menu-toggle" type="button" class="md:hidden px-2 py-1 rounded border text-sm" style="border-color: var(--color-border); color: var(--color-text);" aria-label="打开菜单" aria-expanded="false">
+      <button id="menu-toggle" type="button" class="md:hidden px-2 py-1 rounded border text-sm" style="border-color: var(--color-border); color: var(--color-text);" aria-label={t(locale, 'nav.menu')} aria-expanded="false">
         ≡
       </button>
     </div>

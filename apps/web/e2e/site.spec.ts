@@ -339,3 +339,48 @@ test.describe.serial('Iter-11 features', () => {
     await expect(page.locator('dt').filter({ hasText: /KV transfer/i })).toBeVisible();
   });
 });
+
+test.describe('i18n English mirror', () => {
+  test('/en/ home renders English copy', async ({ page }) => {
+    await page.goto('/en/');
+    await expect(page.getByRole('heading', { name: /Any model.*any hardware/i })).toBeVisible();
+    await expect(page.getByText(/computable knowledge base/i)).toBeVisible();
+    // Nav uses English labels
+    const nav = page.getByLabel('Main navigation');
+    await expect(nav.getByRole('link', { name: 'Hardware', exact: true })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'China Hub', exact: true })).toBeVisible();
+  });
+
+  test('/en/about renders English about page', async ({ page }) => {
+    await page.goto('/en/about/');
+    await expect(page.getByRole('heading', { name: /About EvoKernel/i })).toBeVisible();
+    await expect(page.getByText(/Core thesis/)).toBeVisible();
+  });
+
+  test('/en/learn renders English methodology', async ({ page }) => {
+    await page.goto('/en/learn/');
+    await expect(page.getByRole('heading', { name: /How to read this site/i })).toBeVisible();
+    await expect(page.getByText(/Roofline model/i)).toBeVisible();
+    await expect(page.getByText(/Three-tier evidence/i)).toBeVisible();
+  });
+
+  test('locale switch button toggles between zh and en', async ({ page }) => {
+    await page.goto('/');
+    // The locale-switch link has aria-label="Switch language" and text content
+    // 'EN' (when on zh page) or '中' (when on en page).
+    const switchBtn = page.getByRole('link', { name: 'Switch language' });
+    await expect(switchBtn).toBeVisible();
+    await expect(switchBtn).toHaveText(/EN/);
+    await switchBtn.click();
+    await expect(page).toHaveURL(/\/en\/?$/);
+    // After switch, the button text should be 中
+    await expect(page.getByRole('link', { name: 'Switch language' })).toHaveText(/中/);
+  });
+
+  test('hreflang alternate links present on home', async ({ page }) => {
+    await page.goto('/');
+    expect(await page.locator('link[hreflang="zh"]').getAttribute('href')).toContain('evokernel.dev/');
+    expect(await page.locator('link[hreflang="en"]').getAttribute('href')).toContain('/en');
+    expect(await page.locator('link[hreflang="x-default"]').count()).toBe(1);
+  });
+});

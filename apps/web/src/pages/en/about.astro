@@ -1,0 +1,60 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+---
+<BaseLayout title="About" locale="en">
+  <Container width="narrow">
+    <section class="py-12">
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">About EvoKernel·Spec</h1>
+      <p class="text-lg mt-4" style="color: var(--color-text-muted);">Open-source knowledge base for AI inference deployment across hardware (incl. 9 Chinese vendors) and frontier open-source models, with a transparent calculator.</p>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">Core thesis</h2>
+      <ul class="space-y-2 list-disc pl-6">
+        <li>Knowledge base first, calculator second</li>
+        <li>9 Chinese hardware vendors (Ascend / Cambricon / Hygon / Moore-Threads / Enflame / Biren / MetaX / Iluvatar / Pingtouge) <strong>+ all major overseas accelerators</strong> (NVIDIA / AMD / Intel / AWS / Google)</li>
+        <li>Every number carries a 3-tier evidence (official / measured / estimated)</li>
+        <li>Code-as-data: full git repo, PR-only contribution, zero backend, fully static deployment</li>
+      </ul>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">Data confidence model</h2>
+      <p>Each numeric field is backed by an <code style="background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem;">evidence_ref</code> citing an official whitepaper, third-party measurement, or community estimate. UI defaults to a 3-tier collapsed view:</p>
+      <ul class="space-y-2 mt-3 list-disc pl-6 text-sm">
+        <li>📄 <strong style="color: var(--color-tier-official);">Vendor-claimed</strong> — official whitepaper, datasheet, product page</li>
+        <li>✅ <strong style="color: var(--color-tier-measured);">Measured</strong> — third-party or community-contributed real measurements</li>
+        <li>⚠️ <strong style="color: var(--color-tier-estimated);">Community-estimated</strong> — derived from public information</li>
+      </ul>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">License</h2>
+      <ul class="space-y-2 list-disc pl-6">
+        <li>Code: <a href="https://www.apache.org/licenses/LICENSE-2.0" class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">Apache 2.0</a></li>
+        <li>Data: <a href="https://creativecommons.org/licenses/by-sa/4.0/" class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">CC-BY-SA 4.0</a></li>
+      </ul>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">Disclaimer</h2>
+      <p style="color: var(--color-text-muted);">All vendor-claimed values are unverified and do not constitute investment or procurement advice. The project is independent and not affiliated with any stakeholder.</p>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">Contributing</h2>
+      <p>Three contribution paths:</p>
+      <ol class="space-y-2 mt-3 list-decimal pl-6">
+        <li><strong>New hardware / model</strong>: open issue → maintainer review → PR</li>
+        <li><strong>New deployment case</strong>: PR direct, must include reproduction steps + raw log + personal attestation</li>
+        <li><strong>Optimization patterns</strong>: V1 maintainer-only, distilled from cases; opens for community PR in V1.5</li>
+      </ol>
+      <p class="mt-3"><a href="https://github.com/evokernel/evokernel-spec/blob/main/CONTRIBUTING.md" class="underline" style="color: var(--color-accent);">Contribution guide →</a></p>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">Open Data API</h2>
+      <p>All data exposed via static JSON endpoints (CC-BY-SA 4.0):</p>
+      <ul class="space-y-2 mt-3 list-disc pl-6 text-sm">
+        <li><a href="/api/index.json" class="underline" style="color: var(--color-accent);">/api/index.json</a> — API descriptor + entity counts</li>
+        <li><a href="/api/hardware.json" class="underline" style="color: var(--color-accent);">/api/hardware.json</a> — all hardware (vendor inlined)</li>
+        <li><a href="/api/models.json" class="underline" style="color: var(--color-accent);">/api/models.json</a> — all models</li>
+        <li><a href="/api/cases.json" class="underline" style="color: var(--color-accent);">/api/cases.json</a> — all cases (resolved stack)</li>
+        <li><a href="/api/openapi.json" class="underline" style="color: var(--color-accent);">/api/openapi.json</a> — OpenAPI 3.1 spec</li>
+        <li><a href="/cases.xml" class="underline" style="color: var(--color-accent);">/cases.xml</a> — RSS feed of newest cases</li>
+      </ul>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">Acknowledgements</h2>
+      <p style="color: var(--color-text-muted);">Inspired by SemiAnalysis InferenceX. Differentiated by Chinese hardware ecosystem coverage and evidence-backed transparency.</p>
+    </section>
+  </Container>
+</BaseLayout>

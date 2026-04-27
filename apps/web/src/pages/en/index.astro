@@ -1,0 +1,79 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { getResolvedHardware, getModels, getCases, getVendors } from '~/lib/data';
+import { t, localePath } from '~/lib/i18n';
+
+const locale = 'en';
+const hardware = await getResolvedHardware();
+const cnHardware = hardware.filter((h) => h.vendor.country === 'CN');
+const models = await getModels();
+const cases = await getCases();
+const vendors = await getVendors();
+const latestCases = [...cases].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at)).slice(0, 5);
+
+const entries = [
+  { href: localePath(locale, '/hardware'), title: t(locale, 'home.entry.hardware'), desc: `${hardware.length} accelerators · incl. ${cnHardware.length} from China` },
+  { href: localePath(locale, '/models'), title: t(locale, 'home.entry.models'), desc: `${models.length} frontier open-source models` },
+  { href: localePath(locale, '/cases'), title: t(locale, 'home.entry.cases'), desc: t(locale, 'home.entry.cases.desc') },
+  { href: localePath(locale, '/calculator'), title: t(locale, 'home.entry.calculator'), desc: t(locale, 'home.entry.calculator.desc') },
+  { href: localePath(locale, '/china'), title: t(locale, 'home.entry.china'), desc: t(locale, 'home.entry.china.desc'), accent: true }
+];
+
+const stats = [
+  { v: hardware.length, l: t(locale, 'home.stats.hardware') },
+  { v: models.length, l: t(locale, 'home.stats.models') },
+  { v: cases.length, l: t(locale, 'home.stats.cases') },
+  { v: vendors.length, l: t(locale, 'home.stats.vendors') }
+];
+---
+<BaseLayout title="Home" locale={locale}>
+  <Container>
+    <section class="grid lg:grid-cols-[1.5fr,1fr] gap-12 items-end pt-16 pb-12">
+      <div>
+        <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">{t(locale, 'home.eyebrow')}</div>
+        <h1 style="font-size: clamp(2.5rem, 1rem + 6vw, 5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.03em;">
+          {t(locale, 'home.heroLine1')}<br/>
+          <span style="color: var(--color-accent);">{t(locale, 'home.heroLine2')}</span>
+        </h1>
+        <p class="text-lg mt-6 max-w-xl" style="color: var(--color-text-muted);">{t(locale, 'home.subtitle')}</p>
+        <div class="flex gap-3 mt-8">
+          <a href={localePath(locale, '/calculator')} class="px-5 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">{t(locale, 'home.ctaCalc')}</a>
+          <a href={localePath(locale, '/china')} class="px-5 py-2 rounded-md font-medium border" style="border-color: var(--color-china); color: var(--color-china);">{t(locale, 'home.ctaChina')}</a>
+        </div>
+      </div>
+      <aside class="text-xs space-y-2 self-start mt-4 lg:mt-0">
+        <div class="font-semibold uppercase tracking-wide" style="color: var(--color-text);">{t(locale, 'home.latest')}</div>
+        <ul class="space-y-2">
+          {latestCases.map((c) => (
+            <li>
+              <a href={localePath(locale, `/cases/${c.id}`)} class="block hover:opacity-80">
+                <div class="text-sm" style="color: var(--color-text);">{c.title}</div>
+                <div class="text-xs font-mono mt-0.5" style="color: var(--color-text-muted);">{c.submitted_at}</div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </aside>
+    </section>
+
+    <section class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 py-8">
+      {entries.map((it) => (
+        <a href={it.href} class="block p-5 rounded-lg border h-full transition-transform hover:-translate-y-0.5"
+           style={`border-color: ${it.accent ? 'var(--color-china)' : 'var(--color-border)'}; background: ${it.accent ? 'color-mix(in oklch, var(--color-china) 6%, var(--color-bg))' : 'var(--color-surface-raised)'};`}>
+          <div class="font-semibold mb-1" style={`color: ${it.accent ? 'var(--color-china)' : 'var(--color-text)'};`}>{it.title}</div>
+          <div class="text-xs" style="color: var(--color-text-muted);">{it.desc}</div>
+        </a>
+      ))}
+    </section>
+
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-3 py-8">
+      {stats.map((s) => (
+        <div class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-3xl font-semibold tabular-nums">{s.v}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">{s.l}</div>
+        </div>
+      ))}
+    </section>
+  </Container>
+</BaseLayout>
