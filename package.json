@@ -1,0 +1,21 @@
+{
+  "name": "evokernel-spec",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.0.0", "pnpm": ">=9.0.0" },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "validate": "tsx scripts/validate-data.ts",
+    "check-links": "tsx scripts/check-evidence-links.ts",
+    "test": "pnpm --filter web test && pnpm --filter @evokernel/schemas test && pnpm --filter @evokernel/scripts test",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
