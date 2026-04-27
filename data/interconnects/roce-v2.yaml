@@ -1,0 +1,12 @@
+id: roce-v2
+name: RoCEv2 (RDMA over Converged Ethernet)
+family: roce
+typical_bandwidth_gbps: 400
+description: 'Standard scale-out fabric used by Chinese hyperscalers and Huawei Atlas systems'
+evidence:
+  - id: ev-roce-001
+    tier: official
+    source_type: paper
+    url: https://www.rfc-editor.org/info/rfc8916
+    accessed: '2026-04-28'
+    citation: 'RoCEv2 specification overview'

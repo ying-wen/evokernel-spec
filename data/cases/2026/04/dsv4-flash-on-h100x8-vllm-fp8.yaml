@@ -1,0 +1,41 @@
+id: case-dsv4-flash-h100x8-vllm-fp8-001
+title: DeepSeek V4 Flash on 8×H100 SXM with vLLM FP8
+submitted_at: '2026-04-28'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: h100-sxm5, count: 8, topology: single-node-hgx }
+  server: { id: nvidia-hgx-h100 }
+  interconnect: { intra_node: nvlink-4, inter_node: none }
+  model: { id: deepseek-v4-flash, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: fp8-e4m3
+  parallel: { tp: 8, pp: 1, ep: 1, sp: 1, disaggregated: false }
+  driver: 'CUDA 12.5'
+  os: 'Ubuntu 22.04'
+scenario:
+  prefill_seq_len: 2048
+  decode_seq_len: 512
+  batch_size: 32
+  max_concurrent_requests: 128
+results:
+  throughput_tokens_per_sec: { decode: 4200, prefill: 38000 }
+  latency_ms: { ttft_p50: 220, ttft_p99: 350, tbt_p50: 14, tbt_p99: 28 }
+  memory_per_card_gb: 38
+  power_per_card_w: 640
+  utilization: { compute_pct: 55, memory_bw_pct: 72 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'vllm serve deepseek-ai/DeepSeek-V4-Flash --tensor-parallel-size 8 --quantization fp8'
+  benchmark_tool: 'vllm benchmark_serving.py'
+issues_encountered:
+  - 'FP8 calibration required ~30 minutes on first start'
+patterns: [memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-dsv4f-001
+    tier: measured
+    source_type: third-party-review
+    url: https://api-docs.deepseek.com/news/news260424
+    accessed: '2026-04-28'
+    citation: 'DeepSeek V4 release benchmark notes; figures approximate'
+    contributor_attestation: 'Numbers derived from DeepSeek V4 launch material; not independently re-run by submitter.'

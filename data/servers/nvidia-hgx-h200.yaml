@@ -1,0 +1,21 @@
+id: nvidia-hgx-h200
+name: NVIDIA HGX H200 8-GPU
+vendor: nvidia
+type: integrated-server
+card: h200-sxm
+card_count: 8
+scale_up_domain_size: 8
+intra_node_interconnect: NVLink-4-via-NVSwitch-Gen3
+inter_node_interconnect: InfiniBand-NDR
+cooling: air
+rack_power_kw: 10.2
+total_memory_gb: 1128
+total_compute_pflops_bf16: 7.9
+release_year: 2024
+evidence:
+  - id: ev-hgxh200-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/data-center/hgx/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA HGX H200 system specs'

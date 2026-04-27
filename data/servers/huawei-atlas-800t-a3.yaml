@@ -1,0 +1,22 @@
+id: huawei-atlas-800t-a3
+name: Huawei Atlas 800T A3
+vendor: huawei
+type: integrated-server
+card: ascend-910b
+card_count: 8
+scale_up_domain_size: 8
+intra_node_interconnect: HCCS
+inter_node_interconnect: RoCEv2-200G
+cooling: air
+rack_power_kw: 5.5
+total_memory_gb: 512
+total_compute_pflops_bf16: 2.56
+release_year: 2023
+chinese_names: ['华为 Atlas 800T A3 训推服务器']
+evidence:
+  - id: ev-atlas800t-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://e.huawei.com/en/products/computing/ascend
+    accessed: '2026-04-28'
+    citation: 'Huawei Atlas 800T A3 server specifications'

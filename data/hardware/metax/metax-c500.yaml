@@ -1,0 +1,44 @@
+id: metax-c500
+name: 沐曦 曦云 C500
+vendor: metax
+generation: metax-gen1
+status: in-production
+release_year: 2024
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 128, evidence_ref: ev-c500-001 }
+  fp16_tflops: { value: 128, evidence_ref: ev-c500-001 }
+  int8_tops: { value: 256, evidence_ref: ev-c500-001 }
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-c500-001 }
+  bandwidth_gbps: { value: 1800, evidence_ref: ev-c500-001 }
+  type: HBM2e
+scale_up:
+  protocol: MetaXLink
+  bandwidth_gbps: 200
+  world_size: 8
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 350, evidence_ref: ev-c500-001 }
+software_support:
+  drivers: ['MACA']
+  engines: []
+  quantizations: [fp16, int8]
+  parallelism: [tp]
+aliases: ['C500', '曦云C500']
+chinese_names: ['曦云C500']
+evidence:
+  - id: ev-c500-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.metax-tech.com/
+    accessed: '2026-04-28'
+    citation: 'MetaX 曦云 C500 launch announcement (limited public detail)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'Some fields are best-available estimates from announcements.'

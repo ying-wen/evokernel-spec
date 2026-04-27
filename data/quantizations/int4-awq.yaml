@@ -1,0 +1,7 @@
+id: int4-awq
+name: INT4 AWQ
+bits_per_weight: 4
+bits_per_activation: 16
+family: awq
+lossless: false
+description: 'Activation-aware Weight Quantization; weight-only int4'

@@ -1,0 +1,24 @@
+id: gpt-oss
+name: GPT-OSS
+lab: openai
+release_date: '2025-08-12'
+license: Apache-2.0
+architecture:
+  family: moe
+  total_params_b: 120
+  active_params_b: 5
+  layers: 36
+  hidden_size: 2880
+  ffn_size: 11520
+  num_attention_heads: 32
+  num_kv_heads: 8
+  head_dim: 90
+  vocab_size: 200000
+  max_context_length: 131072
+  moe:
+    num_experts: 128
+    top_k: 4
+    expert_hidden_size: 2880
+  attention_type: gqa
+modalities: [text]
+weight_format: bf16

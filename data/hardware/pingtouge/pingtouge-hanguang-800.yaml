@@ -1,0 +1,45 @@
+id: pingtouge-hanguang-800
+name: 平头哥 含光 800
+vendor: pingtouge
+generation: hanguang-gen1
+status: in-production
+release_year: 2019
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: null
+  fp16_tflops: { value: 25, evidence_ref: ev-hg800-001 }
+  int8_tops: { value: 825, evidence_ref: ev-hg800-001 }
+memory:
+  capacity_gb: { value: 16, evidence_ref: ev-hg800-001 }
+  bandwidth_gbps: { value: 256, evidence_ref: ev-hg800-001 }
+  type: LPDDR5
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 64
+  world_size: 4
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 280, evidence_ref: ev-hg800-001 }
+software_support:
+  drivers: ['HanGuangAI']
+  engines:
+    - { id: hanguang-engine, status: officially-supported, versions: ['1.0'] }
+  quantizations: [int8]
+  parallelism: []
+aliases: ['HanGuang 800']
+chinese_names: ['含光800']
+evidence:
+  - id: ev-hg800-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.t-head.cn/
+    accessed: '2026-04-28'
+    citation: 'T-Head HanGuang 800 launch coverage (Alibaba Cloud Apsara 2019)'
+disclaimers:
+  - 'HanGuang 800 is INT8 inference-focused; not designed for FP training.'
+  - 'Specs are vendor-claimed; LLM inference support is not the primary use case.'

@@ -1,0 +1,7 @@
+id: int4-gptq
+name: INT4 GPTQ
+bits_per_weight: 4
+bits_per_activation: 16
+family: gptq
+lossless: false
+description: 'Generative Pre-trained Transformer Quantization; second-order weight-only int4'

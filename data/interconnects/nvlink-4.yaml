@@ -1,0 +1,13 @@
+id: nvlink-4
+name: NVLink 4.0
+family: nvlink
+typical_bandwidth_gbps: 900
+vendor: nvidia
+description: 'Used on H100 SXM5 and HGX H100/H200; bidirectional total'
+evidence:
+  - id: ev-nvl4-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.nvidia.com/en-us/data-center/nvlink/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA NVLink and NVSwitch overview'

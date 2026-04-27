@@ -1,0 +1,44 @@
+id: iluvatar-bi
+name: 天数智芯 天垓 100
+vendor: iluvatar
+generation: iluvatar-gen2
+status: in-production
+release_year: 2023
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 95, evidence_ref: ev-tianhe-001 }
+  fp16_tflops: { value: 95, evidence_ref: ev-tianhe-001 }
+  int8_tops: { value: 190, evidence_ref: ev-tianhe-001 }
+memory:
+  capacity_gb: { value: 32, evidence_ref: ev-tianhe-001 }
+  bandwidth_gbps: { value: 1200, evidence_ref: ev-tianhe-001 }
+  type: HBM2e
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 64
+  world_size: 8
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 300, evidence_ref: ev-tianhe-001 }
+software_support:
+  drivers: ['IxRT', 'CoreX']
+  engines: []
+  quantizations: [fp16, int8]
+  parallelism: [tp]
+aliases: ['Tianhe 100', '天垓100', 'BI']
+chinese_names: ['天垓100']
+evidence:
+  - id: ev-tianhe-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.iluvatar.com/
+    accessed: '2026-04-28'
+    citation: 'Iluvatar CoreX 天垓 100 product overview'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'Public spec sheets limited.'

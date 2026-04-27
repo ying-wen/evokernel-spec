@@ -1,0 +1,7 @@
+id: sglang
+name: SGLang
+maintainer: community
+source_url: https://github.com/sgl-project/sglang
+supported_hardware_vendors: [nvidia, amd]
+latest_version: '0.4.0'
+notes: 'High-performance serving with RadixAttention and disaggregated prefill/decode'

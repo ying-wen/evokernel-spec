@@ -1,0 +1,22 @@
+id: moe-expert-routing-on-domestic
+name: 国产硬件 MoE expert 路由优化
+category: parallel
+description_md: |
+  ## 问题
+
+  MoE 模型在国产硬件 (昇腾 / 寒武纪等) 上, expert parallelism 的 all-to-all 通信
+  开销显著, 因为 HCCS / MLU-Link 等私有协议的 all-to-all 实现尚不如 NVSwitch 成熟。
+
+  ## 缓解
+
+  - 优先选 EP=1, 用 TP 替代 expert 分布
+  - 大 batch 才打开 EP, 小 batch 关闭
+  - 或拆 prefill / decode, prefill EP=1 减少 long-prompt 倾斜
+
+  ## 实战观察 (2026-04)
+  - 昇腾 910B + DeepSeek-V3: EP=2 时长 prompt 出现负载倾斜, EP=1 更稳定
+applies_when:
+  - moe-on-domestic-hw
+  - small-batch-decode
+related_operators: [moe-gate, all2all]
+supporting_cases_min: 0

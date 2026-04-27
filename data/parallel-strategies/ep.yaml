@@ -1,0 +1,5 @@
+id: ep
+name: Expert Parallelism
+family: expert
+description: 'MoE experts distributed across devices; all-to-all for token routing'
+typical_use_cases: ['MoE models', 'DeepSeek-V4, Llama 4 Maverick, Kimi K2']

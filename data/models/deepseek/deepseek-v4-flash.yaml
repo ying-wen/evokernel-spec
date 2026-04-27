@@ -1,0 +1,25 @@
+id: deepseek-v4-flash
+name: DeepSeek V4 Flash
+lab: deepseek
+release_date: '2026-04-24'
+license: deepseek-license
+architecture:
+  family: moe
+  total_params_b: 284
+  active_params_b: 13
+  layers: 32
+  hidden_size: 4096
+  ffn_size: 14336
+  num_attention_heads: 32
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 132000
+  max_context_length: 1048576
+  moe:
+    num_experts: 64
+    top_k: 4
+    expert_hidden_size: 1408
+  attention_type: csa+hca
+modalities: [text]
+weight_format: bf16
+hf_url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash

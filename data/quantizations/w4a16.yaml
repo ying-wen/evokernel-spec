@@ -1,0 +1,7 @@
+id: w4a16
+name: W4A16
+bits_per_weight: 4
+bits_per_activation: 16
+family: mixed
+lossless: false
+description: 'Weight 4-bit / activation 16-bit; generic name for AWQ and GPTQ family'

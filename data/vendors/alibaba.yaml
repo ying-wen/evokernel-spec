@@ -1,0 +1,7 @@
+id: alibaba
+name: Alibaba (Qwen)
+country: CN
+type: model-lab
+website: https://qwen.aliyun.com/
+chinese_names: ['阿里巴巴', '通义千问']
+aliases: ['Qwen', 'Tongyi Qianwen']

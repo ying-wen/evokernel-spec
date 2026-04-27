@@ -1,0 +1,5 @@
+id: sp
+name: Sequence Parallelism
+family: sequence
+description: 'Split sequence dim across devices to reduce activation memory'
+typical_use_cases: ['Long-context training/inference', '1M context models']

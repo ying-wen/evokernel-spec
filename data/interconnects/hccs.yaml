@@ -1,0 +1,13 @@
+id: hccs
+name: HCCS (Huawei Cache Coherent System)
+family: hccs
+typical_bandwidth_gbps: 392
+vendor: huawei
+description: 'Huawei proprietary scale-up interconnect for Ascend 910 family'
+evidence:
+  - id: ev-hccs-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://e.huawei.com/en/products/computing/ascend
+    accessed: '2026-04-28'
+    citation: 'Huawei Ascend product overview'

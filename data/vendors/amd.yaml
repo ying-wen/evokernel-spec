@@ -1,0 +1,7 @@
+id: amd
+name: AMD
+country: US
+type: hardware
+website: https://www.amd.com/
+chinese_names: ['超微半导体']
+aliases: ['Advanced Micro Devices']

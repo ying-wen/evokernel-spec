@@ -1,0 +1,24 @@
+id: llama-4-maverick
+name: Llama 4 Maverick
+lab: meta
+release_date: '2025-04-05'
+license: Llama-4-Community
+architecture:
+  family: moe
+  total_params_b: 400
+  active_params_b: 17
+  layers: 48
+  hidden_size: 5120
+  ffn_size: 16384
+  num_attention_heads: 40
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 200000
+  max_context_length: 1048576
+  moe:
+    num_experts: 128
+    top_k: 1
+    expert_hidden_size: 8192
+  attention_type: gqa
+modalities: [text, vision, video]
+weight_format: bf16

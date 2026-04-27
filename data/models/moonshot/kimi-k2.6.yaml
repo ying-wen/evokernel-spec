@@ -1,0 +1,25 @@
+id: kimi-k2.6
+name: Kimi K2.6
+lab: moonshot
+release_date: '2026-04-15'
+license: moonshot-license
+architecture:
+  family: moe
+  total_params_b: 1000
+  active_params_b: 32
+  layers: 60
+  hidden_size: 7168
+  ffn_size: 18432
+  num_attention_heads: 64
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 160000
+  max_context_length: 262144
+  moe:
+    num_experts: 384
+    top_k: 8
+    expert_hidden_size: 1536
+  attention_type: mla
+modalities: [text, vision]
+weight_format: bf16
+hf_url: https://huggingface.co/moonshotai/Kimi-K2.6

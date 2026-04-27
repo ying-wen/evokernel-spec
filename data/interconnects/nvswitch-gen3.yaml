@@ -1,0 +1,13 @@
+id: nvswitch-gen3
+name: NVSwitch Gen 3
+family: nvswitch
+typical_bandwidth_gbps: 900
+vendor: nvidia
+description: 'Switch chip used in HGX H100/H200 8-GPU systems'
+evidence:
+  - id: ev-nvsw3-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.nvidia.com/en-us/data-center/nvlink/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA NVSwitch Gen 3 spec'

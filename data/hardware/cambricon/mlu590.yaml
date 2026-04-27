@@ -1,0 +1,45 @@
+id: mlu590
+name: 寒武纪 思元 590
+vendor: cambricon
+generation: mlu590
+status: in-production
+release_year: 2023
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 256, evidence_ref: ev-mlu590-001 }
+  fp16_tflops: { value: 256, evidence_ref: ev-mlu590-001 }
+  int8_tops: { value: 512, evidence_ref: ev-mlu590-001 }
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-mlu590-001 }
+  bandwidth_gbps: { value: 1228, evidence_ref: ev-mlu590-001 }
+  type: HBM2e
+scale_up:
+  protocol: MLU-Link-v2
+  bandwidth_gbps: 400
+  world_size: 8
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 350, evidence_ref: ev-mlu590-001 }
+software_support:
+  drivers: ['Neuware-3.x']
+  engines:
+    - { id: lmdeploy, status: community-port }
+  quantizations: [bf16, fp16, int8]
+  parallelism: [tp, pp]
+aliases: ['MLU590', '思元590']
+chinese_names: ['思元590']
+evidence:
+  - id: ev-mlu590-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.cambricon.com/
+    accessed: '2026-04-28'
+    citation: 'Cambricon MLU590 product overview (limited public detail)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'Some specs partial; community contributions welcome to fill gaps.'

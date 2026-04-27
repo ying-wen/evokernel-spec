@@ -1,0 +1,31 @@
+id: deepseek-v4-pro
+name: DeepSeek V4 Pro
+lab: deepseek
+release_date: '2026-04-24'
+license: deepseek-license
+architecture:
+  family: moe
+  total_params_b: 1600
+  active_params_b: 49
+  layers: 64
+  hidden_size: 8192
+  ffn_size: 24576
+  num_attention_heads: 64
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 132000
+  max_context_length: 1048576
+  moe:
+    num_experts: 256
+    top_k: 8
+    expert_hidden_size: 2048
+  attention_type: csa+hca
+  rope_theta: 10000000
+operator_decomposition:
+  - { operator: matmul, flops_per_token: 4.8e9, bytes_per_token: 1.8e7 }
+  - { operator: attention, flops_per_token: 1.2e9, bytes_per_token: 4.5e6 }
+  - { operator: moe-gate, flops_per_token: 1.0e7, bytes_per_token: 1.0e6 }
+  - { operator: rmsnorm, flops_per_token: 5.0e6, bytes_per_token: 1.0e6 }
+modalities: [text]
+weight_format: bf16
+hf_url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro

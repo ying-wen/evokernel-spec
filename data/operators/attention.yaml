@@ -1,0 +1,7 @@
+id: attention
+name: Multi-Head Attention
+category: attention
+flops_formula: '4 * batch * seq * hidden^2 + 2 * batch * heads * seq^2 * head_dim'
+bytes_formula: '2 * batch * seq * hidden * (1 + 2/heads)'
+description: 'Standard multi-head attention; FLOPs and bytes are per layer per token'
+variants: [flash-attention-2, flash-attention-3, mla, csa, hca]

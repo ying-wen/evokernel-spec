@@ -1,0 +1,7 @@
+id: nvidia
+name: NVIDIA
+country: US
+type: hardware
+website: https://www.nvidia.com/
+chinese_names: ['英伟达']
+aliases: ['NVIDIA Corporation']

@@ -1,0 +1,6 @@
+id: moe-gate
+name: MoE Routing
+category: moe-routing
+flops_formula: 'batch * seq * hidden * num_experts'
+bytes_formula: '2 * batch * seq * (hidden + num_experts)'
+description: 'Top-k expert selection via softmax over router logits'

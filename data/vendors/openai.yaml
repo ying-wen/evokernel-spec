@@ -1,0 +1,7 @@
+id: openai
+name: OpenAI
+country: US
+type: model-lab
+website: https://openai.com/
+chinese_names: ['OpenAI']
+aliases: []

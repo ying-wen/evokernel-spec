@@ -1,0 +1,46 @@
+id: b300-sxm
+name: NVIDIA B300 SXM 288GB
+vendor: nvidia
+generation: blackwell-gen2
+status: in-production
+release_year: 2025
+form_factor: sxm
+compute:
+  fp4_tflops: { value: 15000, evidence_ref: ev-b300-001 }
+  fp8_tflops: { value: 7500, evidence_ref: ev-b300-001 }
+  bf16_tflops: { value: 3750, evidence_ref: ev-b300-001 }
+  fp16_tflops: { value: 3750, evidence_ref: ev-b300-001 }
+  int8_tops: { value: 7500, evidence_ref: ev-b300-001 }
+memory:
+  capacity_gb: { value: 288, evidence_ref: ev-b300-001 }
+  bandwidth_gbps: { value: 8000, evidence_ref: ev-b300-001 }
+  type: HBM3e
+scale_up:
+  protocol: NVLink-5.0
+  bandwidth_gbps: 1800
+  world_size: 8
+  topology: switched
+  switch: nvswitch-gen4
+scale_out:
+  bandwidth_gbps_per_card: 800
+  protocol: InfiniBand-XDR
+  nic: ConnectX-8
+power:
+  tdp_w: { value: 1400, evidence_ref: ev-b300-001 }
+software_support:
+  drivers: ['CUDA-12.6+']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.14'] }
+  quantizations: [bf16, fp8-e4m3, fp8-e5m2, fp4, int8]
+  parallelism: [tp, pp, ep, sp, disaggregated]
+aliases: ['B300']
+evidence:
+  - id: ev-b300-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.nvidia.com/en-us/data-center/dgx-b300/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA B300 announcement (vendor-claimed)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'

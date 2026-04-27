@@ -1,0 +1,6 @@
+id: softmax
+name: Softmax
+category: activation
+flops_formula: '5 * batch * heads * seq * seq'
+bytes_formula: '2 * batch * heads * seq * seq'
+description: 'Softmax over attention scores; numerically stable form'

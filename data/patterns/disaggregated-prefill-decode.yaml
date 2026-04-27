@@ -1,0 +1,23 @@
+id: disaggregated-prefill-decode
+name: Prefill/Decode 解耦部署
+category: disaggregation
+description_md: |
+  ## 动机
+
+  Prefill 计算受限, decode 内存带宽受限, 用同一组卡服务两者会浪费一半资源。
+  解耦部署: prefill 池 (高算力卡, 如 H100) + decode 池 (大内存高带宽卡, 如 H200)
+  + KV cache 通过高速互联从 prefill 传到 decode。
+
+  ## 关键开销
+  - KV cache 传输延迟 (额外的 TTFT)
+  - 调度复杂度 (需要 router)
+
+  ## 已知方案
+  - Mooncake (Moonshot)
+  - DistServe (UCSD)
+  - SGLang disaggregated mode
+applies_when:
+  - heterogeneous-cluster
+  - high-throughput-low-latency-target
+related_operators: [attention, all2all]
+supporting_cases_min: 0

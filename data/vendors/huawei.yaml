@@ -1,0 +1,7 @@
+id: huawei
+name: Huawei Ascend
+country: CN
+type: hardware
+website: https://e.huawei.com/en/products/computing/ascend
+chinese_names: ['华为昇腾', '华为']
+aliases: ['HiSilicon', 'Hisilicon Ascend']

@@ -1,0 +1,44 @@
+id: br104
+name: 壁仞 BR104
+vendor: biren
+generation: biren-gen1-derate
+status: in-production
+release_year: 2023
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 128, evidence_ref: ev-br104-001 }
+  fp16_tflops: { value: 128, evidence_ref: ev-br104-001 }
+  int8_tops: { value: 512, evidence_ref: ev-br104-001 }
+memory:
+  capacity_gb: { value: 32, evidence_ref: ev-br104-001 }
+  bandwidth_gbps: { value: 1150, evidence_ref: ev-br104-001 }
+  type: HBM2e
+scale_up:
+  protocol: BLink
+  bandwidth_gbps: 256
+  world_size: 8
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 300, evidence_ref: ev-br104-001 }
+software_support:
+  drivers: ['BIRENSUPA']
+  engines: []
+  quantizations: [fp16, int8]
+  parallelism: [tp]
+aliases: ['BR104']
+chinese_names: ['壁仞BR104']
+evidence:
+  - id: ev-br104-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.birentech.com/
+    accessed: '2026-04-28'
+    citation: 'Biren BR104 announcement (export-control compliant variant of BR100)'
+disclaimers:
+  - 'BR104 is export-control-compliant variant; reduced from BR100.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'

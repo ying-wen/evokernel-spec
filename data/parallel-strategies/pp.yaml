@@ -1,0 +1,5 @@
+id: pp
+name: Pipeline Parallelism
+family: inter-layer
+description: 'Split layers across stages; activations transferred via point-to-point comm'
+typical_use_cases: ['Cross-node deployments', 'Models that exceed single-node memory']

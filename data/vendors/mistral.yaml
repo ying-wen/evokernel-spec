@@ -1,0 +1,7 @@
+id: mistral
+name: Mistral AI
+country: FR
+type: model-lab
+website: https://mistral.ai/
+chinese_names: ['Mistral']
+aliases: ['Mistral AI SAS']

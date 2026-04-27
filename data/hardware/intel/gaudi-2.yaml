@@ -1,0 +1,43 @@
+id: gaudi-2
+name: Intel Gaudi 2
+vendor: intel
+generation: gaudi-gen2
+status: in-production
+release_year: 2022
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 865, evidence_ref: ev-gaudi2-001 }
+  bf16_tflops: { value: 432, evidence_ref: ev-gaudi2-001 }
+  fp16_tflops: { value: 432, evidence_ref: ev-gaudi2-001 }
+  int8_tops: { value: 865, evidence_ref: ev-gaudi2-001 }
+memory:
+  capacity_gb: { value: 96, evidence_ref: ev-gaudi2-001 }
+  bandwidth_gbps: { value: 2450, evidence_ref: ev-gaudi2-001 }
+  type: HBM2e
+scale_up:
+  protocol: RoCE-v2-100GbE
+  bandwidth_gbps: 600
+  world_size: 8
+  topology: all-to-all
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 600, evidence_ref: ev-gaudi2-001 }
+software_support:
+  drivers: ['Habana SynapseAI']
+  engines:
+    - { id: vllm, status: community-port }
+  quantizations: [bf16, fp16, fp8-e4m3, int8]
+  parallelism: [tp, pp]
+aliases: ['Gaudi2', 'HL-225H']
+evidence:
+  - id: ev-gaudi2-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.intel.com/content/www/us/en/products/details/processors/ai-accelerators/gaudi2.html
+    accessed: '2026-04-28'
+    citation: 'Intel Gaudi 2 product page'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'

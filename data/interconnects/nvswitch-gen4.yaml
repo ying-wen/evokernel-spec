@@ -1,0 +1,13 @@
+id: nvswitch-gen4
+name: NVSwitch Gen 4
+family: nvswitch
+typical_bandwidth_gbps: 1800
+vendor: nvidia
+description: 'Switch chip in GB200/GB300 NVL72 enabling 72-GPU scale-up domain'
+evidence:
+  - id: ev-nvsw4-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
+    accessed: '2026-04-28'
+    citation: 'GB200 NVL72 product page describes NVSwitch Gen 4'

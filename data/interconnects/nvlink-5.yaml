@@ -1,0 +1,13 @@
+id: nvlink-5
+name: NVLink 5.0
+family: nvlink
+typical_bandwidth_gbps: 1800
+vendor: nvidia
+description: 'Used on B200/B300 and GB200/GB300 NVL72; doubles NVLink-4 bandwidth'
+evidence:
+  - id: ev-nvl5-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA GB200 NVL72 product page, NVLink 5 spec'

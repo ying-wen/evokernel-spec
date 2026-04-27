@@ -1,0 +1,45 @@
+id: dcu-z100
+name: 海光 DCU Z100
+vendor: hygon
+generation: hygon-dcu-gen2
+status: in-production
+release_year: 2022
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 96, evidence_ref: ev-dcuz100-001 }
+  fp16_tflops: { value: 96, evidence_ref: ev-dcuz100-001 }
+  int8_tops: { value: 192, evidence_ref: ev-dcuz100-001 }
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-dcuz100-001 }
+  bandwidth_gbps: { value: 1024, evidence_ref: ev-dcuz100-001 }
+  type: HBM2e
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 64
+  world_size: 8
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 350, evidence_ref: ev-dcuz100-001 }
+software_support:
+  drivers: ['DTK-23.x']
+  engines:
+    - { id: vllm, status: community-port, notes: 'vllm-rocm fork (Hygon HIP compatible)' }
+  quantizations: [fp16, int8]
+  parallelism: [tp]
+aliases: ['Z100']
+chinese_names: ['深算一号', '海光Z100']
+evidence:
+  - id: ev-dcuz100-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.hygon.cn/
+    accessed: '2026-04-28'
+    citation: 'Hygon DCU product overview (limited detail public)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'Hygon DCU uses HIP, similar programming model to AMD ROCm.'

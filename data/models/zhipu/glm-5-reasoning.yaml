@@ -1,0 +1,20 @@
+id: glm-5-reasoning
+name: GLM-5 Reasoning
+lab: zhipu
+release_date: '2026-03-15'
+license: MIT
+architecture:
+  family: dense
+  total_params_b: 32
+  active_params_b: 32
+  layers: 60
+  hidden_size: 5120
+  ffn_size: 17920
+  num_attention_heads: 40
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 151552
+  max_context_length: 131072
+  attention_type: mha
+modalities: [text]
+weight_format: bf16

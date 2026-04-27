@@ -1,0 +1,7 @@
+id: lmdeploy
+name: LMDeploy
+maintainer: mixed
+source_url: https://github.com/InternLM/lmdeploy
+supported_hardware_vendors: [nvidia, huawei, cambricon]
+latest_version: '0.6.0'
+notes: 'TurboMind backend; friendly to Chinese hardware ecosystems'

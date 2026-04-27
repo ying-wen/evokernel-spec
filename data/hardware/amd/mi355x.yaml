@@ -1,0 +1,44 @@
+id: mi355x
+name: AMD Instinct MI355X
+vendor: amd
+generation: cdna4
+status: in-production
+release_year: 2025
+form_factor: oam
+compute:
+  fp4_tflops: { value: 9200, evidence_ref: ev-mi355x-001 }
+  fp8_tflops: { value: 4600, evidence_ref: ev-mi355x-001 }
+  bf16_tflops: { value: 2300, evidence_ref: ev-mi355x-001 }
+  fp16_tflops: { value: 2300, evidence_ref: ev-mi355x-001 }
+  int8_tops: { value: 4600, evidence_ref: ev-mi355x-001 }
+memory:
+  capacity_gb: { value: 288, evidence_ref: ev-mi355x-001 }
+  bandwidth_gbps: { value: 8000, evidence_ref: ev-mi355x-001 }
+  type: HBM3e
+scale_up:
+  protocol: Infinity-Fabric
+  bandwidth_gbps: 1075
+  world_size: 8
+  topology: fully-connected
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 1400, evidence_ref: ev-mi355x-001 }
+software_support:
+  drivers: ['ROCm-6.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: sglang, status: officially-supported, versions: ['0.4'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp4, int8]
+  parallelism: [tp, pp, ep, sp]
+aliases: ['MI355X']
+evidence:
+  - id: ev-mi355x-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.amd.com/en/products/accelerators/instinct/mi355x.html
+    accessed: '2026-04-28'
+    citation: 'AMD MI355X announcement (vendor-claimed)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'

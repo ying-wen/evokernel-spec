@@ -1,0 +1,45 @@
+id: mtt-s4000
+name: 摩尔线程 MTT S4000
+vendor: moore-threads
+generation: kuae-s4000
+status: in-production
+release_year: 2024
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 100, evidence_ref: ev-mtts4000-001 }
+  fp16_tflops: { value: 100, evidence_ref: ev-mtts4000-001 }
+  int8_tops: { value: 200, evidence_ref: ev-mtts4000-001 }
+memory:
+  capacity_gb: { value: 48, evidence_ref: ev-mtts4000-001 }
+  bandwidth_gbps: { value: 768, evidence_ref: ev-mtts4000-001 }
+  type: GDDR6
+scale_up:
+  protocol: MTLink
+  bandwidth_gbps: 240
+  world_size: 8
+  topology: ring
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 450, evidence_ref: ev-mtts4000-001 }
+software_support:
+  drivers: ['MUSA-3.x']
+  engines:
+    - { id: vllm, status: community-port, notes: 'vllm-musa fork' }
+  quantizations: [fp16, int8]
+  parallelism: [tp]
+aliases: ['MTT S4000', 'KUAE S4000']
+chinese_names: ['MTT S4000']
+evidence:
+  - id: ev-mtts4000-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.mthreads.com/product/S4000
+    accessed: '2026-04-28'
+    citation: 'Moore Threads MTT S4000 product page'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'MUSA programming model is CUDA-compatible at source level.'

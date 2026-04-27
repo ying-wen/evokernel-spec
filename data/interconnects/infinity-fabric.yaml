@@ -1,0 +1,13 @@
+id: infinity-fabric
+name: AMD Infinity Fabric
+family: infinity-fabric
+typical_bandwidth_gbps: 896
+vendor: amd
+description: 'Used in MI300X/MI325X/MI355X 8-OAM systems'
+evidence:
+  - id: ev-if-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi325x.html
+    accessed: '2026-04-28'
+    citation: 'AMD MI325X product page Infinity Fabric spec'

@@ -1,0 +1,45 @@
+id: enflame-t21
+name: 燧原 云燧 T21
+vendor: enflame
+generation: enflame-gen3
+status: in-production
+release_year: 2023
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 192, evidence_ref: ev-t21-001 }
+  fp16_tflops: { value: 192, evidence_ref: ev-t21-001 }
+  int8_tops: { value: 384, evidence_ref: ev-t21-001 }
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-t21-001 }
+  bandwidth_gbps: { value: 1600, evidence_ref: ev-t21-001 }
+  type: HBM2e
+scale_up:
+  protocol: Enflame-Link
+  bandwidth_gbps: 300
+  world_size: 8
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 400, evidence_ref: ev-t21-001 }
+software_support:
+  drivers: ['TopsRider']
+  engines:
+    - { id: vllm, status: community-port }
+  quantizations: [bf16, fp16, int8]
+  parallelism: [tp, pp]
+aliases: ['T21', '云燧T21']
+chinese_names: ['云燧T21']
+evidence:
+  - id: ev-t21-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.enflame-tech.com/
+    accessed: '2026-04-28'
+    citation: 'Enflame Yunsui T21 product page (limited public spec)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'Public spec sheets limited; some fields are best-available estimates.'

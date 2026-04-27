@@ -1,0 +1,21 @@
+id: cambricon-x8-server
+name: Cambricon 思元 X8 Server
+vendor: cambricon
+type: integrated-server
+card: mlu590
+card_count: 8
+scale_up_domain_size: 8
+intra_node_interconnect: MLU-Link-v2
+inter_node_interconnect: RoCEv2-200G
+cooling: air
+rack_power_kw: 4.0
+total_memory_gb: 512
+release_year: 2023
+chinese_names: ['思元X8训推服务器']
+evidence:
+  - id: ev-camb-x8-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.cambricon.com/
+    accessed: '2026-04-28'
+    citation: 'Cambricon 思元 X8 server reference'

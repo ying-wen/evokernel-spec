@@ -1,0 +1,7 @@
+id: zhipu
+name: Zhipu AI
+country: CN
+type: model-lab
+website: https://www.zhipuai.cn/
+chinese_names: ['智谱', '智谱AI']
+aliases: ['Z.AI', 'GLM']

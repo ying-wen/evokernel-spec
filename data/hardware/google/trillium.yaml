@@ -1,0 +1,43 @@
+id: trillium
+name: Google TPU Trillium (v6e)
+vendor: google
+generation: tpu-v6
+status: in-production
+release_year: 2024
+form_factor: proprietary
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 918, evidence_ref: ev-trillium-001 }
+  bf16_tflops: { value: 918, evidence_ref: ev-trillium-001 }
+  fp16_tflops: { value: 918, evidence_ref: ev-trillium-001 }
+  int8_tops: { value: 1836, evidence_ref: ev-trillium-001 }
+memory:
+  capacity_gb: { value: 32, evidence_ref: ev-trillium-001 }
+  bandwidth_gbps: { value: 1640, evidence_ref: ev-trillium-001 }
+  type: HBM2e
+scale_up:
+  protocol: ICI
+  bandwidth_gbps: 3200
+  world_size: 256
+  topology: 2d-torus
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: DCN
+power:
+  tdp_w: { value: 250, evidence_ref: ev-trillium-001 }
+software_support:
+  drivers: ['JAX', 'PyTorch/XLA']
+  engines:
+    - { id: vllm, status: community-port }
+  quantizations: [bf16, fp8-e4m3, int8]
+  parallelism: [tp, pp, ep, sp]
+aliases: ['Trillium', 'TPU v6e']
+evidence:
+  - id: ev-trillium-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://cloud.google.com/blog/products/compute/introducing-trillium-6th-gen-tpus
+    accessed: '2026-04-28'
+    citation: 'Google introduces Trillium (TPU v6e) blog post'
+disclaimers:
+  - 'TPU Trillium only available via Google Cloud.'

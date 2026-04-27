@@ -1,0 +1,5 @@
+id: disaggregated
+name: Disaggregated Prefill/Decode
+family: disaggregated
+description: 'Separate clusters for prefill (compute-heavy) and decode (memory-bw-heavy); KV transferred over network'
+typical_use_cases: ['Mooncake, DistServe deployments', 'Optimize TTFT and TBT independently']

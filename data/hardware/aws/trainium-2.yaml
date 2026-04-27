@@ -1,0 +1,43 @@
+id: trainium-2
+name: AWS Trainium 2
+vendor: aws
+generation: trn2
+status: in-production
+release_year: 2024
+form_factor: proprietary
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1300, evidence_ref: ev-trn2-001 }
+  bf16_tflops: { value: 650, evidence_ref: ev-trn2-001 }
+  fp16_tflops: { value: 650, evidence_ref: ev-trn2-001 }
+  int8_tops: { value: 1300, evidence_ref: ev-trn2-001 }
+memory:
+  capacity_gb: { value: 96, evidence_ref: ev-trn2-001 }
+  bandwidth_gbps: { value: 2900, evidence_ref: ev-trn2-001 }
+  type: HBM3
+scale_up:
+  protocol: NeuronLink
+  bandwidth_gbps: 1280
+  world_size: 64
+  topology: ring-mesh
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: EFA
+power:
+  tdp_w: { value: 500, evidence_ref: ev-trn2-001 }
+software_support:
+  drivers: ['Neuron SDK']
+  engines:
+    - { id: vllm, status: community-port }
+  quantizations: [bf16, fp16, fp8-e4m3, int8]
+  parallelism: [tp, pp]
+aliases: ['Trainium2', 'Trn2']
+evidence:
+  - id: ev-trn2-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://aws.amazon.com/ai/machine-learning/trainium/
+    accessed: '2026-04-28'
+    citation: 'AWS Trainium 2 product page'
+disclaimers:
+  - 'AWS does not sell chips; only available via EC2 Trn2 instances.'

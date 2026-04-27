@@ -1,0 +1,47 @@
+id: ascend-910c
+name: 昇腾 910C
+vendor: huawei
+generation: ascend-910-gen3
+status: in-production
+release_year: 2024
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 800, evidence_ref: ev-asc910c-001 }
+  fp16_tflops: { value: 800, evidence_ref: ev-asc910c-001 }
+  int8_tops: { value: 1600, evidence_ref: ev-asc910c-001 }
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-asc910c-001 }
+  bandwidth_gbps: { value: 3200, evidence_ref: ev-asc910c-001 }
+  type: HBM3
+scale_up:
+  protocol: HCCS-v2
+  bandwidth_gbps: 784
+  world_size: 8
+  topology: switched
+  switch: huawei-hccs-v2-switch
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 700, evidence_ref: ev-asc910c-001 }
+software_support:
+  drivers: ['CANN-8.0', 'CANN-8.1']
+  engines:
+    - { id: mindie, status: officially-supported, versions: ['1.0.RC3'] }
+    - { id: vllm, status: community-port, notes: 'vllm-ascend fork' }
+  quantizations: [bf16, fp16, int8]
+  parallelism: [tp, pp, ep]
+aliases: ['910C', 'Ascend910C']
+chinese_names: ['昇腾910C']
+evidence:
+  - id: ev-asc910c-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://e.huawei.com/en/products/computing/ascend
+    accessed: '2026-04-28'
+    citation: 'Huawei Ascend 910C announcement (vendor-claimed; specs partially public)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'Some specs derived from CloudMatrix 384 announcement materials.'

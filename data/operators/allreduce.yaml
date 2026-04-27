@@ -1,0 +1,6 @@
+id: allreduce
+name: AllReduce
+category: communication
+flops_formula: '0'
+bytes_formula: '2 * (N-1)/N * payload_bytes'
+description: 'Ring or tree all-reduce across TP group; bandwidth-dominated'

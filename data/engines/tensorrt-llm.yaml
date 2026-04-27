@@ -1,0 +1,7 @@
+id: tensorrt-llm
+name: TensorRT-LLM (Dynamo)
+maintainer: vendor
+source_url: https://github.com/NVIDIA/TensorRT-LLM
+supported_hardware_vendors: [nvidia]
+latest_version: '0.14.0'
+notes: 'NVIDIA-only; deepest kernel optimizations and FP8/FP4 support'

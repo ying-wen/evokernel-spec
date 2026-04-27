@@ -1,0 +1,24 @@
+id: minimax-m2.7
+name: MiniMax M2.7
+lab: minimax
+release_date: '2026-04-10'
+license: MIT
+architecture:
+  family: hybrid
+  total_params_b: 456
+  active_params_b: 46
+  layers: 80
+  hidden_size: 6144
+  ffn_size: 16384
+  num_attention_heads: 64
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 200000
+  max_context_length: 4194304
+  moe:
+    num_experts: 32
+    top_k: 2
+    expert_hidden_size: 16384
+  attention_type: lightning
+modalities: [text]
+weight_format: bf16

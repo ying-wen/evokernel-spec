@@ -1,0 +1,48 @@
+id: ascend-910b
+name: 昇腾 910B
+vendor: huawei
+generation: ascend-910-gen2
+status: in-production
+release_year: 2023
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 320, evidence_ref: ev-asc910b-001 }
+  fp16_tflops: { value: 320, evidence_ref: ev-asc910b-001 }
+  int8_tops: { value: 640, evidence_ref: ev-asc910b-001 }
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-asc910b-001 }
+  bandwidth_gbps: { value: 1600, evidence_ref: ev-asc910b-001 }
+  type: HBM2e
+scale_up:
+  protocol: HCCS
+  bandwidth_gbps: 392
+  world_size: 8
+  topology: switched
+  switch: huawei-hccs-switch
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 400, evidence_ref: ev-asc910b-001 }
+software_support:
+  drivers: ['CANN-7.0', 'CANN-8.0']
+  engines:
+    - { id: mindie, status: officially-supported, versions: ['1.0.RC2', '1.0.RC3'] }
+    - { id: vllm, status: community-port, notes: 'vllm-ascend fork' }
+    - { id: lmdeploy, status: community-port }
+  quantizations: [bf16, fp16, int8]
+  parallelism: [tp, pp]
+aliases: ['910B', 'Ascend910B']
+chinese_names: ['昇腾910B']
+evidence:
+  - id: ev-asc910b-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://e.huawei.com/en/products/computing/ascend
+    accessed: '2026-04-28'
+    citation: 'Huawei Ascend 910B product overview'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'FP8 and FP4 not supported on this generation.'

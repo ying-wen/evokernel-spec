@@ -1,0 +1,7 @@
+id: mindie
+name: MindIE
+maintainer: vendor
+source_url: https://www.hiascend.com/document/detail/zh/mindie
+supported_hardware_vendors: [huawei]
+latest_version: '1.0.RC3'
+notes: 'Huawei official inference engine for Ascend (910B/910C, CloudMatrix)'

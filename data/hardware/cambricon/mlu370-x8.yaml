@@ -1,0 +1,44 @@
+id: mlu370-x8
+name: 寒武纪 MLU370-X8
+vendor: cambricon
+generation: mlu370
+status: in-production
+release_year: 2022
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 96, evidence_ref: ev-mlu370-001 }
+  fp16_tflops: { value: 96, evidence_ref: ev-mlu370-001 }
+  int8_tops: { value: 256, evidence_ref: ev-mlu370-001 }
+memory:
+  capacity_gb: { value: 48, evidence_ref: ev-mlu370-001 }
+  bandwidth_gbps: { value: 614, evidence_ref: ev-mlu370-001 }
+  type: HBM2e
+scale_up:
+  protocol: MLU-Link
+  bandwidth_gbps: 200
+  world_size: 8
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 250, evidence_ref: ev-mlu370-001 }
+software_support:
+  drivers: ['Neuware-2.x']
+  engines:
+    - { id: lmdeploy, status: community-port }
+  quantizations: [fp16, int8]
+  parallelism: [tp]
+aliases: ['MLU370-X8']
+chinese_names: ['思元370-X8']
+evidence:
+  - id: ev-mlu370-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.cambricon.com/
+    accessed: '2026-04-28'
+    citation: 'Cambricon MLU370 series product overview'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'

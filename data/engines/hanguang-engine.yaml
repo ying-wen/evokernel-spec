@@ -1,0 +1,7 @@
+id: hanguang-engine
+name: HanGuangAI
+maintainer: vendor
+source_url: https://www.t-head.cn/
+supported_hardware_vendors: [pingtouge]
+latest_version: 'unknown'
+notes: 'T-Head/Pingtouge inference stack for HanGuang 800; details limited in public docs'

@@ -1,0 +1,7 @@
+id: deepseek
+name: DeepSeek
+country: CN
+type: model-lab
+website: https://www.deepseek.com/
+chinese_names: ['深度求索']
+aliases: ['DeepSeek AI']

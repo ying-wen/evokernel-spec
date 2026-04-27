@@ -1,0 +1,6 @@
+id: silu
+name: SiLU / Swish
+category: activation
+flops_formula: '4 * batch * seq * hidden'
+bytes_formula: '2 * batch * seq * hidden'
+description: 'Sigmoid-weighted Linear Unit; default activation in modern LLMs (Llama, Qwen)'

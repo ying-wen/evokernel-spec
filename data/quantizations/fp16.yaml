@@ -1,0 +1,7 @@
+id: fp16
+name: FP16
+bits_per_weight: 16
+bits_per_activation: 16
+family: fp
+lossless: false
+description: 'IEEE 754 half precision; 5-bit exponent, 10-bit mantissa'

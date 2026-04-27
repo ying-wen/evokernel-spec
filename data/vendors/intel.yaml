@@ -1,0 +1,7 @@
+id: intel
+name: Intel
+country: US
+type: hardware
+website: https://www.intel.com/
+chinese_names: ['英特尔']
+aliases: ['Intel Corporation', 'Habana Labs']

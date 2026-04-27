@@ -1,0 +1,47 @@
+id: h200-sxm
+name: NVIDIA H200 SXM 141GB
+vendor: nvidia
+generation: hopper-gen1
+status: in-production
+release_year: 2024
+form_factor: sxm
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1979, evidence_ref: ev-h200-001 }
+  bf16_tflops: { value: 989, evidence_ref: ev-h200-001 }
+  fp16_tflops: { value: 989, evidence_ref: ev-h200-001 }
+  int8_tops: { value: 1979, evidence_ref: ev-h200-001 }
+memory:
+  capacity_gb: { value: 141, evidence_ref: ev-h200-001 }
+  bandwidth_gbps: { value: 4800, evidence_ref: ev-h200-001 }
+  type: HBM3e
+scale_up:
+  protocol: NVLink-4.0
+  bandwidth_gbps: 900
+  world_size: 8
+  topology: switched
+  switch: nvswitch-gen3
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: InfiniBand-NDR
+  nic: ConnectX-7
+power:
+  tdp_w: { value: 700, evidence_ref: ev-h200-001 }
+software_support:
+  drivers: ['CUDA-12.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: sglang, status: officially-supported, versions: ['0.4'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.14'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, int8, int4-awq, int4-gptq]
+  parallelism: [tp, pp, ep, sp, disaggregated]
+aliases: ['H200', 'H200 141GB']
+evidence:
+  - id: ev-h200-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/data-center/h200/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA H200 Tensor Core GPU product page'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'

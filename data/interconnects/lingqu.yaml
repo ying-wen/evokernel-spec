@@ -1,0 +1,13 @@
+id: lingqu
+name: 灵衢 (Lingqu)
+family: lingqu
+typical_bandwidth_gbps: 224
+vendor: huawei
+description: 'Huawei optical scale-up fabric used in CloudMatrix 384 super-node'
+evidence:
+  - id: ev-lingqu-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.huawei.com/en/news/2024
+    accessed: '2026-04-28'
+    citation: 'Huawei CloudMatrix 384 launch coverage'

@@ -1,0 +1,22 @@
+id: huawei-atlas-900-superpod
+name: Huawei Atlas 900 SuperPoD A2
+vendor: huawei
+type: super-pod
+card: ascend-910c
+card_count: 256
+scale_up_domain_size: 256
+intra_node_interconnect: HCCS-v2
+inter_node_interconnect: RoCEv2-400G
+cooling: liquid
+rack_power_kw: 200
+total_memory_gb: 32768
+total_compute_pflops_bf16: 204.8
+release_year: 2024
+chinese_names: ['Atlas 900 SuperPoD A2', '华为超节点']
+evidence:
+  - id: ev-atlas900-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://e.huawei.com/en/products/computing/ascend
+    accessed: '2026-04-28'
+    citation: 'Huawei Atlas 900 SuperPoD A2 announcement'

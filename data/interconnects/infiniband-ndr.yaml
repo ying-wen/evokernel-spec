@@ -1,0 +1,13 @@
+id: infiniband-ndr
+name: InfiniBand NDR
+family: infiniband
+typical_bandwidth_gbps: 400
+vendor: nvidia
+description: 'Mellanox/NVIDIA InfiniBand 400 Gbps; standard scale-out for AI clusters'
+evidence:
+  - id: ev-ibndr-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/networking/products/infiniband/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA InfiniBand NDR product page'

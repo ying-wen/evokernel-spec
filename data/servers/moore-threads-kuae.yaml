@@ -1,0 +1,21 @@
+id: moore-threads-kuae
+name: Moore Threads KUAE 集群方案
+vendor: moore-threads
+type: pod
+card: mtt-s4000
+card_count: 64
+scale_up_domain_size: 8
+intra_node_interconnect: MTLink
+inter_node_interconnect: RoCEv2-200G
+cooling: liquid
+rack_power_kw: 60
+total_memory_gb: 3072
+release_year: 2024
+chinese_names: ['夸娥智算集群', 'KUAE']
+evidence:
+  - id: ev-kuae-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.mthreads.com/
+    accessed: '2026-04-28'
+    citation: 'Moore Threads KUAE cluster announcement'

@@ -1,0 +1,21 @@
+id: nvidia-gb200-nvl72
+name: NVIDIA GB200 NVL72 Rack
+vendor: nvidia
+type: super-pod
+card: gb200-nvl72
+card_count: 72
+scale_up_domain_size: 72
+intra_node_interconnect: NVLink-5-via-NVSwitch-Gen4
+inter_node_interconnect: InfiniBand-XDR
+cooling: liquid
+rack_power_kw: 120
+total_memory_gb: 13824
+total_compute_pflops_bf16: 162
+release_year: 2024
+evidence:
+  - id: ev-nvl72-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA GB200 NVL72 product page'

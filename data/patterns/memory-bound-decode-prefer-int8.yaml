@@ -1,0 +1,23 @@
+id: memory-bound-decode-prefer-int8
+name: Memory-bound decode 阶段优先使用 INT8/INT4 量化
+category: quantization
+description_md: |
+  ## 何时适用
+
+  当 decode 阶段算术强度低于硬件 ridge point (peak compute / peak memory bandwidth) 时,
+  decode 吞吐受内存带宽限制。此时 weight-only INT8 或 INT4 量化通过减少每 token
+  的字节读取量, 可以显著提升 decode tok/s, 通常 1.5-2.5x。
+
+  ## 适用条件
+  - decode 阶段 batch size 较小 (≤ 16)
+  - 模型 active params 较大
+  - 硬件支持 INT8/INT4 weight + FP16 activation 的反量化路径
+
+  ## 副作用
+  - 模型质量略降 (通常 < 0.5 perplexity)
+  - 需校准 (AWQ / GPTQ)
+applies_when:
+  - decode-throughput-target
+  - large-active-params
+related_operators: [matmul, attention]
+supporting_cases_min: 0

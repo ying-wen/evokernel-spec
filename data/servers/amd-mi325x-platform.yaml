@@ -1,0 +1,21 @@
+id: amd-mi325x-platform
+name: AMD Instinct MI325X Platform 8-OAM
+vendor: amd
+type: integrated-server
+card: mi325x
+card_count: 8
+scale_up_domain_size: 8
+intra_node_interconnect: Infinity-Fabric
+inter_node_interconnect: RoCEv2-400G
+cooling: air
+rack_power_kw: 13
+total_memory_gb: 2048
+total_compute_pflops_bf16: 10.5
+release_year: 2024
+evidence:
+  - id: ev-mi325plat-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi325x.html
+    accessed: '2026-04-28'
+    citation: 'AMD MI325X Platform reference'

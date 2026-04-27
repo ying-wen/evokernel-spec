@@ -1,0 +1,43 @@
+id: tpu-v5p
+name: Google TPU v5p
+vendor: google
+generation: tpu-v5
+status: in-production
+release_year: 2023
+form_factor: proprietary
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 459, evidence_ref: ev-tpuv5p-001 }
+  fp16_tflops: { value: 459, evidence_ref: ev-tpuv5p-001 }
+  int8_tops: { value: 918, evidence_ref: ev-tpuv5p-001 }
+memory:
+  capacity_gb: { value: 95, evidence_ref: ev-tpuv5p-001 }
+  bandwidth_gbps: { value: 2765, evidence_ref: ev-tpuv5p-001 }
+  type: HBM2e
+scale_up:
+  protocol: ICI
+  bandwidth_gbps: 4800
+  world_size: 8960
+  topology: 3d-torus
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: DCN
+power:
+  tdp_w: { value: 700, evidence_ref: ev-tpuv5p-001 }
+software_support:
+  drivers: ['JAX', 'PyTorch/XLA', 'TensorFlow']
+  engines:
+    - { id: vllm, status: community-port }
+  quantizations: [bf16, fp16, int8]
+  parallelism: [tp, pp, ep, sp]
+aliases: ['TPU v5p']
+evidence:
+  - id: ev-tpuv5p-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://cloud.google.com/tpu/docs/v5p
+    accessed: '2026-04-28'
+    citation: 'Google Cloud TPU v5p documentation'
+disclaimers:
+  - 'TPU v5p only available via Google Cloud.'

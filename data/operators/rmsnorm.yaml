@@ -1,0 +1,6 @@
+id: rmsnorm
+name: RMSNorm
+category: norm
+flops_formula: '5 * batch * seq * hidden'
+bytes_formula: '2 * batch * seq * hidden'
+description: 'Root mean square normalization; cheaper than LayerNorm, common in modern LLMs'

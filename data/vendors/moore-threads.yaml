@@ -1,0 +1,7 @@
+id: moore-threads
+name: Moore Threads
+country: CN
+type: hardware
+website: https://www.mthreads.com/
+chinese_names: ['摩尔线程']
+aliases: ['MT', 'MTT']

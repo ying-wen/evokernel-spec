@@ -1,0 +1,44 @@
+id: br100
+name: 壁仞 BR100
+vendor: biren
+generation: biren-gen1
+status: discontinued
+release_year: 2022
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 256, evidence_ref: ev-br100-001 }
+  fp16_tflops: { value: 256, evidence_ref: ev-br100-001 }
+  int8_tops: { value: 1024, evidence_ref: ev-br100-001 }
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-br100-001 }
+  bandwidth_gbps: { value: 2300, evidence_ref: ev-br100-001 }
+  type: HBM2e
+scale_up:
+  protocol: BLink
+  bandwidth_gbps: 512
+  world_size: 8
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 550, evidence_ref: ev-br100-001 }
+software_support:
+  drivers: ['BIRENSUPA']
+  engines: []
+  quantizations: [fp16, int8]
+  parallelism: [tp]
+aliases: ['BR100']
+chinese_names: ['壁仞BR100']
+evidence:
+  - id: ev-br100-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.birentech.com/
+    accessed: '2026-04-28'
+    citation: 'Biren BR100 launch announcement (export-control affected)'
+disclaimers:
+  - 'BR100 affected by US export controls; production discontinued.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'

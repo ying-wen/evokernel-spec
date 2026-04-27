@@ -1,0 +1,5 @@
+id: tp
+name: Tensor Parallelism
+family: intra-layer
+description: 'Split tensors along feature dim within each layer; communication via all-reduce'
+typical_use_cases: ['Wide models within a node', 'NVLink-connected GPUs']

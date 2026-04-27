@@ -1,0 +1,24 @@
+id: qwen3.6-plus
+name: Qwen3.6 Plus
+lab: alibaba
+release_date: '2026-03-25'
+license: Apache-2.0
+architecture:
+  family: moe
+  total_params_b: 480
+  active_params_b: 35
+  layers: 64
+  hidden_size: 6144
+  ffn_size: 16384
+  num_attention_heads: 64
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 152064
+  max_context_length: 1048576
+  moe:
+    num_experts: 128
+    top_k: 8
+    expert_hidden_size: 2048
+  attention_type: gqa
+modalities: [text, vision]
+weight_format: bf16

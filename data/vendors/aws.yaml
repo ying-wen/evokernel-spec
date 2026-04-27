@@ -1,0 +1,7 @@
+id: aws
+name: AWS Annapurna Labs
+country: US
+type: hardware
+website: https://aws.amazon.com/ai/machine-learning/trainium/
+chinese_names: ['亚马逊云科技']
+aliases: ['Amazon Web Services', 'AWS']

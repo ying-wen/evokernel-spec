@@ -1,0 +1,6 @@
+id: all2all
+name: All-to-All
+category: communication
+flops_formula: '0'
+bytes_formula: '2 * (N-1)/N * payload_bytes'
+description: 'Used in expert parallelism for token dispatch and combine'

@@ -1,0 +1,40 @@
+id: case-llama4-scout-h100x8-vllm-001
+title: Llama 4 Scout on 8×H100 SXM with vLLM (public benchmark)
+submitted_at: '2026-04-28'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: h100-sxm5, count: 8, topology: single-node-hgx }
+  server: { id: nvidia-hgx-h100 }
+  interconnect: { intra_node: nvlink-4, inter_node: none }
+  model: { id: llama-4-scout, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: bf16
+  parallel: { tp: 8, pp: 1, ep: 1, sp: 1, disaggregated: false }
+  driver: 'CUDA 12.4'
+  os: 'Ubuntu 22.04'
+scenario:
+  prefill_seq_len: 1024
+  decode_seq_len: 256
+  batch_size: 16
+  max_concurrent_requests: 64
+results:
+  throughput_tokens_per_sec: { decode: 1850, prefill: 26000 }
+  latency_ms: { ttft_p50: 145, ttft_p99: 240, tbt_p50: 18, tbt_p99: 32 }
+  memory_per_card_gb: 28
+  power_per_card_w: 580
+  utilization: { compute_pct: 48, memory_bw_pct: 62 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'vllm serve meta-llama/Llama-4-Scout --tensor-parallel-size 8 --max-model-len 16384'
+  benchmark_tool: 'vllm benchmark_serving.py + sharegpt'
+issues_encountered: []
+patterns: [memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-l4scout-001
+    tier: measured
+    source_type: third-party-review
+    url: https://blog.vllm.ai/
+    accessed: '2026-04-28'
+    citation: 'vLLM official Llama 4 Scout benchmark notes (figures approximate from blog)'
+    contributor_attestation: 'Numbers extracted from public vLLM benchmark blog; not independently re-run by submitter.'

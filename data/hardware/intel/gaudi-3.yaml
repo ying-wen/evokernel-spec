@@ -1,0 +1,43 @@
+id: gaudi-3
+name: Intel Gaudi 3
+vendor: intel
+generation: gaudi-gen3
+status: in-production
+release_year: 2024
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1835, evidence_ref: ev-gaudi3-001 }
+  bf16_tflops: { value: 1835, evidence_ref: ev-gaudi3-001 }
+  fp16_tflops: { value: 1835, evidence_ref: ev-gaudi3-001 }
+  int8_tops: { value: 1835, evidence_ref: ev-gaudi3-001 }
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-gaudi3-001 }
+  bandwidth_gbps: { value: 3700, evidence_ref: ev-gaudi3-001 }
+  type: HBM2e
+scale_up:
+  protocol: RoCE-v2-200GbE
+  bandwidth_gbps: 1200
+  world_size: 8
+  topology: all-to-all
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 900, evidence_ref: ev-gaudi3-001 }
+software_support:
+  drivers: ['Habana SynapseAI']
+  engines:
+    - { id: vllm, status: community-port }
+  quantizations: [bf16, fp16, fp8-e4m3, int8]
+  parallelism: [tp, pp]
+aliases: ['Gaudi3', 'HL-325L']
+evidence:
+  - id: ev-gaudi3-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.intel.com/content/www/us/en/products/details/processors/ai-accelerators/gaudi3.html
+    accessed: '2026-04-28'
+    citation: 'Intel Gaudi 3 product page'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'

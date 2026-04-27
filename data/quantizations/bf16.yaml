@@ -1,0 +1,7 @@
+id: bf16
+name: BF16
+bits_per_weight: 16
+bits_per_activation: 16
+family: fp
+lossless: false
+description: 'Brain float 16; 8-bit exponent, 7-bit mantissa; default training precision since 2020'

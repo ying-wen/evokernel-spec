@@ -1,0 +1,23 @@
+id: huawei-cloudmatrix-384
+name: Huawei CloudMatrix 384
+vendor: huawei
+type: super-pod
+card: ascend-910c
+card_count: 384
+scale_up_domain_size: 384
+intra_node_interconnect: lingqu
+inter_node_interconnect: RoCEv2-400G
+cooling: liquid
+rack_power_kw: 600
+total_memory_gb: 49152
+total_compute_pflops_bf16: 307.2
+release_year: 2025
+chinese_names: ['昇腾超节点 CloudMatrix 384', '华为云矩阵384']
+aliases: ['CloudMatrix 384', 'CM384']
+evidence:
+  - id: ev-cm384-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://e.huawei.com/en/products/computing/ascend
+    accessed: '2026-04-28'
+    citation: 'Huawei CloudMatrix 384 launch announcement (rack-scale 384-card scale-up domain via 灵衢 optical fabric)'

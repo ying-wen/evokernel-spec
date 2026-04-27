@@ -1,0 +1,24 @@
+id: mistral-small-4
+name: Mistral Small 4
+lab: mistral
+release_date: '2026-03-16'
+license: Apache-2.0
+architecture:
+  family: moe
+  total_params_b: 119
+  active_params_b: 22
+  layers: 40
+  hidden_size: 5120
+  ffn_size: 14336
+  num_attention_heads: 32
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 131072
+  max_context_length: 131072
+  moe:
+    num_experts: 8
+    top_k: 2
+    expert_hidden_size: 14336
+  attention_type: gqa
+modalities: [text]
+weight_format: bf16

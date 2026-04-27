@@ -1,0 +1,7 @@
+id: int8
+name: INT8
+bits_per_weight: 8
+bits_per_activation: 8
+family: int
+lossless: false
+description: 'Symmetric or asymmetric int8 quantization; widely supported'

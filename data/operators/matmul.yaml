@@ -1,0 +1,6 @@
+id: matmul
+name: Matrix Multiplication
+category: matmul
+flops_formula: '2 * M * N * K'
+bytes_formula: '2 * (M*K + K*N + M*N)'
+description: 'General matrix multiply (GEMM); base operator for FFN and attention projections'

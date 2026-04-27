@@ -1,0 +1,45 @@
+id: dcu-k100
+name: 海光 DCU K100
+vendor: hygon
+generation: hygon-dcu-gen3
+status: in-production
+release_year: 2024
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 192, evidence_ref: ev-dcuk100-001 }
+  fp16_tflops: { value: 192, evidence_ref: ev-dcuk100-001 }
+  int8_tops: { value: 384, evidence_ref: ev-dcuk100-001 }
+memory:
+  capacity_gb: { value: 96, evidence_ref: ev-dcuk100-001 }
+  bandwidth_gbps: { value: 2400, evidence_ref: ev-dcuk100-001 }
+  type: HBM3
+scale_up:
+  protocol: Hygon-Link
+  bandwidth_gbps: 400
+  world_size: 8
+  topology: fully-connected
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 600, evidence_ref: ev-dcuk100-001 }
+software_support:
+  drivers: ['DTK-24.x']
+  engines:
+    - { id: vllm, status: community-port }
+  quantizations: [bf16, fp16, int8]
+  parallelism: [tp, pp]
+aliases: ['K100']
+chinese_names: ['深算二号', '海光K100']
+evidence:
+  - id: ev-dcuk100-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.hygon.cn/
+    accessed: '2026-04-28'
+    citation: 'Hygon K100 announcement (vendor-claimed; details still emerging)'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+  - 'Some specs derived from supply-chain reports.'

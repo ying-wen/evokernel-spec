@@ -1,0 +1,25 @@
+id: deepseek-r1
+name: DeepSeek R1
+lab: deepseek
+release_date: '2025-01-20'
+license: deepseek-license
+architecture:
+  family: moe
+  total_params_b: 671
+  active_params_b: 37
+  layers: 61
+  hidden_size: 7168
+  ffn_size: 18432
+  num_attention_heads: 128
+  num_kv_heads: 128
+  head_dim: 128
+  vocab_size: 129280
+  max_context_length: 131072
+  moe:
+    num_experts: 256
+    top_k: 8
+    expert_hidden_size: 2048
+  attention_type: mla
+modalities: [text]
+weight_format: bf16
+hf_url: https://huggingface.co/deepseek-ai/DeepSeek-R1

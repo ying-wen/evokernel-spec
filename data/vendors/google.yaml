@@ -1,0 +1,7 @@
+id: google
+name: Google
+country: US
+type: both
+website: https://cloud.google.com/tpu
+chinese_names: ['谷歌']
+aliases: ['Google Cloud', 'Google DeepMind', 'Google AI']

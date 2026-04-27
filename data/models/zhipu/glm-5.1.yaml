@@ -1,0 +1,25 @@
+id: glm-5.1
+name: GLM-5.1
+lab: zhipu
+release_date: '2026-04-07'
+license: MIT
+architecture:
+  family: moe
+  total_params_b: 754
+  active_params_b: 32
+  layers: 64
+  hidden_size: 6144
+  ffn_size: 16384
+  num_attention_heads: 48
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 151552
+  max_context_length: 131072
+  moe:
+    num_experts: 192
+    top_k: 8
+    expert_hidden_size: 1536
+  attention_type: mha
+modalities: [text]
+weight_format: bf16
+hf_url: https://huggingface.co/THUDM/GLM-5.1

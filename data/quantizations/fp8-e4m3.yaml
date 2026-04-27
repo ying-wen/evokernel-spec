@@ -1,0 +1,7 @@
+id: fp8-e4m3
+name: FP8 E4M3
+bits_per_weight: 8
+bits_per_activation: 8
+family: fp8
+lossless: false
+description: '4-bit exponent, 3-bit mantissa; preferred for activations due to dynamic range'

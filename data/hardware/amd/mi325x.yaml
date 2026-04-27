@@ -1,0 +1,44 @@
+id: mi325x
+name: AMD Instinct MI325X
+vendor: amd
+generation: cdna3
+status: in-production
+release_year: 2024
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 2614, evidence_ref: ev-mi325x-001 }
+  bf16_tflops: { value: 1307, evidence_ref: ev-mi325x-001 }
+  fp16_tflops: { value: 1307, evidence_ref: ev-mi325x-001 }
+  int8_tops: { value: 2614, evidence_ref: ev-mi325x-001 }
+memory:
+  capacity_gb: { value: 256, evidence_ref: ev-mi325x-001 }
+  bandwidth_gbps: { value: 6000, evidence_ref: ev-mi325x-001 }
+  type: HBM3e
+scale_up:
+  protocol: Infinity-Fabric
+  bandwidth_gbps: 896
+  world_size: 8
+  topology: fully-connected
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 1000, evidence_ref: ev-mi325x-001 }
+software_support:
+  drivers: ['ROCm-6.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: sglang, status: officially-supported, versions: ['0.4'] }
+  quantizations: [bf16, fp16, fp8-e4m3, int8, int4-awq]
+  parallelism: [tp, pp, ep]
+aliases: ['MI325X']
+evidence:
+  - id: ev-mi325x-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi325x.html
+    accessed: '2026-04-28'
+    citation: 'AMD MI325X product page'
+disclaimers:
+  - 'All performance figures are vendor-claimed unless tier=measured.'

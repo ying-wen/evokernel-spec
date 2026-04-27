@@ -1,0 +1,6 @@
+id: rope
+name: Rotary Position Embedding
+category: embedding
+flops_formula: '6 * batch * seq * hidden'
+bytes_formula: '4 * batch * seq * hidden'
+description: 'Rotary positional embedding applied to Q and K projections'

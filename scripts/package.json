@@ -1,0 +1,14 @@
+{
+  "name": "@evokernel/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@evokernel/schemas": "workspace:*",
+    "yaml": "^2.6.0",
+    "fast-glob": "^3.3.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": { "vitest": "^2.1.0" },
+  "scripts": { "test": "vitest --run" }
+}

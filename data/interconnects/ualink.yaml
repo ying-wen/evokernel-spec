@@ -1,0 +1,12 @@
+id: ualink
+name: UALink
+family: ualink
+typical_bandwidth_gbps: 200
+description: 'Open scale-up interconnect consortium (AMD, Intel, Broadcom, Cisco, etc.); v1.0 200 Gbps per lane'
+evidence:
+  - id: ev-ualink-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.ualinkconsortium.org/
+    accessed: '2026-04-28'
+    citation: 'UALink Consortium launch announcement'
