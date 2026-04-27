@@ -1,7 +1,7 @@
 id: deepseek-r1
 name: DeepSeek R1
 lab: deepseek
-release_date: '2025-01-20'
+release_date: 2025-01-20
 license: deepseek-license
 architecture:
   family: moe
@@ -19,7 +19,22 @@ architecture:
     num_experts: 256
     top_k: 8
     expert_hidden_size: 2048
+    shared_experts: 0
   attention_type: mla
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 48356130816
+    bytes_per_token: 48356130816
+  - operator: attention
+    flops_per_token: 16118710272
+    bytes_per_token: 32237420544
+  - operator: moe-gate
+    flops_per_token: 111935488
+    bytes_per_token: 14327742464
+  - operator: rmsnorm
+    flops_per_token: 4372480
+    bytes_per_token: 1748992
+modalities:
+  - text
 weight_format: bf16
 hf_url: https://huggingface.co/deepseek-ai/DeepSeek-R1

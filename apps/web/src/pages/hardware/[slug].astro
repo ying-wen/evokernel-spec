@@ -7,6 +7,7 @@ import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
 import { getResolvedHardware, getCases, getEngines, getQuantizations } from '~/lib/data';
 import Topology from '~/components/hardware/Topology.astro';
+import Substitutes from '~/components/hardware/Substitutes.astro';
 
 export async function getStaticPaths() {
   const all = await getResolvedHardware();
@@ -131,6 +132,10 @@ const c = hw.compute;
     <section class="pb-8">
       <h3 class="text-lg font-semibold mb-3">拓扑示意</h3>
       <Topology hw={hw} />
+    </section>
+
+    <section class="pb-8">
+      <Substitutes hw={hw} allHardware={await getResolvedHardware()} />
     </section>
 
     <section class="pb-12">

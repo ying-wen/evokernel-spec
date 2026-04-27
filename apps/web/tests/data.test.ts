@@ -23,8 +23,8 @@ describe('data layer', () => {
     expect((await getModels()).length).toBe(14);
   });
 
-  it('loads 15 seed cases', async () => {
-    expect((await getCases()).length).toBe(15);
+  it('loads 20 seed cases', async () => {
+    expect((await getCases()).length).toBe(20);
   });
 
   it('loads 3 patterns', async () => {

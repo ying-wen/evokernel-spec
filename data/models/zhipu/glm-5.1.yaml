@@ -1,7 +1,7 @@
 id: glm-5.1
 name: GLM-5.1
 lab: zhipu
-release_date: '2026-04-07'
+release_date: 2026-04-07
 license: MIT
 architecture:
   family: moe
@@ -19,7 +19,22 @@ architecture:
     num_experts: 192
     top_k: 8
     expert_hidden_size: 1536
+    shared_experts: 0
   attention_type: mha
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 38654705664
+    bytes_per_token: 38654705664
+  - operator: attention
+    flops_per_token: 12884901888
+    bytes_per_token: 20401094656
+  - operator: moe-gate
+    flops_per_token: 75497472
+    bytes_per_token: 9663676416
+  - operator: rmsnorm
+    flops_per_token: 3932160
+    bytes_per_token: 1572864
+modalities:
+  - text
 weight_format: bf16
 hf_url: https://huggingface.co/THUDM/GLM-5.1

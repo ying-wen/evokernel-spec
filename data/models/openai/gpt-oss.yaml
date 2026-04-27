@@ -1,7 +1,7 @@
 id: gpt-oss
 name: GPT-OSS
 lab: openai
-release_date: '2025-08-12'
+release_date: 2025-08-12
 license: Apache-2.0
 architecture:
   family: moe
@@ -19,6 +19,21 @@ architecture:
     num_experts: 128
     top_k: 4
     expert_hidden_size: 2880
+    shared_experts: 0
   attention_type: gqa
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 7166361600
+    bytes_per_token: 7166361600
+  - operator: attention
+    flops_per_token: 2043740160
+    bytes_per_token: 2813460480
+  - operator: moe-gate
+    flops_per_token: 13271040
+    bytes_per_token: 2388787200
+  - operator: rmsnorm
+    flops_per_token: 1036800
+    bytes_per_token: 414720
+modalities:
+  - text
 weight_format: bf16

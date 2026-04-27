@@ -1,7 +1,7 @@
 id: glm-5-reasoning
 name: GLM-5 Reasoning
 lab: zhipu
-release_date: '2026-03-15'
+release_date: 2026-03-15
 license: MIT
 architecture:
   family: dense
@@ -16,5 +16,16 @@ architecture:
   vocab_size: 151552
   max_context_length: 131072
   attention_type: mha
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 33030144000
+    bytes_per_token: 33030144000
+  - operator: attention
+    flops_per_token: 8808038400
+    bytes_per_token: 13589544960
+  - operator: rmsnorm
+    flops_per_token: 3072000
+    bytes_per_token: 1228800
+modalities:
+  - text
 weight_format: bf16

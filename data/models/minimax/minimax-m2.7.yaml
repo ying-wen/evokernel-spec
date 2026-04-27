@@ -1,7 +1,7 @@
 id: minimax-m2.7
 name: MiniMax M2.7
 lab: minimax
-release_date: '2026-04-10'
+release_date: 2026-04-10
 license: MIT
 architecture:
   family: hybrid
@@ -19,6 +19,21 @@ architecture:
     num_experts: 32
     top_k: 2
     expert_hidden_size: 16384
+    shared_experts: 0
   attention_type: lightning
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 48318382080
+    bytes_per_token: 48318382080
+  - operator: attention
+    flops_per_token: 16106127360
+    bytes_per_token: 25165824000
+  - operator: moe-gate
+    flops_per_token: 15728640
+    bytes_per_token: 32212254720
+  - operator: rmsnorm
+    flops_per_token: 4915200
+    bytes_per_token: 1966080
+modalities:
+  - text
 weight_format: bf16

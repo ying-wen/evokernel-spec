@@ -193,7 +193,7 @@ test.describe('JSON API and timeline', () => {
     expect(body.name).toContain('EvoKernel');
     expect(body.license).toBe('CC-BY-SA-4.0');
     expect(body.counts.hardware).toBe(28);
-    expect(body.counts.case).toBe(15);
+    expect(body.counts.case).toBeGreaterThanOrEqual(20);
   });
 
   test('/api/hardware.json contains all 28 hardware', async ({ page }) => {

@@ -1,7 +1,7 @@
 id: qwen3.5-397b
 name: Qwen3.5 397B Reasoning
 lab: alibaba
-release_date: '2026-03-05'
+release_date: 2026-03-05
 license: Apache-2.0
 architecture:
   family: moe
@@ -19,6 +19,21 @@ architecture:
     num_experts: 128
     top_k: 8
     expert_hidden_size: 1536
+    shared_experts: 0
   attention_type: gqa
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 28185722880
+    bytes_per_token: 28185722880
+  - operator: attention
+    flops_per_token: 9395240960
+    bytes_per_token: 14495514624
+  - operator: moe-gate
+    flops_per_token: 41943040
+    bytes_per_token: 8053063680
+  - operator: rmsnorm
+    flops_per_token: 3276800
+    bytes_per_token: 1310720
+modalities:
+  - text
 weight_format: bf16

@@ -1,0 +1,82 @@
+---
+import type { Hardware, Vendor } from '@evokernel/schemas';
+type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Vendor };
+
+interface Props { hw: ResolvedHw; allHardware: ResolvedHw[]; }
+const { hw, allHardware } = Astro.props;
+
+// Compute closest matches by spec distance (lower = closer).
+function getMetric(h: ResolvedHw, key: 'bf16' | 'fp8' | 'mem' | 'memBw'): number {
+  switch (key) {
+    case 'bf16': return h.compute.bf16_tflops?.value ?? 0;
+    case 'fp8': return h.compute.fp8_tflops?.value ?? 0;
+    case 'mem': return h.memory.capacity_gb?.value ?? 0;
+    case 'memBw': return h.memory.bandwidth_gbps?.value ?? 0;
+  }
+}
+
+// Normalize each metric across all cards, then compute weighted Euclidean.
+const keys: Array<['bf16' | 'fp8' | 'mem' | 'memBw', number]> = [
+  ['bf16', 0.30], ['mem', 0.30], ['memBw', 0.25], ['fp8', 0.15]
+];
+const maxByKey = Object.fromEntries(keys.map(([k]) => [k, Math.max(...allHardware.map((h) => getMetric(h, k)), 1)]));
+
+function distance(a: ResolvedHw, b: ResolvedHw): number {
+  let d = 0;
+  for (const [k, w] of keys) {
+    const av = getMetric(a, k) / maxByKey[k]!;
+    const bv = getMetric(b, k) / maxByKey[k]!;
+    d += w * (av - bv) ** 2;
+  }
+  return Math.sqrt(d);
+}
+
+const candidates = allHardware
+  .filter((h) => h.id !== hw.id)
+  .map((h) => ({ h, d: distance(hw, h) }))
+  .sort((a, b) => a.d - b.d)
+  .slice(0, 4);
+
+// "Cross-vendor": flag if substitute is from a different country (interesting for migration discussions)
+const isCN = hw.vendor.country === 'CN';
+---
+<div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+  <h4 class="text-sm font-semibold mb-3">最接近的替代卡 (按规格相似度)</h4>
+  <p class="text-xs mb-4" style="color: var(--color-text-muted);">
+    基于 BF16 算力 / 显存 / 显存带宽 / FP8 加权欧氏距离。供选型决策参考。
+  </p>
+  <div class="grid sm:grid-cols-2 gap-3">
+    {candidates.map((c) => {
+      const otherIsCN = c.h.vendor.country === 'CN';
+      const crossBorder = otherIsCN !== isCN;
+      const similarity = Math.max(0, 1 - c.d) * 100;
+      return (
+        <a href={`/hardware/${c.h.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5"
+           style={`border-color: ${otherIsCN ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'}; background: var(--color-bg);`}>
+          <div class="flex justify-between items-start gap-2 mb-2">
+            <div>
+              <div class="font-medium text-sm">{c.h.name}</div>
+              <div class="text-xs mt-0.5" style={`color: ${otherIsCN ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
+                {otherIsCN ? (c.h.vendor.chinese_names[0] ?? c.h.vendor.name) : c.h.vendor.name}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-xs font-mono" style="color: var(--color-tier-measured);">{similarity.toFixed(0)}%</div>
+              <div class="text-xs" style="color: var(--color-text-muted);">相似度</div>
+            </div>
+          </div>
+          <dl class="grid grid-cols-3 gap-1 text-xs">
+            <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono">{c.h.compute.bf16_tflops?.value ?? '—'}</dd></div>
+            <div><dt style="color: var(--color-text-muted);">Mem</dt><dd class="font-mono">{c.h.memory.capacity_gb?.value ?? '—'}</dd></div>
+            <div><dt style="color: var(--color-text-muted);">BW</dt><dd class="font-mono">{c.h.memory.bandwidth_gbps?.value ? (c.h.memory.bandwidth_gbps.value / 1000).toFixed(1) : '—'}</dd></div>
+          </dl>
+          {crossBorder && (
+            <div class="text-xs mt-2 px-2 py-0.5 rounded inline-block" style={`background: color-mix(in oklch, ${otherIsCN ? 'var(--color-china)' : 'var(--color-accent)'} 14%, var(--color-bg)); color: ${otherIsCN ? 'var(--color-china)' : 'var(--color-accent)'};`}>
+              ⇄ {isCN ? '海外' : '国产'} 替代
+            </div>
+          )}
+        </a>
+      );
+    })}
+  </div>
+</div>

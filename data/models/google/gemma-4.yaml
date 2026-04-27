@@ -1,7 +1,7 @@
 id: gemma-4
 name: Gemma 4 26B
 lab: google
-release_date: '2026-02-20'
+release_date: 2026-02-20
 license: Gemma-License
 architecture:
   family: moe
@@ -19,6 +19,22 @@ architecture:
     num_experts: 16
     top_k: 2
     expert_hidden_size: 5632
+    shared_experts: 0
   attention_type: gqa
-modalities: [text, vision]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 8858370048
+    bytes_per_token: 8858370048
+  - operator: attention
+    flops_per_token: 3221225472
+    bytes_per_token: 4831838208
+  - operator: moe-gate
+    flops_per_token: 2097152
+    bytes_per_token: 2952790016
+  - operator: rmsnorm
+    flops_per_token: 1310720
+    bytes_per_token: 524288
+modalities:
+  - text
+  - vision
 weight_format: bf16

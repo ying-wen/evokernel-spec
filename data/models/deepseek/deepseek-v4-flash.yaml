@@ -1,7 +1,7 @@
 id: deepseek-v4-flash
 name: DeepSeek V4 Flash
 lab: deepseek
-release_date: '2026-04-24'
+release_date: 2026-04-24
 license: deepseek-license
 architecture:
   family: moe
@@ -19,7 +19,22 @@ architecture:
     num_experts: 64
     top_k: 4
     expert_hidden_size: 1408
+    shared_experts: 0
   attention_type: csa+hca
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 11274289152
+    bytes_per_token: 11274289152
+  - operator: attention
+    flops_per_token: 3221225472
+    bytes_per_token: 4831838208
+  - operator: moe-gate
+    flops_per_token: 8388608
+    bytes_per_token: 1476395008
+  - operator: rmsnorm
+    flops_per_token: 1310720
+    bytes_per_token: 524288
+modalities:
+  - text
 weight_format: bf16
 hf_url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash

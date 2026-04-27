@@ -1,7 +1,7 @@
 id: kimi-k2.6
 name: Kimi K2.6
 lab: moonshot
-release_date: '2026-04-15'
+release_date: 2026-04-15
 license: moonshot-license
 architecture:
   family: moe
@@ -19,7 +19,23 @@ architecture:
     num_experts: 384
     top_k: 8
     expert_hidden_size: 1536
+    shared_experts: 0
   attention_type: mla
-modalities: [text, vision]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 47563407360
+    bytes_per_token: 47563407360
+  - operator: attention
+    flops_per_token: 15854469120
+    bytes_per_token: 25543311360
+  - operator: moe-gate
+    flops_per_token: 165150720
+    bytes_per_token: 10569646080
+  - operator: rmsnorm
+    flops_per_token: 4300800
+    bytes_per_token: 1720320
+modalities:
+  - text
+  - vision
 weight_format: bf16
 hf_url: https://huggingface.co/moonshotai/Kimi-K2.6

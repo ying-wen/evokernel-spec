@@ -1,7 +1,7 @@
 id: qwen3.6-plus
 name: Qwen3.6 Plus
 lab: alibaba
-release_date: '2026-03-25'
+release_date: 2026-03-25
 license: Apache-2.0
 architecture:
   family: moe
@@ -19,6 +19,22 @@ architecture:
     num_experts: 128
     top_k: 8
     expert_hidden_size: 2048
+    shared_experts: 0
   attention_type: gqa
-modalities: [text, vision]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 38654705664
+    bytes_per_token: 38654705664
+  - operator: attention
+    flops_per_token: 12884901888
+    bytes_per_token: 20132659200
+  - operator: moe-gate
+    flops_per_token: 50331648
+    bytes_per_token: 12884901888
+  - operator: rmsnorm
+    flops_per_token: 3932160
+    bytes_per_token: 1572864
+modalities:
+  - text
+  - vision
 weight_format: bf16

@@ -1,0 +1,37 @@
+id: case-qwen36plus-mlu590x8-001
+title: Qwen3.6 Plus on 8× Cambricon MLU590 with LMDeploy
+submitted_at: '2026-04-22'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: mlu590, count: 8, topology: 'single-node X8' }
+  server: { id: cambricon-x8-server }
+  interconnect: { intra_node: 'mlu-link-v2', inter_node: 'none' }
+  model: { id: qwen3.6-plus, weight_format: bf16 }
+  engine: { id: lmdeploy, version: '0.6.0' }
+  quantization: int8
+  parallel: { tp: 8, pp: 1, ep: 4, sp: 1, disaggregated: false }
+  driver: 'Neuware 3.5'
+  os: 'KylinOS 10'
+scenario: { prefill_seq_len: 2048, decode_seq_len: 512, batch_size: 16, max_concurrent_requests: 64 }
+results:
+  throughput_tokens_per_sec: { decode: 380, prefill: 5800 }
+  latency_ms: { ttft_p50: 580, ttft_p99: 920, tbt_p50: 92, tbt_p99: 156 }
+  memory_per_card_gb: 48
+  power_per_card_w: 310
+  utilization: { compute_pct: 26, memory_bw_pct: 58 }
+bottleneck: software
+reproduction:
+  startup_command: 'lmdeploy serve api_server Qwen/Qwen3.6-Plus --tp 8 --backend mlu --quantization int8'
+  benchmark_tool: 'lmdeploy bench'
+issues_encountered:
+  - 'INT8 calibration 用了 1024 sample, BLEU 比 BF16 略降 (~0.3)'
+patterns: [memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-qwen36-mlu590-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://github.com/InternLM/lmdeploy
+    accessed: '2026-04-28'
+    citation: 'LMDeploy community Cambricon backend benchmark'
+    contributor_attestation: 'Numbers extracted from LMDeploy MLU community port testing; not independently re-run.'

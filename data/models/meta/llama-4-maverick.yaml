@@ -1,7 +1,7 @@
 id: llama-4-maverick
 name: Llama 4 Maverick
 lab: meta
-release_date: '2025-04-05'
+release_date: 2025-04-05
 license: Llama-4-Community
 architecture:
   family: moe
@@ -19,6 +19,23 @@ architecture:
     num_experts: 128
     top_k: 1
     expert_hidden_size: 8192
+    shared_experts: 0
   attention_type: gqa
-modalities: [text, vision, video]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 24159191040
+    bytes_per_token: 24159191040
+  - operator: attention
+    flops_per_token: 7046430720
+    bytes_per_token: 10871635968
+  - operator: moe-gate
+    flops_per_token: 31457280
+    bytes_per_token: 4026531840
+  - operator: rmsnorm
+    flops_per_token: 2457600
+    bytes_per_token: 983040
+modalities:
+  - text
+  - vision
+  - video
 weight_format: bf16

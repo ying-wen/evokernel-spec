@@ -1,7 +1,7 @@
 id: mistral-small-4
 name: Mistral Small 4
 lab: mistral
-release_date: '2026-03-16'
+release_date: 2026-03-16
 license: Apache-2.0
 architecture:
   family: moe
@@ -19,6 +19,21 @@ architecture:
     num_experts: 8
     top_k: 2
     expert_hidden_size: 14336
+    shared_experts: 0
   attention_type: gqa
-modalities: [text]
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 17616076800
+    bytes_per_token: 17616076800
+  - operator: attention
+    flops_per_token: 5872025600
+    bytes_per_token: 9227468800
+  - operator: moe-gate
+    flops_per_token: 1638400
+    bytes_per_token: 11744051200
+  - operator: rmsnorm
+    flops_per_token: 2048000
+    bytes_per_token: 819200
+modalities:
+  - text
 weight_format: bf16

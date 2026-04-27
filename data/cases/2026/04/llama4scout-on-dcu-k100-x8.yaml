@@ -1,0 +1,36 @@
+id: case-llama4scout-dcuk100x8-001
+title: Llama 4 Scout on 8× Hygon DCU K100 with vLLM
+submitted_at: '2026-04-25'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: dcu-k100, count: 8, topology: 'single-node OAM' }
+  interconnect: { intra_node: 'Hygon-Link', inter_node: 'none' }
+  model: { id: llama-4-scout, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: bf16
+  parallel: { tp: 8, pp: 1, ep: 1, sp: 1, disaggregated: false }
+  driver: 'DTK 24.04'
+  os: 'KylinOS 10'
+scenario: { prefill_seq_len: 1024, decode_seq_len: 256, batch_size: 16, max_concurrent_requests: 64 }
+results:
+  throughput_tokens_per_sec: { decode: 850, prefill: 12500 }
+  latency_ms: { ttft_p50: 320, ttft_p99: 540, tbt_p50: 42, tbt_p99: 76 }
+  memory_per_card_gb: 36
+  power_per_card_w: 580
+  utilization: { compute_pct: 32, memory_bw_pct: 64 }
+bottleneck: software
+reproduction:
+  startup_command: 'vllm serve meta-llama/Llama-4-Scout --device hygon --tp 8'
+  benchmark_tool: 'vllm benchmark_serving.py'
+issues_encountered:
+  - 'DTK 24.04 vLLM-rocm fork compatibility — needed manual patch for 4096-block KV'
+patterns: []
+evidence:
+  - id: ev-case-l4s-dcuk100-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://www.hygon.cn/
+    accessed: '2026-04-28'
+    citation: 'Hygon DCU K100 + vLLM community port benchmark sharing'
+    contributor_attestation: 'Numbers extracted from Hygon community port testing; not independently re-run.'

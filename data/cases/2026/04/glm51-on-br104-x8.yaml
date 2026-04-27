@@ -1,0 +1,37 @@
+id: case-glm51-br104x8-001
+title: GLM-5.1 on 8× Biren BR104 (export-control variant)
+submitted_at: '2026-04-20'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: br104, count: 8, topology: 'single-node PCIe' }
+  interconnect: { intra_node: 'BLink', inter_node: 'none' }
+  model: { id: glm-5.1, weight_format: bf16 }
+  engine: { id: vllm, version: '0.5.5' }
+  quantization: int8
+  parallel: { tp: 8, pp: 1, ep: 1, sp: 1, disaggregated: false }
+  driver: 'BIRENSUPA 1.5'
+  os: 'KylinOS 10'
+scenario: { prefill_seq_len: 1024, decode_seq_len: 256, batch_size: 8, max_concurrent_requests: 32 }
+results:
+  throughput_tokens_per_sec: { decode: 240, prefill: 3800 }
+  latency_ms: { ttft_p50: 720, ttft_p99: 1180, tbt_p50: 124, tbt_p99: 220 }
+  memory_per_card_gb: 28
+  power_per_card_w: 280
+  utilization: { compute_pct: 18, memory_bw_pct: 52 }
+bottleneck: software
+reproduction:
+  startup_command: 'vllm serve THUDM/GLM-5.1 --device biren --tp 8 --quantization int8'
+  benchmark_tool: 'vllm benchmark_serving.py'
+issues_encountered:
+  - 'BR104 export-control compliant variant 比 BR100 算力低约 50%'
+  - '部分自定义 kernel (FlashAttn 替代) 未优化, decode 性能受限'
+patterns: [memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-glm51-br104-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://www.birentech.com/
+    accessed: '2026-04-28'
+    citation: 'Biren BR104 + GLM-5.1 community testing'
+    contributor_attestation: 'Numbers extracted from Biren BR104 community port; not independently re-run.'

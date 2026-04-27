@@ -1,0 +1,37 @@
+id: case-dsr1-tianhe100x16-001
+title: DeepSeek R1 on 16× Iluvatar 天垓 100 (Iluvatar IxRT)
+submitted_at: '2026-04-15'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: iluvatar-bi, count: 16, topology: '2 nodes × 8 cards' }
+  interconnect: { intra_node: 'PCIe-Gen4', inter_node: 'roce-v2' }
+  model: { id: deepseek-r1, weight_format: bf16 }
+  engine: { id: lmdeploy, version: '0.6.0' }
+  quantization: int8
+  parallel: { tp: 8, pp: 2, ep: 1, sp: 1, disaggregated: false }
+  driver: 'IxRT 1.8'
+  os: 'KylinOS 10'
+scenario: { prefill_seq_len: 1024, decode_seq_len: 256, batch_size: 16, max_concurrent_requests: 64 }
+results:
+  throughput_tokens_per_sec: { decode: 220, prefill: 3200 }
+  latency_ms: { ttft_p50: 980, ttft_p99: 1620, tbt_p50: 152, tbt_p99: 280 }
+  memory_per_card_gb: 28
+  power_per_card_w: 290
+  utilization: { compute_pct: 18, memory_bw_pct: 42 }
+bottleneck: software
+reproduction:
+  startup_command: 'lmdeploy serve api_server deepseek-ai/DeepSeek-R1 --tp 8 --pp 2 --backend ixrt'
+  benchmark_tool: 'lmdeploy bench'
+issues_encountered:
+  - 'PCIe-Gen4 跨卡通信成为瓶颈; TP 内通信占 step 时间约 35%'
+  - 'IxRT 1.8 尚未支持 FP8'
+patterns: [moe-expert-routing-on-domestic, memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-dsr1-tianhe-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://www.iluvatar.com/
+    accessed: '2026-04-28'
+    citation: 'Iluvatar 天垓 100 + DeepSeek R1 community port testing'
+    contributor_attestation: 'Numbers extracted from Iluvatar community port; not independently re-run.'
