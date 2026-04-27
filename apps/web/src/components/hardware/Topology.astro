@@ -1,0 +1,122 @@
+---
+import type { Hardware } from '@evokernel/schemas';
+
+interface Props { hw: Hardware; }
+const { hw } = Astro.props;
+
+const cardCount = hw.scale_up.world_size;
+const protocol = hw.scale_up.protocol;
+const sw = hw.scale_up.switch ?? null;
+const scaleUpBw = hw.scale_up.bandwidth_gbps;
+const scaleOutBw = hw.scale_out.bandwidth_gbps_per_card;
+
+// Layout mode: single, 8-card, super-pod (>16)
+const mode: 'single' | 'eight' | 'pod' | 'super-pod' =
+  cardCount === 1 ? 'single' :
+  cardCount <= 8 ? 'eight' :
+  cardCount <= 64 ? 'pod' : 'super-pod';
+
+const accent = 'var(--color-accent)';
+const china = 'var(--color-china)';
+const muted = 'var(--color-text-muted)';
+const surface = 'var(--color-surface-raised)';
+const border = 'var(--color-border)';
+---
+<div class="rounded-lg border p-6" style={`background: ${surface}; border-color: ${border};`}>
+  <div class="text-xs font-semibold mb-3" style={`color: ${muted};`}>
+    SCALE-UP 拓扑 · world_size = {cardCount} · {protocol} @ {scaleUpBw} GB/s
+  </div>
+
+  {mode === 'single' && (
+    <svg viewBox="0 0 400 200" class="w-full max-w-md mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} 单卡拓扑`}>
+      <rect x="160" y="60" width="80" height="80" rx="8" fill="var(--color-accent-soft)" stroke={accent} stroke-width="2"/>
+      <text x="200" y="100" text-anchor="middle" font-size="11" font-weight="600" fill={accent}>{hw.name.split(' ').slice(-1)[0]}</text>
+      <text x="200" y="118" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">{hw.memory.capacity_gb?.value ?? '?'} GB</text>
+      <text x="200" y="170" text-anchor="middle" font-size="10" fill="var(--color-text-muted)">单卡 · {hw.form_factor.toUpperCase()}</text>
+    </svg>
+  )}
+
+  {mode === 'eight' && (
+    <svg viewBox="0 0 600 320" class="w-full max-w-2xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} ${cardCount}-card scale-up domain`}>
+      <!-- switch -->
+      <rect x="240" y="140" width="120" height="40" rx="6" fill="var(--color-accent-soft)" stroke={accent} stroke-width="1.5"/>
+      <text x="300" y="158" text-anchor="middle" font-size="11" font-weight="600" fill={accent}>{sw ?? protocol}</text>
+      <text x="300" y="172" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">{scaleUpBw} GB/s</text>
+      <!-- 8 cards in 2 rows -->
+      {Array.from({ length: cardCount }).map((_, i) => {
+        const row = Math.floor(i / 4);
+        const col = i % 4;
+        const x = 60 + col * 120;
+        const y = row === 0 ? 30 : 240;
+        const cy = row === 0 ? y + 30 : y;
+        return (
+          <>
+            <rect x={x} y={y} width="80" height="40" rx="4" fill={surface} stroke={accent} stroke-width="1.5"/>
+            <text x={x + 40} y={y + 24} text-anchor="middle" font-size="10" font-weight="600" fill="var(--color-text)">GPU {i}</text>
+            <line x1={x + 40} y1={cy} x2="300" y2={row === 0 ? 140 : 180} stroke={accent} stroke-opacity="0.45" stroke-width="1"/>
+          </>
+        );
+      })}
+    </svg>
+  )}
+
+  {mode === 'pod' && (
+    <svg viewBox="0 0 600 280" class="w-full max-w-2xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} pod scale-up`}>
+      <!-- multiple nodes -->
+      {Array.from({ length: Math.ceil(cardCount / 8) }).map((_, n) => {
+        const x = 30 + (n % 4) * 140;
+        const y = 30 + Math.floor(n / 4) * 130;
+        return (
+          <>
+            <rect x={x} y={y} width="120" height="100" rx="6" fill="var(--color-accent-soft)" stroke={accent} stroke-width="1.5" stroke-opacity="0.6"/>
+            <text x={x + 60} y={y + 18} text-anchor="middle" font-size="10" font-weight="600" fill={accent}>Node {n + 1}</text>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <rect x={x + 8 + (i % 4) * 28} y={y + 30 + Math.floor(i / 4) * 30} width="24" height="22" rx="2" fill={surface} stroke={accent} stroke-width="0.5"/>
+            ))}
+          </>
+        );
+      })}
+      <text x="300" y="260" text-anchor="middle" font-size="10" fill="var(--color-text-muted)">
+        Pod 级 · {Math.ceil(cardCount / 8)} 节点 × 8 卡 = {cardCount} 卡 · 节点间 {scaleOutBw} Gbps
+      </text>
+    </svg>
+  )}
+
+  {mode === 'super-pod' && (
+    <svg viewBox="0 0 600 380" class="w-full max-w-3xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} super-pod scale-up`}>
+      <!-- super-pod ring with N cards represented as small dots -->
+      <circle cx="300" cy="180" r="140" fill="none" stroke={china} stroke-width="2" stroke-dasharray="4 3" stroke-opacity="0.6"/>
+      <rect x="240" y="155" width="120" height="50" rx="8" fill={`color-mix(in oklch, ${china} 18%, var(--color-bg))`} stroke={china} stroke-width="1.5"/>
+      <text x="300" y="178" text-anchor="middle" font-size="11" font-weight="600" fill={china}>{protocol} fabric</text>
+      <text x="300" y="194" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">{cardCount} 卡 scale-up domain</text>
+      {Array.from({ length: Math.min(cardCount, 24) }).map((_, i) => {
+        const angle = (i / Math.min(cardCount, 24)) * Math.PI * 2 - Math.PI / 2;
+        const r = 140;
+        const cx = 300 + Math.cos(angle) * r;
+        const cy = 180 + Math.sin(angle) * r;
+        return (
+          <circle cx={cx} cy={cy} r="6" fill={`color-mix(in oklch, ${china} 25%, var(--color-bg))`} stroke={china} stroke-width="1"/>
+        );
+      })}
+      <text x="300" y="350" text-anchor="middle" font-size="11" fill="var(--color-text-muted)">
+        Super-pod (rack-scale) · {cardCount} cards · {scaleUpBw} GB/s/link
+      </text>
+      {cardCount > 24 && (
+        <text x="300" y="368" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">(显示 24 张代表节点; 实际 {cardCount})</text>
+      )}
+    </svg>
+  )}
+
+  <div class="grid grid-cols-2 gap-4 mt-4 text-xs" style={`color: ${muted};`}>
+    <div>
+      <div class="font-semibold mb-1" style="color: var(--color-text);">Scale-Up</div>
+      <div>{protocol}</div>
+      <div>{scaleUpBw} GB/s · 拓扑: {hw.scale_up.topology}</div>
+    </div>
+    <div>
+      <div class="font-semibold mb-1" style="color: var(--color-text);">Scale-Out</div>
+      <div>{hw.scale_out.protocol}</div>
+      <div>{scaleOutBw} Gbps/卡</div>
+    </div>
+  </div>
+</div>

@@ -6,13 +6,15 @@ import SpecRow from '~/components/ui/SpecRow.astro';
 import TierChip from '~/components/ui/TierChip.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { getCases } from '~/lib/data';
+import CaseChart from '~/components/case/CaseChart.tsx';
 
 export async function getStaticPaths() {
   const cases = await getCases();
-  return cases.map((c) => ({ params: { slug: c.id }, props: { c } }));
+  return cases.map((c) => ({ params: { slug: c.id }, props: { c, allCases: cases } }));
 }
 
-const { c } = Astro.props;
+const { c, allCases } = Astro.props;
+const related = allCases.filter((x) => x.stack.model.id === c.stack.model.id);
 const r = c.results;
 const u = r.utilization;
 const others = Math.max(0, 100 - u.compute_pct - u.memory_bw_pct);
@@ -64,6 +66,13 @@ const others = Math.max(0, 100 - u.compute_pct - u.memory_bw_pct);
         <KpiCard label="Compute" sublabel="util %"><span style="font-size: 1.5rem;">{u.compute_pct}</span></KpiCard>
         <KpiCard label="Memory BW" sublabel="util %"><span style="font-size: 1.5rem;">{u.memory_bw_pct}</span></KpiCard>
       </div>
+
+      {related.length > 1 && (
+        <div class="mb-6">
+          <h4 class="text-sm font-semibold mb-2">同模型横向对比</h4>
+          <CaseChart current={c} related={related} client:visible />
+        </div>
+      )}
 
       <h4 class="text-sm font-semibold mb-2">瓶颈分析 — <span style="color: var(--color-accent);">{c.bottleneck}</span></h4>
       <div class="flex h-8 rounded overflow-hidden" style="background: var(--color-surface);">

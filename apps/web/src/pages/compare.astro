@@ -1,0 +1,27 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import CompareTool from '~/components/hardware/CompareTool.tsx';
+import { getResolvedHardware } from '~/lib/data';
+
+const hardware = await getResolvedHardware();
+const lite = hardware.map((h) => ({
+  ...h,
+  vendor: {
+    id: h.vendor.id,
+    name: h.vendor.name,
+    country: h.vendor.country,
+    chinese_names: h.vendor.chinese_names
+  }
+}));
+---
+<BaseLayout title="硬件对比">
+  <Container width="wide">
+    <section class="py-12">
+      <SectionHeader eyebrow="COMPARE" title="硬件对比"
+        subtitle="选最多 5 张卡, 切换雷达图 / 柱状图 / 对比表三种视图" />
+      <CompareTool hardware={lite} client:load />
+    </section>
+  </Container>
+</BaseLayout>

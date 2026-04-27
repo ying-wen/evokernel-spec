@@ -30,25 +30,35 @@ test.describe('Pages render with no console errors', () => {
   }
 });
 
-test.describe('Calculator flow', () => {
+test.describe.serial('Calculator flow', () => {
+  // Helper: wait for calculator hydration (step 1 button must be clickable)
+  async function waitForHydration(page: import('@playwright/test').Page) {
+    // Step 1 buttons exist after hydration; if hydration not done, role=button isn't applied
+    await page.waitForSelector('button[type="button"]', { state: 'visible', timeout: 10000 });
+  }
+
   test('three-step flow yields a result', async ({ page }) => {
     await page.goto('/calculator/');
+    await waitForHydration(page);
     await page.getByRole('button', { name: /Llama 4 Scout/i }).click();
     await page.getByRole('button', { name: /H100 SXM5/i }).click();
     await expect(page.getByRole('heading', { name: /理论上界 \(Tier 1, Roofline\)/i })).toBeVisible();
     await expect(page.getByText(/Decode 吞吐上界/i)).toBeVisible();
-    // Numeric value rendered
     await expect(page.locator('dd.font-mono.text-xl').first()).toBeVisible();
   });
 
   test('pre-selected model via query param', async ({ page }) => {
     await page.goto('/calculator/?model=deepseek-v4-pro');
+    await waitForHydration(page);
+    // Wait for step to advance to 2 (hardware buttons appear)
+    await page.getByRole('button', { name: /H100 SXM5/i }).waitFor({ state: 'visible', timeout: 10000 });
     await page.getByRole('button', { name: /H100 SXM5/i }).first().click();
     await expect(page.getByRole('heading', { name: /理论上界/i })).toBeVisible();
   });
 
   test('memory check warns on undersized config', async ({ page }) => {
     await page.goto('/calculator/');
+    await waitForHydration(page);
     await page.getByRole('button', { name: /Llama 4 Maverick/i }).click();
     await page.getByRole('button', { name: /Inferentia 2/i }).click();
     await expect(page.getByText(/配置不可行|显存不足/i).first()).toBeVisible();

@@ -1,4 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceDot, ResponsiveContainer, Legend
+} from 'recharts';
 import type { Hardware, Model, Case, Engine } from '@evokernel/schemas';
 import { calculate } from '~/lib/calculator';
 import type { Precision } from '~/lib/calculator';
@@ -198,12 +201,13 @@ function ResultPanel({ result, cases }: { result: NonNullable<ReturnType<typeof 
         <p className="text-xs mb-4 p-2 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-estimated) 12%, var(--color-bg))', color: 'var(--color-tier-estimated)' }}>
           ⚠️ 理论上界, 真实场景通常达 40-70% of this. 已应用 efficiency=0.5 的粗略系数。
         </p>
-        <dl className="grid grid-cols-2 gap-3 text-sm">
+        <dl className="grid grid-cols-2 gap-3 text-sm mb-4">
           <div><dt style={{ color: 'var(--color-text-muted)' }}>Decode 吞吐上界</dt><dd className="font-mono text-xl">{r.tier1Roofline.decodeThroughputUpperBound.toFixed(0)} <span className="text-sm opacity-60">tok/s/card</span></dd></div>
           <div><dt style={{ color: 'var(--color-text-muted)' }}>瓶颈</dt><dd className="text-xl">{r.tier1Roofline.isComputeBound ? '计算受限' : '内存带宽受限'}</dd></div>
           <div><dt style={{ color: 'var(--color-text-muted)' }}>算术强度</dt><dd className="font-mono">{r.tier1Roofline.arithmeticIntensity.toFixed(1)} FLOP/byte</dd></div>
           <div><dt style={{ color: 'var(--color-text-muted)' }}>Ridge point</dt><dd className="font-mono">{r.tier1Roofline.ridgePoint.toFixed(1)}</dd></div>
         </dl>
+        <RooflineChart roofline={r.tier1Roofline} />
       </div>
 
       {/* Config check */}
@@ -239,5 +243,40 @@ function ResultPanel({ result, cases }: { result: NonNullable<ReturnType<typeof 
         </pre>
       </details>
     </section>
+  );
+}
+
+function RooflineChart({ roofline }: { roofline: NonNullable<ReturnType<typeof calculate>>['tier1Roofline'] }) {
+  // X axis: arithmetic intensity (FLOP/byte), log-style sample points
+  // Y axis: throughput (TFLOPS effective)
+  const peakCompute = roofline.peakComputeTflops; // TF
+  const peakBw = roofline.peakMemoryBwGbps; // GB/s
+  const ridge = roofline.ridgePoint;
+  if (!peakCompute || !peakBw) return null;
+  const xMin = Math.max(0.1, ridge / 100);
+  const xMax = ridge * 100;
+  const points = 60;
+  const data = Array.from({ length: points }, (_, i) => {
+    const x = xMin * Math.pow(xMax / xMin, i / (points - 1));
+    const memBound = (peakBw * x) / 1000; // GB/s × FLOP/byte → GFLOP/s → divide by 1000 → TFLOP/s
+    const ceiling = Math.min(peakCompute, memBound);
+    return { x: Number(x.toFixed(2)), ceiling: Number(ceiling.toFixed(1)) };
+  });
+  const opPoint = { x: roofline.arithmeticIntensity, y: Math.min(peakCompute, (peakBw * roofline.arithmeticIntensity) / 1000) };
+  return (
+    <div className="mt-2">
+      <div className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>Roofline 图 (横轴: 算术强度 FLOP/byte; 纵轴: 吞吐 TFLOP/s)</div>
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={data} margin={{ left: 0, right: 12, top: 8, bottom: 4 }}>
+          <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+          <XAxis dataKey="x" type="number" scale="log" domain={['dataMin', 'dataMax']} tick={{ fontSize: 10 }} label={{ value: 'FLOP/byte', position: 'insideBottomRight', offset: -2, fontSize: 10 }} />
+          <YAxis type="number" scale="log" domain={['auto', 'auto']} tick={{ fontSize: 10 }} label={{ value: 'TFLOP/s', position: 'insideTopLeft', offset: 8, fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', fontSize: 11 }} />
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+          <Line type="monotone" dataKey="ceiling" name="Roofline 上界" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
+          <ReferenceDot x={opPoint.x} y={opPoint.y} r={5} fill="var(--color-china)" stroke="var(--color-china)" label={{ value: '工作点', fontSize: 10, position: 'top' }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }

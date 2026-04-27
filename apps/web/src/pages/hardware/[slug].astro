@@ -6,6 +6,7 @@ import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
 import { getResolvedHardware, getCases, getEngines, getQuantizations } from '~/lib/data';
+import Topology from '~/components/hardware/Topology.astro';
 
 export async function getStaticPaths() {
   const all = await getResolvedHardware();
@@ -125,6 +126,11 @@ const c = hw.compute;
           </div>
         </div>
       </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">拓扑示意</h3>
+      <Topology hw={hw} />
     </section>
 
     <section class="pb-12">
