@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Case } from '@evokernel/schemas';
+import { toCsv, downloadCsv } from '~/lib/csv';
 
 interface Props { cases: Case[]; }
 
@@ -11,12 +12,14 @@ export default function Leaderboard({ cases }: Props) {
   const [modelFilter, setModelFilter] = useState<string>('');
   const [precisionFilter, setPrecisionFilter] = useState<string>('');
   const [disagg, setDisagg] = useState<'all' | 'yes' | 'no'>('all');
+  const [search, setSearch] = useState<string>('');
 
   const hwOptions = useMemo(() => Array.from(new Set(cases.map((c) => c.stack.hardware.id))).sort(), [cases]);
   const modelOptions = useMemo(() => Array.from(new Set(cases.map((c) => c.stack.model.id))).sort(), [cases]);
   const precisionOptions = useMemo(() => Array.from(new Set(cases.map((c) => c.stack.quantization))).sort(), [cases]);
 
   const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
     return cases
       .filter((c) => !hwFilter || c.stack.hardware.id === hwFilter)
       .filter((c) => !modelFilter || c.stack.model.id === modelFilter)
@@ -24,6 +27,12 @@ export default function Leaderboard({ cases }: Props) {
       .filter((c) =>
         disagg === 'all' ? true : disagg === 'yes' ? c.stack.parallel.disaggregated : !c.stack.parallel.disaggregated
       )
+      .filter((c) => !needle || [
+        c.title, c.id, c.stack.hardware.id, c.stack.model.id,
+        c.stack.engine.id, c.stack.quantization, c.bottleneck,
+        c.submitter.github, c.submitter.affiliation ?? '',
+        ...c.patterns
+      ].join(' ').toLowerCase().includes(needle))
       .slice()
       .sort((a, b) => {
         switch (sort) {
@@ -34,7 +43,7 @@ export default function Leaderboard({ cases }: Props) {
           case 'tbt': return a.results.latency_ms.tbt_p50 - b.results.latency_ms.tbt_p50;
         }
       });
-  }, [cases, sort, hwFilter, modelFilter, precisionFilter, disagg]);
+  }, [cases, sort, hwFilter, modelFilter, precisionFilter, disagg, search]);
 
   const Th = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
     <th className="text-right px-3 py-2 font-medium cursor-pointer select-none"
@@ -47,6 +56,11 @@ export default function Leaderboard({ cases }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center text-sm">
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+               placeholder="搜索 (h100, deepseek, fp8...)"
+               aria-label="搜索案例"
+               className="px-2 py-1 rounded border min-w-[12rem]"
+               style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
         <select aria-label="按硬件筛选" value={hwFilter} onChange={(e) => setHwFilter(e.target.value)}
                 className="px-2 py-1 rounded border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
           <option value="">所有硬件</option>
@@ -74,6 +88,38 @@ export default function Leaderboard({ cases }: Props) {
         <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
           {filtered.length} / {cases.length} 显示
         </span>
+        <button type="button"
+                onClick={() => {
+                  const rows = filtered.map((c) => ({
+                    id: c.id, title: c.title, submitted_at: c.submitted_at,
+                    hardware: c.stack.hardware.id, count: c.stack.hardware.count,
+                    model: c.stack.model.id, engine: c.stack.engine.id, version: c.stack.engine.version,
+                    quantization: c.stack.quantization,
+                    tp: c.stack.parallel.tp, pp: c.stack.parallel.pp, ep: c.stack.parallel.ep,
+                    disaggregated: c.stack.parallel.disaggregated,
+                    decode_tok_s: c.results.throughput_tokens_per_sec.decode,
+                    prefill_tok_s: c.results.throughput_tokens_per_sec.prefill,
+                    ttft_p50_ms: c.results.latency_ms.ttft_p50,
+                    ttft_p99_ms: c.results.latency_ms.ttft_p99,
+                    tbt_p50_ms: c.results.latency_ms.tbt_p50,
+                    tbt_p99_ms: c.results.latency_ms.tbt_p99,
+                    bottleneck: c.bottleneck,
+                    compute_pct: c.results.utilization.compute_pct,
+                    memory_bw_pct: c.results.utilization.memory_bw_pct
+                  }));
+                  const csv = toCsv(rows, [
+                    'id', 'title', 'submitted_at', 'hardware', 'count', 'model', 'engine', 'version',
+                    'quantization', 'tp', 'pp', 'ep', 'disaggregated',
+                    'decode_tok_s', 'prefill_tok_s',
+                    'ttft_p50_ms', 'ttft_p99_ms', 'tbt_p50_ms', 'tbt_p99_ms',
+                    'bottleneck', 'compute_pct', 'memory_bw_pct'
+                  ]);
+                  downloadCsv(`evokernel-cases-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+                }}
+                className="text-xs px-3 py-1 rounded border"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer' }}>
+          ⬇ 导出 CSV
+        </button>
       </div>
 
       <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>

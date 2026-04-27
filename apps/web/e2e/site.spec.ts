@@ -36,6 +36,13 @@ test.describe.serial('Calculator flow', () => {
     // Step 1 buttons exist after hydration; if hydration not done, role=button isn't applied
     await page.waitForSelector('button[type="button"]', { state: 'visible', timeout: 10000 });
   }
+  // Clear persistent state between serial tests so localStorage history doesn't leak.
+  test.beforeEach(async ({ page, context }) => {
+    await context.clearCookies();
+    // Clear localStorage so calculator history from a prior test doesn't bleed in.
+    await page.goto('/');
+    await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch {} });
+  });
 
   test('three-step flow yields a result', async ({ page }) => {
     await page.goto('/calculator/');
@@ -270,6 +277,11 @@ test.describe('Production-readiness extras', () => {
 });
 
 test.describe.serial('Iter-10 features', () => {
+  test.beforeEach(async ({ page, context }) => {
+    await context.clearCookies();
+    await page.goto('/');
+    await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch {} });
+  });
   test('hardware filter sidebar narrows results to China when toggled', async ({ page }) => {
     await page.goto('/hardware/');
     await page.waitForSelector('input[type="search"]', { state: 'visible', timeout: 10000 });
@@ -314,6 +326,11 @@ test.describe.serial('Iter-10 features', () => {
 });
 
 test.describe.serial('Iter-11 features', () => {
+  test.beforeEach(async ({ page, context }) => {
+    await context.clearCookies();
+    await page.goto('/');
+    await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch {} });
+  });
   test('quality dashboard renders', async ({ page }) => {
     await page.goto('/quality/');
     await expect(page.getByRole('heading', { name: /数据质量与覆盖/i })).toBeVisible();

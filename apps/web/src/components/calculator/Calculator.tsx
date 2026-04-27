@@ -7,6 +7,19 @@ import type { Hardware, Model, Case, Engine } from '@evokernel/schemas';
 import { calculate } from '~/lib/calculator';
 import type { Precision } from '~/lib/calculator';
 
+interface HistoryEntry {
+  key: string;
+  ts: number;
+  modelId: string; modelName: string;
+  hwId: string; hwName: string; hwCount: number;
+  precision: Precision;
+  tp: number; pp: number; ep: number;
+  batch: number; prefill: number; decode: number;
+  engineId: string;
+  decodeUpper: number;
+  feasible: boolean;
+}
+
 interface Props {
   models: Model[];
   hardware: Hardware[];
@@ -80,6 +93,17 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
     window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
   }, [modelId, hwId, hwCount, precision, tp, pp, ep, batch, prefill, decode, engineId]);
 
+  // Keep an in-memory copy of the last result so we can persist it to history
+  // exactly when it changes (rather than every keystroke triggering a write).
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('evokernel-calc-history');
+      if (raw) setHistory(JSON.parse(raw) as HistoryEntry[]);
+    } catch { /* ignore parse errors */ }
+  }, []);
+
   const result = useMemo(() => {
     if (!modelId || !hwId) return null;
     const m = models.find((x) => x.id === modelId);
@@ -98,6 +122,47 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
       hardware: h, model: m, cases
     });
   }, [modelId, hwId, hwCount, precision, tp, pp, ep, batch, prefill, decode, engineId, disagg, disaggPrefill, disaggDecode, models, hardware, cases]);
+
+  // Push current config to history (deduped, capped at 8) when result is fresh
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!result || !modelId || !hwId) return;
+    const key = `${modelId}|${hwId}|${hwCount}|${precision}|${tp}|${pp}|${ep}|${batch}|${prefill}|${decode}|${engineId}`;
+    setHistory((prev) => {
+      if (prev[0]?.key === key) return prev; // already top
+      const m = models.find((x) => x.id === modelId);
+      const h = hardware.find((x) => x.id === hwId);
+      const entry: HistoryEntry = {
+        key,
+        ts: Date.now(),
+        modelId, modelName: m?.name ?? modelId,
+        hwId, hwName: h?.name ?? hwId, hwCount,
+        precision, tp, pp, ep, batch, prefill, decode, engineId,
+        decodeUpper: Math.round(result.tier1Roofline.decodeThroughputUpperBound),
+        feasible: result.configCheck.feasible
+      };
+      const filtered = prev.filter((p) => p.key !== key);
+      const next = [entry, ...filtered].slice(0, 8);
+      try { localStorage.setItem('evokernel-calc-history', JSON.stringify(next)); } catch { /* ignore quota */ }
+      return next;
+    });
+  }, [result, modelId, hwId, hwCount, precision, tp, pp, ep, batch, prefill, decode, engineId, models, hardware]);
+
+  const loadFromHistory = (e: HistoryEntry) => {
+    setModelId(e.modelId);
+    setHwId(e.hwId);
+    setHwCount(e.hwCount);
+    setPrecision(e.precision);
+    setTp(e.tp); setPp(e.pp); setEp(e.ep);
+    setBatch(e.batch); setPrefill(e.prefill); setDecode(e.decode);
+    setEngineId(e.engineId);
+    setStep(3);
+  };
+
+  const clearHistory = () => {
+    setHistory([]);
+    try { localStorage.removeItem('evokernel-calc-history'); } catch { /* ignore */ }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[14rem,1fr] gap-8">
@@ -120,6 +185,32 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
             {s.done && <span style={{ color: 'var(--color-tier-measured)', marginLeft: '0.5rem' }}>✓</span>}
           </button>
         ))}
+
+        {history.length > 0 && (
+          <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs uppercase tracking-wide font-semibold" style={{ color: 'var(--color-text-muted)' }}>历史 / History</h4>
+              <button type="button" onClick={clearHistory} className="text-xs underline" style={{ color: 'var(--color-text-muted)', cursor: 'pointer' }}>清空</button>
+            </div>
+            <ul className="space-y-1">
+              {history.map((h) => (
+                <li key={h.key}>
+                  <button type="button" onClick={() => loadFromHistory(h)}
+                          className="w-full text-left px-2 py-1.5 rounded text-xs transition-colors hover:opacity-80"
+                          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', cursor: 'pointer' }}>
+                    <div className="font-medium truncate" style={{ color: 'var(--color-text)' }}>{h.modelName}</div>
+                    <div className="text-[0.65rem] mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                      {h.hwName} ×{h.hwCount} · {h.precision.toUpperCase()} · TP{h.tp}
+                    </div>
+                    <div className="text-[0.65rem] mt-0.5 font-mono" style={{ color: h.feasible ? 'var(--color-tier-measured)' : 'oklch(55% 0.2 25)' }}>
+                      {h.feasible ? `${h.decodeUpper} tok/s` : '不可行'}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </nav>
 
       <div className="space-y-6">

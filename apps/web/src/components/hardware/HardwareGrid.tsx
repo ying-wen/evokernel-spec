@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Hardware, Vendor } from '@evokernel/schemas';
+import { toCsv, downloadCsv } from '~/lib/csv';
 
 type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Pick<Vendor, 'id' | 'name' | 'country' | 'chinese_names'> };
 
@@ -132,6 +133,35 @@ export default function HardwareGrid({ hardware }: Props) {
           <span>{filtered.length} / {hardware.length} 显示</span>
           <button onClick={reset} type="button" className="underline" style={{ color: 'var(--color-accent)' }}>重置</button>
         </div>
+
+        <button type="button"
+                onClick={() => {
+                  const rows = filtered.map((h) => ({
+                    id: h.id, name: h.name, vendor: h.vendor.id, country: h.vendor.country,
+                    form_factor: h.form_factor, status: h.status, release_year: h.release_year,
+                    bf16_tflops: h.compute.bf16_tflops?.value ?? '',
+                    fp8_tflops: h.compute.fp8_tflops?.value ?? '',
+                    fp4_tflops: h.compute.fp4_tflops?.value ?? '',
+                    int8_tops: h.compute.int8_tops?.value ?? '',
+                    memory_gb: h.memory.capacity_gb?.value ?? '',
+                    memory_bw_gbps: h.memory.bandwidth_gbps?.value ?? '',
+                    memory_type: h.memory.type,
+                    scale_up_protocol: h.scale_up.protocol,
+                    scale_up_bw_gbps: h.scale_up.bandwidth_gbps,
+                    scale_up_world_size: h.scale_up.world_size,
+                    scale_out_protocol: h.scale_out.protocol,
+                    scale_out_bw_gbps: h.scale_out.bandwidth_gbps_per_card,
+                    tdp_w: h.power.tdp_w?.value ?? ''
+                  }));
+                  const cols = Object.keys(rows[0] ?? {});
+                  if (cols.length === 0) return;
+                  const csv = toCsv(rows, cols);
+                  downloadCsv(`evokernel-hardware-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+                }}
+                className="text-xs w-full px-3 py-1.5 rounded border mt-2"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer' }}>
+          ⬇ 导出 CSV ({filtered.length})
+        </button>
       </aside>
 
       <div>
