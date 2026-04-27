@@ -1,5 +1,6 @@
 ---
 import Search from './Search.tsx';
+import ThemeToggle from './ThemeToggle.astro';
 
 const links = [
   { href: '/hardware', label: '硬件' },
@@ -30,6 +31,7 @@ const links = [
 
     <div class="flex items-center gap-2">
       <Search client:idle />
+      <ThemeToggle />
       <a href="https://github.com/evokernel/evokernel-spec" class="hidden sm:inline-flex text-xs px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">GitHub</a>
       <button id="menu-toggle" type="button" class="md:hidden px-2 py-1 rounded border text-sm" style="border-color: var(--color-border); color: var(--color-text);" aria-label="打开菜单" aria-expanded="false">
         ≡

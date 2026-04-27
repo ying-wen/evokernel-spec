@@ -184,3 +184,53 @@ test.describe('Entity detail pages', () => {
     await expect(page.getByText(/2\/5 选中/).first()).toBeVisible();
   });
 });
+
+test.describe('JSON API and timeline', () => {
+  test('/api/index.json returns API descriptor', async ({ page }) => {
+    const r = await page.goto('/api/index.json');
+    expect(r?.status()).toBe(200);
+    const body = await r!.json();
+    expect(body.name).toContain('EvoKernel');
+    expect(body.license).toBe('CC-BY-SA-4.0');
+    expect(body.counts.hardware).toBe(28);
+    expect(body.counts.case).toBe(15);
+  });
+
+  test('/api/hardware.json contains all 28 hardware', async ({ page }) => {
+    const r = await page.goto('/api/hardware.json');
+    expect(r?.status()).toBe(200);
+    const body = await r!.json();
+    expect(body.count).toBe(28);
+    expect(body.items.length).toBe(28);
+    expect(body.items.find((x: { id: string }) => x.id === 'h100-sxm5')).toBeTruthy();
+    expect(body.items.find((x: { id: string }) => x.id === 'ascend-910c')).toBeTruthy();
+  });
+
+  test('/api/cases.json includes resolved stack', async ({ page }) => {
+    const r = await page.goto('/api/cases.json');
+    expect(r?.status()).toBe(200);
+    const body = await r!.json();
+    expect(body.count).toBeGreaterThanOrEqual(15);
+    const cm384 = body.items.find((x: { id: string }) => x.id === 'case-dsv4pro-cm384-mindie-001');
+    expect(cm384).toBeTruthy();
+    expect(cm384.resolved.hardware.id).toBe('ascend-910c');
+  });
+
+  test('models timeline renders', async ({ page }) => {
+    await page.goto('/models/');
+    await expect(page.getByText(/模型发布时间线/i)).toBeVisible();
+    // Several model labels should be visible
+    await expect(page.getByText('DeepSeek V4 Pro').first()).toBeVisible();
+    await expect(page.getByText('Kimi K2.6').first()).toBeVisible();
+  });
+
+  test('theme toggle exists and switches html data-theme attribute', async ({ page }) => {
+    await page.goto('/');
+    const btn = page.locator('#theme-toggle');
+    await expect(btn).toBeVisible();
+    const initial = await page.evaluate(() => document.documentElement.dataset.theme);
+    await btn.click();
+    const after = await page.evaluate(() => document.documentElement.dataset.theme);
+    expect(after).not.toBe(initial);
+  });
+});

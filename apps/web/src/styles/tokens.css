@@ -50,5 +50,21 @@
   --ease-in-out-quad: cubic-bezier(0.45, 0, 0.55, 1);
 }
 
-/* Dark mode disabled in V1 to guarantee WCAG AA contrast.
- * Re-enable once both palettes pass axe with explicit color-scheme negotiation. */
+/* Opt-in dark theme — applied via [data-theme="dark"] toggle, NOT prefers-color-scheme,
+ * to guarantee a11y default and keep dark as a deliberate user choice. */
+html[data-theme='dark'] {
+  --color-bg: oklch(15% 0.012 260);
+  --color-surface: oklch(19% 0.012 260);
+  --color-surface-raised: oklch(23% 0.012 260);
+  --color-text: oklch(96% 0.005 250);
+  /* slightly lighter muted to clear AA on dark bg (>= 4.5:1 vs surface-raised) */
+  --color-text-muted: oklch(78% 0.012 260);
+  --color-border: oklch(30% 0.012 260);
+  --color-accent: oklch(75% 0.16 255);
+  --color-accent-soft: oklch(28% 0.06 255);
+  --color-china: oklch(75% 0.18 25);
+  --color-china-soft: oklch(28% 0.06 25);
+  --color-tier-official: oklch(72% 0.012 260);
+  --color-tier-measured: oklch(72% 0.16 145);
+  --color-tier-estimated: oklch(80% 0.16 80);
+}

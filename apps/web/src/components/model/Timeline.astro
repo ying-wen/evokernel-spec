@@ -1,0 +1,92 @@
+---
+import type { Model } from '@evokernel/schemas';
+
+interface Props { models: Model[]; }
+const { models } = Astro.props;
+
+// Group models by year-month (YYYY-MM) and sort by date asc
+const sorted = [...models].sort((a, b) => a.release_date.localeCompare(b.release_date));
+const earliest = sorted[0]?.release_date ?? '2025-01-01';
+const latest = sorted[sorted.length - 1]?.release_date ?? '2026-04-01';
+
+// Compute relative position [0..1] of each model on the timeline
+function dayDiff(a: string, b: string): number {
+  return (new Date(b).getTime() - new Date(a).getTime()) / 86400000;
+}
+const totalDays = Math.max(1, dayDiff(earliest, latest));
+
+// Lay out: stagger vertically when models cluster within 14 days
+type Lane = { used: number; items: Array<Model & { x: number; y: number }>; };
+const lanes: Lane[] = [{ used: -Infinity, items: [] }];
+const placed = sorted.map((m) => {
+  const x = dayDiff(earliest, m.release_date) / totalDays;
+  let lane = lanes.find((l) => x - l.used > 0.06);
+  if (!lane) { lane = { used: -Infinity, items: [] }; lanes.push(lane); }
+  lane.used = x;
+  const laneIndex = lanes.indexOf(lane);
+  return { ...m, x, y: laneIndex };
+});
+const maxLane = lanes.length;
+const heightRem = Math.max(8, maxLane * 2.5 + 4);
+
+// Lab color mapping
+const labColor = (lab: string): string => {
+  const map: Record<string, string> = {
+    deepseek: 'oklch(50% 0.2 280)',
+    moonshot: 'oklch(50% 0.2 25)',
+    zhipu: 'oklch(50% 0.2 145)',
+    alibaba: 'oklch(50% 0.2 80)',
+    minimax: 'oklch(50% 0.18 200)',
+    meta: 'oklch(50% 0.18 240)',
+    mistral: 'oklch(50% 0.18 320)',
+    google: 'oklch(50% 0.18 60)',
+    openai: 'oklch(50% 0.18 165)'
+  };
+  return map[lab] ?? 'oklch(50% 0.1 260)';
+};
+
+// X-axis tick months between earliest and latest
+const ticks: Array<{ x: number; label: string }> = [];
+const start = new Date(earliest);
+const end = new Date(latest);
+const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+while (cur <= end) {
+  const x = dayDiff(earliest, cur.toISOString().slice(0, 10)) / totalDays;
+  if (x >= 0 && x <= 1) {
+    ticks.push({ x, label: `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}` });
+  }
+  cur.setMonth(cur.getMonth() + 1);
+}
+---
+<div class="rounded-lg border p-4 overflow-x-auto" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+  <div class="text-xs mb-3" style="color: var(--color-text-muted);">
+    模型发布时间线 — {earliest.slice(0, 7)} 至 {latest.slice(0, 7)} · {sorted.length} 个 frontier 模型 · 颜色 = 实验室
+  </div>
+  <div class="relative" style={`min-width: 56rem; height: ${heightRem}rem;`}>
+    <!-- Axis line -->
+    <div class="absolute left-0 right-0" style="bottom: 1.25rem; height: 1px; background: var(--color-border);"></div>
+    <!-- Ticks -->
+    {ticks.map((t) => (
+      <div class="absolute" style={`left: ${t.x * 100}%; bottom: 0; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.65rem; color: var(--color-text-muted);`}>
+        <div style="height: 0.5rem; width: 1px; background: var(--color-border); margin: 0 auto;"></div>
+        <div style="margin-top: 0.25rem;">{t.label}</div>
+      </div>
+    ))}
+    <!-- Model dots + labels -->
+    {placed.map((p) => {
+      const yPx = `calc(${p.y * 2.5}rem + 0.5rem)`;
+      return (
+        <a href={`/models/${p.id}/`}
+           class="absolute group"
+           style={`left: ${p.x * 100}%; top: ${yPx}; transform: translateX(-50%);`}>
+          <div class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full inline-block flex-shrink-0" style={`background: ${labColor(p.lab)};`} aria-hidden="true"></span>
+            <span class="text-xs font-medium whitespace-nowrap transition-colors hover:underline" style={`color: ${labColor(p.lab)};`}>
+              {p.name}
+            </span>
+          </div>
+        </a>
+      );
+    })}
+  </div>
+</div>

@@ -4,13 +4,19 @@ import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { getModels } from '~/lib/data';
+import Timeline from '~/components/model/Timeline.astro';
 
 const models = (await getModels()).sort((a, b) => b.release_date.localeCompare(a.release_date));
 ---
 <BaseLayout title="模型目录">
   <Container>
     <section class="py-12">
-      <SectionHeader eyebrow="MODELS" title="模型目录" subtitle={`${models.length} 个 frontier 开源模型 · 含算子拆解`} />
+      <SectionHeader eyebrow="MODELS" title="模型目录" subtitle={`${models.length} 个 frontier 开源模型 · 含算子拆解 · 发布时间线`} />
+
+      <div class="mt-8 mb-12">
+        <Timeline models={models} />
+      </div>
+
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
         {models.map((m) => (
           <a href={`/models/${m.id}`} class="block">
