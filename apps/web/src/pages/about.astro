@@ -42,6 +42,17 @@ import Container from '~/components/ui/Container.astro';
       </ol>
       <p class="mt-3"><a href="https://github.com/evokernel/evokernel-spec" class="underline" style="color: var(--color-accent);">GitHub 仓库 →</a></p>
 
+      <h2 class="text-xl font-semibold mt-12 mb-3">开放数据 API</h2>
+      <p>所有数据通过静态 JSON API 暴露 (CC-BY-SA 4.0):</p>
+      <ul class="space-y-2 mt-3 list-disc pl-6 text-sm">
+        <li><a href="/api/index.json" class="underline" style="color: var(--color-accent);">/api/index.json</a> — API 描述符 + 各实体计数</li>
+        <li><a href="/api/hardware.json" class="underline" style="color: var(--color-accent);">/api/hardware.json</a> — 全部硬件 (含 vendor 内联)</li>
+        <li><a href="/api/models.json" class="underline" style="color: var(--color-accent);">/api/models.json</a> — 全部模型</li>
+        <li><a href="/api/cases.json" class="underline" style="color: var(--color-accent);">/api/cases.json</a> — 全部案例 (含 stack 解析)</li>
+        <li><a href="/api/openapi.json" class="underline" style="color: var(--color-accent);">/api/openapi.json</a> — OpenAPI 3.1 spec</li>
+        <li><a href="/cases.xml" class="underline" style="color: var(--color-accent);">/cases.xml</a> — RSS 案例订阅</li>
+      </ul>
+
       <h2 class="text-xl font-semibold mt-12 mb-3">致谢</h2>
       <p style="color: var(--color-text-muted);">本项目灵感来自 SemiAnalysis 的 InferenceX, 但视角更聚焦在国产硬件生态和透明引证。</p>
     </section>

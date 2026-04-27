@@ -4,6 +4,7 @@ import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { getResolvedHardware } from '~/lib/data';
+import HwTimeline from '~/components/hardware/HwTimeline.astro';
 
 const all = await getResolvedHardware();
 const cn = all.filter((h) => h.vendor.country === 'CN').sort((a, b) => b.release_year - a.release_year);
@@ -18,6 +19,10 @@ function fmtBw(bw: number | undefined): string {
   <Container>
     <section class="py-12">
       <SectionHeader eyebrow="HARDWARE" title="硬件目录" subtitle={`${all.length} 张加速卡 · ${cn.length} 张国产 · 数据均带 evidence 标签`} />
+
+      <div class="mt-8 mb-12">
+        <HwTimeline hardware={all} />
+      </div>
 
       <h3 class="text-xl font-semibold mt-12 mb-4" style="color: var(--color-china);">国产 ({cn.length})</h3>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">

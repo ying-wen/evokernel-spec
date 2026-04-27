@@ -1,0 +1,64 @@
+---
+import type { Hardware, Vendor } from '@evokernel/schemas';
+
+type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Vendor };
+
+interface Props { hardware: ResolvedHw[]; }
+const { hardware } = Astro.props;
+
+const sorted = [...hardware].sort((a, b) => a.release_year - b.release_year);
+const yearMin = sorted[0]?.release_year ?? 2022;
+const yearMax = sorted[sorted.length - 1]?.release_year ?? 2026;
+const span = Math.max(1, yearMax - yearMin);
+const years = Array.from({ length: span + 1 }, (_, i) => yearMin + i);
+
+// Lay out: bucket by year, then stagger within bucket
+type Lane = Array<ResolvedHw & { x: number; y: number }>;
+const byYear = new Map<number, ResolvedHw[]>();
+for (const h of sorted) {
+  const arr = byYear.get(h.release_year) ?? [];
+  arr.push(h);
+  byYear.set(h.release_year, arr);
+}
+const placed: Lane = [];
+for (const [year, items] of byYear) {
+  items.forEach((h, i) => {
+    const x = (year - yearMin) / span;
+    placed.push({ ...h, x, y: i });
+  });
+}
+const maxLane = Math.max(0, ...placed.map((p) => p.y)) + 1;
+const heightRem = Math.max(8, maxLane * 1.8 + 4);
+
+const vendorColor = (country: string) => country === 'CN' ? 'var(--color-china)' : 'var(--color-accent)';
+---
+<div class="rounded-lg border p-4 overflow-x-auto" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+  <div class="text-xs mb-3" style="color: var(--color-text-muted);">
+    硬件发布时间线 — {yearMin}–{yearMax} · {hardware.length} 张卡 · 红色 = 国产
+  </div>
+  <div class="relative" style={`min-width: 56rem; height: ${heightRem}rem;`}>
+    <div class="absolute left-0 right-0" style="bottom: 1.25rem; height: 1px; background: var(--color-border);"></div>
+    {years.map((y) => {
+      const x = (y - yearMin) / span;
+      return (
+        <div class="absolute" style={`left: ${x * 100}%; bottom: 0; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.65rem; color: var(--color-text-muted);`}>
+          <div style="height: 0.5rem; width: 1px; background: var(--color-border); margin: 0 auto;"></div>
+          <div style="margin-top: 0.25rem;">{y}</div>
+        </div>
+      );
+    })}
+    {placed.map((p) => {
+      const yPx = `calc(${p.y * 1.8}rem + 0.5rem)`;
+      return (
+        <a href={`/hardware/${p.id}/`}
+           class="absolute group transition-transform hover:scale-105"
+           style={`left: ${p.x * 100}%; top: ${yPx}; transform: translateX(-50%);`}>
+          <div class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full inline-block flex-shrink-0" style={`background: ${vendorColor(p.vendor.country)};`} aria-hidden="true"></span>
+            <span class="text-xs whitespace-nowrap font-medium hover:underline" style={`color: ${vendorColor(p.vendor.country)};`}>{p.name}</span>
+          </div>
+        </a>
+      );
+    })}
+  </div>
+</div>

@@ -234,3 +234,34 @@ test.describe('JSON API and timeline', () => {
     expect(after).not.toBe(initial);
   });
 });
+
+test.describe('Production-readiness extras', () => {
+  test('OpenAPI spec is valid 3.1', async ({ page }) => {
+    const r = await page.goto('/api/openapi.json');
+    expect(r?.status()).toBe(200);
+    const spec = await r!.json();
+    expect(spec.openapi).toBe('3.1.0');
+    expect(spec.info.title).toContain('EvoKernel');
+    expect(spec.paths['/api/hardware.json']).toBeTruthy();
+    expect(spec.components.schemas.Hardware).toBeTruthy();
+  });
+
+  test('hardware index includes release timeline', async ({ page }) => {
+    await page.goto('/hardware/');
+    await expect(page.getByText(/硬件发布时间线/i)).toBeVisible();
+  });
+
+  test('robots.txt advertises sitemap', async ({ page }) => {
+    const r = await page.goto('/robots.txt');
+    expect(r?.status()).toBe(200);
+    const body = await r!.text();
+    expect(body).toContain('Sitemap:');
+    expect(body).toContain('sitemap-index.xml');
+  });
+
+  test('sitemap-index.xml exists', async ({ page }) => {
+    const r = await page.goto('/sitemap-index.xml');
+    expect(r?.status()).toBe(200);
+    expect(r?.headers()['content-type']).toMatch(/xml/);
+  });
+});
