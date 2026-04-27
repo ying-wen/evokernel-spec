@@ -1,0 +1,114 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getVendors, getHardware, getModels, getCases, getServers } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const vendors = await getVendors();
+  return vendors.map((v) => ({ params: { slug: v.id }, props: { vendor: v } }));
+}
+
+const { vendor } = Astro.props;
+const hardware = (await getHardware()).filter((h) => h.vendor === vendor.id).sort((a, b) => b.release_year - a.release_year);
+const models = (await getModels()).filter((m) => m.lab === vendor.id).sort((a, b) => b.release_date.localeCompare(a.release_date));
+const servers = (await getServers()).filter((s) => s.vendor === vendor.id);
+const allCases = await getCases();
+const cases = allCases.filter((c) => hardware.some((h) => h.id === c.stack.hardware.id) || models.some((m) => m.id === c.stack.model.id));
+const isCN = vendor.country === 'CN';
+---
+<BaseLayout title={vendor.name}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href="/vendors/" class="text-sm" style="color: var(--color-text-muted);">← 厂商目录</a>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">
+        {vendor.name}
+      </h1>
+      {vendor.chinese_names[0] && <div class="text-base mt-2" style="color: var(--color-china);">{vendor.chinese_names[0]}</div>}
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <Badge variant={isCN ? 'china' : 'default'}>{vendor.country}</Badge>
+        <Badge>{vendor.type}</Badge>
+        <a href={vendor.website} class="text-xs px-2 py-0.5 rounded border underline" style="border-color: var(--color-border); color: var(--color-accent);" target="_blank" rel="noopener">官网 ↗</a>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {hardware.length > 0 && <KpiCard label="加速卡"><span style="font-size: 1.75rem;">{hardware.length}</span></KpiCard>}
+        {servers.length > 0 && <KpiCard label="服务器/Pod"><span style="font-size: 1.75rem;">{servers.length}</span></KpiCard>}
+        {models.length > 0 && <KpiCard label="模型"><span style="font-size: 1.75rem;">{models.length}</span></KpiCard>}
+        <KpiCard label="部署案例"><span style="font-size: 1.75rem;">{cases.length}</span></KpiCard>
+      </div>
+    </section>
+
+    {hardware.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">加速卡 ({hardware.length})</h3>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {hardware.map((h) => (
+            <a href={`/hardware/${h.id}/`} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
+               style={`border-color: ${isCN ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+              <div class="font-medium">{h.name}</div>
+              <dl class="grid grid-cols-3 gap-2 mt-2 text-xs">
+                <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono">{h.compute.bf16_tflops?.value ?? '—'} TF</dd></div>
+                <div><dt style="color: var(--color-text-muted);">Mem</dt><dd class="font-mono">{h.memory.capacity_gb?.value ?? '—'} GB</dd></div>
+                <div><dt style="color: var(--color-text-muted);">Year</dt><dd class="font-mono">{h.release_year}</dd></div>
+              </dl>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {servers.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">服务器与超节点 ({servers.length})</h3>
+        <div class="grid sm:grid-cols-2 gap-3">
+          {servers.map((s) => (
+            <a href={`/servers/${s.id}/`} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{s.name}</div>
+              <div class="text-xs mt-1" style="color: var(--color-text-muted);">{s.type} · {s.card_count} cards · scale-up {s.scale_up_domain_size}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {models.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">模型 ({models.length})</h3>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {models.map((m) => (
+            <a href={`/models/${m.id}/`} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{m.name}</div>
+              <div class="text-xs mt-1" style="color: var(--color-text-muted);">{m.architecture.total_params_b}B {m.architecture.family.toUpperCase()} · {m.release_date}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">部署案例 ({cases.length})</h3>
+      {cases.length === 0 ? (
+        <p class="text-sm" style="color: var(--color-text-muted);">尚无案例。</p>
+      ) : (
+        <ul class="space-y-2 text-sm">
+          {cases.slice(0, 12).map((c) => (
+            <li>
+              <a href={`/cases/${c.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="font-medium">{c.title}</div>
+                <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
+                  {c.stack.hardware.id} ×{c.stack.hardware.count} · {c.stack.model.id} · {c.results.throughput_tokens_per_sec.decode} tok/s
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  </Container>
+</BaseLayout>

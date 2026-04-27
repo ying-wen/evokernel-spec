@@ -32,9 +32,9 @@ const c = hw.compute;
     <section class="pt-12 pb-6">
       <a href="/hardware" class="text-sm" style="color: var(--color-text-muted);">← 硬件目录</a>
       <header class="mt-4 flex items-center gap-3 mb-4">
-        <span class="text-sm font-medium" style={`color: ${isChina ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
+        <a href={`/vendors/${hw.vendor.id}/`} class="text-sm font-medium underline" style={`color: ${isChina ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
           {isChina ? (hw.vendor.chinese_names[0] ?? hw.vendor.name) : hw.vendor.name}
-        </span>
+        </a>
         {isChina && <Badge variant="china">国产</Badge>}
       </header>
       <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{hw.name}</h1>

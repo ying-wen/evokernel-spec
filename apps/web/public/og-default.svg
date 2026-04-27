@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f9fcff"/>
+      <stop offset="100%" stop-color="#eaf1fa"/>
+    </linearGradient>
+    <linearGradient id="accent-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a4ca0"/>
+      <stop offset="100%" stop-color="#3475d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Decorative grid -->
+  <g stroke="#cbd5e1" stroke-width="1" stroke-opacity="0.4">
+    <line x1="60" y1="0" x2="60" y2="630"/>
+    <line x1="240" y1="0" x2="240" y2="630"/>
+    <line x1="420" y1="0" x2="420" y2="630"/>
+    <line x1="0" y1="200" x2="1200" y2="200"/>
+    <line x1="0" y1="430" x2="1200" y2="430"/>
+  </g>
+
+  <!-- Eyebrow -->
+  <text x="80" y="140" font-family="-apple-system, system-ui, sans-serif" font-size="22" font-weight="600" letter-spacing="6" fill="url(#accent-grad)">EVOKERNEL · SPEC</text>
+
+  <!-- Main heading -->
+  <text x="80" y="240" font-family="-apple-system, system-ui, sans-serif" font-size="72" font-weight="700" fill="#0f1216" letter-spacing="-2">任意模型 → 任意硬件</text>
+  <text x="80" y="320" font-family="-apple-system, system-ui, sans-serif" font-size="48" font-weight="600" fill="url(#accent-grad)" letter-spacing="-1">的可计算知识库</text>
+
+  <!-- Tagline -->
+  <text x="80" y="385" font-family="-apple-system, system-ui, sans-serif" font-size="22" fill="#475569">28 加速卡 · 14+ frontier 模型 · 国产芯片覆盖最全</text>
+
+  <!-- Stats row -->
+  <g transform="translate(80, 470)">
+    <g>
+      <text font-family="-apple-system, system-ui, sans-serif" font-size="48" font-weight="700" fill="#0f1216">28</text>
+      <text y="36" font-family="-apple-system, system-ui, sans-serif" font-size="14" fill="#64748b">加速卡</text>
+    </g>
+    <g transform="translate(180, 0)">
+      <text font-family="-apple-system, system-ui, sans-serif" font-size="48" font-weight="700" fill="#0f1216">9</text>
+      <text y="36" font-family="-apple-system, system-ui, sans-serif" font-size="14" fill="#a82c1d">国产厂商</text>
+    </g>
+    <g transform="translate(360, 0)">
+      <text font-family="-apple-system, system-ui, sans-serif" font-size="48" font-weight="700" fill="#0f1216">14+</text>
+      <text y="36" font-family="-apple-system, system-ui, sans-serif" font-size="14" fill="#64748b">frontier 模型</text>
+    </g>
+    <g transform="translate(560, 0)">
+      <text font-family="-apple-system, system-ui, sans-serif" font-size="48" font-weight="700" fill="#0f1216">Tier 0+1</text>
+      <text y="36" font-family="-apple-system, system-ui, sans-serif" font-size="14" fill="#64748b">透明计算器</text>
+    </g>
+  </g>
+
+  <!-- Atom logo bottom-right -->
+  <g transform="translate(1050, 530)" opacity="0.85">
+    <circle cx="0" cy="0" r="36" fill="none" stroke="url(#accent-grad)" stroke-width="2"/>
+    <ellipse cx="0" cy="0" rx="48" ry="18" fill="none" stroke="url(#accent-grad)" stroke-width="2"/>
+    <ellipse cx="0" cy="0" rx="48" ry="18" fill="none" stroke="url(#accent-grad)" stroke-width="2" transform="rotate(60)"/>
+    <ellipse cx="0" cy="0" rx="48" ry="18" fill="none" stroke="url(#accent-grad)" stroke-width="2" transform="rotate(120)"/>
+    <circle cx="0" cy="0" r="6" fill="url(#accent-grad)"/>
+  </g>
+
+  <!-- URL -->
+  <text x="80" y="600" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16" fill="#64748b">evokernel.dev</text>
+</svg>

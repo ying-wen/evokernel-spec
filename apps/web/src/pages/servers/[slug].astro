@@ -1,0 +1,94 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import TierChip from '~/components/ui/TierChip.astro';
+import { getServers, getResolvedHardware, getCases } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const servers = await getServers();
+  return servers.map((s) => ({ params: { slug: s.id }, props: { server: s } }));
+}
+
+const { server } = Astro.props;
+const allHardware = await getResolvedHardware();
+const card = allHardware.find((h) => h.id === server.card);
+const allCases = await getCases();
+const cases = allCases.filter((c) => c.stack.server?.id === server.id || (c.stack.hardware.id === server.card && c.stack.hardware.count === server.card_count));
+const isChina = card ? card.vendor.country === 'CN' : false;
+---
+<BaseLayout title={server.name}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href="/servers/" class="text-sm" style="color: var(--color-text-muted);">← 服务器目录</a>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">{server.name}</h1>
+      {server.chinese_names[0] && <div class="text-base mt-2" style="color: var(--color-china);">{server.chinese_names[0]}</div>}
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <Badge variant={server.type === 'super-pod' ? 'china' : 'default'}>{server.type}</Badge>
+        <Badge>{server.cooling}</Badge>
+        <Badge>发布于 {server.release_year}</Badge>
+        {isChina && <Badge variant="china">国产方案</Badge>}
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="卡数" sublabel="GPU/NPU"><span style="font-size: 1.75rem;">{server.card_count}</span></KpiCard>
+        <KpiCard label="Scale-up 域" sublabel="cards"><span style="font-size: 1.75rem;">{server.scale_up_domain_size}</span></KpiCard>
+        <KpiCard label="总显存" sublabel="GB"><span style="font-size: 1.75rem;">{server.total_memory_gb ?? '—'}</span></KpiCard>
+        <KpiCard label="机柜功耗" sublabel="kW"><span style="font-size: 1.75rem;">{server.rack_power_kw ?? '—'}</span></KpiCard>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">配置</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="加速卡">
+          {card ? (
+            <a href={`/hardware/${card.id}/`} class="underline" style="color: var(--color-accent);">{card.name}</a>
+          ) : server.card}
+          × {server.card_count}
+        </SpecRow>
+        <SpecRow label="Scale-up 互联">{server.intra_node_interconnect}</SpecRow>
+        <SpecRow label="Scale-out 互联">{server.inter_node_interconnect}</SpecRow>
+        <SpecRow label="冷却方式">{server.cooling}</SpecRow>
+        {server.total_compute_pflops_bf16 && <SpecRow label="总 BF16 算力">{server.total_compute_pflops_bf16} PFLOPs</SpecRow>}
+      </div>
+    </section>
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">部署案例 ({cases.length})</h3>
+      {cases.length === 0 ? (
+        <p class="text-sm" style="color: var(--color-text-muted);">尚无关联案例。<a href="https://github.com/evokernel/evokernel-spec" class="underline ml-1" style="color: var(--color-accent);">贡献第一个?</a></p>
+      ) : (
+        <ul class="space-y-2 text-sm">
+          {cases.map((c) => (
+            <li>
+              <a href={`/cases/${c.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="font-medium">{c.title}</div>
+                <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
+                  {c.stack.model.id} · {c.stack.engine.id} · {c.stack.quantization} · decode {c.results.throughput_tokens_per_sec.decode} tok/s
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">引证</h3>
+      <ol class="space-y-2 text-sm">
+        {server.evidence.map((e, i) => (
+          <li>
+            [{i + 1}] {e.citation} —
+            <a href={e.url} class="underline ml-1" style="color: var(--color-accent);" target="_blank" rel="noopener">{e.url}</a>
+            <span class="ml-2"><TierChip tier={e.tier} /></span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  </Container>
+</BaseLayout>

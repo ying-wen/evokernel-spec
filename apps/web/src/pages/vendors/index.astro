@@ -23,37 +23,41 @@ const overseas = vendors.filter((v) => v.country !== 'CN');
       <h3 class="text-xl font-semibold mt-12 mb-4" style="color: var(--color-china);">国产 ({cn.length})</h3>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {cn.map((v) => (
-          <article class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: color-mix(in oklch, var(--color-china) 25%, var(--color-border));">
-            <div class="flex justify-between items-start mb-2">
-              <h4 class="text-base font-semibold">{v.chinese_names[0] ?? v.name}</h4>
-              <Badge variant="china">{v.country}</Badge>
-            </div>
-            <div class="text-xs" style="color: var(--color-text-muted);">{v.name}</div>
-            <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
-              <div><dt style="color: var(--color-text-muted);">类型</dt><dd>{v.type}</dd></div>
-              {hwCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">硬件</dt><dd class="font-mono">{hwCount(v.id)}</dd></div>}
-              {modelCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">模型</dt><dd class="font-mono">{modelCount(v.id)}</dd></div>}
-            </dl>
-            <a href={v.website} class="text-xs mt-3 inline-block underline" style="color: var(--color-accent);" target="_blank" rel="noopener">官网 ↗</a>
-          </article>
+          <a href={`/vendors/${v.id}/`} class="block">
+            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
+                     style="background: var(--color-surface-raised); border-color: color-mix(in oklch, var(--color-china) 25%, var(--color-border));">
+              <div class="flex justify-between items-start mb-2">
+                <h4 class="text-base font-semibold">{v.chinese_names[0] ?? v.name}</h4>
+                <Badge variant="china">{v.country}</Badge>
+              </div>
+              <div class="text-xs" style="color: var(--color-text-muted);">{v.name}</div>
+              <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div><dt style="color: var(--color-text-muted);">类型</dt><dd>{v.type}</dd></div>
+                {hwCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">硬件</dt><dd class="font-mono">{hwCount(v.id)}</dd></div>}
+                {modelCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">模型</dt><dd class="font-mono">{modelCount(v.id)}</dd></div>}
+              </dl>
+            </article>
+          </a>
         ))}
       </div>
 
       <h3 class="text-xl font-semibold mt-12 mb-4">海外 ({overseas.length})</h3>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {overseas.map((v) => (
-          <article class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
-            <div class="flex justify-between items-start mb-2">
-              <h4 class="text-base font-semibold">{v.name}</h4>
-              <Badge>{v.country}</Badge>
-            </div>
-            <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
-              <div><dt style="color: var(--color-text-muted);">类型</dt><dd>{v.type}</dd></div>
-              {hwCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">硬件</dt><dd class="font-mono">{hwCount(v.id)}</dd></div>}
-              {modelCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">模型</dt><dd class="font-mono">{modelCount(v.id)}</dd></div>}
-            </dl>
-            <a href={v.website} class="text-xs mt-3 inline-block underline" style="color: var(--color-accent);" target="_blank" rel="noopener">官网 ↗</a>
-          </article>
+          <a href={`/vendors/${v.id}/`} class="block">
+            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
+                     style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex justify-between items-start mb-2">
+                <h4 class="text-base font-semibold">{v.name}</h4>
+                <Badge>{v.country}</Badge>
+              </div>
+              <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div><dt style="color: var(--color-text-muted);">类型</dt><dd>{v.type}</dd></div>
+                {hwCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">硬件</dt><dd class="font-mono">{hwCount(v.id)}</dd></div>}
+                {modelCount(v.id) > 0 && <div><dt style="color: var(--color-text-muted);">模型</dt><dd class="font-mono">{modelCount(v.id)}</dd></div>}
+              </dl>
+            </article>
+          </a>
         ))}
       </div>
     </section>

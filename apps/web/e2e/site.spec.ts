@@ -146,3 +146,41 @@ test.describe('SEO and feeds', () => {
     await expect(skip).toBeAttached();
   });
 });
+
+test.describe('Entity detail pages', () => {
+  test('server detail (CloudMatrix 384) shows scale-up domain', async ({ page }) => {
+    await page.goto('/servers/huawei-cloudmatrix-384/');
+    await expect(page.getByRole('heading', { name: /CloudMatrix 384/i })).toBeVisible();
+    await expect(page.getByText(/Scale-up 域/i).first()).toBeVisible();
+    await expect(page.getByText('384').first()).toBeVisible();
+  });
+
+  test('quantization detail (FP8) lists supporting hardware', async ({ page }) => {
+    await page.goto('/quantizations/fp8-e4m3/');
+    await expect(page.getByRole('heading', { name: /FP8 E4M3/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /支持硬件/ })).toBeVisible();
+    await expect(page.getByText(/H100|H200|B200/i).first()).toBeVisible();
+  });
+
+  test('vendor detail (Huawei) shows hardware + servers', async ({ page }) => {
+    await page.goto('/vendors/huawei/');
+    await expect(page.getByRole('heading', { name: /Huawei/i }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: /加速卡/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /服务器/ })).toBeVisible();
+  });
+
+  test('og default image exists', async ({ page }) => {
+    const r = await page.goto('/og-default.svg');
+    expect(r?.status()).toBe(200);
+    expect(r?.headers()['content-type']).toContain('svg');
+  });
+
+  test('compare page hydrates from ?ids= URL param', async ({ page }) => {
+    await page.goto('/compare/?ids=h100-sxm5,b200-sxm&view=table');
+    // The table view should render with H100 and B200 columns
+    await expect(page.getByText('H100 SXM5 80GB').first()).toBeVisible();
+    await expect(page.getByText('B200 SXM 180GB').first()).toBeVisible();
+    // Selected count badge
+    await expect(page.getByText(/2\/5 选中/).first()).toBeVisible();
+  });
+});

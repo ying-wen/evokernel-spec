@@ -1,0 +1,88 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getQuantizations, getResolvedHardware, getCases } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const qs = await getQuantizations();
+  return qs.map((q) => ({ params: { slug: q.id }, props: { q } }));
+}
+
+const { q } = Astro.props;
+const allHardware = await getResolvedHardware();
+const supporting = allHardware.filter((h) => h.software_support.quantizations.includes(q.id));
+const allCases = await getCases();
+const cases = allCases.filter((c) => c.stack.quantization === q.id).sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
+const cnSupporting = supporting.filter((h) => h.vendor.country === 'CN');
+---
+<BaseLayout title={`${q.name} 量化`}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href="/quantizations/" class="text-sm" style="color: var(--color-text-muted);">← 量化方案</a>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">{q.name}</h1>
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <Badge variant="accent">{q.family}</Badge>
+        <Badge>{q.lossless ? '无损' : '有损'}</Badge>
+      </div>
+      {q.description && <p class="mt-4 text-base" style="color: var(--color-text-muted);">{q.description}</p>}
+    </section>
+
+    <section class="pb-8">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="权重位数" sublabel="bits/weight"><span style="font-size: 1.75rem;">{q.bits_per_weight}</span></KpiCard>
+        <KpiCard label="激活位数" sublabel="bits/activation"><span style="font-size: 1.75rem;">{q.bits_per_activation}</span></KpiCard>
+        <KpiCard label="支持硬件" sublabel="of total"><span style="font-size: 1.75rem;">{supporting.length}<span class="text-base opacity-60">/{allHardware.length}</span></span></KpiCard>
+        <KpiCard label="实测案例"><span style="font-size: 1.75rem;">{cases.length}</span></KpiCard>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">支持硬件 ({supporting.length})</h3>
+      {cnSupporting.length > 0 && (
+        <div class="mb-4">
+          <h4 class="text-sm font-semibold mb-2" style="color: var(--color-china);">国产 ({cnSupporting.length})</h4>
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {cnSupporting.map((h) => (
+              <a href={`/hardware/${h.id}/`} class="block p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+                 style="border-color: color-mix(in oklch, var(--color-china) 25%, var(--color-border)); background: var(--color-surface-raised);">
+                {h.name}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+      <h4 class="text-sm font-semibold mb-2">海外</h4>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {supporting.filter((h) => h.vendor.country !== 'CN').map((h) => (
+          <a href={`/hardware/${h.id}/`} class="block p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+             style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            {h.name}
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">使用此量化的案例 ({cases.length})</h3>
+      {cases.length === 0 ? (
+        <p class="text-sm" style="color: var(--color-text-muted);">尚无案例引用此量化方案。</p>
+      ) : (
+        <ul class="space-y-2 text-sm">
+          {cases.map((c) => (
+            <li>
+              <a href={`/cases/${c.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="font-medium">{c.title}</div>
+                <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
+                  {c.stack.hardware.id} ×{c.stack.hardware.count} · {c.stack.model.id} · {c.results.throughput_tokens_per_sec.decode} tok/s
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  </Container>
+</BaseLayout>

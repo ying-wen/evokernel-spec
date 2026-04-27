@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend,
   BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer,
@@ -47,10 +47,44 @@ function getMetric(h: ResolvedHw, k: Metric): number {
 
 const MAX_PICK = 5;
 
+const VIEW_KEYS = ['radar', 'bar', 'roofline', 'table'] as const;
+type ViewType = (typeof VIEW_KEYS)[number];
+
+function readUrlState(hardware: ResolvedHw[]): { ids: string[]; view: ViewType } | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const idsParam = params.get('ids');
+  const viewParam = params.get('view') as ViewType | null;
+  const ids = (idsParam ?? '').split(',').filter(Boolean).filter((id) => hardware.some((h) => h.id === id));
+  const view = viewParam && (VIEW_KEYS as readonly string[]).includes(viewParam) ? viewParam : 'radar';
+  if (!ids.length && !idsParam) return null;
+  return { ids, view };
+}
+
 export default function CompareTool({ hardware }: Props) {
   const [selected, setSelected] = useState<string[]>(['h100-sxm5', 'b200-sxm', 'mi355x', 'ascend-910c']);
-  const [chartType, setChartType] = useState<'bar' | 'radar' | 'table' | 'roofline'>('radar');
+  const [chartType, setChartType] = useState<ViewType>('radar');
   const [filter, setFilter] = useState('');
+
+  // Hydrate from URL on mount
+  useEffect(() => {
+    const fromUrl = readUrlState(hardware);
+    if (fromUrl) {
+      if (fromUrl.ids.length > 0) setSelected(fromUrl.ids);
+      setChartType(fromUrl.view);
+    }
+  }, [hardware]);
+
+  // Persist to URL on change (replaceState — no history pollution)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (selected.length > 0) params.set('ids', selected.join(',')); else params.delete('ids');
+    if (chartType !== 'radar') params.set('view', chartType); else params.delete('view');
+    const qs = params.toString();
+    const next = window.location.pathname + (qs ? '?' + qs : '');
+    window.history.replaceState(null, '', next);
+  }, [selected, chartType]);
 
   const cards = useMemo(() =>
     hardware.filter((h) => !filter || h.name.toLowerCase().includes(filter.toLowerCase()) || h.vendor.id.includes(filter.toLowerCase())),
