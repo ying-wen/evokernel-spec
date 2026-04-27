@@ -108,7 +108,9 @@ export function calculate(input: { calc: CalcInput; hardware: Hardware; model: M
   const tier0 = findSimilarCases(cases, calc);
 
   const bytesPerWeight = BYTES_PER_WEIGHT[calc.precision];
-  const weightsGb = (model.architecture.active_params_b * 1e9 * bytesPerWeight) / (calc.parallel.tp * calc.parallel.pp) / 1e9;
+  // Memory uses TOTAL params (full weights must reside in HBM); EP distributes experts across devices.
+  const ep = Math.max(calc.parallel.ep, 1);
+  const weightsGb = (model.architecture.total_params_b * 1e9 * bytesPerWeight) / (calc.parallel.tp * calc.parallel.pp * ep) / 1e9;
   const totalCacheTokens = calc.scenario.batchSize * (calc.scenario.prefillSeqLen + calc.scenario.decodeSeqLen);
   const kvBytes = 2 * model.architecture.layers * model.architecture.num_kv_heads * model.architecture.head_dim * 2 * totalCacheTokens / calc.parallel.tp;
   const kvCacheGb = kvBytes / 1e9;

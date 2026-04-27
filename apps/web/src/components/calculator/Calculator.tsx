@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Hardware, Model, Case, Engine } from '@evokernel/schemas';
 import { calculate } from '~/lib/calculator';
 import type { Precision } from '~/lib/calculator';
@@ -8,14 +8,23 @@ interface Props {
   hardware: Hardware[];
   cases: Case[];
   engines: Engine[];
-  initialModel?: string;
 }
 
 type Step = 1 | 2 | 3;
 
-export default function Calculator({ models, hardware, cases, engines, initialModel }: Props) {
+export default function Calculator({ models, hardware, cases, engines }: Props) {
   const [step, setStep] = useState<Step>(1);
-  const [modelId, setModelId] = useState(initialModel ?? '');
+  const [modelId, setModelId] = useState('');
+
+  // Read ?model=... at hydration time (SSG can't read query params at build).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const m = params.get('model');
+    if (m && models.some((x) => x.id === m)) {
+      setModelId(m);
+      setStep(2);
+    }
+  }, [models]);
   const [hwId, setHwId] = useState('');
   const [hwCount, setHwCount] = useState(8);
   const [precision, setPrecision] = useState<Precision>('bf16');
