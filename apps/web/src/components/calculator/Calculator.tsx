@@ -74,7 +74,7 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
                     fontWeight: step === s.n ? 600 : 400,
                     border: 'none', cursor: 'pointer'
                   }}>
-            <span style={{ fontFamily: 'var(--font-mono)', marginRight: '0.5rem', opacity: 0.6 }}>{s.n}.</span>
+            <span style={{ fontFamily: 'var(--font-mono)', marginRight: '0.5rem' }}>{s.n}.</span>
             {s.label}
             {s.done && <span style={{ color: 'var(--color-tier-measured)', marginLeft: '0.5rem' }}>✓</span>}
           </button>

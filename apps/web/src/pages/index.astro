@@ -42,14 +42,14 @@ const stats = [
           <a href="/china" class="px-5 py-2 rounded-md font-medium border" style="border-color: var(--color-china); color: var(--color-china);">国产专题 →</a>
         </div>
       </div>
-      <aside class="text-xs space-y-2 self-start mt-4 lg:mt-0" style="color: var(--color-text-muted);">
+      <aside class="text-xs space-y-2 self-start mt-4 lg:mt-0">
         <div class="font-semibold uppercase tracking-wide" style="color: var(--color-text);">最新案例</div>
         <ul class="space-y-2">
           {latestCases.map((c) => (
             <li>
               <a href={`/cases/${c.id}`} class="block hover:opacity-80">
                 <div class="text-sm" style="color: var(--color-text);">{c.title}</div>
-                <div class="text-xs opacity-60 font-mono mt-0.5">{c.submitted_at}</div>
+                <div class="text-xs font-mono mt-0.5" style="color: var(--color-text-muted);">{c.submitted_at}</div>
               </a>
             </li>
           ))}

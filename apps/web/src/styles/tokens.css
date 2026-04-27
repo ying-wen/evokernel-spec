@@ -4,19 +4,19 @@
   --color-surface: oklch(98% 0.005 250);
   --color-surface-raised: oklch(100% 0 0);
   --color-text: oklch(18% 0.01 260);
-  --color-text-muted: oklch(45% 0.015 260);
+  --color-text-muted: oklch(38% 0.018 260);
   --color-border: oklch(90% 0.005 260);
 
   /* Brand */
-  --color-accent: oklch(58% 0.18 255);
+  --color-accent: oklch(48% 0.18 255);
   --color-accent-soft: oklch(94% 0.04 255);
-  --color-china: oklch(54% 0.22 25);
+  --color-china: oklch(46% 0.22 25);
   --color-china-soft: oklch(96% 0.04 25);
 
-  /* Tier semantic */
-  --color-tier-official: oklch(55% 0.01 260);
-  --color-tier-measured: oklch(58% 0.16 145);
-  --color-tier-estimated: oklch(70% 0.16 80);
+  /* Tier semantic — picked for AA contrast against bg */
+  --color-tier-official: oklch(40% 0.01 260);
+  --color-tier-measured: oklch(45% 0.16 145);
+  --color-tier-estimated: oklch(45% 0.16 80);
 
   /* Typography */
   --font-sans: 'Inter Variable', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -50,15 +50,5 @@
   --ease-in-out-quad: cubic-bezier(0.45, 0, 0.55, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: oklch(14% 0.01 260);
-    --color-surface: oklch(17% 0.01 260);
-    --color-surface-raised: oklch(20% 0.01 260);
-    --color-text: oklch(95% 0.005 250);
-    --color-text-muted: oklch(70% 0.015 260);
-    --color-border: oklch(28% 0.01 260);
-    --color-accent: oklch(72% 0.18 255);
-    --color-accent-soft: oklch(28% 0.04 255);
-  }
-}
+/* Dark mode disabled in V1 to guarantee WCAG AA contrast.
+ * Re-enable once both palettes pass axe with explicit color-scheme negotiation. */

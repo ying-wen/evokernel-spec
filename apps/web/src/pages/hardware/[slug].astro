@@ -217,7 +217,7 @@ const c = hw.compute;
           <li>
             [{i + 1}] {e.citation} —
             <a href={e.url} class="underline ml-1" style="color: var(--color-accent);" target="_blank" rel="noopener">{e.url}</a>
-            <span class="opacity-60 ml-1"> · 访问于 {e.accessed}</span>
+            <span class="ml-1" style="color: var(--color-text-muted);"> · 访问于 {e.accessed}</span>
             <span class="ml-2"><TierChip tier={e.tier} /></span>
           </li>
         ))}

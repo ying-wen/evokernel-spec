@@ -33,8 +33,8 @@ function fmtBw(bw: number | undefined): string {
                 <Badge variant="china">国产</Badge>
               </div>
               <dl class="grid grid-cols-3 gap-2 text-xs">
-                <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span class="opacity-70"> TF</span></dd></div>
-                <div><dt style="color: var(--color-text-muted);">Memory</dt><dd class="font-mono mt-0.5">{h.memory.capacity_gb?.value ?? '—'}<span class="opacity-70"> GB</span></dd></div>
+                <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span style="color: var(--color-text-muted);"> TF</span></dd></div>
+                <div><dt style="color: var(--color-text-muted);">Memory</dt><dd class="font-mono mt-0.5">{h.memory.capacity_gb?.value ?? '—'}<span style="color: var(--color-text-muted);"> GB</span></dd></div>
                 <div><dt style="color: var(--color-text-muted);">BW</dt><dd class="font-mono mt-0.5">{fmtBw(h.memory.bandwidth_gbps?.value)}</dd></div>
               </dl>
               <div class="flex gap-1 mt-3 flex-wrap">
@@ -61,8 +61,8 @@ function fmtBw(bw: number | undefined): string {
                 </div>
               </div>
               <dl class="grid grid-cols-3 gap-2 text-xs">
-                <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span class="opacity-70"> TF</span></dd></div>
-                <div><dt style="color: var(--color-text-muted);">Memory</dt><dd class="font-mono mt-0.5">{h.memory.capacity_gb?.value ?? '—'}<span class="opacity-70"> GB</span></dd></div>
+                <div><dt style="color: var(--color-text-muted);">BF16</dt><dd class="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span style="color: var(--color-text-muted);"> TF</span></dd></div>
+                <div><dt style="color: var(--color-text-muted);">Memory</dt><dd class="font-mono mt-0.5">{h.memory.capacity_gb?.value ?? '—'}<span style="color: var(--color-text-muted);"> GB</span></dd></div>
                 <div><dt style="color: var(--color-text-muted);">BW</dt><dd class="font-mono mt-0.5">{fmtBw(h.memory.bandwidth_gbps?.value)}</dd></div>
               </dl>
               <div class="flex gap-1 mt-3 flex-wrap">

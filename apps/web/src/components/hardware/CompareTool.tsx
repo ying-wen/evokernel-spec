@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend,
-  BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer,
+  LineChart, Line
 } from 'recharts';
 import type { Hardware } from '@evokernel/schemas';
 
@@ -48,7 +49,7 @@ const MAX_PICK = 5;
 
 export default function CompareTool({ hardware }: Props) {
   const [selected, setSelected] = useState<string[]>(['h100-sxm5', 'b200-sxm', 'mi355x', 'ascend-910c']);
-  const [chartType, setChartType] = useState<'bar' | 'radar' | 'table'>('radar');
+  const [chartType, setChartType] = useState<'bar' | 'radar' | 'table' | 'roofline'>('radar');
   const [filter, setFilter] = useState('');
 
   const cards = useMemo(() =>
@@ -92,6 +93,7 @@ export default function CompareTool({ hardware }: Props) {
         {([
           { v: 'radar' as const, l: '雷达图' },
           { v: 'bar' as const, l: '柱状图' },
+          { v: 'roofline' as const, l: 'Roofline' },
           { v: 'table' as const, l: '对比表' }
         ]).map((opt) => (
           <button key={opt.v} type="button" onClick={() => setChartType(opt.v)}
@@ -166,6 +168,8 @@ export default function CompareTool({ hardware }: Props) {
                 ))}
               </BarChart>
             </ResponsiveContainer>
+          ) : chartType === 'roofline' ? (
+            <RooflineOverlay selectedCards={selectedCards} />
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -210,6 +214,50 @@ export default function CompareTool({ hardware }: Props) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RooflineOverlay({ selectedCards }: { selectedCards: ResolvedHw[] }) {
+  // Build merged data series for log-x roofline curves per card.
+  // X axis: arithmetic intensity (FLOP/byte). Y: TFLOP/s.
+  const sample = 60;
+  const xs: number[] = [];
+  const xMin = 0.1;
+  const xMax = 10000;
+  for (let i = 0; i < sample; i++) {
+    xs.push(xMin * Math.pow(xMax / xMin, i / (sample - 1)));
+  }
+  const data = xs.map((x) => {
+    const row: Record<string, number> = { x: Number(x.toFixed(2)) };
+    for (const h of selectedCards) {
+      const peakC = h.compute.bf16_tflops?.value ?? 0;
+      const peakBw = (h.memory.bandwidth_gbps?.value ?? 0) / 1; // GB/s
+      if (!peakC || !peakBw) continue;
+      const memBound = (peakBw * x) / 1000; // GFLOP -> TFLOP
+      row[h.id] = Number(Math.min(peakC, memBound).toFixed(1));
+    }
+    return row;
+  });
+  return (
+    <div>
+      <div className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>
+        Roofline 上界 (BF16) — 横轴: 算术强度 FLOP/byte (log) · 纵轴: 吞吐 TFLOP/s (log)
+      </div>
+      <ResponsiveContainer width="100%" height={420}>
+        <LineChart data={data}>
+          <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+          <XAxis dataKey="x" type="number" scale="log" domain={['dataMin', 'dataMax']} tick={{ fontSize: 10 }}
+                 label={{ value: 'FLOP/byte', position: 'insideBottomRight', offset: -2, fontSize: 10 }} />
+          <YAxis type="number" scale="log" domain={['auto', 'auto']} tick={{ fontSize: 10 }}
+                 label={{ value: 'TFLOP/s', position: 'insideTopLeft', offset: 8, fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', fontSize: 11 }} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          {selectedCards.map((h, i) => (
+            <Line key={h.id} type="monotone" dataKey={h.id} name={h.name} stroke={PALETTE[i]} strokeWidth={2} dot={false} />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
