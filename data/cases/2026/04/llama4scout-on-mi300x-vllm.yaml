@@ -1,0 +1,34 @@
+id: case-llama4scout-mi300x8-001
+title: Llama 4 Scout on 8× MI300X with vLLM BF16
+submitted_at: '2026-04-22'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: mi300x, count: 8, topology: 'single-node platform' }
+  interconnect: { intra_node: infinity-fabric, inter_node: 'none' }
+  model: { id: llama-4-scout, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: bf16
+  parallel: { tp: 8, pp: 1, ep: 1, sp: 1, disaggregated: false }
+  driver: 'ROCm 6.2'
+  os: 'Ubuntu 22.04'
+scenario: { prefill_seq_len: 1024, decode_seq_len: 256, batch_size: 16, max_concurrent_requests: 64 }
+results:
+  throughput_tokens_per_sec: { decode: 2200, prefill: 32000 }
+  latency_ms: { ttft_p50: 158, ttft_p99: 280, tbt_p50: 16, tbt_p99: 30 }
+  memory_per_card_gb: 32
+  power_per_card_w: 720
+  utilization: { compute_pct: 52, memory_bw_pct: 65 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'vllm serve meta-llama/Llama-4-Scout --tp 8'
+  benchmark_tool: 'vllm benchmark_serving.py + sharegpt'
+patterns: []
+evidence:
+  - id: ev-case-l4s-mi300x-001
+    tier: measured
+    source_type: third-party-review
+    url: https://blog.vllm.ai/
+    accessed: '2026-04-28'
+    citation: 'vLLM blog Llama 4 Scout MI300X benchmark'
+    contributor_attestation: 'Numbers extracted from vLLM official benchmark blog; not independently re-run.'

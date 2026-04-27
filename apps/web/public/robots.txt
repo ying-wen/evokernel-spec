@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://evokernel.dev/sitemap-index.xml

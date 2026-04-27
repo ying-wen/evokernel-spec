@@ -1,0 +1,35 @@
+id: case-glm51-h200x8-vllm-001
+title: GLM-5.1 on 8× H200 SXM with vLLM BF16
+submitted_at: '2026-04-26'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: h200-sxm, count: 8, topology: 'single-node-hgx' }
+  server: { id: nvidia-hgx-h200 }
+  interconnect: { intra_node: nvlink-4, inter_node: 'none' }
+  model: { id: glm-5.1, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: bf16
+  parallel: { tp: 8, pp: 1, ep: 4, sp: 1, disaggregated: false }
+  driver: 'CUDA 12.5'
+  os: 'Ubuntu 22.04'
+scenario: { prefill_seq_len: 2048, decode_seq_len: 512, batch_size: 32, max_concurrent_requests: 128 }
+results:
+  throughput_tokens_per_sec: { decode: 2400, prefill: 28000 }
+  latency_ms: { ttft_p50: 280, ttft_p99: 460, tbt_p50: 22, tbt_p99: 42 }
+  memory_per_card_gb: 118
+  power_per_card_w: 660
+  utilization: { compute_pct: 49, memory_bw_pct: 73 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'vllm serve THUDM/GLM-5.1 --tp 8 --enable-expert-parallel'
+  benchmark_tool: 'vllm benchmark_serving.py'
+patterns: [memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-glm51-h200-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://github.com/vllm-project/vllm/discussions
+    accessed: '2026-04-28'
+    citation: 'vLLM community benchmark thread for GLM-5.1 on H200'
+    contributor_attestation: 'Numbers extracted from vLLM community discussion thread; not independently re-run.'

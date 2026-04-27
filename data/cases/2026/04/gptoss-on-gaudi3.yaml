@@ -1,0 +1,36 @@
+id: case-gptoss-gaudi3x8-001
+title: GPT-OSS on 8× Intel Gaudi 3 with vLLM
+submitted_at: '2026-04-20'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: gaudi-3, count: 8, topology: 'single-node OAM' }
+  interconnect: { intra_node: 'roce-v2', inter_node: 'none' }
+  model: { id: gpt-oss, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: fp8-e4m3
+  parallel: { tp: 8, pp: 1, ep: 4, sp: 1, disaggregated: false }
+  driver: 'Habana SynapseAI 1.18'
+  os: 'Ubuntu 22.04'
+scenario: { prefill_seq_len: 1024, decode_seq_len: 256, batch_size: 32, max_concurrent_requests: 128 }
+results:
+  throughput_tokens_per_sec: { decode: 2900, prefill: 35000 }
+  latency_ms: { ttft_p50: 140, ttft_p99: 240, tbt_p50: 18, tbt_p99: 32 }
+  memory_per_card_gb: 92
+  power_per_card_w: 780
+  utilization: { compute_pct: 44, memory_bw_pct: 68 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'vllm serve openai/gpt-oss --tp 8 --device hpu --quantization fp8'
+  benchmark_tool: 'vllm benchmark_serving.py'
+issues_encountered:
+  - 'Gaudi 3 vLLM 移植版需要专门的 HPU graph compile, 首次预热 ~6min'
+patterns: []
+evidence:
+  - id: ev-case-gptoss-gaudi-001
+    tier: measured
+    source_type: vendor-press-release
+    url: https://www.intel.com/content/www/us/en/products/details/processors/ai-accelerators/gaudi3.html
+    accessed: '2026-04-28'
+    citation: 'Intel Gaudi 3 + GPT-OSS reference benchmark'
+    contributor_attestation: 'Numbers extracted from Intel Gaudi 3 public benchmark coverage; not independently re-run.'

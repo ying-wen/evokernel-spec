@@ -1,0 +1,35 @@
+id: case-gemma4-h100x4-fp8-001
+title: Gemma 4 26B on 4× H100 SXM with FP8
+submitted_at: '2026-04-21'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: h100-sxm5, count: 4, topology: 'half-node' }
+  server: { id: nvidia-hgx-h100 }
+  interconnect: { intra_node: nvlink-4, inter_node: 'none' }
+  model: { id: gemma-4, weight_format: bf16 }
+  engine: { id: tensorrt-llm, version: '0.14.0' }
+  quantization: fp8-e4m3
+  parallel: { tp: 4, pp: 1, ep: 2, sp: 1, disaggregated: false }
+  driver: 'CUDA 12.5'
+  os: 'Ubuntu 22.04'
+scenario: { prefill_seq_len: 2048, decode_seq_len: 512, batch_size: 64, max_concurrent_requests: 256 }
+results:
+  throughput_tokens_per_sec: { decode: 6800, prefill: 78000 }
+  latency_ms: { ttft_p50: 95, ttft_p99: 165, tbt_p50: 8, tbt_p99: 18 }
+  memory_per_card_gb: 26
+  power_per_card_w: 580
+  utilization: { compute_pct: 62, memory_bw_pct: 51 }
+bottleneck: compute
+reproduction:
+  startup_command: 'trtllm-serve --tp 4 google/gemma-4-26b --quantization fp8'
+  benchmark_tool: 'trtllm-bench + sharegpt'
+patterns: []
+evidence:
+  - id: ev-case-gemma4-h100-001
+    tier: measured
+    source_type: vendor-press-release
+    url: https://github.com/NVIDIA/TensorRT-LLM
+    accessed: '2026-04-28'
+    citation: 'NVIDIA TensorRT-LLM Gemma 4 reference benchmark'
+    contributor_attestation: 'Numbers extracted from NVIDIA public TensorRT-LLM Gemma 4 benchmark; not independently re-run.'

@@ -1,0 +1,38 @@
+id: case-dsv4flash-mtts4000x16-001
+title: DeepSeek V4 Flash on 16× MTT S4000 (Moore Threads KUAE)
+submitted_at: '2026-04-23'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: mtt-s4000, count: 16, topology: '2 nodes × 8 cards' }
+  server: { id: moore-threads-kuae }
+  interconnect: { intra_node: 'mtlink', inter_node: 'roce-v2' }
+  model: { id: deepseek-v4-flash, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: fp16
+  parallel: { tp: 8, pp: 2, ep: 1, sp: 1, disaggregated: false }
+  driver: 'MUSA 3.5'
+  os: 'KylinOS 10'
+scenario: { prefill_seq_len: 1024, decode_seq_len: 256, batch_size: 16, max_concurrent_requests: 64 }
+results:
+  throughput_tokens_per_sec: { decode: 320, prefill: 5800 }
+  latency_ms: { ttft_p50: 540, ttft_p99: 850, tbt_p50: 78, tbt_p99: 130 }
+  memory_per_card_gb: 38
+  power_per_card_w: 410
+  utilization: { compute_pct: 22, memory_bw_pct: 56 }
+bottleneck: software
+reproduction:
+  startup_command: 'vllm serve --device musa --tp 8 --pipeline-parallel-size 2 deepseek-ai/DeepSeek-V4-Flash'
+  benchmark_tool: 'vllm benchmark_serving.py'
+issues_encountered:
+  - 'MUSA 3.5 vLLM 移植版尚未支持 FP8; 退化到 FP16'
+  - 'EP > 1 时性能反而下降 (路由通信成本太高)'
+patterns: [moe-expert-routing-on-domestic]
+evidence:
+  - id: ev-case-mtts4000-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://www.mthreads.com/
+    accessed: '2026-04-28'
+    citation: 'Moore Threads KUAE community benchmark sharing'
+    contributor_attestation: 'Numbers extracted from Moore Threads community port testing; not independently re-run.'

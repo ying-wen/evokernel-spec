@@ -159,13 +159,15 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
           </section>
         )}
 
-        {result && <ResultPanel result={result} cases={cases} />}
+        {result && <ResultPanel result={result} cases={cases} hwCount={hwCount} hwTdpW={hardware.find((h) => h.id === hwId)?.power.tdp_w?.value ?? 700} />}
       </div>
     </div>
   );
 }
 
-function ResultPanel({ result, cases: _cases }: { result: NonNullable<ReturnType<typeof calculate>>; cases: Case[] }) {
+function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNullable<ReturnType<typeof calculate>>; cases: Case[]; hwCount: number; hwTdpW: number }) {
+  // pass hwTdpW down via TCOPanel default prop trick: not needed since component reads its own state.
+  void hwTdpW;
   const r = result;
   return (
     <section className="mt-6 space-y-6">
@@ -236,6 +238,9 @@ function ResultPanel({ result, cases: _cases }: { result: NonNullable<ReturnType
         </div>
       )}
 
+      <ConcurrencySweep result={result} hwCount={hwCount} />
+      <TCOPanel result={result} hwCount={hwCount} defaultTdpW={hwTdpW} />
+
       <details className="text-xs">
         <summary style={{ color: 'var(--color-text-muted)', cursor: 'pointer' }}>展示公式与假设</summary>
         <pre className="mt-2 p-3 rounded font-mono whitespace-pre-wrap" style={{ background: 'var(--color-surface)' }}>
@@ -243,6 +248,99 @@ function ResultPanel({ result, cases: _cases }: { result: NonNullable<ReturnType
         </pre>
       </details>
     </section>
+  );
+}
+
+function ConcurrencySweep({ result, hwCount }: { result: NonNullable<ReturnType<typeof calculate>>; hwCount: number }) {
+  // Throughput vs concurrency: assumes linear scaling up to a saturation knee
+  // determined by per-card upper bound × hwCount, with logistic falloff above.
+  const perCardUpper = result.tier1Roofline.decodeThroughputUpperBound;
+  const peakAggregate = perCardUpper * hwCount;
+  const knee = Math.max(8, hwCount * 4); // saturation begins around 4 concurrent reqs/card
+  const data = Array.from({ length: 20 }, (_, i) => {
+    const c = Math.round(2 ** (i / 2)); // 1..1024 log spacing
+    const ramp = c <= knee ? c / knee : 1;
+    const decay = c <= knee ? 1 : 1 - Math.min(0.4, 0.4 * (1 - knee / c));
+    const throughput = Math.round(peakAggregate * ramp * decay);
+    const latency = Math.round(20 + 200 * Math.max(0, c - knee) / Math.max(knee, 1));
+    return { concurrency: c, throughput, latency };
+  });
+  return (
+    <div className="rounded-lg border p-5" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
+      <h4 className="font-semibold mb-2">并发扫描 (concurrency sweep)</h4>
+      <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
+        基于 Roofline 上界 × {hwCount} 卡 × 饱和点估算。saturation knee ≈ {knee} 并发请求。
+      </p>
+      <ResponsiveContainer width="100%" height={240}>
+        <LineChart data={data} margin={{ left: 0, right: 12, top: 8, bottom: 4 }}>
+          <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+          <XAxis dataKey="concurrency" type="number" scale="log" domain={['dataMin', 'dataMax']} tick={{ fontSize: 10 }} label={{ value: '并发请求', position: 'insideBottomRight', offset: -2, fontSize: 10 }} />
+          <YAxis yAxisId="left" tick={{ fontSize: 10 }} label={{ value: 'tok/s', position: 'insideTopLeft', offset: 8, fontSize: 10 }} />
+          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} label={{ value: 'TBT ms', position: 'insideTopRight', offset: 8, fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', fontSize: 11 }} />
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+          <Line yAxisId="left" type="monotone" dataKey="throughput" name="集群吞吐 tok/s" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
+          <Line yAxisId="right" type="monotone" dataKey="latency" name="预估 TBT ms" stroke="var(--color-china)" strokeWidth={2} dot={false} strokeDasharray="4 3" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function TCOPanel({ result, hwCount, defaultTdpW }: { result: NonNullable<ReturnType<typeof calculate>>; hwCount: number; defaultTdpW: number }) {
+  const [hwHourly, setHwHourly] = useState(2.5); // $/h per card (rental ballpark)
+  const [powerPrice, setPowerPrice] = useState(0.1); // $/kWh
+  const [pue, setPue] = useState(1.3);
+  const [tdpW, setTdpW] = useState(defaultTdpW);
+  // Update TDP when defaultTdpW changes (e.g., user re-selects hardware)
+  useEffect(() => { setTdpW(defaultTdpW); }, [defaultTdpW]);
+  const decodeTokPerSec = result.tier1Roofline.decodeThroughputUpperBound * hwCount;
+  if (!decodeTokPerSec) return null;
+  const tokensPerHour = decodeTokPerSec * 3600;
+  const hwCost = hwHourly * hwCount;
+  const powerCostHr = (tdpW * pue * hwCount / 1000) * powerPrice;
+  const totalCostHr = hwCost + powerCostHr;
+  const costPerMTok = (totalCostHr / tokensPerHour) * 1e6;
+
+  return (
+    <div className="rounded-lg border p-5" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
+      <h4 className="font-semibold mb-2">TCO 估算 ($/M tokens)</h4>
+      <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
+        基于 Tier 1 上界 × {hwCount} 卡 × 用户调整的硬件租金 + 功耗。100% 透明公式。
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
+        <label className="block">
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>$/卡/小时</span>
+          <input type="number" step="0.1" min={0} value={hwHourly} onChange={(e) => setHwHourly(+e.target.value || 0)}
+                 className="w-full mt-1 px-2 py-1 rounded border font-mono"
+                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }} />
+        </label>
+        <label className="block">
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>$/kWh</span>
+          <input type="number" step="0.01" min={0} value={powerPrice} onChange={(e) => setPowerPrice(+e.target.value || 0)}
+                 className="w-full mt-1 px-2 py-1 rounded border font-mono"
+                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }} />
+        </label>
+        <label className="block">
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>PUE</span>
+          <input type="number" step="0.05" min={1} value={pue} onChange={(e) => setPue(+e.target.value || 1)}
+                 className="w-full mt-1 px-2 py-1 rounded border font-mono"
+                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }} />
+        </label>
+        <label className="block">
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>TDP W/卡</span>
+          <input type="number" step="50" min={0} value={tdpW} onChange={(e) => setTdpW(+e.target.value || 0)}
+                 className="w-full mt-1 px-2 py-1 rounded border font-mono"
+                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }} />
+        </label>
+      </div>
+      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+        <div><dt style={{ color: 'var(--color-text-muted)' }}>硬件 $/h</dt><dd className="font-mono">${hwCost.toFixed(2)}</dd></div>
+        <div><dt style={{ color: 'var(--color-text-muted)' }}>功耗 $/h</dt><dd className="font-mono">${powerCostHr.toFixed(2)}</dd></div>
+        <div><dt style={{ color: 'var(--color-text-muted)' }}>合计 $/h</dt><dd className="font-mono">${totalCostHr.toFixed(2)}</dd></div>
+        <div><dt style={{ color: 'var(--color-text-muted)' }}>$/M tokens</dt><dd className="font-mono text-lg" style={{ color: 'var(--color-accent)' }}>${costPerMTok.toFixed(2)}</dd></div>
+      </dl>
+    </div>
   );
 }
 
