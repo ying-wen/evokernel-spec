@@ -1,0 +1,126 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import TierChip from '~/components/ui/TierChip.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getCases } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const cases = await getCases();
+  return cases.map((c) => ({ params: { slug: c.id }, props: { c } }));
+}
+
+const { c } = Astro.props;
+const r = c.results;
+const u = r.utilization;
+const others = Math.max(0, 100 - u.compute_pct - u.memory_bw_pct);
+---
+<BaseLayout title={c.title}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href="/cases" class="text-sm" style="color: var(--color-text-muted);">← 案例</a>
+      <h1 style="font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem); margin-top: 1rem; font-weight: 600;">{c.title}</h1>
+      <div class="text-xs mt-2" style="color: var(--color-text-muted);">由 <span style="color: var(--color-accent);">{c.submitter.github}</span> 于 {c.submitted_at} 提交</div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Stack</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="硬件"><a href={`/hardware/${c.stack.hardware.id}`} class="underline" style="color: var(--color-accent);">{c.stack.hardware.id}</a> × {c.stack.hardware.count} ({c.stack.hardware.topology})</SpecRow>
+        <SpecRow label="服务器">{c.stack.server?.id ?? '—'}</SpecRow>
+        <SpecRow label="互联">intra: {c.stack.interconnect.intra_node} · inter: {c.stack.interconnect.inter_node}</SpecRow>
+        <SpecRow label="模型"><a href={`/models/${c.stack.model.id}`} class="underline" style="color: var(--color-accent);">{c.stack.model.id}</a> ({c.stack.model.weight_format})</SpecRow>
+        <SpecRow label="引擎">{c.stack.engine.id} {c.stack.engine.version}</SpecRow>
+        <SpecRow label="量化">{c.stack.quantization}</SpecRow>
+        <SpecRow label="并行">TP={c.stack.parallel.tp} · PP={c.stack.parallel.pp} · EP={c.stack.parallel.ep} · SP={c.stack.parallel.sp}{c.stack.parallel.disaggregated ? ' · disaggregated' : ''}</SpecRow>
+        <SpecRow label="驱动">{c.stack.driver}</SpecRow>
+        <SpecRow label="OS">{c.stack.os}</SpecRow>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">场景</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="Prefill seq">{c.scenario.prefill_seq_len}</KpiCard>
+        <KpiCard label="Decode seq">{c.scenario.decode_seq_len}</KpiCard>
+        <KpiCard label="Batch">{c.scenario.batch_size}</KpiCard>
+        <KpiCard label="Max concurrent">{c.scenario.max_concurrent_requests}</KpiCard>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">结果</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <KpiCard label="Decode tok/s" emphasize><span style="font-size: 1.5rem;">{r.throughput_tokens_per_sec.decode}</span></KpiCard>
+        <KpiCard label="Prefill tok/s"><span style="font-size: 1.5rem;">{r.throughput_tokens_per_sec.prefill}</span></KpiCard>
+        <KpiCard label="TTFT p50" sublabel="ms"><span style="font-size: 1.5rem;">{r.latency_ms.ttft_p50}</span></KpiCard>
+        <KpiCard label="TBT p50" sublabel="ms"><span style="font-size: 1.5rem;">{r.latency_ms.tbt_p50}</span></KpiCard>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <KpiCard label="Memory/card" sublabel="GB"><span style="font-size: 1.5rem;">{r.memory_per_card_gb}</span></KpiCard>
+        <KpiCard label="Power/card" sublabel="W"><span style="font-size: 1.5rem;">{r.power_per_card_w}</span></KpiCard>
+        <KpiCard label="Compute" sublabel="util %"><span style="font-size: 1.5rem;">{u.compute_pct}</span></KpiCard>
+        <KpiCard label="Memory BW" sublabel="util %"><span style="font-size: 1.5rem;">{u.memory_bw_pct}</span></KpiCard>
+      </div>
+
+      <h4 class="text-sm font-semibold mb-2">瓶颈分析 — <span style="color: var(--color-accent);">{c.bottleneck}</span></h4>
+      <div class="flex h-8 rounded overflow-hidden" style="background: var(--color-surface);">
+        {u.compute_pct > 0 && <div style={`width: ${u.compute_pct}%; background: var(--color-tier-measured);`} title={`compute ${u.compute_pct}%`}></div>}
+        {u.memory_bw_pct > 0 && <div style={`width: ${u.memory_bw_pct}%; background: var(--color-accent);`} title={`memory bw ${u.memory_bw_pct}%`}></div>}
+        {others > 0 && <div style={`width: ${others}%; background: var(--color-tier-estimated); opacity: 0.6;`} title={`other ${others}%`}></div>}
+      </div>
+      <div class="flex gap-4 text-xs mt-2" style="color: var(--color-text-muted);">
+        <span>Compute {u.compute_pct}%</span>
+        <span>Memory BW {u.memory_bw_pct}%</span>
+        <span>Other {others}%</span>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">复现步骤</h3>
+      <pre class="text-xs p-4 rounded border overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border);"><code>{c.reproduction.startup_command}</code></pre>
+      <p class="text-xs mt-2" style="color: var(--color-text-muted);">Benchmark tool: {c.reproduction.benchmark_tool}</p>
+    </section>
+
+    {c.issues_encountered.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">踩坑记录</h3>
+        <ul class="list-disc pl-5 space-y-2 text-sm">
+          {c.issues_encountered.map((i) => <li>{i}</li>)}
+        </ul>
+      </section>
+    )}
+
+    {c.patterns.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">优化模式</h3>
+        <div class="flex gap-2 flex-wrap">
+          {c.patterns.map((p) => (
+            <a href={`/patterns/${p}`} class="text-sm px-3 py-1 rounded border" style="border-color: var(--color-accent); color: var(--color-accent);">
+              {p}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">引证</h3>
+      <ol class="space-y-2 text-sm">
+        {c.evidence.map((e, i) => (
+          <li>
+            [{i + 1}] {e.citation} —
+            <a href={e.url} class="underline ml-1" style="color: var(--color-accent);" target="_blank" rel="noopener">{e.url}</a>
+            <span class="opacity-60 ml-1"> · {e.accessed}</span>
+            <span class="ml-2"><TierChip tier={e.tier} /></span>
+            {e.contributor_attestation && (
+              <div class="text-xs mt-1 pl-4" style="color: var(--color-text-muted);">声明: {e.contributor_attestation}</div>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  </Container>
+</BaseLayout>

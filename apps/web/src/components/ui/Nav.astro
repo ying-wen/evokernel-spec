@@ -1,0 +1,30 @@
+---
+const links = [
+  { href: '/hardware', label: '硬件' },
+  { href: '/models', label: '模型' },
+  { href: '/cases', label: '案例' },
+  { href: '/calculator', label: '计算器' },
+  { href: '/china', label: '国产专题', accent: true }
+];
+---
+<header class="border-b" style="border-color: var(--color-border); background: var(--color-surface);">
+  <nav class="flex items-center justify-between py-4 px-6 max-w-7xl mx-auto" aria-label="Main navigation">
+    <a href="/" class="font-semibold text-lg flex items-center gap-2" style="color: var(--color-text);">
+      <span style="font-size: 1.25rem;">⚛</span>
+      EvoKernel<span style="color: var(--color-accent);">·Spec</span>
+    </a>
+    <ul class="flex gap-6 items-center">
+      {links.map((l) => (
+        <li>
+          <a href={l.href} class="text-sm transition-opacity hover:opacity-100"
+             style={`color: ${l.accent ? 'var(--color-china)' : 'var(--color-text-muted)'}; font-weight: ${l.accent ? '600' : '400'};`}>
+            {l.label}
+          </a>
+        </li>
+      ))}
+      <li>
+        <a href="https://github.com/evokernel/evokernel-spec" class="text-xs px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">GitHub</a>
+      </li>
+    </ul>
+  </nav>
+</header>

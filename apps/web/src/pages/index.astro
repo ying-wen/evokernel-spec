@@ -1,18 +1,79 @@
 ---
-import '~/styles/global.css';
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { getResolvedHardware, getModels, getCases, getVendors } from '~/lib/data';
+
+const hardware = await getResolvedHardware();
+const cnHardware = hardware.filter((h) => h.vendor.country === 'CN');
+const models = await getModels();
+const cases = await getCases();
+const vendors = await getVendors();
+const latestCases = [...cases].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at)).slice(0, 5);
+
+const entries = [
+  { href: '/hardware', title: '硬件目录', desc: `${hardware.length} 张加速卡, 含 ${cnHardware.length} 张国产` },
+  { href: '/models', title: '模型目录', desc: `${models.length} 个 frontier 开源模型` },
+  { href: '/cases', title: '部署案例', desc: '完整复现 recipe' },
+  { href: '/calculator', title: '计算器', desc: 'Tier 0 实测 + Tier 1 上界' },
+  { href: '/china', title: '国产芯片专题', desc: '热力图 · 谱系 · 生态对照', accent: true }
+];
+
+const stats = [
+  { v: hardware.length, l: '加速卡' },
+  { v: models.length, l: '模型' },
+  { v: cases.length, l: '部署案例' },
+  { v: vendors.length, l: '厂商' }
+];
 ---
-<html lang="zh">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>EvoKernel Spec</title>
-  </head>
-  <body>
-    <main style="padding: var(--space-section) var(--space-6); max-width: 80rem; margin: 0 auto;">
-      <h1 style="font-size: var(--text-hero);">EvoKernel Spec</h1>
-      <p style="font-size: var(--text-lg); color: var(--color-text-muted); margin-top: 1.5rem; max-width: 40rem;">
-        任意模型 → 任意硬件的可计算、可引证、可贡献的开源知识资产。
-      </p>
-    </main>
-  </body>
-</html>
+<BaseLayout title="首页">
+  <Container>
+    <section class="grid lg:grid-cols-[1.5fr,1fr] gap-12 items-end pt-16 pb-12">
+      <div>
+        <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">EvoKernel · Spec</div>
+        <h1 style="font-size: clamp(2.5rem, 1rem + 6vw, 5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.03em;">
+          任意模型 → 任意硬件<br/>
+          <span style="color: var(--color-accent);">的可计算知识库</span>
+        </h1>
+        <p class="text-lg mt-6 max-w-xl" style="color: var(--color-text-muted);">
+          AI 推理硬件、模型和部署案例的开源知识资产。每个数字带 evidence 引证。国产芯片覆盖最全。
+        </p>
+        <div class="flex gap-3 mt-8">
+          <a href="/calculator" class="px-5 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">打开计算器 →</a>
+          <a href="/china" class="px-5 py-2 rounded-md font-medium border" style="border-color: var(--color-china); color: var(--color-china);">国产专题 →</a>
+        </div>
+      </div>
+      <aside class="text-xs space-y-2 self-start mt-4 lg:mt-0" style="color: var(--color-text-muted);">
+        <div class="font-semibold uppercase tracking-wide" style="color: var(--color-text);">最新案例</div>
+        <ul class="space-y-2">
+          {latestCases.map((c) => (
+            <li>
+              <a href={`/cases/${c.id}`} class="block hover:opacity-80">
+                <div class="text-sm" style="color: var(--color-text);">{c.title}</div>
+                <div class="text-xs opacity-60 font-mono mt-0.5">{c.submitted_at}</div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </aside>
+    </section>
+
+    <section class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 py-8">
+      {entries.map((it) => (
+        <a href={it.href} class="block p-5 rounded-lg border h-full transition-transform hover:-translate-y-0.5"
+           style={`border-color: ${it.accent ? 'var(--color-china)' : 'var(--color-border)'}; background: ${it.accent ? 'color-mix(in oklch, var(--color-china) 6%, var(--color-bg))' : 'var(--color-surface-raised)'};`}>
+          <div class="font-semibold mb-1" style={`color: ${it.accent ? 'var(--color-china)' : 'var(--color-text)'};`}>{it.title}</div>
+          <div class="text-xs" style="color: var(--color-text-muted);">{it.desc}</div>
+        </a>
+      ))}
+    </section>
+
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-3 py-8">
+      {stats.map((s) => (
+        <div class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-3xl font-semibold tabular-nums">{s.v}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">{s.l}</div>
+        </div>
+      ))}
+    </section>
+  </Container>
+</BaseLayout>

@@ -1,0 +1,8 @@
+---
+interface Props { label: string; }
+const { label } = Astro.props;
+---
+<div class="grid grid-cols-[10rem,1fr] gap-4 py-3 px-4 border-b last:border-b-0" style="border-color: var(--color-border);">
+  <div class="text-sm" style="color: var(--color-text-muted);">{label}</div>
+  <div class="text-sm"><slot /></div>
+</div>

@@ -1,0 +1,45 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getPatterns, getCases } from '~/lib/data';
+import { marked } from 'marked';
+
+export async function getStaticPaths() {
+  const patterns = await getPatterns();
+  return patterns.map((p) => ({ params: { slug: p.id }, props: { p } }));
+}
+const { p } = Astro.props;
+const allCases = await getCases();
+const supporting = allCases.filter((c) => c.patterns.includes(p.id));
+const html = await marked.parse(p.description_md);
+---
+<BaseLayout title={p.name} noIndex={true}>
+  <Container width="narrow">
+    <section class="py-12">
+      <a href="/" class="text-sm" style="color: var(--color-text-muted);">← 首页</a>
+      <h1 style="font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem); margin-top: 1rem; font-weight: 600;">{p.name}</h1>
+      <div class="text-xs mt-2 flex gap-2 items-center"><span style="color: var(--color-text-muted);">类别:</span><Badge>{p.category}</Badge></div>
+
+      <article class="mt-6" style="color: var(--color-text); line-height: 1.7;" set:html={html}></article>
+
+      <h3 class="text-lg font-semibold mt-12 mb-3">支撑案例 ({supporting.length})</h3>
+      {supporting.length === 0 ? (
+        <p class="text-sm" style="color: var(--color-text-muted);">暂无关联案例。</p>
+      ) : (
+        <ul class="space-y-2 text-sm">
+          {supporting.map((c) => (
+            <li><a href={`/cases/${c.id}`} class="underline" style="color: var(--color-accent);">{c.title}</a></li>
+          ))}
+        </ul>
+      )}
+    </section>
+  </Container>
+</BaseLayout>
+
+<style>
+  article :global(h1), article :global(h2), article :global(h3) { margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; }
+  article :global(p) { margin-bottom: 0.75rem; }
+  article :global(ul) { margin-left: 1.5rem; list-style: disc; margin-bottom: 0.75rem; }
+  article :global(code) { background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.875em; }
+</style>

@@ -1,0 +1,118 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getModels, getResolvedHardware, getCases } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const models = await getModels();
+  return models.map((m) => ({ params: { slug: m.id }, props: { model: m } }));
+}
+
+const { model } = Astro.props;
+const arch = model.architecture;
+const hardware = await getResolvedHardware();
+const cases = await getCases();
+
+function statusOnHw(hwId: string): 'measured' | 'claimed' | 'unknown' {
+  const has = cases.some((c) => c.stack.hardware.id === hwId && c.stack.model.id === model.id);
+  return has ? 'measured' : 'unknown';
+}
+const colorMap = { measured: 'var(--color-tier-measured)', claimed: 'var(--color-tier-estimated)', unknown: 'var(--color-text-muted)' };
+const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '— 未知' };
+---
+<BaseLayout title={model.name}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href="/models" class="text-sm" style="color: var(--color-text-muted);">← 模型目录</a>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">{model.name}</h1>
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <Badge>{model.lab}</Badge>
+        <Badge variant={arch.family === 'moe' ? 'accent' : 'default'}>{arch.family.toUpperCase()}</Badge>
+        {model.modalities.map((m) => <Badge>{m}</Badge>)}
+        <Badge>{model.license}</Badge>
+        <Badge>{model.release_date}</Badge>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">架构</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="Total params"><span style="font-size: 1.5rem;">{arch.total_params_b}<span class="text-base opacity-60"> B</span></span></KpiCard>
+        <KpiCard label="Active params"><span style="font-size: 1.5rem;">{arch.active_params_b}<span class="text-base opacity-60"> B</span></span></KpiCard>
+        <KpiCard label="Layers"><span style="font-size: 1.5rem;">{arch.layers}</span></KpiCard>
+        <KpiCard label="Context"><span style="font-size: 1.5rem;">{(arch.max_context_length / 1024).toFixed(0)}<span class="text-base opacity-60"> k</span></span></KpiCard>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">详细规格</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="Hidden size">{arch.hidden_size}</SpecRow>
+        <SpecRow label="FFN size">{arch.ffn_size}</SpecRow>
+        <SpecRow label="Attention heads">{arch.num_attention_heads}</SpecRow>
+        <SpecRow label="KV heads">{arch.num_kv_heads}</SpecRow>
+        <SpecRow label="Head dim">{arch.head_dim}</SpecRow>
+        <SpecRow label="Vocab size">{arch.vocab_size}</SpecRow>
+        <SpecRow label="Attention type">{arch.attention_type}</SpecRow>
+        {arch.moe && (<>
+          <SpecRow label="MoE experts">{arch.moe.num_experts}</SpecRow>
+          <SpecRow label="MoE top-k">{arch.moe.top_k}</SpecRow>
+          <SpecRow label="Expert hidden">{arch.moe.expert_hidden_size}</SpecRow>
+        </>)}
+      </div>
+    </section>
+
+    {model.operator_decomposition.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">算子拆解 (per token)</h3>
+        <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+          <table class="w-full text-sm">
+            <thead style="background: var(--color-surface);">
+              <tr>
+                <th class="text-left px-4 py-2">算子</th>
+                <th class="text-right px-4 py-2">FLOPs / token</th>
+                <th class="text-right px-4 py-2">Bytes / token</th>
+              </tr>
+            </thead>
+            <tbody>
+              {model.operator_decomposition.map((op) => (
+                <tr class="border-t" style="border-color: var(--color-border);">
+                  <td class="px-4 py-2 font-medium">{op.operator}</td>
+                  <td class="px-4 py-2 text-right font-mono">{op.flops_per_token.toExponential(2)}</td>
+                  <td class="px-4 py-2 text-right font-mono">{op.bytes_per_token.toExponential(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">兼容硬件</h3>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+        {hardware.map((h) => {
+          const s = statusOnHw(h.id);
+          return (
+            <a href={`/hardware/${h.id}`} class="flex items-center gap-2 p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <span class="text-xs" style={`color: ${colorMap[s]};`}>{labelMap[s]}</span>
+              <span>{h.name}</span>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="pb-12">
+      <a href={`/calculator?model=${model.id}`}
+         class="inline-block px-5 py-2 rounded-md font-medium"
+         style="background: var(--color-accent); color: white;">
+        在计算器中评估 →
+      </a>
+    </section>
+  </Container>
+</BaseLayout>

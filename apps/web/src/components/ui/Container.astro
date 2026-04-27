@@ -1,0 +1,6 @@
+---
+interface Props { width?: 'narrow' | 'default' | 'wide'; }
+const { width = 'default' } = Astro.props;
+const max = { narrow: 'max-w-3xl', default: 'max-w-7xl', wide: 'max-w-screen-2xl' }[width];
+---
+<div class={`${max} mx-auto px-6`}><slot /></div>

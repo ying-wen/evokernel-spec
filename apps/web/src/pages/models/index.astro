@@ -1,0 +1,38 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getModels } from '~/lib/data';
+
+const models = (await getModels()).sort((a, b) => b.release_date.localeCompare(a.release_date));
+---
+<BaseLayout title="模型目录">
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="MODELS" title="模型目录" subtitle={`${models.length} 个 frontier 开源模型 · 含算子拆解`} />
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
+        {models.map((m) => (
+          <a href={`/models/${m.id}`} class="block">
+            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
+                     style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="text-xs font-medium mb-1" style="color: var(--color-text-muted);">{m.lab}</div>
+              <h3 class="text-base font-semibold">{m.name}</h3>
+              <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div><dt style="color: var(--color-text-muted);">Total</dt><dd class="font-mono">{m.architecture.total_params_b}B</dd></div>
+                <div><dt style="color: var(--color-text-muted);">Active</dt><dd class="font-mono">{m.architecture.active_params_b}B</dd></div>
+                <div><dt style="color: var(--color-text-muted);">Context</dt><dd class="font-mono">{(m.architecture.max_context_length / 1024).toFixed(0)}k</dd></div>
+                <div><dt style="color: var(--color-text-muted);">Released</dt><dd class="font-mono">{m.release_date}</dd></div>
+              </dl>
+              <div class="flex gap-1 mt-3 flex-wrap">
+                <Badge variant={m.architecture.family === 'moe' ? 'accent' : 'default'}>{m.architecture.family.toUpperCase()}</Badge>
+                {m.modalities.map((mod) => <Badge>{mod}</Badge>)}
+                <Badge>{m.weight_format}</Badge>
+              </div>
+            </article>
+          </a>
+        ))}
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

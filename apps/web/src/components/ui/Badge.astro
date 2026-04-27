@@ -1,0 +1,16 @@
+---
+interface Props { variant?: 'default' | 'china' | 'success' | 'warn' | 'accent'; }
+const { variant = 'default' } = Astro.props;
+
+const colorVar = {
+  default: '--color-text-muted',
+  china: '--color-china',
+  success: '--color-tier-measured',
+  warn: '--color-tier-estimated',
+  accent: '--color-accent'
+}[variant];
+---
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+      style={`color: var(${colorVar}); background: color-mix(in oklch, var(${colorVar}) 14%, var(--color-bg));`}>
+  <slot />
+</span>

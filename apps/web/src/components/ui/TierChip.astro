@@ -1,0 +1,19 @@
+---
+import type { Tier } from '@evokernel/schemas';
+interface Props { tier: Tier; size?: 'sm' | 'md'; }
+const { tier, size = 'sm' } = Astro.props;
+
+const config = {
+  official: { label: '厂商声称', icon: '📄', colorVar: '--color-tier-official' },
+  measured: { label: '实测验证', icon: '✅', colorVar: '--color-tier-measured' },
+  estimated: { label: '社区估算', icon: '⚠️', colorVar: '--color-tier-estimated' }
+} as const;
+const { label, icon, colorVar } = config[tier];
+const padding = size === 'md' ? '0.25rem 0.625rem' : '0.125rem 0.5rem';
+const fontSize = size === 'md' ? '0.85rem' : '0.7rem';
+---
+<span class="inline-flex items-center gap-1 rounded-full font-medium align-middle"
+      style={`padding: ${padding}; font-size: ${fontSize}; color: var(${colorVar}); background: color-mix(in oklch, var(${colorVar}) 12%, var(--color-bg));`}
+      data-tier={tier}>
+  <span aria-hidden="true">{icon}</span>{label}
+</span>

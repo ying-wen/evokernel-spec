@@ -1,0 +1,10 @@
+---
+interface Props { eyebrow?: string; title: string; subtitle?: string; accent?: boolean; }
+const { eyebrow, title, subtitle, accent = false } = Astro.props;
+const eyebrowColor = accent ? 'var(--color-china)' : 'var(--color-accent)';
+---
+<header class="mb-8">
+  {eyebrow && <div class="text-xs uppercase tracking-widest font-medium mb-2" style={`color: ${eyebrowColor};`}>{eyebrow}</div>}
+  <h2 class="text-3xl font-semibold" style="font-size: clamp(1.75rem, 1.4rem + 1.2vw, 2.5rem);">{title}</h2>
+  {subtitle && <p class="text-base mt-2 max-w-2xl" style="color: var(--color-text-muted);">{subtitle}</p>}
+</header>
