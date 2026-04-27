@@ -1,0 +1,49 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getServers } from '~/lib/data';
+
+const servers = (await getServers()).sort((a, b) => b.card_count - a.card_count);
+const superPods = servers.filter((s) => s.type === 'super-pod');
+const pods = servers.filter((s) => s.type === 'pod');
+const nodes = servers.filter((s) => s.type === 'integrated-server');
+---
+<BaseLayout title="服务器与超节点">
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="SERVERS" title="服务器 / Pod / 超节点" subtitle={`${servers.length} 台 · ${superPods.length} 个超节点 · 含 CloudMatrix 384, NVL72`} />
+
+      {[
+        { title: '超节点 (super-pod)', list: superPods },
+        { title: 'Pod (机柜级)', list: pods },
+        { title: '整机 (8-GPU)', list: nodes }
+      ].map((g) => g.list.length === 0 ? null : (
+        <>
+          <h3 class="text-xl font-semibold mt-12 mb-4">{g.title} ({g.list.length})</h3>
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {g.list.map((s) => (
+              <article class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                <h4 class="text-base font-semibold">{s.name}</h4>
+                {s.chinese_names[0] && <div class="text-xs mt-1" style="color: var(--color-china);">{s.chinese_names[0]}</div>}
+                <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
+                  <div><dt style="color: var(--color-text-muted);">卡型</dt><dd><a href={`/hardware/${s.card}/`} class="font-mono underline" style="color: var(--color-accent);">{s.card}</a></dd></div>
+                  <div><dt style="color: var(--color-text-muted);">卡数</dt><dd class="font-mono">{s.card_count}</dd></div>
+                  <div><dt style="color: var(--color-text-muted);">Scale-up 域</dt><dd class="font-mono">{s.scale_up_domain_size}</dd></div>
+                  <div><dt style="color: var(--color-text-muted);">机柜功耗</dt><dd class="font-mono">{s.rack_power_kw ?? '—'} kW</dd></div>
+                  <div><dt style="color: var(--color-text-muted);">总显存</dt><dd class="font-mono">{s.total_memory_gb ? `${(s.total_memory_gb / 1024).toFixed(1)} TB` : '—'}</dd></div>
+                  <div><dt style="color: var(--color-text-muted);">冷却</dt><dd>{s.cooling}</dd></div>
+                </dl>
+                <div class="flex gap-1 mt-3">
+                  <Badge variant={s.type === 'super-pod' ? 'china' : 'default'}>{s.type}</Badge>
+                  <Badge>发布于 {s.release_year}</Badge>
+                </div>
+              </article>
+            ))}
+          </div>
+        </>
+      ))}
+    </section>
+  </Container>
+</BaseLayout>

@@ -96,3 +96,53 @@ test.describe('Navigation works', () => {
     await expect(page).toHaveURL(/\/china\/?$/);
   });
 });
+
+test.describe('Entity index pages', () => {
+  for (const path of ['/operators/', '/engines/', '/servers/', '/quantizations/', '/vendors/', '/patterns/']) {
+    test(`${path} renders`, async ({ page }) => {
+      const r = await page.goto(path);
+      expect(r?.status()).toBe(200);
+      await expect(page.locator('h2').first()).toBeVisible();
+    });
+  }
+
+  test('operator detail with cross-link from model page', async ({ page }) => {
+    await page.goto('/models/deepseek-v4-pro/');
+    const link = page.getByRole('link', { name: 'matmul', exact: true }).first();
+    await link.click();
+    await expect(page).toHaveURL(/\/operators\/matmul\/?$/);
+    await expect(page.getByRole('heading', { name: /Matrix Multiplication/i })).toBeVisible();
+  });
+
+  test('engine detail shows compatible hardware list', async ({ page }) => {
+    await page.goto('/engines/vllm/');
+    await expect(page.getByRole('heading', { name: /兼容硬件/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /使用本引擎的案例/ })).toBeVisible();
+  });
+});
+
+test.describe('SEO and feeds', () => {
+  test('home has OpenGraph and Twitter meta', async ({ page }) => {
+    await page.goto('/');
+    expect(await page.locator('meta[property="og:title"]').getAttribute('content')).toContain('EvoKernel');
+    expect(await page.locator('meta[name="twitter:card"]').getAttribute('content')).toBe('summary_large_image');
+    expect(await page.locator('link[rel="alternate"][type="application/rss+xml"]').getAttribute('href')).toBe('/cases.xml');
+  });
+
+  test('RSS feed is valid XML', async ({ page }) => {
+    const r = await page.goto('/cases.xml');
+    expect(r?.status()).toBe(200);
+    const ct = r?.headers()['content-type'] ?? '';
+    expect(ct).toContain('xml');
+    const body = await r!.text();
+    expect(body).toContain('<rss');
+    expect(body).toContain('<item>');
+    expect(body).toContain('CloudMatrix 384');
+  });
+
+  test('skip link is hidden by default but appears on focus', async ({ page }) => {
+    await page.goto('/');
+    const skip = page.locator('a.skip-link');
+    await expect(skip).toBeAttached();
+  });
+});

@@ -1,0 +1,82 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getEngines, getResolvedHardware, getCases } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const engines = await getEngines();
+  return engines.map((e) => ({ params: { slug: e.id }, props: { engine: e } }));
+}
+
+const { engine } = Astro.props;
+const allHardware = await getResolvedHardware();
+const supportingHw = allHardware.filter((h) => h.software_support.engines.some((se) => se.id === engine.id));
+const allCases = await getCases();
+const cases = allCases.filter((c) => c.stack.engine.id === engine.id).sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
+---
+<BaseLayout title={`${engine.name} 推理引擎`}>
+  <Container>
+    <section class="pt-12 pb-8">
+      <a href="/engines/" class="text-sm" style="color: var(--color-text-muted);">← 引擎目录</a>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">{engine.name}</h1>
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <Badge variant="accent">{engine.latest_version}</Badge>
+        <Badge>维护: {engine.maintainer}</Badge>
+      </div>
+      {engine.notes && <p class="mt-4 text-base" style="color: var(--color-text-muted);">{engine.notes}</p>}
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">资源</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="源码"><a href={engine.source_url} class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">{engine.source_url}</a></SpecRow>
+        {engine.documentation_url && <SpecRow label="文档"><a href={engine.documentation_url} class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">{engine.documentation_url}</a></SpecRow>}
+        <SpecRow label="支持厂商">{engine.supported_hardware_vendors.join(', ')}</SpecRow>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">兼容硬件 ({supportingHw.length})</h3>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {supportingHw.map((h) => {
+          const support = h.software_support.engines.find((se) => se.id === engine.id)!;
+          const colorMap = {
+            'officially-supported': 'var(--color-tier-measured)',
+            'community-port': 'var(--color-tier-estimated)',
+            'unsupported': 'oklch(55% 0.2 25)'
+          };
+          const labelMap = { 'officially-supported': '官方', 'community-port': '社区', 'unsupported': '不支持' };
+          return (
+            <a href={`/hardware/${h.id}/`} class="flex justify-between items-center p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <span>{h.name}</span>
+              <span class="text-xs" style={`color: ${colorMap[support.status]};`}>{labelMap[support.status]}</span>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">使用本引擎的案例 ({cases.length})</h3>
+      {cases.length === 0 ? (
+        <p class="text-sm" style="color: var(--color-text-muted);">尚无关联案例。</p>
+      ) : (
+        <ul class="space-y-2 text-sm">
+          {cases.map((c) => (
+            <li>
+              <a href={`/cases/${c.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="font-medium">{c.title}</div>
+                <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
+                  {c.stack.hardware.id} ×{c.stack.hardware.count} · {c.stack.model.id} · {c.results.throughput_tokens_per_sec.decode} tok/s · {c.submitted_at}
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  </Container>
+</BaseLayout>

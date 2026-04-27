@@ -7,23 +7,69 @@ interface Props {
   title: string;
   description?: string;
   noIndex?: boolean;
+  ogImage?: string;
 }
 
-const { title, description = 'AI 推理硬件 × 模型 × 部署的开源知识库', noIndex = false } = Astro.props;
+const {
+  title,
+  description = 'AI 推理硬件 × 模型 × 部署的开源知识库。覆盖国产芯片最全, 数据带 evidence 引证, 计算器透明。',
+  noIndex = false,
+  ogImage
+} = Astro.props;
+
+const pageTitle = `${title} · EvoKernel Spec`;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://evokernel.dev').toString();
+const ogImageUrl = ogImage ?? new URL('/og-default.png', Astro.site ?? 'https://evokernel.dev').toString();
 ---
 <!DOCTYPE html>
 <html lang="zh">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title} · EvoKernel Spec</title>
+    <title>{pageTitle}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
     {noIndex && <meta name="robots" content="noindex" />}
+
+    <!-- OpenGraph / Twitter -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="EvoKernel Spec" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:locale" content="zh_CN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+
+    <!-- RSS auto-discovery -->
+    <link rel="alternate" type="application/rss+xml" title="EvoKernel Spec — 部署案例" href="/cases.xml" />
+
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚛%3C/text%3E%3C/svg%3E" type="image/svg+xml" />
   </head>
   <body class="min-h-screen flex flex-col">
+    <a href="#main-content" class="skip-link">跳转到主内容</a>
     <Nav />
-    <main class="flex-1" data-pagefind-body><slot /></main>
+    <main id="main-content" class="flex-1" data-pagefind-body><slot /></main>
     <Footer />
+    <style is:global>
+      .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 1rem;
+        z-index: 100;
+        background: var(--color-accent);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .skip-link:focus {
+        left: 1rem;
+      }
+    </style>
   </body>
 </html>

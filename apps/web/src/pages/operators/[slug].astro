@@ -1,0 +1,61 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getOperators, getModels } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const operators = await getOperators();
+  return operators.map((op) => ({ params: { slug: op.id }, props: { op } }));
+}
+
+const { op } = Astro.props;
+const allModels = await getModels();
+// Find models that reference this operator in decomposition
+const usedBy = allModels.filter((m) => m.operator_decomposition.some((d) => d.operator === op.id));
+---
+<BaseLayout title={`${op.name} 算子`}>
+  <Container width="narrow">
+    <section class="pt-12 pb-8">
+      <a href="/operators/" class="text-sm" style="color: var(--color-text-muted);">← 算子目录</a>
+      <h1 style="font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem); margin-top: 1rem; font-weight: 600;">{op.name}</h1>
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <Badge variant="accent">{op.category}</Badge>
+        {op.variants.map((v) => <Badge>{v}</Badge>)}
+      </div>
+      <p class="mt-4 text-base" style="color: var(--color-text-muted);">{op.description}</p>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">公式</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="FLOPs"><code style="font-family: var(--font-mono); font-size: 0.875rem;">{op.flops_formula}</code></SpecRow>
+        <SpecRow label="Bytes"><code style="font-family: var(--font-mono); font-size: 0.875rem;">{op.bytes_formula}</code></SpecRow>
+      </div>
+    </section>
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">使用此算子的模型 ({usedBy.length})</h3>
+      {usedBy.length === 0 ? (
+        <p class="text-sm" style="color: var(--color-text-muted);">尚无模型在算子拆解中引用此算子。</p>
+      ) : (
+        <ul class="space-y-2 text-sm">
+          {usedBy.map((m) => {
+            const decomp = m.operator_decomposition.find((d) => d.operator === op.id)!;
+            return (
+              <li>
+                <a href={`/models/${m.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                  <div class="font-medium">{m.name}</div>
+                  <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
+                    FLOPs/token: {decomp.flops_per_token.toExponential(2)} · Bytes/token: {decomp.bytes_per_token.toExponential(2)}
+                  </div>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  </Container>
+</BaseLayout>

@@ -1,0 +1,42 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getQuantizations, getResolvedHardware, getCases } from '~/lib/data';
+
+const qs = (await getQuantizations()).sort((a, b) => a.bits_per_weight - b.bits_per_weight);
+const allHardware = await getResolvedHardware();
+const allCases = await getCases();
+
+function support(qid: string) {
+  return allHardware.filter((h) => h.software_support.quantizations.includes(qid)).length;
+}
+function caseCount(qid: string) {
+  return allCases.filter((c) => c.stack.quantization === qid).length;
+}
+---
+<BaseLayout title="量化方案">
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="QUANTIZATION" title="量化方案" subtitle={`${qs.length} 种量化方案 · 硬件支持 · 案例引用`} />
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
+        {qs.map((q) => (
+          <article class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <div class="flex justify-between items-start mb-2">
+              <h3 class="text-base font-semibold">{q.name}</h3>
+              <Badge variant="accent">{q.family}</Badge>
+            </div>
+            <dl class="grid grid-cols-2 gap-2 mt-2 text-xs">
+              <div><dt style="color: var(--color-text-muted);">权重位数</dt><dd class="font-mono">{q.bits_per_weight}</dd></div>
+              <div><dt style="color: var(--color-text-muted);">激活位数</dt><dd class="font-mono">{q.bits_per_activation}</dd></div>
+              <div><dt style="color: var(--color-text-muted);">支持硬件</dt><dd class="font-mono">{support(q.id)} / {allHardware.length}</dd></div>
+              <div><dt style="color: var(--color-text-muted);">已用案例</dt><dd class="font-mono">{caseCount(q.id)}</dd></div>
+            </dl>
+            {q.description && <p class="text-xs mt-3" style="color: var(--color-text-muted);">{q.description}</p>}
+          </article>
+        ))}
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

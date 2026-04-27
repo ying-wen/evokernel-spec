@@ -1,0 +1,35 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getOperators } from '~/lib/data';
+
+const operators = (await getOperators()).sort((a, b) => a.category.localeCompare(b.category) || a.id.localeCompare(b.id));
+---
+<BaseLayout title="算子目录">
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="OPERATORS" title="算子目录" subtitle={`${operators.length} 个算子 · FLOPs / bytes 公式 · 跨硬件实现差异`} />
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
+        {operators.map((op) => (
+          <a href={`/operators/${op.id}/`} class="block">
+            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
+                     style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex justify-between items-start gap-2 mb-2">
+                <h3 class="text-base font-semibold">{op.name}</h3>
+                <Badge>{op.category}</Badge>
+              </div>
+              <p class="text-xs leading-relaxed" style="color: var(--color-text-muted);">{op.description}</p>
+              {op.variants.length > 0 && (
+                <div class="flex gap-1 mt-3 flex-wrap">
+                  {op.variants.slice(0, 3).map((v) => <span class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">{v}</span>)}
+                </div>
+              )}
+            </article>
+          </a>
+        ))}
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

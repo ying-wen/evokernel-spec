@@ -80,7 +80,7 @@ const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '�
             <tbody>
               {model.operator_decomposition.map((op) => (
                 <tr class="border-t" style="border-color: var(--color-border);">
-                  <td class="px-4 py-2 font-medium">{op.operator}</td>
+                  <td class="px-4 py-2 font-medium"><a href={`/operators/${op.operator}/`} class="underline" style="color: var(--color-accent);">{op.operator}</a></td>
                   <td class="px-4 py-2 text-right font-mono">{op.flops_per_token.toExponential(2)}</td>
                   <td class="px-4 py-2 text-right font-mono">{op.bytes_per_token.toExponential(2)}</td>
                 </tr>

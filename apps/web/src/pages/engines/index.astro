@@ -1,0 +1,32 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getEngines } from '~/lib/data';
+
+const engines = (await getEngines()).sort((a, b) => a.id.localeCompare(b.id));
+---
+<BaseLayout title="推理引擎">
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="ENGINES" title="推理引擎目录" subtitle={`${engines.length} 个推理引擎 · 硬件兼容 · 维护方信息`} />
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
+        {engines.map((e) => (
+          <a href={`/engines/${e.id}/`} class="block">
+            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
+                     style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <h3 class="text-base font-semibold">{e.name}</h3>
+              <div class="text-xs mt-1" style="color: var(--color-text-muted);">维护: {e.maintainer}</div>
+              <div class="flex gap-1 mt-3 flex-wrap">
+                <Badge variant="accent">{e.latest_version}</Badge>
+                {e.supported_hardware_vendors.slice(0, 4).map((v) => <Badge>{v}</Badge>)}
+              </div>
+              {e.notes && <p class="text-xs mt-3" style="color: var(--color-text-muted);">{e.notes}</p>}
+            </article>
+          </a>
+        ))}
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

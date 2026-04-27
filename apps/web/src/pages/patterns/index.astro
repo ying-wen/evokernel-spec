@@ -1,0 +1,41 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getPatterns, getCases } from '~/lib/data';
+
+const patterns = (await getPatterns()).sort((a, b) => a.id.localeCompare(b.id));
+const allCases = await getCases();
+function supportingCount(pid: string) {
+  return allCases.filter((c) => c.patterns.includes(pid)).length;
+}
+---
+<BaseLayout title="优化模式">
+  <Container width="narrow">
+    <section class="py-12">
+      <SectionHeader eyebrow="PATTERNS" title="优化模式" subtitle={`${patterns.length} 个跨 case 的可迁移知识标签`} />
+      <ul class="space-y-3 mt-8">
+        {patterns.map((p) => (
+          <li>
+            <a href={`/patterns/${p.id}/`} class="block p-5 rounded-lg border transition-transform hover:-translate-y-0.5"
+               style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex justify-between items-start gap-3">
+                <h3 class="text-base font-semibold">{p.name}</h3>
+                <div class="flex gap-1 flex-shrink-0">
+                  <Badge variant="accent">{p.category}</Badge>
+                  <Badge>{supportingCount(p.id)} cases</Badge>
+                </div>
+              </div>
+              {p.applies_when.length > 0 && (
+                <div class="text-xs mt-2 flex flex-wrap gap-1" style="color: var(--color-text-muted);">
+                  适用: {p.applies_when.map((a) => <span class="px-2 py-0.5 rounded" style="background: var(--color-surface);">{a}</span>)}
+                </div>
+              )}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  </Container>
+</BaseLayout>
