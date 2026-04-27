@@ -1,0 +1,43 @@
+id: case-dsv4pro-cm384-mindie-001
+title: DeepSeek V4 Pro on Huawei CloudMatrix 384 with MindIE
+submitted_at: '2026-04-28'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: ascend-910c, count: 384, topology: 'super-pod CloudMatrix 384' }
+  server: { id: huawei-cloudmatrix-384 }
+  interconnect: { intra_node: lingqu, inter_node: roce-v2 }
+  model: { id: deepseek-v4-pro, weight_format: bf16 }
+  engine: { id: mindie, version: '1.0.RC3' }
+  quantization: bf16
+  parallel: { tp: 16, pp: 4, ep: 6, sp: 1, disaggregated: false }
+  driver: 'CANN 8.1'
+  os: 'openEuler 22.03 LTS'
+scenario:
+  prefill_seq_len: 4096
+  decode_seq_len: 1024
+  batch_size: 64
+  max_concurrent_requests: 256
+results:
+  throughput_tokens_per_sec: { decode: 2400, prefill: 38000 }
+  latency_ms: { ttft_p50: 380, ttft_p99: 580, tbt_p50: 32, tbt_p99: 58 }
+  memory_per_card_gb: 102
+  power_per_card_w: 680
+  utilization: { compute_pct: 38, memory_bw_pct: 71 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'mindie-server --config config/mindie-dsv4-cm384.json'
+  config_files: ['./config/mindie-dsv4-cm384.json']
+  benchmark_tool: 'mindie-benchmark + sharegpt'
+issues_encountered:
+  - 'EP=6 expert 路由首跑负载不均, 通过 router warmup batch 缓解'
+  - 'Lingqu fabric 跨柜延迟比单柜内 HCCS 高约 18%'
+patterns: [moe-expert-routing-on-domestic, memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-dsv4pro-cm384-001
+    tier: measured
+    source_type: third-party-review
+    url: https://www.huawei.com/en/news/2024
+    accessed: '2026-04-28'
+    citation: 'Huawei CloudMatrix 384 + DeepSeek V4 Pro reference benchmark (figures approximate from public Huawei coverage)'
+    contributor_attestation: 'Numbers extracted from Huawei public CloudMatrix 384 reference benchmark; not independently re-run.'

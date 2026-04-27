@@ -56,8 +56,11 @@ describe('findSimilarCases', () => {
 
   it('exact match scores ~1.0', () => {
     const out = findSimilarCases([mkCase({ id: 'a' })], baseInput);
-    expect(out[0].caseId).toBe('a');
-    expect(out[0].matchScore).toBeCloseTo(1, 1);
+    expect(out.length).toBeGreaterThan(0);
+    const first = out[0];
+    if (!first) throw new Error('expected at least one match');
+    expect(first.caseId).toBe('a');
+    expect(first.matchScore).toBeCloseTo(1, 1);
   });
 
   it('returns at most 3', () => {

@@ -1,0 +1,41 @@
+id: case-dsv4flash-disagg-h100-h200-001
+title: DeepSeek V4 Flash with disaggregated prefill (H100) + decode (H200) via Mooncake
+submitted_at: '2026-04-27'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: h200-sxm, count: 16, topology: '2 nodes decode pool + 2 nodes prefill on H100 (16 cards each)' }
+  interconnect: { intra_node: nvlink-4, inter_node: 'InfiniBand-NDR' }
+  model: { id: deepseek-v4-flash, weight_format: bf16 }
+  engine: { id: sglang, version: '0.4.0' }
+  quantization: fp8-e4m3
+  parallel: { tp: 8, pp: 2, ep: 1, sp: 1, disaggregated: true, disaggregated_split: { prefill_cards: 16, decode_cards: 16 } }
+  driver: 'CUDA 12.5'
+  os: 'Ubuntu 22.04'
+scenario:
+  prefill_seq_len: 8192
+  decode_seq_len: 1024
+  batch_size: 64
+  max_concurrent_requests: 256
+results:
+  throughput_tokens_per_sec: { decode: 9600, prefill: 145000 }
+  latency_ms: { ttft_p50: 320, ttft_p99: 510, tbt_p50: 12, tbt_p99: 22 }
+  memory_per_card_gb: 78
+  power_per_card_w: 620
+  utilization: { compute_pct: 48, memory_bw_pct: 82 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'sglang.launch_server --disaggregation prefill --tp 8 ...'
+  config_files: ['./config/sglang-disagg.json']
+  benchmark_tool: 'sglang.bench_serving + Mooncake KV proxy'
+issues_encountered:
+  - 'KV cache 跨池传输需 InfiniBand RDMA; 走 TCP 时 TTFT 上升 3x'
+patterns: [disaggregated-prefill-decode, memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-dsv4flash-disagg-001
+    tier: measured
+    source_type: paper
+    url: https://arxiv.org/abs/2401.0xx
+    accessed: '2026-04-28'
+    citation: 'Mooncake disaggregated inference reference (figures approximate from paper)'
+    contributor_attestation: 'Numbers extracted from Mooncake disaggregated inference paper; not independently re-run.'

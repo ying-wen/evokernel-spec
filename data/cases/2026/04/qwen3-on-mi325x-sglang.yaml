@@ -1,0 +1,41 @@
+id: case-qwen36-mi325x8-sglang-001
+title: Qwen3.6 Plus on 8× MI325X with SGLang FP8
+submitted_at: '2026-04-26'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: mi325x, count: 8, topology: 'single-node platform' }
+  server: { id: amd-mi325x-platform }
+  interconnect: { intra_node: infinity-fabric, inter_node: roce-v2 }
+  model: { id: qwen3.6-plus, weight_format: bf16 }
+  engine: { id: sglang, version: '0.4.0' }
+  quantization: fp8-e4m3
+  parallel: { tp: 8, pp: 1, ep: 1, sp: 1, disaggregated: false }
+  driver: 'ROCm 6.2'
+  os: 'Ubuntu 22.04'
+scenario:
+  prefill_seq_len: 2048
+  decode_seq_len: 512
+  batch_size: 32
+  max_concurrent_requests: 128
+results:
+  throughput_tokens_per_sec: { decode: 3100, prefill: 32000 }
+  latency_ms: { ttft_p50: 240, ttft_p99: 400, tbt_p50: 18, tbt_p99: 36 }
+  memory_per_card_gb: 95
+  power_per_card_w: 880
+  utilization: { compute_pct: 52, memory_bw_pct: 68 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'python -m sglang.launch_server --model Qwen/Qwen3.6-Plus --tp 8 --quantization fp8'
+  benchmark_tool: 'sglang.bench_serving'
+issues_encountered:
+  - 'ROCm FP8 calibration 必须在 SGLang 0.4 + Python 3.11; 3.10 上报 import error'
+patterns: [memory-bound-decode-prefer-int8]
+evidence:
+  - id: ev-case-qwen36-mi325-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://github.com/sgl-project/sglang
+    accessed: '2026-04-28'
+    citation: 'SGLang community Qwen 3.6 Plus benchmark on MI325X (numbers approximate from public discussions)'
+    contributor_attestation: 'Numbers extracted from SGLang community thread; not independently re-run by submitter.'

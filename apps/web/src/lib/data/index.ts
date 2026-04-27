@@ -8,7 +8,7 @@ import {
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
-export type ResolvedHardware = Hardware & { vendor: Vendor };
+export type ResolvedHardware = Omit<Hardware, 'vendor'> & { vendor: Vendor };
 export type ResolvedCase = Case & {
   resolved: {
     hardware: Hardware;

@@ -165,7 +165,7 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
   );
 }
 
-function ResultPanel({ result, cases }: { result: NonNullable<ReturnType<typeof calculate>>; cases: Case[] }) {
+function ResultPanel({ result, cases: _cases }: { result: NonNullable<ReturnType<typeof calculate>>; cases: Case[] }) {
   const r = result;
   return (
     <section className="mt-6 space-y-6">

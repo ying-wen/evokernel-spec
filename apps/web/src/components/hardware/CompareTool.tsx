@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import type { Hardware } from '@evokernel/schemas';
 
-interface ResolvedHw extends Hardware {
+interface ResolvedHw extends Omit<Hardware, 'vendor'> {
   vendor: { id: string; name: string; country: string; chinese_names: string[] };
 }
 

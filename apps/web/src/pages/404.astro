@@ -1,0 +1,23 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+---
+<BaseLayout title="404 · 页面未找到">
+  <Container width="narrow">
+    <section class="py-24 text-center">
+      <div style="font-size: clamp(4rem, 3rem + 4vw, 8rem); font-weight: 700; line-height: 1; color: var(--color-accent); letter-spacing: -0.05em;">404</div>
+      <h1 class="mt-6" style="font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem); font-weight: 600;">页面未找到</h1>
+      <p class="mt-4 text-base" style="color: var(--color-text-muted);">
+        你访问的链接不存在, 可能数据或路由还没收录。
+      </p>
+      <div class="flex gap-3 justify-center mt-8 flex-wrap">
+        <a href="/" class="px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">回到首页</a>
+        <a href="/hardware/" class="px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border);">浏览硬件</a>
+        <a href="/calculator/" class="px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-china); color: var(--color-china);">打开计算器</a>
+      </div>
+      <p class="mt-12 text-xs" style="color: var(--color-text-muted);">
+        缺了某个硬件 / 模型 / 案例? <a href="https://github.com/evokernel/evokernel-spec/issues/new" class="underline" style="color: var(--color-accent);">提个 issue</a> 或直接 PR。
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

@@ -135,9 +135,12 @@ const ecosystemRows = cnVendorIds.map((vid) => {
             </tr>
           </thead>
           <tbody>
-            {Array.from(genealogyByVendor.entries()).map(([vid, cards]) => (
+            {Array.from(genealogyByVendor.entries()).map(([_vid, cards]) => {
+              const first = cards[0];
+              const vendorLabel = first ? (first.vendor.chinese_names[0] ?? first.vendor.name) : '';
+              return (
               <tr class="border-t" style="border-color: var(--color-border);">
-                <td class="p-3 font-medium">{cards[0].vendor.chinese_names[0] ?? cards[0].vendor.name}</td>
+                <td class="p-3 font-medium">{vendorLabel}</td>
                 {years.map((y) => {
                   const card = cards.find((c) => c.release_year === y);
                   return (
@@ -155,7 +158,8 @@ const ecosystemRows = cnVendorIds.map((vid) => {
                   );
                 })}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

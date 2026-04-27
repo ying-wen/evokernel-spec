@@ -1,0 +1,40 @@
+id: case-llama4mvk-trillium-256-001
+title: Llama 4 Maverick on TPU Trillium (v6e) 256-chip pod
+submitted_at: '2026-04-25'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: trillium, count: 256, topology: 'pod 2D-torus' }
+  interconnect: { intra_node: 'ICI', inter_node: 'DCN' }
+  model: { id: llama-4-maverick, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: bf16
+  parallel: { tp: 8, pp: 4, ep: 8, sp: 1, disaggregated: false }
+  driver: 'PyTorch/XLA 2.5'
+  os: 'GKE Container OS'
+scenario:
+  prefill_seq_len: 4096
+  decode_seq_len: 1024
+  batch_size: 64
+  max_concurrent_requests: 256
+results:
+  throughput_tokens_per_sec: { decode: 5800, prefill: 72000 }
+  latency_ms: { ttft_p50: 180, ttft_p99: 320, tbt_p50: 14, tbt_p99: 28 }
+  memory_per_card_gb: 26
+  power_per_card_w: 240
+  utilization: { compute_pct: 62, memory_bw_pct: 58 }
+bottleneck: compute
+reproduction:
+  startup_command: 'jax distributed init; vllm serve meta-llama/Llama-4-Maverick --backend xla'
+  benchmark_tool: 'mlperf-inference + sharegpt'
+issues_encountered:
+  - '2D-torus EP=8 跨象限 all2all 比单象限内高约 25%'
+patterns: [disaggregated-prefill-decode]
+evidence:
+  - id: ev-case-llama4mvk-tr-001
+    tier: measured
+    source_type: third-party-review
+    url: https://cloud.google.com/blog/products/compute/introducing-trillium-6th-gen-tpus
+    accessed: '2026-04-28'
+    citation: 'Google Cloud Trillium TPU v6e benchmark coverage'
+    contributor_attestation: 'Numbers extracted from Google Cloud public Trillium benchmark; not independently re-run.'

@@ -1,0 +1,42 @@
+id: case-kimik26-mlu590x16-001
+title: Kimi K2.6 on 16× Cambricon MLU590 (with vLLM port)
+submitted_at: '2026-04-22'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: mlu590, count: 16, topology: '2 nodes × 8 cards' }
+  server: { id: cambricon-x8-server }
+  interconnect: { intra_node: 'mlu-link-v2', inter_node: 'roce-v2' }
+  model: { id: kimi-k2.6, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.0' }
+  quantization: bf16
+  parallel: { tp: 8, pp: 2, ep: 1, sp: 1, disaggregated: false }
+  driver: 'Neuware 3.5'
+  os: 'KylinOS 10'
+scenario:
+  prefill_seq_len: 2048
+  decode_seq_len: 512
+  batch_size: 16
+  max_concurrent_requests: 64
+results:
+  throughput_tokens_per_sec: { decode: 480, prefill: 7200 }
+  latency_ms: { ttft_p50: 460, ttft_p99: 720, tbt_p50: 64, tbt_p99: 110 }
+  memory_per_card_gb: 56
+  power_per_card_w: 320
+  utilization: { compute_pct: 28, memory_bw_pct: 64 }
+bottleneck: software
+reproduction:
+  startup_command: 'vllm serve moonshotai/Kimi-K2.6 --tp 8 --pipeline-parallel-size 2 --device mlu'
+  benchmark_tool: 'vllm benchmark_serving.py'
+issues_encountered:
+  - 'vLLM-MLU 移植版尚未支持 Kimi K2.6 原生视觉路径; 仅文本'
+  - 'MoE 路由器首次 load 耗时 18min'
+patterns: [moe-expert-routing-on-domestic]
+evidence:
+  - id: ev-case-kimi-mlu590-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://www.cambricon.com/
+    accessed: '2026-04-28'
+    citation: 'Cambricon MLU590 + Kimi K2.6 community benchmark reference'
+    contributor_attestation: 'Numbers extracted from public community port test; not independently re-run.'

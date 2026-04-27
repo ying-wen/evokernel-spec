@@ -1,7 +1,9 @@
 ---
 import type { Hardware } from '@evokernel/schemas';
 
-interface Props { hw: Hardware; }
+// Accept either raw Hardware or ResolvedHardware (vendor as object). We only
+// touch fields that are identical in both shapes.
+interface Props { hw: Omit<Hardware, 'vendor'> & { vendor: string | { id: string } }; }
 const { hw } = Astro.props;
 
 const cardCount = hw.scale_up.world_size;
