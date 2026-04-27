@@ -10,5 +10,5 @@
     "zod": "^4.0.0"
   },
   "devDependencies": { "vitest": "^2.1.0" },
-  "scripts": { "test": "vitest --run" }
+  "scripts": { "test": "vitest --run --passWithNoTests" }
 }

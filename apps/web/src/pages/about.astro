@@ -1,0 +1,49 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+---
+<BaseLayout title="关于">
+  <Container width="narrow">
+    <section class="py-12">
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">关于 EvoKernel·Spec</h1>
+      <p class="text-lg mt-4" style="color: var(--color-text-muted);">开源的 AI 推理硬件 × 模型 × 部署知识库, 国产芯片覆盖最全。</p>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">核心命题</h2>
+      <ul class="space-y-2 list-disc pl-6">
+        <li>知识库为主, 计算器为辅</li>
+        <li>9 家国产硬件 (昇腾 / 寒武纪 / 海光 / 摩尔线程 / 燧原 / 壁仞 / 沐曦 / 天数智芯 / 平头哥) 全覆盖 + 海外主流卡 (NVIDIA / AMD / Intel / AWS / Google)</li>
+        <li>每个数字带 evidence (官方 / 实测 / 估算 三档)</li>
+        <li>代码即数据, 全 git 仓库, 纯 PR 贡献</li>
+      </ul>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">数据可信度模型</h2>
+      <p>每张实体卡的每个数字背后挂一个 <code style="background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem;">evidence_ref</code>, 引用官方白皮书 / 第三方实测 / 社区估算等来源。UI 默认折叠为三档 tier:</p>
+      <ul class="space-y-2 mt-3 list-disc pl-6 text-sm">
+        <li>📄 <strong style="color: var(--color-tier-official);">官方声称</strong> — 厂商白皮书、product page</li>
+        <li>✅ <strong style="color: var(--color-tier-measured);">实测验证</strong> — 第三方或社区贡献的实测数据</li>
+        <li>⚠️ <strong style="color: var(--color-tier-estimated);">社区估算</strong> — 基于公开信息的合理估算</li>
+      </ul>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">许可</h2>
+      <ul class="space-y-2 list-disc pl-6">
+        <li>代码: <a href="https://www.apache.org/licenses/LICENSE-2.0" class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">Apache 2.0</a></li>
+        <li>数据: <a href="https://creativecommons.org/licenses/by-sa/4.0/" class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">CC-BY-SA 4.0</a></li>
+      </ul>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">免责声明</h2>
+      <p style="color: var(--color-text-muted);">所有 vendor-claimed 数据未经独立验证, 不构成投资或采购建议。本站不代表任何利益相关方。</p>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">贡献</h2>
+      <p>三种贡献入口:</p>
+      <ol class="space-y-2 mt-3 list-decimal pl-6">
+        <li><strong>新硬件 / 新模型</strong>: 提 GitHub issue → maintainer 确认 → PR</li>
+        <li><strong>新部署 case</strong>: 直接 PR, 必须含 reproduction 步骤 + raw log + 个人 attestation</li>
+        <li><strong>优化模式</strong>: V1 maintainer-only, 从 case 提炼; V1.5 开放</li>
+      </ol>
+      <p class="mt-3"><a href="https://github.com/evokernel/evokernel-spec" class="underline" style="color: var(--color-accent);">GitHub 仓库 →</a></p>
+
+      <h2 class="text-xl font-semibold mt-12 mb-3">致谢</h2>
+      <p style="color: var(--color-text-muted);">本项目灵感来自 SemiAnalysis 的 InferenceX, 但视角更聚焦在国产硬件生态和透明引证。</p>
+    </section>
+  </Container>
+</BaseLayout>

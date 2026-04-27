@@ -1,0 +1,22 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Calculator from '~/components/calculator/Calculator.tsx';
+import { getResolvedHardware, getModels, getCases, getEngines } from '~/lib/data';
+
+const models = await getModels();
+const hardware = await getResolvedHardware();
+const cases = await getCases();
+const engines = await getEngines();
+const initialModel = Astro.url.searchParams.get('model') ?? undefined;
+---
+<BaseLayout title="计算器">
+  <Container width="wide">
+    <section class="py-12">
+      <SectionHeader eyebrow="CALCULATOR" title="部署计算器"
+        subtitle="Tier 0 (实测查表) + Tier 1 (Roofline 上界) · 公式公开 · 显存/通信检查" />
+      <Calculator models={models} hardware={hardware} cases={cases} engines={engines} initialModel={initialModel} client:load />
+    </section>
+  </Container>
+</BaseLayout>
