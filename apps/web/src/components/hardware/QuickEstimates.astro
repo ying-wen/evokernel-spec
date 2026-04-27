@@ -1,0 +1,114 @@
+---
+import type { Hardware, Model, Case } from '@evokernel/schemas';
+import { calculate, buildEfficiencyMap } from '~/lib/calculator';
+
+interface Props {
+  hw: Hardware;
+  models: Model[];
+  cases: Case[];
+  hardware: Hardware[];
+}
+
+const { hw, models, cases, hardware } = Astro.props;
+
+// Pick interesting models to show: prefer ones with operator decomposition
+const featured = models
+  .filter((m) => m.operator_decomposition.length > 0)
+  .sort((a, b) => b.release_date.localeCompare(a.release_date))
+  .slice(0, 8);
+
+const efficiencyMap = buildEfficiencyMap(cases, hardware, models);
+
+// Pick a sensible default precision for this hardware
+const supportedPrecisions = hw.software_support.quantizations;
+function pickPrecision(): 'fp4' | 'fp8' | 'bf16' | 'fp16' | 'int8' {
+  if (supportedPrecisions.includes('fp4') && hw.compute.fp4_tflops) return 'fp4';
+  if (supportedPrecisions.includes('fp8-e4m3') && hw.compute.fp8_tflops) return 'fp8';
+  if (supportedPrecisions.includes('bf16') && hw.compute.bf16_tflops) return 'bf16';
+  if (supportedPrecisions.includes('fp16') && hw.compute.fp16_tflops) return 'fp16';
+  return 'int8';
+}
+const precision = pickPrecision();
+
+// Default config: 8 cards, TP=8 (or fewer if hardware world_size < 8)
+const tp = Math.min(8, hw.scale_up.world_size);
+const hwCount = tp;
+
+interface Row {
+  model: Model;
+  decodeUpper: number;
+  feasible: boolean;
+  bottleneck: 'compute' | 'memory';
+}
+
+const rows: Row[] = featured.map((m) => {
+  const r = calculate({
+    calc: {
+      modelId: m.id,
+      hardware: { id: hw.id, count: hwCount },
+      scenario: { prefillSeqLen: 1024, decodeSeqLen: 256, batchSize: 16, concurrency: 64 },
+      precision,
+      parallel: { tp, pp: 1, ep: 1, sp: 1 },
+      engineId: 'vllm',
+      disaggregated: { enabled: false }
+    },
+    hardware: hw,
+    model: m,
+    cases,
+    efficiencyMap
+  });
+  return {
+    model: m,
+    decodeUpper: r.tier1Roofline.decodeThroughputUpperBound,
+    feasible: r.configCheck.feasible,
+    bottleneck: r.tier1Roofline.isComputeBound ? 'compute' : 'memory'
+  };
+});
+
+const sortedRows = rows.sort((a, b) => b.decodeUpper - a.decodeUpper);
+const calculatorBase = `/calculator/?hw=${hw.id}&hwCount=${hwCount}&prec=${precision}&tp=${tp}`;
+---
+<div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+  <div class="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap" style="border-color: var(--color-border);">
+    <div>
+      <h4 class="text-sm font-semibold">Quick estimates · decode tok/s/card 上界</h4>
+      <p class="text-xs mt-0.5" style="color: var(--color-text-muted);">
+        TP={tp} · {precision.toUpperCase()} · batch=16 · prefill=1024 · decode=256 · 已应用 efficiency 校准
+      </p>
+    </div>
+    <a href={calculatorBase} class="text-xs px-3 py-1 rounded border" style="border-color: var(--color-accent); color: var(--color-accent);">
+      在计算器中调整 →
+    </a>
+  </div>
+  <table class="w-full text-sm">
+    <thead style="background: var(--color-surface);">
+      <tr>
+        <th class="text-left px-4 py-2 font-medium">模型</th>
+        <th class="text-right px-4 py-2 font-medium">参数 (active)</th>
+        <th class="text-right px-4 py-2 font-medium">Decode tok/s/card</th>
+        <th class="text-right px-4 py-2 font-medium">瓶颈</th>
+      </tr>
+    </thead>
+    <tbody>
+      {sortedRows.map((r) => (
+        <tr class="border-t" style="border-color: var(--color-border);">
+          <td class="px-4 py-2">
+            <a href={`${calculatorBase}&model=${r.model.id}`} class="font-medium" style="color: var(--color-text);">
+              {r.model.name}
+            </a>
+            <div class="text-xs" style="color: var(--color-text-muted);">{r.model.lab}</div>
+          </td>
+          <td class="text-right px-4 py-2 font-mono text-xs">{r.model.architecture.active_params_b}B</td>
+          <td class="text-right px-4 py-2 font-mono">
+            {r.feasible ? Math.round(r.decodeUpper).toLocaleString() : '—'}
+          </td>
+          <td class="text-right px-4 py-2 text-xs">
+            {r.feasible ? (
+              r.bottleneck === 'compute' ? <span style="color: var(--color-accent);">计算</span> : <span style="color: var(--color-china);">内存带宽</span>
+            ) : <span style="color: var(--color-tier-estimated);">显存不足</span>}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>

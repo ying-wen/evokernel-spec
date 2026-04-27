@@ -13,6 +13,7 @@ import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import { hardwareLD, breadcrumbLD } from '~/lib/jsonld';
 import { buildMeta, lastUpdatedFor } from '~/lib/build-meta';
 import VendorBadge from '~/components/ui/VendorBadge.astro';
+import QuickEstimates from '~/components/hardware/QuickEstimates.astro';
 
 export async function getStaticPaths() {
   const all = await getResolvedHardware();
@@ -167,6 +168,11 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
     <section class="pb-8">
       <h3 class="text-lg font-semibold mb-3">拓扑示意</h3>
       <Topology hw={hw} />
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">能跑哪些模型?</h3>
+      <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
     </section>
 
     <section class="pb-8">
