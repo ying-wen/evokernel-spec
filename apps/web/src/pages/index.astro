@@ -13,8 +13,9 @@ const latestCases = [...cases].sort((a, b) => b.submitted_at.localeCompare(a.sub
 const entries = [
   { href: '/hardware', title: '硬件目录', desc: `${hardware.length} 张加速卡, 含 ${cnHardware.length} 张国产` },
   { href: '/models', title: '模型目录', desc: `${models.length} 个 frontier 开源模型` },
-  { href: '/cases', title: '部署案例', desc: '完整复现 recipe' },
-  { href: '/calculator', title: '计算器', desc: 'Tier 0 实测 + Tier 1 上界' },
+  { href: '/cases', title: '部署案例', desc: `${cases.length} 条 + 排行榜 + 散点图` },
+  { href: '/calculator', title: '计算器', desc: 'Tier 0 实测 + Tier 1 校准上界' },
+  { href: '/showcase', title: '精选发现', desc: '从数据自动计算的洞察', emphasize: true },
   { href: '/china', title: '国产芯片专题', desc: '热力图 · 谱系 · 生态对照', accent: true }
 ];
 
@@ -58,13 +59,16 @@ const stats = [
     </section>
 
     <section class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 py-8">
-      {entries.map((it) => (
-        <a href={it.href} class="block p-5 rounded-lg border h-full transition-transform hover:-translate-y-0.5"
-           style={`border-color: ${it.accent ? 'var(--color-china)' : 'var(--color-border)'}; background: ${it.accent ? 'color-mix(in oklch, var(--color-china) 6%, var(--color-bg))' : 'var(--color-surface-raised)'};`}>
-          <div class="font-semibold mb-1" style={`color: ${it.accent ? 'var(--color-china)' : 'var(--color-text)'};`}>{it.title}</div>
-          <div class="text-xs" style="color: var(--color-text-muted);">{it.desc}</div>
-        </a>
-      ))}
+      {entries.map((it) => {
+        const themeColor = it.accent ? 'var(--color-china)' : it.emphasize ? 'var(--color-accent)' : null;
+        return (
+          <a href={it.href} class="block p-5 rounded-lg border h-full transition-transform hover:-translate-y-0.5"
+             style={`border-color: ${themeColor ?? 'var(--color-border)'}; background: ${themeColor ? `color-mix(in oklch, ${themeColor} 6%, var(--color-bg))` : 'var(--color-surface-raised)'};`}>
+            <div class="font-semibold mb-1" style={`color: ${themeColor ?? 'var(--color-text)'};`}>{it.title}</div>
+            <div class="text-xs" style="color: var(--color-text-muted);">{it.desc}</div>
+          </a>
+        );
+      })}
     </section>
 
     <section class="grid grid-cols-2 md:grid-cols-4 gap-3 py-8">

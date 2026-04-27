@@ -78,4 +78,25 @@ test.describe('Documentation screenshots', () => {
     await page.waitForLoadState('networkidle');
     await page.screenshot({ path: `${OUT}/quality.png`, fullPage: true });
   });
+
+  test('showcase', async ({ page }) => {
+    await page.goto('/showcase/');
+    await page.waitForLoadState('networkidle');
+    await page.screenshot({ path: `${OUT}/showcase.png`, fullPage: true });
+  });
+
+  test('case-compare', async ({ page }) => {
+    await page.goto('/cases/compare/?ids=case-dsv4pro-cm384-mindie-001,case-llama4-scout-h100x8-vllm-001,case-dsr1-asc910bx16-mindie-001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: `${OUT}/case-compare.png`, fullPage: true });
+  });
+
+  test('cases-scatter', async ({ page }) => {
+    await page.goto('/cases/');
+    await page.waitForSelector('select', { state: 'visible' });
+    await page.getByRole('button', { name: '散点图', exact: true }).click();
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: `${OUT}/cases-scatter.png`, fullPage: true });
+  });
 });
