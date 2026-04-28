@@ -17,7 +17,8 @@
     "launch": "./launch.sh",
     "launch:fast": "./launch.sh --no-build --no-validate",
     "launch:stop": "./launch.sh --stop",
-    "health": "curl -sf http://127.0.0.1:4321/api/health.json | head -30"
+    "health": "curl -sf http://127.0.0.1:4321/api/health.json | head -30",
+    "pack:dist": "tsx scripts/pack-dist.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",

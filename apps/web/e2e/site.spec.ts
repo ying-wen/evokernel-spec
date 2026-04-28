@@ -197,6 +197,23 @@ test.describe('Entity detail pages', () => {
   });
 });
 
+// Imported from the same source-of-truth list used by launch.sh,
+// so adding a route there automatically extends both probes.
+import { CRITICAL_ROUTES } from '../src/lib/critical-routes';
+
+test.describe('Critical routes (deployment lockstep with launch.sh)', () => {
+  for (const route of CRITICAL_ROUTES) {
+    test(`${route.path} → 200 (${route.reason})`, async ({ request }) => {
+      const r = await request.get(route.path);
+      expect(r.status(), `${route.path} should return 200`).toBe(200);
+      if (route.contentType) {
+        const got = r.headers()['content-type'] ?? '';
+        expect(got, `${route.path} content-type should start with ${route.contentType}`).toContain(route.contentType);
+      }
+    });
+  }
+});
+
 test.describe('Health endpoint (uptime probe)', () => {
   test('/api/healthz returns plain "ok" — k8s liveness style', async ({ request }) => {
     const r = await request.get('/api/healthz');

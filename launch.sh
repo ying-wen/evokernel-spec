@@ -155,23 +155,23 @@ fi
 ok "health probe passing (HTTP 200, status:ok)"
 
 # ---- 6. smoke-check critical routes ----
-# 12 routes covering: home (zh+en), hub pages, calculator, pricing,
-# operator/case detail (deep links), API JSON, and the cheap liveness probe.
-log "smoke-checking critical routes"
-routes=(
-  /
-  /en/
-  /hardware/
-  /models/
-  /cases/
-  /calculator/
-  /pricing/
-  /china/
-  /showcase/
-  /quality/
-  /api/healthz
-  /api/index.json
-)
+# Routes are sourced from apps/web/src/lib/critical-routes.ts via the
+# print-critical-routes.ts helper — single source of truth shared with
+# the E2E spec. Adding a route there propagates here automatically.
+#
+# Note: macOS ships bash 3.2 which lacks `mapfile`, so we use a POSIX
+# while-read loop instead. This works on bash 3+, zsh, and busybox sh.
+log "loading critical-route manifest"
+routes=()
+while IFS= read -r line; do
+  [[ -n "$line" ]] && routes+=("$line")
+done < <(pnpm exec tsx scripts/print-critical-routes.ts 2>/dev/null)
+
+if [[ ${#routes[@]} -eq 0 ]]; then
+  warn "could not load critical-routes manifest, falling back to baseline"
+  routes=(/ /en/ /hardware/ /models/ /cases/ /calculator/ /api/index.json)
+fi
+log "smoke-checking ${#routes[@]} critical routes"
 failed_routes=()
 for route in "${routes[@]}"; do
   code=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 3 "http://${HOST}:${PORT}${route}" 2>/dev/null || echo "000")
