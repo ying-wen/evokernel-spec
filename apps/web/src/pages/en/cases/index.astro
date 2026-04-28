@@ -1,0 +1,25 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Leaderboard from '~/components/case/Leaderboard.tsx';
+import { getCases } from '~/lib/data';
+import { t, localePath } from '~/lib/i18n';
+
+const locale = 'en';
+const cases = await getCases();
+---
+<BaseLayout title={t(locale, 'page.cases.title')} locale={locale}>
+  <Container>
+    <section class="py-12">
+      <div class="flex justify-between items-end mb-4">
+        <SectionHeader eyebrow="CASES" title={t(locale, 'page.cases.title')}
+          subtitle={`${cases.length} ${t(locale, 'page.cases.subtitle')}`} />
+        <a href={localePath(locale, '/cases/compare/')} class="text-sm px-4 py-2 rounded border" style="border-color: var(--color-accent); color: var(--color-accent); white-space: nowrap;">
+          {t(locale, 'page.cases.compare')}
+        </a>
+      </div>
+      <Leaderboard cases={cases} client:load />
+    </section>
+  </Container>
+</BaseLayout>

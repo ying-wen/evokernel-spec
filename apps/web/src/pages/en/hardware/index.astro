@@ -1,0 +1,36 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import HardwareGrid from '~/components/hardware/HardwareGrid.tsx';
+import HwTimeline from '~/components/hardware/HwTimeline.astro';
+import { getResolvedHardware } from '~/lib/data';
+import { t } from '~/lib/i18n';
+
+const locale = 'en';
+const all = await getResolvedHardware();
+const cn = all.filter((h) => h.vendor.country === 'CN');
+const lite = all.map((h) => ({
+  ...h,
+  vendor: {
+    id: h.vendor.id,
+    name: h.vendor.name,
+    country: h.vendor.country,
+    chinese_names: h.vendor.chinese_names
+  }
+}));
+---
+<BaseLayout title={t(locale, 'page.hardware.title')} locale={locale}>
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="HARDWARE" title={t(locale, 'page.hardware.title')}
+        subtitle={`${all.length} ${t(locale, 'page.hardware.subtitle')} · ${cn.length} ${t(locale, 'page.hardware.cn')} · multi-facet filter · timeline · evidence-tagged`} />
+
+      <div class="mt-8 mb-12">
+        <HwTimeline hardware={all} />
+      </div>
+
+      <HardwareGrid hardware={lite} client:load />
+    </section>
+  </Container>
+</BaseLayout>

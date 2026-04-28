@@ -1,0 +1,216 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { getResolvedHardware, getModels, getCases, getEngines, getServers } from '~/lib/data';
+import { t, localePath } from '~/lib/i18n';
+
+const locale = 'en';
+const allHardware = await getResolvedHardware();
+const cnHardware = allHardware.filter((h) => h.vendor.country === 'CN').sort((a, b) => a.vendor.id.localeCompare(b.vendor.id));
+const cnVendorIds = Array.from(new Set(cnHardware.map((h) => h.vendor.id)));
+const allModels = (await getModels()).sort((a, b) => b.release_date.localeCompare(a.release_date));
+const allCases = await getCases();
+const allEngines = await getEngines();
+const allServers = await getServers();
+const cnSuperPods = allServers.filter((s) => s.type === 'super-pod' && cnVendorIds.includes(s.vendor));
+
+type Status = 'measured' | 'claimed' | 'unsupported';
+function statusOf(hwId: string, modelId: string): Status {
+  const has = allCases.some((c) => c.stack.hardware.id === hwId && c.stack.model.id === modelId);
+  if (has) return 'measured';
+  const hw = allHardware.find((h) => h.id === hwId)!;
+  const claimed = hw.software_support.engines.length > 0 && hw.software_support.quantizations.length > 0;
+  return claimed ? 'claimed' : 'unsupported';
+}
+const statusColor: Record<Status, string> = {
+  measured: 'oklch(58% 0.16 145)',
+  claimed: 'oklch(70% 0.16 80)',
+  unsupported: 'oklch(85% 0.005 260)'
+};
+const statusLabel: Record<Status, string> = { measured: '🟢', claimed: '🟡', unsupported: '—' };
+
+const genealogyByVendor = new Map<string, typeof cnHardware>();
+for (const h of cnHardware) {
+  const arr = genealogyByVendor.get(h.vendor.id) ?? [];
+  arr.push(h);
+  genealogyByVendor.set(h.vendor.id, arr);
+}
+for (const arr of genealogyByVendor.values()) arr.sort((a, b) => a.release_year - b.release_year);
+const yearMin = Math.min(...cnHardware.map((h) => h.release_year));
+const yearMax = Math.max(...cnHardware.map((h) => h.release_year));
+const years = Array.from({ length: yearMax - yearMin + 1 }, (_, i) => yearMin + i);
+
+const ECOSYSTEM_META: Record<string, { programmingModel: string; operatorLib: string; modelZooUrl?: string }> = {
+  huawei: { programmingModel: 'CANN / Ascend C', operatorLib: 'AscendCL', modelZooUrl: 'https://gitee.com/ascend/ModelZoo-PyTorch' },
+  cambricon: { programmingModel: 'BANG / Neuware', operatorLib: 'CNNL' },
+  hygon: { programmingModel: 'DTK / HIP', operatorLib: 'DCU op library' },
+  'moore-threads': { programmingModel: 'MUSA', operatorLib: 'MUSA Toolkit' },
+  enflame: { programmingModel: 'TopsRider', operatorLib: 'Enflame SDK' },
+  biren: { programmingModel: 'BIRENSUPA', operatorLib: 'BIRENSUPA op library' },
+  metax: { programmingModel: 'MACA / MetaX SDK', operatorLib: 'MetaX op library' },
+  iluvatar: { programmingModel: 'IxRT / CoreX', operatorLib: 'CoreX op library' },
+  pingtouge: { programmingModel: 'HanGuangAI', operatorLib: 'HanGuang op library' }
+};
+const ecosystemRows = cnVendorIds.map((vid) => {
+  const sample = cnHardware.find((h) => h.vendor.id === vid)!;
+  const supportedEngines = new Set<string>();
+  for (const h of cnHardware.filter((h) => h.vendor.id === vid)) {
+    for (const e of h.software_support.engines) supportedEngines.add(e.id);
+  }
+  const meta = ECOSYSTEM_META[vid] ?? { programmingModel: '—', operatorLib: '—' };
+  return {
+    vendorId: vid,
+    vendorName: sample.vendor.name,
+    programmingModel: meta.programmingModel,
+    operatorLib: meta.operatorLib,
+    inferenceEngines: Array.from(supportedEngines).map((eid) => allEngines.find((e) => e.id === eid)?.name ?? eid),
+    modelZooUrl: meta.modelZooUrl
+  };
+});
+---
+<BaseLayout title={t(locale, 'page.china.title')} locale={locale}>
+  <Container width="wide">
+    <section class="pt-16 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-china);">CHINA HUB</div>
+      <h1 style="font-size: clamp(2.5rem, 1.4rem + 5vw, 4.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        {t(locale, 'page.china.title')}
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        Coverage: <strong style="color: var(--color-china);">{cnVendorIds.length}</strong> vendors · <strong style="color: var(--color-china);">{cnHardware.length}</strong> accelerators · <strong style="color: var(--color-china);">{cnSuperPods.length}</strong> super-pod blueprints (incl. CloudMatrix 384). All numbers carry evidence citations; missing fields are honestly flagged.
+      </p>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-1">Chinese silicon × frontier models matrix</h2>
+      <p class="text-sm mb-6" style="color: var(--color-text-muted);">
+        🟢 measured · 🟡 vendor-claimed (unverified) · — unsupported / unknown. Click a cell for detail.
+      </p>
+      <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+        <table class="border-collapse text-xs">
+          <thead>
+            <tr>
+              <th class="p-2 font-medium sticky left-0 z-10 text-left" style="background: var(--color-surface); min-width: 8rem;">HW ╲ Model</th>
+              {allModels.slice(0, 14).map((m) => (
+                <th class="p-2 font-medium" style="min-width: 4rem;">
+                  <div style="font-size: 0.65rem;">{m.name}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {cnHardware.map((h) => (
+              <tr>
+                <td class="px-3 py-2 font-medium sticky left-0 z-10" style="background: var(--color-surface);">{h.name}</td>
+                {allModels.slice(0, 14).map((m) => {
+                  const s = statusOf(h.id, m.id);
+                  const target = s === 'measured' ? localePath(locale, `/cases?hardware=${h.id}`) : localePath(locale, `/hardware/${h.id}`);
+                  return (
+                    <td class="p-1 text-center">
+                      <a href={target} title={`${h.name} × ${m.name}: ${s}`}
+                         class="inline-block rounded transition-transform hover:scale-110"
+                         style={`width: 2rem; height: 1.5rem; background: ${statusColor[s]}; line-height: 1.5rem;`}>
+                        <span style="font-size: 0.7rem;">{statusLabel[s]}</span>
+                      </a>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-1">Generation genealogy</h2>
+      <p class="text-sm mb-6" style="color: var(--color-text-muted);">Year-by-year evolution per vendor. Click a node for detail.</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr>
+              <th class="p-2 text-left font-medium" style="color: var(--color-text-muted);">Vendor</th>
+              {years.map((y) => <th class="p-2 text-xs font-medium" style="color: var(--color-text-muted);">{y}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from(genealogyByVendor.entries()).map(([_vid, cards]) => {
+              const first = cards[0];
+              const vendorLabel = first ? first.vendor.name : '';
+              return (
+              <tr class="border-t" style="border-color: var(--color-border);">
+                <td class="p-3 font-medium">{vendorLabel}</td>
+                {years.map((y) => {
+                  const card = cards.find((c) => c.release_year === y);
+                  return (
+                    <td class="p-2 text-center">
+                      {card ? (
+                        <a href={localePath(locale, `/hardware/${card.id}`)}
+                           class="inline-block px-2 py-1 rounded text-xs font-mono transition-transform hover:scale-105"
+                           style="background: color-mix(in oklch, var(--color-china) 18%, var(--color-bg)); color: var(--color-china);">
+                          {card.name.split(' ').slice(-1)[0]}
+                        </a>
+                      ) : (
+                        <span style="color: var(--color-text-muted); opacity: 0.4;">·</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-1">Software ecosystem comparison</h2>
+      <p class="text-sm mb-6" style="color: var(--color-text-muted);">Programming model · operator library · inference engine · model zoo.</p>
+      <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+        <table class="w-full text-sm">
+          <thead style="background: var(--color-surface);">
+            <tr>
+              <th class="text-left px-4 py-3 font-medium">Vendor</th>
+              <th class="text-left px-4 py-3 font-medium">Programming model</th>
+              <th class="text-left px-4 py-3 font-medium">Operator library</th>
+              <th class="text-left px-4 py-3 font-medium">Inference engines</th>
+              <th class="text-left px-4 py-3 font-medium">Model zoo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ecosystemRows.map((r) => (
+              <tr class="border-t" style="border-color: var(--color-border);">
+                <td class="px-4 py-3 font-medium" style="color: var(--color-china);">{r.vendorName}</td>
+                <td class="px-4 py-3 font-mono text-xs">{r.programmingModel}</td>
+                <td class="px-4 py-3 font-mono text-xs">{r.operatorLib}</td>
+                <td class="px-4 py-3"><div class="flex flex-wrap gap-1">{r.inferenceEngines.length === 0 ? <span style="color: var(--color-text-muted);">—</span> : r.inferenceEngines.map((e) => <span class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">{e}</span>)}</div></td>
+                <td class="px-4 py-3">{r.modelZooUrl ? <a href={r.modelZooUrl} class="underline text-xs" style="color: var(--color-accent);" target="_blank" rel="noopener">link ↗</a> : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-1">Chinese super-pods</h2>
+      <p class="text-sm mb-6" style="color: var(--color-text-muted);">Rack-scale scale-up systems benchmarked against NVIDIA NVL72.</p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {cnSuperPods.map((s) => (
+          <article class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: color-mix(in oklch, var(--color-china) 25%, var(--color-border));">
+            <h3 class="text-base font-semibold">{s.name}</h3>
+            <div class="text-xs mt-1" style="color: var(--color-text-muted);">{s.chinese_names[0] ?? ''}</div>
+            <dl class="grid grid-cols-2 gap-2 mt-4 text-xs">
+              <div><dt style="color: var(--color-text-muted);">Cards</dt><dd class="font-mono">{s.card_count}</dd></div>
+              <div><dt style="color: var(--color-text-muted);">Scale-up domain</dt><dd class="font-mono">{s.scale_up_domain_size}</dd></div>
+              <div><dt style="color: var(--color-text-muted);">Total memory</dt><dd class="font-mono">{s.total_memory_gb ? `${(s.total_memory_gb / 1024).toFixed(1)} TB` : '—'}</dd></div>
+              <div><dt style="color: var(--color-text-muted);">Rack power</dt><dd class="font-mono">{s.rack_power_kw ?? '—'} kW</dd></div>
+              <div><dt style="color: var(--color-text-muted);">Scale-up</dt><dd class="text-xs" style="color: var(--color-china);">{s.intra_node_interconnect}</dd></div>
+              <div><dt style="color: var(--color-text-muted);">Cooling</dt><dd>{s.cooling}</dd></div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

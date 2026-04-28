@@ -1,0 +1,29 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import CompareTool from '~/components/hardware/CompareTool.tsx';
+import { getResolvedHardware } from '~/lib/data';
+import { t } from '~/lib/i18n';
+
+const locale = 'en';
+const hardware = await getResolvedHardware();
+const lite = hardware.map((h) => ({
+  ...h,
+  vendor: {
+    id: h.vendor.id,
+    name: h.vendor.name,
+    country: h.vendor.country,
+    chinese_names: h.vendor.chinese_names
+  }
+}));
+---
+<BaseLayout title={t(locale, 'page.compare.title')} locale={locale}>
+  <Container width="wide">
+    <section class="py-12">
+      <SectionHeader eyebrow="COMPARE" title={t(locale, 'page.compare.title')}
+        subtitle={t(locale, 'page.compare.subtitle')} />
+      <CompareTool hardware={lite} client:load />
+    </section>
+  </Container>
+</BaseLayout>

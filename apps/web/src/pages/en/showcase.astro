@@ -1,0 +1,232 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { getResolvedHardware, getModels, getCases, getHardware } from '~/lib/data';
+import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
+import { t, localePath } from '~/lib/i18n';
+
+const locale = 'en';
+const hardwareResolved = await getResolvedHardware();
+const hardwareRaw = await getHardware();
+const models = await getModels();
+const cases = await getCases();
+
+const bestDecodePerCard = cases
+  .map((c) => ({ c, perCard: c.results.throughput_tokens_per_sec.decode / Math.max(c.stack.hardware.count, 1) }))
+  .sort((a, b) => b.perCard - a.perCard)[0];
+
+function tcoFor(c: typeof cases[number]) {
+  const hw = hardwareResolved.find((h) => h.id === c.stack.hardware.id);
+  const tdp = hw?.power.tdp_w?.value ?? 700;
+  const decodeTokPerSec = c.results.throughput_tokens_per_sec.decode;
+  if (decodeTokPerSec <= 0) return null;
+  const tokensPerHour = decodeTokPerSec * 3600;
+  const hwCost = 2.5 * c.stack.hardware.count;
+  const powerCostHr = (tdp * 1.3 * c.stack.hardware.count / 1000) * 0.1;
+  return ((hwCost + powerCostHr) / tokensPerHour) * 1e6;
+}
+const cheapestTCO = cases
+  .map((c) => ({ c, tco: tcoFor(c) }))
+  .filter((x): x is { c: typeof cases[number]; tco: number } => x.tco !== null)
+  .sort((a, b) => a.tco - b.tco)[0];
+
+const effMap = buildEfficiencyMap(cases, hardwareRaw, models);
+const calibratedHw = hardwareResolved
+  .map((h) => ({ h, eff: getEfficiency(h.id, effMap) }))
+  .filter((x) => x.eff.isCalibrated);
+const effSorted = [...calibratedHw].sort((a, b) => b.eff.factor - a.eff.factor);
+const efficiencyLeader = effSorted[0];
+const efficiencyLaggard = effSorted[effSorted.length - 1];
+
+const caseCountByHw = new Map<string, number>();
+for (const c of cases) {
+  caseCountByHw.set(c.stack.hardware.id, (caseCountByHw.get(c.stack.hardware.id) ?? 0) + 1);
+}
+const mostTestedHw = Array.from(caseCountByHw.entries())
+  .map(([id, count]) => ({ id, count, hw: hardwareResolved.find((h) => h.id === id) }))
+  .filter((x) => x.hw)
+  .sort((a, b) => b.count - a.count)[0];
+
+const overseasEff = effSorted.filter((x) => x.h.vendor.country !== 'CN').map((x) => x.eff.factor);
+const cnEff = effSorted.filter((x) => x.h.vendor.country === 'CN');
+const overseasAvg = overseasEff.length > 0 ? overseasEff.reduce((a, b) => a + b, 0) / overseasEff.length : 0;
+const cnGap = cnEff.map((x) => ({
+  ...x,
+  gap: overseasAvg - x.eff.factor
+})).sort((a, b) => b.gap - a.gap)[0];
+
+const nvidiaCards = hardwareResolved
+  .filter((h) => h.vendor.id === 'nvidia')
+  .map((h) => ({ h, bf16: h.compute.bf16_tflops?.value ?? 0 }))
+  .sort((a, b) => a.h.release_year - b.h.release_year);
+let biggestJump = { from: nvidiaCards[0], to: nvidiaCards[0], pct: 0 };
+for (let i = 1; i < nvidiaCards.length; i++) {
+  const prev = nvidiaCards[i - 1];
+  const cur = nvidiaCards[i];
+  if (!prev || !cur) continue;
+  const pct = prev.bf16 > 0 ? ((cur.bf16 - prev.bf16) / prev.bf16) * 100 : 0;
+  if (pct > biggestJump.pct) biggestJump = { from: prev, to: cur, pct };
+}
+
+const hwByModel = new Map<string, Set<string>>();
+for (const c of cases) {
+  const set = hwByModel.get(c.stack.model.id) ?? new Set();
+  set.add(c.stack.hardware.id);
+  hwByModel.set(c.stack.model.id, set);
+}
+const mostPortableModel = Array.from(hwByModel.entries())
+  .map(([id, set]) => ({ id, count: set.size, model: models.find((m) => m.id === id) }))
+  .filter((x) => x.model)
+  .sort((a, b) => b.count - a.count)[0];
+
+const superPodLeader = hardwareResolved
+  .filter((h) => h.scale_up.world_size >= 32)
+  .sort((a, b) => b.scale_up.world_size - a.scale_up.world_size)[0];
+---
+<BaseLayout title={t(locale, 'page.showcase.title')} locale={locale}>
+  <Container>
+    <section class="py-12">
+      <SectionHeader eyebrow="SHOWCASE" title={t(locale, 'page.showcase.title')}
+        subtitle={t(locale, 'page.showcase.subtitle')} />
+
+      <p class="text-xs mb-8" style="color: var(--color-text-muted);">
+        Every insight here is computed live from the corpus — adding a new case automatically refreshes these numbers.
+      </p>
+
+      <div class="grid md:grid-cols-2 gap-4">
+
+        {bestDecodePerCard && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">⚡ Top decode tok/s/card</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/cases/${bestDecodePerCard.c.id}/`)} class="hover:underline">{bestDecodePerCard.c.title}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">{Math.round(bestDecodePerCard.perCard).toLocaleString()} <span class="text-sm opacity-60">tok/s/card</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              <a href={localePath(locale, `/hardware/${bestDecodePerCard.c.stack.hardware.id}/`)} class="underline">{bestDecodePerCard.c.stack.hardware.id}</a> ×{bestDecodePerCard.c.stack.hardware.count} ·
+              <a href={localePath(locale, `/models/${bestDecodePerCard.c.stack.model.id}/`)} class="underline">{bestDecodePerCard.c.stack.model.id}</a> · {bestDecodePerCard.c.stack.engine.id} · {bestDecodePerCard.c.stack.quantization}
+            </p>
+          </article>
+        )}
+
+        {cheapestTCO && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-tier-measured); background: color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg));">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-tier-measured);">💰 Lowest $/M tokens</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/cases/${cheapestTCO.c.id}/`)} class="hover:underline">{cheapestTCO.c.title}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">${cheapestTCO.tco.toFixed(2)}<span class="text-sm opacity-60"> /M tokens</span></div>
+            <p class="text-xs mb-1" style="color: var(--color-text-muted);">
+              {cheapestTCO.c.stack.hardware.id} ×{cheapestTCO.c.stack.hardware.count} · assumes $2.5/h/card + $0.10/kWh + PUE 1.3
+            </p>
+          </article>
+        )}
+
+        {efficiencyLeader && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">🎯 Most-mature software stack</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/hardware/${efficiencyLeader.h.id}/`)} class="hover:underline">{efficiencyLeader.h.name}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">{efficiencyLeader.eff.factor.toFixed(2)} <span class="text-sm opacity-60">/ 1.00</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              measured/theoretical ratio across {efficiencyLeader.eff.sampleCount} cases. Reaching {(efficiencyLeader.eff.factor * 100).toFixed(0)}% of the theoretical roofline.
+            </p>
+          </article>
+        )}
+
+        {efficiencyLaggard && efficiencyLeader && efficiencyLaggard.h.id !== efficiencyLeader.h.id && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-tier-estimated); background: color-mix(in oklch, var(--color-tier-estimated) 5%, var(--color-bg));">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-tier-estimated);">⚠️ Largest software-stack gap</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/hardware/${efficiencyLaggard.h.id}/`)} class="hover:underline">{efficiencyLaggard.h.name}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">{efficiencyLaggard.eff.factor.toFixed(2)} <span class="text-sm opacity-60">/ 1.00</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              {(efficiencyLaggard.eff.factor * 100).toFixed(0)}% of theoretical — large headroom for kernel/op-library tuning.
+              {efficiencyLaggard.h.vendor.country === 'CN' && ' Common pattern for Chinese silicon: stacks like CANN/MUSA/MindIE close this gap year over year.'}
+            </p>
+          </article>
+        )}
+
+        {mostTestedHw && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">📊 Most case coverage</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/hardware/${mostTestedHw.id}/`)} class="hover:underline">{mostTestedHw.hw!.name}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">{mostTestedHw.count} <span class="text-sm opacity-60">cases</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              The data flywheel is spinning — this card has the most independent reproductions logged.
+            </p>
+          </article>
+        )}
+
+        {cnGap && cnGap.gap > 0 && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-bg));">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-china);">🚀 China stack catch-up opportunity</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/hardware/${cnGap.h.id}/`)} class="hover:underline">{cnGap.h.name}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">+{(cnGap.gap * 100).toFixed(0)}<span class="text-sm opacity-60"> pp headroom</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              Currently {cnGap.eff.factor.toFixed(2)} vs overseas mean {overseasAvg.toFixed(2)}. Each +0.05 in efficiency ≈ +10% effective hardware throughput.
+            </p>
+          </article>
+        )}
+
+        {biggestJump.pct > 0 && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">📈 Biggest gen-over-gen jump</div>
+            <h3 class="text-lg font-semibold mb-2">
+              {biggestJump.from?.h.name} → {biggestJump.to?.h.name}
+            </h3>
+            <div class="font-mono text-3xl my-2">+{biggestJump.pct.toFixed(0)}<span class="text-sm opacity-60"> % BF16</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              {biggestJump.from?.h.compute.bf16_tflops?.value} → {biggestJump.to?.h.compute.bf16_tflops?.value} TFLOPS BF16 ·
+              {biggestJump.from?.h.release_year} → {biggestJump.to?.h.release_year}
+            </p>
+          </article>
+        )}
+
+        {mostPortableModel && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">🌍 Most portable model</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/models/${mostPortableModel.id}/`)} class="hover:underline">{mostPortableModel.model!.name}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">{mostPortableModel.count} <span class="text-sm opacity-60">distinct hardware</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              Logged on {mostPortableModel.count} different accelerators — the most deployment-friendly frontier model in the corpus.
+            </p>
+          </article>
+        )}
+
+        {superPodLeader && (
+          <article class="rounded-lg p-5 border" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-bg));">
+            <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-china);">🏗 Largest scale-up domain</div>
+            <h3 class="text-lg font-semibold mb-2">
+              <a href={localePath(locale, `/hardware/${superPodLeader.id}/`)} class="hover:underline">{superPodLeader.name}</a>
+            </h3>
+            <div class="font-mono text-3xl my-2">{superPodLeader.scale_up.world_size} <span class="text-sm opacity-60">cards / domain</span></div>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              {superPodLeader.scale_up.protocol} · {superPodLeader.scale_up.bandwidth_gbps} GB/s. Holds an entire frontier MoE in a single scale-up domain.
+            </p>
+          </article>
+        )}
+      </div>
+
+      <div class="mt-12 p-5 rounded-lg" style="background: var(--color-surface);">
+        <h3 class="text-base font-semibold mb-2">↻ How are these computed?</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          On every build, this page walks the full corpus of cases / hardware / models and recomputes the metrics above. So adding a single case will move "Lowest $/M tokens" automatically.
+        </p>
+        <p class="text-sm mt-2" style="color: var(--color-text-muted);">
+          Formulas live in <a href={localePath(locale, '/learn/')} class="underline" style="color: var(--color-accent);">/learn</a>.
+          Data confidence is broken down at <a href={localePath(locale, '/quality/')} class="underline" style="color: var(--color-accent);">/quality</a>.
+        </p>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

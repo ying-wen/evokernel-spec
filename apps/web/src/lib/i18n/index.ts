@@ -41,7 +41,25 @@ const dict = {
     'home.stats.hardware': '加速卡',
     'home.stats.models': '模型',
     'home.stats.cases': '部署案例',
-    'home.stats.vendors': '厂商'
+    'home.stats.vendors': '厂商',
+    'page.hardware.title': '硬件目录',
+    'page.hardware.subtitle': '张加速卡',
+    'page.hardware.cn': '国产',
+    'page.hardware.overseas': '海外',
+    'page.hardware.timeline': '硬件发布时间线',
+    'page.models.title': '模型目录',
+    'page.models.subtitle': '个 frontier 开源模型 · 含算子拆解 · 发布时间线',
+    'page.cases.title': '部署案例 · 排行榜',
+    'page.cases.subtitle': '条实测部署 recipe · 表格 / 散点图 / 柱状图 · 多维筛选 · CSV 导出',
+    'page.cases.compare': '⇄ 对比案例',
+    'page.calculator.title': '部署计算器',
+    'page.calculator.subtitle': 'Tier 0 实测查表 + Tier 1 校准 Roofline 上界 · 公式公开',
+    'page.china.title': '国产 AI 推理硬件全景',
+    'page.china.subtitle': '矩阵热力图 · 代际谱系 · 生态对照 · 超节点',
+    'page.compare.title': '硬件对比',
+    'page.compare.subtitle': '选最多 5 张卡, 切换雷达图 / 柱状图 / Roofline 叠加 / 表格',
+    'page.showcase.title': '精选发现 · 数据告诉我们什么',
+    'page.showcase.subtitle': '从数据实体中自动计算的洞察, 每次构建时刷新'
   },
   en: {
     'nav.hardware': 'Hardware',
@@ -79,7 +97,25 @@ const dict = {
     'home.stats.hardware': 'Accelerators',
     'home.stats.models': 'Models',
     'home.stats.cases': 'Cases',
-    'home.stats.vendors': 'Vendors'
+    'home.stats.vendors': 'Vendors',
+    'page.hardware.title': 'Hardware catalog',
+    'page.hardware.subtitle': 'accelerators',
+    'page.hardware.cn': 'China',
+    'page.hardware.overseas': 'Overseas',
+    'page.hardware.timeline': 'Hardware release timeline',
+    'page.models.title': 'Model catalog',
+    'page.models.subtitle': 'frontier open-source models · with operator decomposition · release timeline',
+    'page.cases.title': 'Deployment cases · leaderboard',
+    'page.cases.subtitle': 'reproducible deployment recipes · table / scatter / bar · multi-facet filter · CSV export',
+    'page.cases.compare': '⇄ Compare cases',
+    'page.calculator.title': 'Deployment calculator',
+    'page.calculator.subtitle': 'Tier 0 measured + Tier 1 calibrated Roofline upper bound · transparent formulas',
+    'page.china.title': 'Chinese AI inference hardware',
+    'page.china.subtitle': 'Matrix heatmap · genealogy · ecosystem · super-pods',
+    'page.compare.title': 'Hardware compare',
+    'page.compare.subtitle': 'Pick up to 5 cards, toggle Radar / Bar / Roofline overlay / Table',
+    'page.showcase.title': 'Showcase · what the data tells us',
+    'page.showcase.subtitle': 'Insights auto-computed from the data corpus, refreshed every build'
   }
 } as const;
 
