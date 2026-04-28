@@ -10,21 +10,24 @@ describe('data layer', () => {
     expect(v.length).toBe(22);
   });
 
-  it('loads 28 hardware cards', async () => {
+  // Use lower-bound assertions so corpus growth doesn't break tests
+  // every time we add a card / model / case. Old exact-count style
+  // produced test churn proportional to data growth.
+  it('loads 28+ hardware cards', async () => {
     const h = await getHardware();
-    expect(h.length).toBe(28);
+    expect(h.length).toBeGreaterThanOrEqual(28);
   });
 
-  it('loads 10 servers/super-pods', async () => {
-    expect((await getServers()).length).toBe(10);
+  it('loads 10+ servers/super-pods', async () => {
+    expect((await getServers()).length).toBeGreaterThanOrEqual(10);
   });
 
-  it('loads 14 models', async () => {
-    expect((await getModels()).length).toBe(14);
+  it('loads 14+ models', async () => {
+    expect((await getModels()).length).toBeGreaterThanOrEqual(14);
   });
 
-  it('loads 20 seed cases', async () => {
-    expect((await getCases()).length).toBe(20);
+  it('loads 20+ seed cases', async () => {
+    expect((await getCases()).length).toBeGreaterThanOrEqual(20);
   });
 
   it('loads 3 patterns', async () => {

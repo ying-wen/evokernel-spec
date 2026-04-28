@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, statSync, writeFileSync, readFileSync } from 'no
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readdirSync } from 'node:fs';
+import { ManifestSchema, type Manifest } from '@evokernel/schemas';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 const DIST_DIR = join(REPO_ROOT, 'apps/web/dist');
@@ -92,8 +93,11 @@ function dirSizeBytes(dir: string): number {
 }
 const distSize = dirSizeBytes(DIST_DIR);
 
-// ---- write MANIFEST.json INTO dist before packing ----
-const manifest = {
+// ---- assemble + validate MANIFEST.json BEFORE packing ----
+// Validation catches drift between the writer here and the schema in
+// @evokernel/schemas — receivers parsing the tarball expect a stable
+// shape and we don't want to discover field renames at unpack time.
+const manifestDraft = {
   product: 'evokernel-spec',
   version: 'v1.1',
   build: { sha, dirty, built_at: builtAt },
@@ -107,6 +111,15 @@ const manifest = {
   unpack: 'tar -xzf <tarball>; serve apps/web/dist/',
   license: { code: 'Apache-2.0', data: 'CC-BY-SA-4.0' }
 };
+const parsed = ManifestSchema.safeParse(manifestDraft);
+if (!parsed.success) {
+  console.error('[pack-dist] manifest schema validation failed:');
+  for (const issue of parsed.error.issues) {
+    console.error(`  ${issue.path.join('.')}: ${issue.message}`);
+  }
+  fail('manifest does not satisfy ManifestSchema — see schemas/manifest.ts');
+}
+const manifest: Manifest = parsed.data;
 const manifestPath = join(DIST_DIR, 'MANIFEST.json');
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 ok(`wrote ${manifestPath} (sha=${sha}${dirty ? '-dirty' : ''}, ${pageCount} pages, ${(distSize / 1024 / 1024).toFixed(1)} MB)`);

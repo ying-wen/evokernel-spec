@@ -3,7 +3,7 @@ import {
   TierSchema, EvidenceSchema, ValueWithEvidenceSchema,
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
-  ModelSchema, CaseSchema, PatternSchema
+  ModelSchema, CaseSchema, PatternSchema, ManifestSchema, MANIFEST_SCHEMA_VERSION
 } from './index';
 import { z } from 'zod';
 
@@ -390,5 +390,65 @@ describe('Pattern', () => {
         description_md: '# When applicable\n\nDecode dominated by memory BW...'
       })
     ).not.toThrow();
+  });
+});
+
+describe('Manifest (offline tarball provenance)', () => {
+  // The manifest that scripts/pack-dist.ts writes into dist/MANIFEST.json
+  // before tarring. Receivers of the tarball depend on the shape — the
+  // schema is the contract.
+  const valid = {
+    product: 'evokernel-spec' as const,
+    version: 'v1.1',
+    build: { sha: 'b3c4260', dirty: false, built_at: '2026-04-29T10:30:00.000Z' },
+    contents: { pages: 237, bytes: 15_728_640, entities: { hardware: 31, models: 17, cases: 22 } },
+    served_via: 'static (any HTTP server)',
+    health_endpoints: ['/api/healthz', '/api/health.json'],
+    unpack: 'tar -xzf <tarball>; serve dist/',
+    license: { code: 'Apache-2.0', data: 'CC-BY-SA-4.0' }
+  };
+
+  it('exports MANIFEST_SCHEMA_VERSION (frozen as 1)', () => {
+    expect(MANIFEST_SCHEMA_VERSION).toBe(1);
+  });
+
+  it('accepts a fully-populated manifest', () => {
+    expect(() => ManifestSchema.parse(valid)).not.toThrow();
+  });
+
+  it('rejects wrong product name (regression: someone forks and forgets to rename)', () => {
+    const broken = { ...valid, product: 'evokernel-spec-fork' as never };
+    expect(() => ManifestSchema.parse(broken)).toThrow();
+  });
+
+  it('rejects malformed version (must be vX.Y or vX.Y.Z)', () => {
+    expect(() => ManifestSchema.parse({ ...valid, version: '1.1' })).toThrow();
+    expect(() => ManifestSchema.parse({ ...valid, version: 'latest' })).toThrow();
+    expect(() => ManifestSchema.parse({ ...valid, version: 'v1.1.0' })).not.toThrow();
+  });
+
+  it('rejects non-ISO build.built_at', () => {
+    const broken = { ...valid, build: { ...valid.build, built_at: '2026/04/29' } };
+    expect(() => ManifestSchema.parse(broken)).toThrow();
+  });
+
+  it('rejects empty health_endpoints (we always ship at least one probe)', () => {
+    const broken = { ...valid, health_endpoints: [] };
+    expect(() => ManifestSchema.parse(broken)).toThrow();
+  });
+
+  it('rejects health_endpoints that don\'t start with /api/', () => {
+    const broken = { ...valid, health_endpoints: ['/healthz'] };
+    expect(() => ManifestSchema.parse(broken)).toThrow();
+  });
+
+  it('rejects negative or zero contents.bytes (empty dist would be a packaging bug)', () => {
+    expect(() => ManifestSchema.parse({ ...valid, contents: { ...valid.contents, bytes: 0 } })).toThrow();
+    expect(() => ManifestSchema.parse({ ...valid, contents: { ...valid.contents, bytes: -1 } })).toThrow();
+  });
+
+  it('allows entities.hardware = 0 (degenerate but legal — empty corpus is not a packaging bug)', () => {
+    const minimal = { ...valid, contents: { ...valid.contents, entities: { hardware: 0 } } };
+    expect(() => ManifestSchema.parse(minimal)).not.toThrow();
   });
 });
