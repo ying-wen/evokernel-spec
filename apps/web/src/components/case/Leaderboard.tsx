@@ -263,7 +263,9 @@ export default function Leaderboard({ cases, locale = 'zh' }: Props) {
       {view === 'scatter' && (
         <div className="rounded-lg border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
           <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
-            X = 批次 × 卡数 (负载) · Y = {METRIC_LABEL[yMetric].label} {METRIC_LABEL[yMetric].unit} · 颜色 = {groupBy === 'precision' ? '精度' : groupBy === 'engine' ? '引擎' : groupBy === 'country' ? '国别' : '模型'}
+            {en
+              ? `X = batch × cards (load) · Y = ${METRIC_LABEL[yMetric].label} ${METRIC_LABEL[yMetric].unit} · color = ${groupBy === 'precision' ? 'precision' : groupBy === 'engine' ? 'engine' : groupBy === 'country' ? 'country' : 'model'}`
+              : `X = 批次 × 卡数 (负载) · Y = ${METRIC_LABEL[yMetric].label} ${METRIC_LABEL[yMetric].unit} · 颜色 = ${groupBy === 'precision' ? '精度' : groupBy === 'engine' ? '引擎' : groupBy === 'country' ? '国别' : '模型'}`}
           </p>
           <ResponsiveContainer width="100%" height={420}>
             <ScatterChart margin={{ left: 8, right: 12, top: 8, bottom: 24 }}>
@@ -314,21 +316,21 @@ export default function Leaderboard({ cases, locale = 'zh' }: Props) {
         <table className="w-full text-sm">
           <thead style={{ background: 'var(--color-surface)' }}>
             <tr>
-              <th className="text-left px-3 py-2 font-medium">案例</th>
+              <th className="text-left px-3 py-2 font-medium">{en ? 'Case' : '案例'}</th>
               <Th k="decode">Decode tok/s</Th>
               <Th k="prefill">Prefill tok/s</Th>
               <Th k="ttft">TTFT p50 ms</Th>
               <Th k="tbt">TBT p50 ms</Th>
-              <Th k="submitted">日期</Th>
+              <Th k="submitted">{en ? 'Date' : '日期'}</Th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>未匹配任何案例</td></tr>
+              <tr><td colSpan={6} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{en ? 'No cases match the current filter' : '未匹配任何案例'}</td></tr>
             ) : filtered.map((c) => (
               <tr key={c.id} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
                 <td className="px-3 py-2">
-                  <a href={`/cases/${c.id}`} className="font-medium" style={{ color: 'var(--color-text)' }}>{c.title}</a>
+                  <a href={`${en ? '/en' : ''}/cases/${c.id}/`} className="font-medium" style={{ color: 'var(--color-text)' }}>{c.title}</a>
                   <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                     {c.stack.hardware.id} ×{c.stack.hardware.count} · {c.stack.model.id} · {c.stack.engine.id} · {c.stack.quantization}
                   </div>

@@ -1,0 +1,294 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import TierChip from '~/components/ui/TierChip.astro';
+import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware } from '~/lib/data';
+import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
+import Topology from '~/components/hardware/Topology.astro';
+import Substitutes from '~/components/hardware/Substitutes.astro';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import { hardwareLD, breadcrumbLD } from '~/lib/jsonld';
+import { buildMeta, lastUpdatedFor } from '~/lib/build-meta';
+import VendorBadge from '~/components/ui/VendorBadge.astro';
+import QuickEstimates from '~/components/hardware/QuickEstimates.astro';
+
+const locale = 'en';
+
+export async function getStaticPaths() {
+  const all = await getResolvedHardware();
+  return all.map((h) => ({ params: { slug: h.id }, props: { hw: h } }));
+}
+
+const { hw } = Astro.props;
+const isChina = hw.vendor.country === 'CN';
+const allCases = await getCases();
+const relatedCases = allCases.filter((c) => c.stack.hardware.id === hw.id).sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
+const allEngines = await getEngines();
+const allQuants = await getQuantizations();
+
+const tierFor = (ref?: string) => {
+  if (!ref) return 'official' as const;
+  return hw.evidence.find((e) => e.id === ref)?.tier ?? 'official' as const;
+};
+
+const c = hw.compute;
+
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://evokernel.dev').toString();
+const ldHardware = hardwareLD(hw, canonicalUrl);
+const ldBreadcrumbs = breadcrumbLD([
+  { name: 'Home', url: new URL('/en/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: 'Hardware', url: new URL('/en/hardware/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: hw.name, url: canonicalUrl }
+]);
+const meta = buildMeta();
+const allHardwareRaw = await getHardware();
+const allModels = await getModels();
+const efficiencyMap = buildEfficiencyMap(allCases, allHardwareRaw, allModels);
+const efficiency = getEfficiency(hw.id, efficiencyMap);
+const sourcePath = `data/hardware/${hw.vendor.id}/${hw.id}.yaml`;
+const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
+---
+<BaseLayout title={hw.name} locale={locale}>
+  <Fragment slot="head">
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldHardware)} />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldBreadcrumbs)} />
+  </Fragment>
+  <Container>
+    <section class="pt-12 pb-3">
+      <Breadcrumbs items={[
+        { name: 'Home', href: '/en/' },
+        { name: 'Hardware', href: '/en/hardware/' },
+        { name: hw.name }
+      ]} />
+    </section>
+    <section class="pt-3 pb-6">
+      <header class="flex items-center gap-3 mb-4">
+        <VendorBadge vendorId={hw.vendor.id} vendorName={hw.vendor.name} country={hw.vendor.country} size="md" />
+        <a href={`/en/vendors/${hw.vendor.id}/`} class="text-sm font-medium underline" style={`color: ${isChina ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
+          {hw.vendor.name}
+        </a>
+        {isChina && <Badge variant="china">China</Badge>}
+        <span class="ml-auto text-xs font-mono" style="color: var(--color-text-muted);" title={`Source last modified: ${lastUpdated}`}>
+          Last verified <time datetime={lastUpdated}>{lastUpdated.slice(0, 10)}</time>
+        </span>
+      </header>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{hw.name}</h1>
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <Badge>{hw.form_factor.toUpperCase()}</Badge>
+        <Badge>{hw.status === 'in-production' ? 'In production' : hw.status}</Badge>
+        <Badge>Released {hw.release_year}</Badge>
+        <Badge>{hw.generation}</Badge>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <KpiCard label="BF16" sublabel="TFLOP/s">
+          {c.bf16_tflops ? (
+            <>{c.bf16_tflops.value} <TierChip tier={tierFor(c.bf16_tflops.evidence_ref)} /></>
+          ) : '—'}
+        </KpiCard>
+        <KpiCard label="FP8" sublabel="TFLOP/s">
+          {c.fp8_tflops ? (
+            <>{c.fp8_tflops.value} <TierChip tier={tierFor(c.fp8_tflops.evidence_ref)} /></>
+          ) : 'unsupported'}
+        </KpiCard>
+        <KpiCard label="FP4" sublabel="TFLOP/s">
+          {c.fp4_tflops ? (
+            <>{c.fp4_tflops.value} <TierChip tier={tierFor(c.fp4_tflops.evidence_ref)} /></>
+          ) : 'unsupported'}
+        </KpiCard>
+        <KpiCard label="Memory" sublabel="GB">
+          {hw.memory.capacity_gb ? (
+            <>{hw.memory.capacity_gb.value} <TierChip tier={tierFor(hw.memory.capacity_gb.evidence_ref)} /></>
+          ) : '—'}
+        </KpiCard>
+        <KpiCard label="Mem BW" sublabel="GB/s">
+          {hw.memory.bandwidth_gbps ? (
+            <>{hw.memory.bandwidth_gbps.value} <TierChip tier={tierFor(hw.memory.bandwidth_gbps.evidence_ref)} /></>
+          ) : '—'}
+        </KpiCard>
+        <KpiCard label="TDP" sublabel="W">
+          {hw.power.tdp_w ? (
+            <>{hw.power.tdp_w.value} <TierChip tier={tierFor(hw.power.tdp_w.evidence_ref)} /></>
+          ) : '—'}
+        </KpiCard>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Full specs</h3>
+      <div class="grid lg:grid-cols-2 gap-6">
+        <div>
+          <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Compute</h4>
+          <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <SpecRow label="FP4 TFLOPS">{c.fp4_tflops?.value ?? 'unsupported'}</SpecRow>
+            <SpecRow label="FP8 TFLOPS">{c.fp8_tflops?.value ?? 'unsupported'}</SpecRow>
+            <SpecRow label="BF16 TFLOPS">{c.bf16_tflops?.value ?? '—'}</SpecRow>
+            <SpecRow label="FP16 TFLOPS">{c.fp16_tflops?.value ?? '—'}</SpecRow>
+            <SpecRow label="INT8 TOPS">{c.int8_tops?.value ?? '—'}</SpecRow>
+          </div>
+        </div>
+        <div>
+          <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Memory</h4>
+          <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <SpecRow label="Capacity">{hw.memory.capacity_gb?.value} GB</SpecRow>
+            <SpecRow label="Bandwidth">{hw.memory.bandwidth_gbps?.value} GB/s</SpecRow>
+            <SpecRow label="Type">{hw.memory.type}</SpecRow>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <div class="grid lg:grid-cols-2 gap-6">
+        <div>
+          <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Scale-Up (intra-node)</h4>
+          <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <SpecRow label="Protocol">{hw.scale_up.protocol}</SpecRow>
+            <SpecRow label="Per-link BW">{hw.scale_up.bandwidth_gbps} GB/s</SpecRow>
+            <SpecRow label="World size">{hw.scale_up.world_size}</SpecRow>
+            <SpecRow label="Topology">{hw.scale_up.topology}</SpecRow>
+            <SpecRow label="Switch">{hw.scale_up.switch ?? '—'}</SpecRow>
+          </div>
+        </div>
+        <div>
+          <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Scale-Out (inter-node)</h4>
+          <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <SpecRow label="Per-card NIC">{hw.scale_out.bandwidth_gbps_per_card} Gbps</SpecRow>
+            <SpecRow label="Protocol">{hw.scale_out.protocol}</SpecRow>
+            <SpecRow label="NIC">{hw.scale_out.nic ?? '—'}</SpecRow>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Topology</h3>
+      <Topology hw={hw} />
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Which models can it run?</h3>
+      <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
+    </section>
+
+    <section class="pb-8">
+      <Substitutes hw={hw} allHardware={await getResolvedHardware()} />
+    </section>
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">Software-stack support</h3>
+      <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+        <table class="w-full text-sm">
+          <thead style="background: var(--color-surface);">
+            <tr>
+              <th class="text-left px-4 py-2 font-medium">Engine</th>
+              <th class="text-left px-4 py-2 font-medium">Status</th>
+              {allQuants.slice(0, 6).map((q) => <th class="px-2 py-2 text-xs font-medium">{q.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {allEngines.map((e) => {
+              const supported = hw.software_support.engines.find((se) => se.id === e.id);
+              const supQuants = new Set(hw.software_support.quantizations);
+              const status = supported ? supported.status : null;
+              const colorMap = {
+                'officially-supported': 'var(--color-tier-measured)',
+                'community-port': 'var(--color-tier-estimated)',
+                'unsupported': 'oklch(55% 0.2 25)'
+              };
+              const labelMap = {
+                'officially-supported': 'official',
+                'community-port': 'community',
+                'unsupported': 'unsupported'
+              };
+              return (
+                <tr class="border-t" style="border-color: var(--color-border);">
+                  <td class="px-4 py-2 font-medium">{e.name}</td>
+                  <td class="px-4 py-2 text-xs" style={`color: ${status ? colorMap[status] : 'var(--color-text-muted)'};`}>
+                    {status ? labelMap[status] : 'unconfirmed'}
+                  </td>
+                  {allQuants.slice(0, 6).map((q) => (
+                    <td class="px-2 py-2 text-center">
+                      {status && supQuants.has(q.id) ? <span style={`color: ${colorMap[status]};`}>✓</span> : <span style="color: var(--color-text-muted);">—</span>}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="pb-12">
+      {efficiency.isCalibrated && (
+        <div class="mb-6 p-4 rounded-lg border" style="border-color: var(--color-tier-measured); background: color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg));">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="text-xs uppercase tracking-wide font-semibold" style="color: var(--color-tier-measured);">Measured efficiency factor</div>
+              <p class="text-sm mt-1">Computed from <strong>{efficiency.sampleCount}</strong> measured cases for this card. The calculator uses this value in place of the default 0.5.</p>
+            </div>
+            <div class="text-right">
+              <div class="text-3xl font-mono font-semibold" style="color: var(--color-tier-measured);">{efficiency.factor.toFixed(2)}</div>
+              <div class="text-xs" style="color: var(--color-text-muted);">measured / theoretical</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <h3 class="text-lg font-semibold mb-3">Existing deployment cases ({relatedCases.length})</h3>
+      {relatedCases.length === 0 ? (
+        <div class="text-sm p-6 rounded-lg border" style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-surface);">
+          No measured cases yet for this card.
+          <a href="https://github.com/evokernel/evokernel-spec" class="underline ml-1" style="color: var(--color-accent);">Be the first contributor?</a>
+        </div>
+      ) : (
+        <ul class="space-y-2">
+          {relatedCases.slice(0, 8).map((c) => (
+            <li>
+              <a href={`/en/cases/${c.id}/`} class="block p-4 rounded-lg border transition-transform hover:translate-x-1"
+                 style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                <div class="flex justify-between items-start gap-4">
+                  <div>
+                    <div class="font-medium">{c.title}</div>
+                    <div class="text-xs mt-1" style="color: var(--color-text-muted);">
+                      {c.stack.model.id} · {c.stack.engine.id} {c.stack.engine.version} · {c.stack.quantization} · TP={c.stack.parallel.tp}
+                    </div>
+                  </div>
+                  <div class="text-right text-xs font-mono" style="color: var(--color-text-muted);">
+                    <div>{c.results.throughput_tokens_per_sec.decode} tok/s</div>
+                    <div>{c.submitted_at}</div>
+                  </div>
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+
+    <section class="pb-16">
+      <h3 class="text-lg font-semibold mb-3">Citations</h3>
+      <ol class="space-y-2 text-sm">
+        {hw.evidence.map((e, i) => (
+          <li>
+            [{i + 1}] {e.citation} —
+            <a href={e.url} class="underline ml-1" style="color: var(--color-accent);" target="_blank" rel="noopener">{e.url}</a>
+            <span class="ml-1" style="color: var(--color-text-muted);"> · accessed {e.accessed}</span>
+            <span class="ml-2"><TierChip tier={e.tier} /></span>
+          </li>
+        ))}
+      </ol>
+      {hw.disclaimers.length > 0 && (
+        <div class="mt-4 text-xs p-3 rounded" style="background: color-mix(in oklch, var(--color-tier-estimated) 10%, var(--color-bg)); color: var(--color-tier-estimated);">
+          {hw.disclaimers.map((d) => <div>⚠ {d}</div>)}
+        </div>
+      )}
+    </section>
+  </Container>
+</BaseLayout>

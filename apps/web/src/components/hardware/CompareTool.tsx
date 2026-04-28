@@ -19,7 +19,9 @@ const PALETTE = [
   'oklch(58% 0.16 145)',
   'oklch(70% 0.16 80)',
   'oklch(50% 0.18 320)',
-  'oklch(62% 0.14 200)'
+  'oklch(62% 0.14 200)',
+  'oklch(48% 0.20 60)',
+  'oklch(64% 0.16 110)'
 ];
 
 type Metric = 'bf16_tflops' | 'fp8_tflops' | 'fp4_tflops' | 'memory_gb' | 'memory_bw_tbs' | 'tdp_w' | 'scale_up_gbps';
@@ -46,7 +48,7 @@ function getMetric(h: ResolvedHw, k: Metric): number {
   }
 }
 
-const MAX_PICK = 5;
+const MAX_PICK = 8;
 
 const VIEW_KEYS = ['radar', 'bar', 'roofline', 'table'] as const;
 type ViewType = (typeof VIEW_KEYS)[number];

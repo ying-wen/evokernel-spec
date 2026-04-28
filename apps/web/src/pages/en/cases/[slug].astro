@@ -1,0 +1,162 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import KpiCard from '~/components/ui/KpiCard.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import TierChip from '~/components/ui/TierChip.astro';
+import { getCases } from '~/lib/data';
+import CaseChart from '~/components/case/CaseChart.tsx';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import { caseLD, breadcrumbLD } from '~/lib/jsonld';
+
+const locale = 'en';
+
+export async function getStaticPaths() {
+  const cases = await getCases();
+  return cases.map((c) => ({ params: { slug: c.id }, props: { c, allCases: cases } }));
+}
+
+const { c, allCases } = Astro.props;
+const related = allCases.filter((x) => x.stack.model.id === c.stack.model.id);
+const r = c.results;
+const u = r.utilization;
+const others = Math.max(0, 100 - u.compute_pct - u.memory_bw_pct);
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://evokernel.dev').toString();
+const ldCase = caseLD(c, canonicalUrl);
+const ldCrumbs = breadcrumbLD([
+  { name: 'Home', url: new URL('/en/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: 'Cases', url: new URL('/en/cases/', Astro.site ?? 'https://evokernel.dev').toString() },
+  { name: c.title, url: canonicalUrl }
+]);
+---
+<BaseLayout title={c.title} locale={locale}>
+  <Fragment slot="head">
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldCase)} />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(ldCrumbs)} />
+  </Fragment>
+  <Container>
+    <article class="case-detail">
+    <section class="pt-12 pb-3 print:hidden">
+      <Breadcrumbs items={[
+        { name: 'Home', href: '/en/' },
+        { name: 'Cases', href: '/en/cases/' },
+        { name: c.title }
+      ]} />
+    </section>
+    <section class="pt-3 pb-6">
+      <h1 style="font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem); font-weight: 600;">{c.title}</h1>
+      <div class="text-xs mt-2" style="color: var(--color-text-muted);">Submitted by <span style="color: var(--color-accent);">{c.submitter.github}</span> on {c.submitted_at} · <a href={canonicalUrl} style="color: var(--color-text-muted);">{canonicalUrl}</a></div>
+      <div class="mt-3 print:hidden">
+        <button type="button" onclick="window.print()" class="text-xs px-3 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-surface);">
+          🖨 Print / export PDF
+        </button>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Stack</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="Hardware"><a href={`/en/hardware/${c.stack.hardware.id}/`} class="underline" style="color: var(--color-accent);">{c.stack.hardware.id}</a> × {c.stack.hardware.count} ({c.stack.hardware.topology})</SpecRow>
+        <SpecRow label="Server">{c.stack.server?.id ?? '—'}</SpecRow>
+        <SpecRow label="Interconnect">intra: {c.stack.interconnect.intra_node} · inter: {c.stack.interconnect.inter_node}</SpecRow>
+        <SpecRow label="Model"><a href={`/en/models/${c.stack.model.id}/`} class="underline" style="color: var(--color-accent);">{c.stack.model.id}</a> ({c.stack.model.weight_format})</SpecRow>
+        <SpecRow label="Engine">{c.stack.engine.id} {c.stack.engine.version}</SpecRow>
+        <SpecRow label="Quantization">{c.stack.quantization}</SpecRow>
+        <SpecRow label="Parallel">TP={c.stack.parallel.tp} · PP={c.stack.parallel.pp} · EP={c.stack.parallel.ep} · SP={c.stack.parallel.sp}{c.stack.parallel.disaggregated ? ' · disaggregated' : ''}</SpecRow>
+        <SpecRow label="Driver">{c.stack.driver}</SpecRow>
+        <SpecRow label="OS">{c.stack.os}</SpecRow>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Scenario</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="Prefill seq">{c.scenario.prefill_seq_len}</KpiCard>
+        <KpiCard label="Decode seq">{c.scenario.decode_seq_len}</KpiCard>
+        <KpiCard label="Batch">{c.scenario.batch_size}</KpiCard>
+        <KpiCard label="Max concurrent">{c.scenario.max_concurrent_requests}</KpiCard>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Results</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <KpiCard label="Decode tok/s" emphasize><span style="font-size: 1.5rem;">{r.throughput_tokens_per_sec.decode}</span></KpiCard>
+        <KpiCard label="Prefill tok/s"><span style="font-size: 1.5rem;">{r.throughput_tokens_per_sec.prefill}</span></KpiCard>
+        <KpiCard label="TTFT p50" sublabel="ms"><span style="font-size: 1.5rem;">{r.latency_ms.ttft_p50}</span></KpiCard>
+        <KpiCard label="TBT p50" sublabel="ms"><span style="font-size: 1.5rem;">{r.latency_ms.tbt_p50}</span></KpiCard>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <KpiCard label="Memory/card" sublabel="GB"><span style="font-size: 1.5rem;">{r.memory_per_card_gb}</span></KpiCard>
+        <KpiCard label="Power/card" sublabel="W"><span style="font-size: 1.5rem;">{r.power_per_card_w}</span></KpiCard>
+        <KpiCard label="Compute" sublabel="util %"><span style="font-size: 1.5rem;">{u.compute_pct}</span></KpiCard>
+        <KpiCard label="Memory BW" sublabel="util %"><span style="font-size: 1.5rem;">{u.memory_bw_pct}</span></KpiCard>
+      </div>
+
+      {related.length > 1 && (
+        <div class="mb-6">
+          <h4 class="text-sm font-semibold mb-2">Same-model side-by-side</h4>
+          <CaseChart current={c} related={related} client:visible />
+        </div>
+      )}
+
+      <h4 class="text-sm font-semibold mb-2">Bottleneck — <span style="color: var(--color-accent);">{c.bottleneck}</span></h4>
+      <div class="flex h-8 rounded overflow-hidden" style="background: var(--color-surface);">
+        {u.compute_pct > 0 && <div style={`width: ${u.compute_pct}%; background: var(--color-tier-measured);`} title={`compute ${u.compute_pct}%`}></div>}
+        {u.memory_bw_pct > 0 && <div style={`width: ${u.memory_bw_pct}%; background: var(--color-accent);`} title={`memory bw ${u.memory_bw_pct}%`}></div>}
+        {others > 0 && <div style={`width: ${others}%; background: var(--color-tier-estimated); opacity: 0.6;`} title={`other ${others}%`}></div>}
+      </div>
+      <div class="flex gap-4 text-xs mt-2" style="color: var(--color-text-muted);">
+        <span>Compute {u.compute_pct}%</span>
+        <span>Memory BW {u.memory_bw_pct}%</span>
+        <span>Other {others}%</span>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Reproduction</h3>
+      <pre class="text-xs p-4 rounded border overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border);"><code>{c.reproduction.startup_command}</code></pre>
+      <p class="text-xs mt-2" style="color: var(--color-text-muted);">Benchmark tool: {c.reproduction.benchmark_tool}</p>
+    </section>
+
+    {c.issues_encountered.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Issues encountered</h3>
+        <ul class="list-disc pl-5 space-y-2 text-sm">
+          {c.issues_encountered.map((i) => <li>{i}</li>)}
+        </ul>
+      </section>
+    )}
+
+    {c.patterns.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Optimization patterns</h3>
+        <div class="flex gap-2 flex-wrap">
+          {c.patterns.map((p) => (
+            <a href={`/en/patterns/${p}/`} class="text-sm px-3 py-1 rounded border" style="border-color: var(--color-accent); color: var(--color-accent);">
+              {p}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">Citations</h3>
+      <ol class="space-y-2 text-sm">
+        {c.evidence.map((e, i) => (
+          <li>
+            [{i + 1}] {e.citation} —
+            <a href={e.url} class="underline ml-1" style="color: var(--color-accent);" target="_blank" rel="noopener">{e.url}</a>
+            <span class="ml-1" style="color: var(--color-text-muted);"> · {e.accessed}</span>
+            <span class="ml-2"><TierChip tier={e.tier} /></span>
+            {e.contributor_attestation && (
+              <div class="text-xs mt-1 pl-4" style="color: var(--color-text-muted);">Attestation: {e.contributor_attestation}</div>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+    </article>
+  </Container>
+</BaseLayout>

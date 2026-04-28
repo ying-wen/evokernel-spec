@@ -59,17 +59,26 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
   <div class="mb-6">
     <div class="text-xs font-medium mb-2" style="color: var(--color-text);">芯片内部 / Die-level architecture</div>
     <svg viewBox="0 0 800 360" class="w-full max-w-3xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} die diagram`}>
-      <!-- HBM stacks on left and right -->
-      {hbmStacks > 0 && Array.from({ length: Math.ceil(hbmStacks / 2) }).map((_, i) => {
-        const yStep = 280 / Math.max(1, Math.ceil(hbmStacks / 2));
-        const y = 40 + i * yStep;
-        return (
+      <!-- Memory stacks on left and right (HBM stacks if HBM, else single DRAM block) -->
+      {hbmStacks > 0
+        ? Array.from({ length: Math.ceil(hbmStacks / 2) }).map((_, i) => {
+            const yStep = 280 / Math.max(1, Math.ceil(hbmStacks / 2));
+            const y = 40 + i * yStep;
+            return (
+              <g>
+                <rect x="20" y={y} width="60" height={yStep - 8} rx="4" fill="color-mix(in oklch, var(--color-china) 14%, var(--color-bg))" stroke={china} stroke-width="1.5"/>
+                <text x="50" y={y + (yStep - 8) / 2 + 4} text-anchor="middle" font-size="9" font-weight="600" fill={china}>HBM</text>
+              </g>
+            );
+          })
+        : (
           <g>
-            <rect x="20" y={y} width="60" height={yStep - 8} rx="4" fill="color-mix(in oklch, var(--color-china) 14%, var(--color-bg))" stroke={china} stroke-width="1.5"/>
-            <text x="50" y={y + (yStep - 8) / 2 + 4} text-anchor="middle" font-size="9" font-weight="600" fill={china}>HBM</text>
+            <rect x="20" y="40" width="60" height="280" rx="4" fill="color-mix(in oklch, var(--color-china) 10%, var(--color-bg))" stroke={china} stroke-width="1" stroke-dasharray="3 3"/>
+            <text x="50" y="170" text-anchor="middle" font-size="10" font-weight="600" fill={china} transform="rotate(-90, 50, 170)">{memType}</text>
+            <text x="50" y="186" text-anchor="middle" font-size="8" fill={muted} transform="rotate(-90, 50, 186)">{memGb} GB</text>
           </g>
-        );
-      })}
+        )
+      }
       {hbmStacks > 0 && Array.from({ length: Math.floor(hbmStacks / 2) }).map((_, i) => {
         const yStep = 280 / Math.max(1, Math.floor(hbmStacks / 2));
         const y = 40 + i * yStep;
@@ -80,6 +89,12 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
           </g>
         );
       })}
+      {hbmStacks === 0 && (
+        <g>
+          <rect x="720" y="40" width="60" height="280" rx="4" fill="color-mix(in oklch, var(--color-china) 8%, var(--color-bg))" stroke={china} stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.5"/>
+          <text x="750" y="180" text-anchor="middle" font-size="9" fill={muted} transform="rotate(-90, 750, 180)">@ {memBwTbs} TB/s</text>
+        </g>
+      )}
 
       <!-- Die outline -->
       <rect x="100" y="30" width="600" height="300" rx="10" fill="var(--color-bg)" stroke={accent} stroke-width="2" stroke-opacity="0.5"/>
@@ -115,11 +130,14 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
       })}
 
       <!-- Annotations -->
-      <text x="395" y="55" text-anchor="middle" font-size="8" fill={muted}>{cuCount} {cuLabel}s (估算 / illustrative)</text>
+      <text x="395" y="55" text-anchor="middle" font-size="8" fill={muted}>{cuCount} {cuLabel}s</text>
       <text x="400" y="345" text-anchor="middle" font-size="9" font-weight="600" fill="var(--color-text)">
         {bf16.toFixed(0)} TFLOPS BF16 · {hw.compute.fp8_tflops?.value ? `${hw.compute.fp8_tflops.value.toFixed(0)} FP8 · ` : ''}{memGb} GB {memType} @ {memBwTbs} TB/s · {tdpW} W TDP
       </text>
     </svg>
+    <p class="text-xs mt-2 px-3 py-2 rounded" style="background: color-mix(in oklch, var(--color-tier-estimated) 8%, var(--color-bg)); color: var(--color-tier-estimated);">
+      ⚠ illustrative die layout / 示意性版图: compute-unit count and HBM-stack count are inferred from public specs (BF16 TFLOPS bucket + memory.type stack size); not vendor floorplan. Authoritative inner-arch (SM/CU count, L2 size) requires <code>architecture</code> schema field — coming in v1.1.
+    </p>
   </div>
 
   <hr style={`border-color: ${border}; margin: 1.25rem 0;`}/>

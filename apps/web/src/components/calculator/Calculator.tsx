@@ -173,7 +173,7 @@ export default function Calculator({ models, hardware, cases, engines, locale = 
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[14rem,1fr] gap-8">
-      <nav className="space-y-2 sticky top-4 self-start" style={{ alignSelf: 'start' }}>
+      <nav className="space-y-2 sticky top-4 self-start" style={{ alignSelf: 'start', maxHeight: 'calc(100vh - 5rem)', overflowY: 'auto' }}>
         {[
           { n: 1 as Step, label: t('calc.step.model'), done: !!modelId },
           { n: 2 as Step, label: t('calc.step.hardware'), done: !!hwId },

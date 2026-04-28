@@ -192,8 +192,8 @@ test.describe('Entity detail pages', () => {
     // The table view should render with H100 and B200 columns
     await expect(page.getByText('H100 SXM5 80GB').first()).toBeVisible();
     await expect(page.getByText('B200 SXM 180GB').first()).toBeVisible();
-    // Selected count badge
-    await expect(page.getByText(/2\/5 选中/).first()).toBeVisible();
+    // Selected count badge (MAX_PICK = 8)
+    await expect(page.getByText(/2\/8 选中/).first()).toBeVisible();
   });
 });
 
@@ -456,6 +456,29 @@ test.describe('i18n English mirror', () => {
     await expect(page.getByRole('button', { name: 'Bar', exact: true })).toBeVisible();
     // 'Roofline' label is intentionally untranslated
     await expect(page.getByRole('button', { name: 'Table', exact: true })).toBeVisible();
+  });
+
+  // Detail-page EN mirrors (regression guard for review CRITICAL #1)
+  test('/en/hardware/h100-sxm5/ renders English detail', async ({ page }) => {
+    const res = await page.goto('/en/hardware/h100-sxm5/');
+    expect(res?.status()).toBe(200);
+    await expect(page.getByRole('heading', { name: /Full specs/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Topology/i }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Software-stack support/i })).toBeVisible();
+  });
+
+  test('/en/models/deepseek-v4-pro/ renders English detail', async ({ page }) => {
+    const res = await page.goto('/en/models/deepseek-v4-pro/');
+    expect(res?.status()).toBe(200);
+    await expect(page.getByRole('heading', { name: /Architecture/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Compatible hardware/i })).toBeVisible();
+  });
+
+  test('/en/cases/<slug>/ renders English detail', async ({ page }) => {
+    const res = await page.goto('/en/cases/case-llama4-scout-h100x8-vllm-001/');
+    expect(res?.status()).toBe(200);
+    await expect(page.getByRole('heading', { name: /^Stack$/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Results$/ })).toBeVisible();
   });
 });
 

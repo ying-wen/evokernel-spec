@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useId } from 'react';
 import type { Hardware, Vendor } from '@evokernel/schemas';
 import { toCsv, downloadCsv } from '~/lib/csv';
 import { tr, type Locale } from '~/lib/i18n/island';
@@ -215,7 +215,10 @@ function VendorBadgeInline({ vendorId, vendorName, country }: { vendorId: string
   const base = Math.abs(hash) % 360;
   const hue = country === 'CN' ? base % 60 : ((base % 200) + 200) % 360;
   const initial = vendorName.charAt(0).toUpperCase();
-  const id = `vg-${vendorId}-card`;
+  // useId returns a stable, document-unique ID per render — prevents <linearGradient>
+  // collisions when the same vendor card renders multiple times.
+  const reactId = useId();
+  const id = `vg-${vendorId}-${reactId.replace(/:/g, '')}`;
   return (
     <svg viewBox="0 0 36 36" width={32} height={32} aria-label={`${vendorName} logo`}
          xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0, display: 'inline-block' }}>
