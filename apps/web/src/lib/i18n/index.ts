@@ -12,6 +12,7 @@ const dict = {
     'nav.cases': '案例',
     'nav.calculator': '计算器',
     'nav.china': '国产专题',
+    'nav.pricing': '价格',
     'nav.search': '搜索',
     'nav.menu': '菜单',
     'footer.tagline': 'AI 推理硬件 × 模型 × 部署的开源知识库',
@@ -59,7 +60,14 @@ const dict = {
     'page.compare.title': '硬件对比',
     'page.compare.subtitle': '选最多 5 张卡, 切换雷达图 / 柱状图 / Roofline 叠加 / 表格',
     'page.showcase.title': '精选发现 · 数据告诉我们什么',
-    'page.showcase.subtitle': '从数据实体中自动计算的洞察, 每次构建时刷新'
+    'page.showcase.subtitle': '从数据实体中自动计算的洞察, 每次构建时刷新',
+    'page.pricing.title': '$ / M tokens 排名',
+    'page.pricing.subtitle': '基于实测案例自动计算每张卡的成本效率, 答案随案例库增长持续更新',
+    'page.pricing.formula': '公式 / Formula',
+    'page.pricing.disclaimer': '⚠ 这是纯推理 BoM 估算 — 不含数据中心摊销、网络、运维、license 等。实际生产 $/M tokens 通常 1.5-3× of this。用于横向对比, 不用于绝对采购报价。',
+    'page.pricing.bestPerHw': '每张卡最佳成本',
+    'page.pricing.allCases': '全部案例 · 按 $/M tokens 升序',
+    'page.pricing.cta': '想自己调整假设? 打开计算器'
   },
   en: {
     'nav.hardware': 'Hardware',
@@ -68,6 +76,7 @@ const dict = {
     'nav.cases': 'Cases',
     'nav.calculator': 'Calculator',
     'nav.china': 'China Hub',
+    'nav.pricing': 'Pricing',
     'nav.search': 'Search',
     'nav.menu': 'Menu',
     'footer.tagline': 'Open knowledge base for AI inference hardware × models × deployment',
@@ -115,7 +124,14 @@ const dict = {
     'page.compare.title': 'Hardware compare',
     'page.compare.subtitle': 'Pick up to 5 cards, toggle Radar / Bar / Roofline overlay / Table',
     'page.showcase.title': 'Showcase · what the data tells us',
-    'page.showcase.subtitle': 'Insights auto-computed from the data corpus, refreshed every build'
+    'page.showcase.subtitle': 'Insights auto-computed from the data corpus, refreshed every build',
+    'page.pricing.title': '$ / M tokens leaderboard',
+    'page.pricing.subtitle': 'TCO efficiency per accelerator, recomputed on every build from the live case corpus',
+    'page.pricing.formula': 'Formula',
+    'page.pricing.disclaimer': '⚠ Compute-only BoM estimate — excludes datacenter amortization, networking, ops, licensing. Real production $/M tokens are typically 1.5–3× of this. Use for relative ranking, not absolute procurement quotes.',
+    'page.pricing.bestPerHw': 'Best cost per card',
+    'page.pricing.allCases': 'All cases · sorted by $/M tokens',
+    'page.pricing.cta': 'Want to tweak the assumptions? Open the calculator'
   }
 } as const;
 

@@ -554,6 +554,35 @@ test.describe('Calculator CN no-Tier-0 notice', () => {
   });
 });
 
+test.describe('Pricing / TCO leaderboard', () => {
+  test('zh /pricing renders ranking + formula + chinese flag for CN cards', async ({ page }) => {
+    await page.goto('/pricing/');
+    // Title + formula box
+    await expect(page.getByRole('heading', { name: /\$ \/ M tokens 排名/ })).toBeVisible();
+    await expect(page.getByText(/公式 \/ Formula/)).toBeVisible();
+    // Disclaimer about BoM scope
+    await expect(page.getByText(/纯推理 BoM/)).toBeVisible();
+    // At least one $/M cell renders
+    await expect(page.locator('text=/\\$\\d+\\.\\d{2}/').first()).toBeVisible();
+    // Calculator CTA at the bottom
+    await expect(page.getByText(/打开计算器/)).toBeVisible();
+  });
+
+  test('en /en/pricing/ renders English titles, headers, disclaimer', async ({ page }) => {
+    await page.goto('/en/pricing/');
+    await expect(page.getByRole('heading', { name: /\$ \/ M tokens leaderboard/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Best cost per card/i })).toBeVisible();
+    await expect(page.getByText(/Compute-only BoM estimate/i)).toBeVisible();
+    await expect(page.getByText(/Open the calculator/i)).toBeVisible();
+  });
+
+  test('pricing nav link present on home page', async ({ page }) => {
+    await page.goto('/');
+    // Nav has "价格" link in zh (desktop md:flex)
+    await expect(page.locator('nav a[href*="/pricing"]').first()).toBeVisible();
+  });
+});
+
 test.describe('Compare with no card cap', () => {
   test('user can select more than 8 cards in compare', async ({ page }) => {
     await page.goto('/compare/');

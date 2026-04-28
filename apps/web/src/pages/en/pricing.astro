@@ -1,0 +1,186 @@
+---
+// Astro doesn't allow re-export of `.astro` page logic, so EN pricing
+// is a standalone copy that imports the same data + uses the locale prop
+// pattern. Keeps the data computation identical (single source of truth
+// would be a shared util — but the body is short enough that copying the
+// 60-line aggregation block is cheaper than the abstraction tax.)
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { getResolvedHardware, getCases } from '~/lib/data';
+import { t, localePath } from '~/lib/i18n';
+
+const locale = 'en';
+const cases = await getCases();
+const hardware = await getResolvedHardware();
+
+const HW_RENT_USD_PER_HOUR_PER_CARD = 2.5;
+const POWER_USD_PER_KWH = 0.10;
+const PUE = 1.3;
+
+interface Row {
+  caseId: string;
+  caseTitle: string;
+  hwId: string;
+  hwName: string;
+  hwVendor: string;
+  hwCountry: string;
+  hwCount: number;
+  decodeTokPerSecPerCard: number;
+  modelId: string;
+  modelName: string;
+  precision: string;
+  tdpW: number;
+  costPerMTokens: number;
+  hwHourlyCost: number;
+  powerHourlyCost: number;
+  totalHourlyCost: number;
+}
+
+const rows: Row[] = cases
+  .map((c): Row | null => {
+    const hw = hardware.find((h) => h.id === c.stack.hardware.id);
+    if (!hw) return null;
+    const tdpW = hw.power.tdp_w?.value ?? 700;
+    const decodePerCard = c.results.throughput_tokens_per_sec.decode / Math.max(c.stack.hardware.count, 1);
+    if (decodePerCard <= 0) return null;
+    const tokensPerHour = decodePerCard * 3600;
+    const hwHourlyCost = HW_RENT_USD_PER_HOUR_PER_CARD;
+    const powerHourlyCost = (tdpW * PUE / 1000) * POWER_USD_PER_KWH;
+    const totalHourlyCost = hwHourlyCost + powerHourlyCost;
+    const costPerMTokens = (totalHourlyCost / tokensPerHour) * 1e6;
+    return {
+      caseId: c.id, caseTitle: c.title, hwId: hw.id, hwName: hw.name,
+      hwVendor: hw.vendor.id, hwCountry: hw.vendor.country, hwCount: c.stack.hardware.count,
+      decodeTokPerSecPerCard: decodePerCard, modelId: c.stack.model.id, modelName: c.stack.model.id,
+      precision: c.stack.quantization, tdpW, costPerMTokens, hwHourlyCost, powerHourlyCost, totalHourlyCost
+    };
+  })
+  .filter((r): r is Row => r !== null)
+  .sort((a, b) => a.costPerMTokens - b.costPerMTokens);
+
+interface HwAgg { hwId: string; hwName: string; hwCountry: string; count: number; best: number; median: number; worst: number; bestCase: string; }
+const byHw = new Map<string, Row[]>();
+for (const r of rows) {
+  const arr = byHw.get(r.hwId) ?? [];
+  arr.push(r);
+  byHw.set(r.hwId, arr);
+}
+const hwAgg: HwAgg[] = Array.from(byHw.entries())
+  .map(([hwId, rs]) => {
+    const sorted = [...rs].sort((a, b) => a.costPerMTokens - b.costPerMTokens);
+    const median = sorted[Math.floor(sorted.length / 2)]!.costPerMTokens;
+    const first = sorted[0]!;
+    return { hwId, hwName: first.hwName, hwCountry: first.hwCountry, count: rs.length,
+      best: first.costPerMTokens, median, worst: sorted[sorted.length - 1]!.costPerMTokens, bestCase: first.caseId };
+  })
+  .sort((a, b) => a.best - b.best);
+---
+<BaseLayout title={t(locale, 'page.pricing.title')} locale={locale}>
+  <Container width="wide">
+    <section class="py-12">
+      <SectionHeader eyebrow="PRICING / TCO" title={t(locale, 'page.pricing.title')}
+        subtitle={t(locale, 'page.pricing.subtitle')} />
+
+      <div class="mt-6 mb-8 p-4 rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <h3 class="text-base font-semibold mb-2">{t(locale, 'page.pricing.formula')}</h3>
+        <pre class="text-xs px-3 py-2 rounded overflow-x-auto" style="background: var(--color-surface);"><code>$/M tokens = (hw_rent_per_hour + tdp_w × PUE / 1000 × kWh_price) × 1,000,000 / (decode_tok_s_per_card × 3600)
+
+assumptions:
+  hw_rent_per_hour = ${HW_RENT_USD_PER_HOUR_PER_CARD.toFixed(2)} USD / card / hour
+  kWh_price        = ${POWER_USD_PER_KWH.toFixed(2)} USD / kWh
+  PUE              = ${PUE.toFixed(1)}
+  TDP              = vendor-rated, per hardware
+  decode_tok_s     = measured (Tier 0 case)</code></pre>
+        <p class="text-xs mt-3" style="color: var(--color-text-muted);">{t(locale, 'page.pricing.disclaimer')}</p>
+      </div>
+
+      <h2 class="text-2xl font-semibold mb-3">{t(locale, 'page.pricing.bestPerHw')} ({hwAgg.length} cards with measured data)</h2>
+      <div class="overflow-x-auto rounded-lg border mb-12" style="border-color: var(--color-border);">
+        <table class="w-full text-sm">
+          <thead style="background: var(--color-surface);">
+            <tr>
+              <th class="text-left px-3 py-2 font-medium">#</th>
+              <th class="text-left px-3 py-2 font-medium">Hardware</th>
+              <th class="text-right px-3 py-2 font-medium">Best $/M</th>
+              <th class="text-right px-3 py-2 font-medium">Median</th>
+              <th class="text-right px-3 py-2 font-medium">Worst</th>
+              <th class="text-right px-3 py-2 font-medium">cases</th>
+              <th class="text-left px-3 py-2 font-medium">Best case</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hwAgg.map((h, i) => {
+              const isCN = h.hwCountry === 'CN';
+              const isTop3 = i < 3;
+              return (
+                <tr class="border-t" style="border-color: var(--color-border);">
+                  <td class="px-3 py-2 text-xs font-mono" style={`color: ${isTop3 ? 'var(--color-tier-measured)' : 'var(--color-text-muted)'}; font-weight: ${isTop3 ? 600 : 400};`}>
+                    {i + 1}{isTop3 && ' 🏆'}
+                  </td>
+                  <td class="px-3 py-2">
+                    <a href={localePath(locale, `/hardware/${h.hwId}/`)} style="color: var(--color-text);" class="font-medium">{h.hwName}</a>
+                    {isCN && <span style="color: var(--color-china);" class="text-xs ml-1">🇨🇳</span>}
+                  </td>
+                  <td class="px-3 py-2 text-right font-mono font-semibold" style={isTop3 ? 'color: var(--color-tier-measured);' : ''}>${h.best.toFixed(2)}</td>
+                  <td class="px-3 py-2 text-right font-mono text-xs" style="color: var(--color-text-muted);">${h.median.toFixed(2)}</td>
+                  <td class="px-3 py-2 text-right font-mono text-xs" style="color: var(--color-text-muted);">${h.worst.toFixed(2)}</td>
+                  <td class="px-3 py-2 text-right font-mono text-xs" style="color: var(--color-text-muted);">{h.count}</td>
+                  <td class="px-3 py-2 text-xs">
+                    <a href={localePath(locale, `/cases/${h.bestCase}/`)} class="underline" style="color: var(--color-accent);">detail →</a>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <h2 class="text-2xl font-semibold mb-3">{t(locale, 'page.pricing.allCases')} ({rows.length})</h2>
+      <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+        <table class="w-full text-sm">
+          <thead style="background: var(--color-surface);">
+            <tr>
+              <th class="text-left px-3 py-2 font-medium">Case</th>
+              <th class="text-left px-3 py-2 font-medium">Hardware ×N</th>
+              <th class="text-left px-3 py-2 font-medium">Model / Precision</th>
+              <th class="text-right px-3 py-2 font-medium">decode tok/s/card</th>
+              <th class="text-right px-3 py-2 font-medium">TDP W</th>
+              <th class="text-right px-3 py-2 font-medium">$/h total</th>
+              <th class="text-right px-3 py-2 font-medium">$/M tokens</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const isCN = r.hwCountry === 'CN';
+              const isCheapest = i === 0;
+              return (
+                <tr class="border-t" style={`border-color: var(--color-border); ${isCheapest ? 'background: color-mix(in oklch, var(--color-tier-measured) 4%, var(--color-bg));' : ''}`}>
+                  <td class="px-3 py-2">
+                    <a href={localePath(locale, `/cases/${r.caseId}/`)} class="font-medium" style="color: var(--color-text);">{r.caseTitle}</a>
+                  </td>
+                  <td class="px-3 py-2 text-xs">
+                    <a href={localePath(locale, `/hardware/${r.hwId}/`)} class="underline" style={`color: ${isCN ? 'var(--color-china)' : 'var(--color-accent)'};`}>{r.hwId}</a>
+                    <span style="color: var(--color-text-muted);"> ×{r.hwCount}</span>
+                  </td>
+                  <td class="px-3 py-2 text-xs">{r.modelId} <span style="color: var(--color-text-muted);">· {r.precision}</span></td>
+                  <td class="px-3 py-2 text-right font-mono text-xs">{Math.round(r.decodeTokPerSecPerCard).toLocaleString()}</td>
+                  <td class="px-3 py-2 text-right font-mono text-xs" style="color: var(--color-text-muted);">{r.tdpW}</td>
+                  <td class="px-3 py-2 text-right font-mono text-xs" style="color: var(--color-text-muted);">${r.totalHourlyCost.toFixed(2)}</td>
+                  <td class="px-3 py-2 text-right font-mono font-semibold" style={isCheapest ? 'color: var(--color-tier-measured);' : ''}>
+                    ${r.costPerMTokens.toFixed(2)}{isCheapest && ' 🏆'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-8 text-xs" style="color: var(--color-text-muted);">
+        {t(locale, 'page.pricing.cta')} <a href={localePath(locale, '/calculator/')} class="underline" style="color: var(--color-accent);">→</a>
+        The TCO panel surfaces every assumption ($/card/hr, TDP, etc.) and accepts custom model/hardware/parallel configs.
+      </div>
+    </section>
+  </Container>
+</BaseLayout>
