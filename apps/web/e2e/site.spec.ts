@@ -287,10 +287,12 @@ test.describe.serial('Iter-10 features', () => {
   test('hardware filter sidebar narrows results to China when toggled', async ({ page }) => {
     await page.goto('/hardware/');
     await page.waitForSelector('input[type="search"]', { state: 'visible', timeout: 10000 });
-    // Click "国产" toggle
-    await page.getByRole('button', { name: '国产', exact: true }).click();
+    // The "国产" toggle (Country filter row); .first() to disambiguate against the China Hub nav link.
+    const cnToggle = page.getByRole('button', { name: '国产', exact: true }).first();
+    await cnToggle.waitFor({ state: 'visible', timeout: 10000 });
+    await cnToggle.click();
     // Counter shows 13 / 28
-    await expect(page.getByText(/13 \/ 28 显示/i)).toBeVisible();
+    await expect(page.getByText(/13 \/ 28 显示/i)).toBeVisible({ timeout: 10000 });
     // Overseas section should disappear
     await expect(page.getByRole('heading', { name: /^海外/ })).not.toBeVisible();
   });
@@ -318,8 +320,13 @@ test.describe.serial('Iter-10 features', () => {
   test('calculator share URL includes state in querystring', async ({ page }) => {
     await page.goto('/calculator/');
     await page.waitForSelector('button[type="button"]', { state: 'visible' });
-    await page.getByRole('button', { name: /Llama 4 Scout/i }).click();
-    await page.getByRole('button', { name: /H100 SXM5/i }).click();
+    const modelBtn = page.getByRole('button', { name: /Llama 4 Scout/i }).first();
+    await modelBtn.scrollIntoViewIfNeeded();
+    await modelBtn.click();
+    const hwBtn = page.getByRole('button', { name: /H100 SXM5/i }).first();
+    await hwBtn.waitFor({ state: 'visible', timeout: 15000 });
+    await hwBtn.scrollIntoViewIfNeeded();
+    await hwBtn.click();
     await page.waitForFunction(() => {
       const u = new URL(window.location.href);
       return u.searchParams.get('model') === 'llama-4-scout' && u.searchParams.get('hw') === 'h100-sxm5';
@@ -416,6 +423,40 @@ test.describe('i18n English mirror', () => {
       await expect(nav.getByRole('link', { name: 'Hardware', exact: true })).toBeVisible();
     });
   }
+
+  test('/en/calculator React island uses English step labels', async ({ page }) => {
+    await page.goto('/en/calculator/');
+    await page.waitForSelector('button[type="button"]', { state: 'visible' });
+    // Step heading and step chips both English
+    await expect(page.getByRole('heading', { name: /1\. Pick model/i })).toBeVisible();
+    await expect(page.getByText(/Pick hardware/).first()).toBeVisible();
+    await expect(page.getByText(/Configure scenario/).first()).toBeVisible();
+  });
+
+  test('/en/cases Leaderboard view-mode buttons are in English', async ({ page }) => {
+    await page.goto('/en/cases/');
+    await page.waitForSelector('select', { state: 'visible' });
+    await expect(page.getByRole('button', { name: 'Table', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Scatter', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Bar', exact: true })).toBeVisible();
+  });
+
+  test('/en/hardware filter sidebar uses English labels', async ({ page }) => {
+    await page.goto('/en/hardware/');
+    await page.waitForSelector('input[type="search"]', { state: 'visible' });
+    await expect(page.getByRole('searchbox', { name: '' }).first()).toHaveAttribute('placeholder', /Search/);
+    // The Country filter trio: All / China / Overseas (exact match — China alone collides with the "China Hub" nav link)
+    await expect(page.getByRole('button', { name: 'Overseas', exact: true })).toBeVisible();
+  });
+
+  test('/en/compare CompareTool view-mode buttons are in English', async ({ page }) => {
+    await page.goto('/en/compare/');
+    await page.waitForSelector('button', { state: 'visible' });
+    await expect(page.getByRole('button', { name: 'Radar', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Bar', exact: true })).toBeVisible();
+    // 'Roofline' label is intentionally untranslated
+    await expect(page.getByRole('button', { name: 'Table', exact: true })).toBeVisible();
+  });
 });
 
 test.describe('SEO structured data', () => {

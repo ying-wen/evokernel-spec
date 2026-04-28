@@ -23,7 +23,7 @@ const lite = hardware.map((h) => ({
     <section class="py-12">
       <SectionHeader eyebrow="COMPARE" title={t(locale, 'page.compare.title')}
         subtitle={t(locale, 'page.compare.subtitle')} />
-      <CompareTool hardware={lite} client:load />
+      <CompareTool hardware={lite} locale="en" client:load />
     </section>
   </Container>
 </BaseLayout>

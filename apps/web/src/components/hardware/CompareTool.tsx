@@ -5,12 +5,13 @@ import {
   LineChart, Line
 } from 'recharts';
 import type { Hardware } from '@evokernel/schemas';
+import { tr, type Locale } from '~/lib/i18n/island';
 
 interface ResolvedHw extends Omit<Hardware, 'vendor'> {
   vendor: { id: string; name: string; country: string; chinese_names: string[] };
 }
 
-interface Props { hardware: ResolvedHw[]; }
+interface Props { hardware: ResolvedHw[]; locale?: Locale; }
 
 const PALETTE = [
   'oklch(58% 0.18 255)',
@@ -61,7 +62,15 @@ function readUrlState(hardware: ResolvedHw[]): { ids: string[]; view: ViewType }
   return { ids, view };
 }
 
-export default function CompareTool({ hardware }: Props) {
+export default function CompareTool({ hardware, locale = 'zh' }: Props) {
+  const t = (k: Parameters<typeof tr>[1], v?: Parameters<typeof tr>[2]) => tr(locale, k, v);
+  const en = locale === 'en';
+  const METRICS_LOCAL = en
+    ? METRICS.map((m) => ({
+        ...m,
+        label: m.key === 'memory_gb' ? 'Memory' : m.key === 'memory_bw_tbs' ? 'Mem BW' : m.label
+      }))
+    : METRICS;
   const [selected, setSelected] = useState<string[]>(['h100-sxm5', 'b200-sxm', 'mi355x', 'ascend-910c']);
   const [chartType, setChartType] = useState<ViewType>('radar');
   const [filter, setFilter] = useState('');
@@ -102,7 +111,7 @@ export default function CompareTool({ hardware }: Props) {
 
   // Normalize for radar: each metric scaled to 0-100 across selected
   const radarData = useMemo(() => {
-    return METRICS.map((m) => {
+    return METRICS_LOCAL.map((m) => {
       const row: Record<string, number | string> = { metric: m.label };
       const max = Math.max(...selectedCards.map((h) => getMetric(h, m.key)), 1);
       for (const h of selectedCards) {
@@ -110,25 +119,25 @@ export default function CompareTool({ hardware }: Props) {
       }
       return row;
     });
-  }, [selectedCards]);
+  }, [selectedCards, METRICS_LOCAL]);
 
   const barData = useMemo(() => {
-    return METRICS.map((m) => {
+    return METRICS_LOCAL.map((m) => {
       const row: Record<string, number | string> = { metric: m.label };
       for (const h of selectedCards) row[h.id] = getMetric(h, m.key);
       return row;
     });
-  }, [selectedCards]);
+  }, [selectedCards, METRICS_LOCAL]);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-sm font-medium">视图:</span>
+        <span className="text-sm font-medium">{en ? 'View:' : '视图:'}</span>
         {([
-          { v: 'radar' as const, l: '雷达图' },
-          { v: 'bar' as const, l: '柱状图' },
+          { v: 'radar' as const, l: t('cmp.view.radar') },
+          { v: 'bar' as const, l: t('cmp.view.bar') },
           { v: 'roofline' as const, l: 'Roofline' },
-          { v: 'table' as const, l: '对比表' }
+          { v: 'table' as const, l: t('cmp.view.table') }
         ]).map((opt) => (
           <button key={opt.v} type="button" onClick={() => setChartType(opt.v)}
                   className="px-3 py-1 rounded text-sm"
@@ -140,7 +149,7 @@ export default function CompareTool({ hardware }: Props) {
                   }}>{opt.l}</button>
         ))}
         <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          {selected.length}/{MAX_PICK} 选中
+          {en ? `${selected.length}/${MAX_PICK} selected` : `${selected.length}/${MAX_PICK} 选中`}
         </span>
       </div>
 
@@ -148,7 +157,7 @@ export default function CompareTool({ hardware }: Props) {
         <aside>
           <div className="mb-3">
             <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)}
-                   placeholder="搜索硬件..."
+                   placeholder={en ? 'Search hardware...' : '搜索硬件...'}
                    className="w-full px-3 py-1.5 rounded border text-sm"
                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
           </div>
@@ -176,7 +185,7 @@ export default function CompareTool({ hardware }: Props) {
         <div className="rounded-lg border p-4 min-h-[28rem]"
              style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
           {selectedCards.length === 0 ? (
-            <div className="flex items-center justify-center h-96 text-sm" style={{ color: 'var(--color-text-muted)' }}>请从左侧选择 2-{MAX_PICK} 张卡进行对比</div>
+            <div className="flex items-center justify-center h-96 text-sm" style={{ color: 'var(--color-text-muted)' }}>{en ? `Pick 2–${MAX_PICK} cards on the left to compare` : `请从左侧选择 2-${MAX_PICK} 张卡进行对比`}</div>
           ) : chartType === 'radar' ? (
             <ResponsiveContainer width="100%" height={420}>
               <RadarChart data={radarData}>
@@ -203,12 +212,12 @@ export default function CompareTool({ hardware }: Props) {
               </BarChart>
             </ResponsiveContainer>
           ) : chartType === 'roofline' ? (
-            <RooflineOverlay selectedCards={selectedCards} />
+            <RooflineOverlay selectedCards={selectedCards} locale={locale} />
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr>
-                  <th className="text-left p-2" style={{ color: 'var(--color-text-muted)' }}>指标</th>
+                  <th className="text-left p-2" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Metric' : '指标'}</th>
                   {selectedCards.map((h, i) => (
                     <th key={h.id} className="text-right p-2 font-medium"
                         style={{ color: PALETTE[i] }}>{h.name}</th>
@@ -216,7 +225,7 @@ export default function CompareTool({ hardware }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {METRICS.map((m) => (
+                {METRICS_LOCAL.map((m) => (
                   <tr key={m.key} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
                     <td className="p-2">{m.label} <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>{m.unit}</span></td>
                     {selectedCards.map((h) => {
@@ -226,19 +235,19 @@ export default function CompareTool({ hardware }: Props) {
                   </tr>
                 ))}
                 <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                  <td className="p-2">国别</td>
+                  <td className="p-2">{en ? 'Country' : '国别'}</td>
                   {selectedCards.map((h) => (
                     <td key={h.id} className="text-right p-2 text-xs">{h.vendor.country}</td>
                   ))}
                 </tr>
                 <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                  <td className="p-2">形态</td>
+                  <td className="p-2">{en ? 'Form factor' : '形态'}</td>
                   {selectedCards.map((h) => (
                     <td key={h.id} className="text-right p-2 text-xs">{h.form_factor.toUpperCase()}</td>
                   ))}
                 </tr>
                 <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                  <td className="p-2">代际</td>
+                  <td className="p-2">{en ? 'Generation' : '代际'}</td>
                   {selectedCards.map((h) => (
                     <td key={h.id} className="text-right p-2 text-xs font-mono">{h.generation}</td>
                   ))}
@@ -252,7 +261,8 @@ export default function CompareTool({ hardware }: Props) {
   );
 }
 
-function RooflineOverlay({ selectedCards }: { selectedCards: ResolvedHw[] }) {
+function RooflineOverlay({ selectedCards, locale = 'zh' }: { selectedCards: ResolvedHw[]; locale?: Locale }) {
+  const en = locale === 'en';
   // Build merged data series for log-x roofline curves per card.
   // X axis: arithmetic intensity (FLOP/byte). Y: TFLOP/s.
   const sample = 60;
@@ -276,7 +286,9 @@ function RooflineOverlay({ selectedCards }: { selectedCards: ResolvedHw[] }) {
   return (
     <div>
       <div className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>
-        Roofline 上界 (BF16) — 横轴: 算术强度 FLOP/byte (log) · 纵轴: 吞吐 TFLOP/s (log)
+        {en
+          ? 'Roofline (BF16) — x: arithmetic intensity FLOP/byte (log) · y: throughput TFLOP/s (log)'
+          : 'Roofline 上界 (BF16) — 横轴: 算术强度 FLOP/byte (log) · 纵轴: 吞吐 TFLOP/s (log)'}
       </div>
       <ResponsiveContainer width="100%" height={420}>
         <LineChart data={data}>

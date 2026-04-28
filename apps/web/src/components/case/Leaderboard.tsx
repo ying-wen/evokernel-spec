@@ -5,17 +5,24 @@ import {
 } from 'recharts';
 import type { Case } from '@evokernel/schemas';
 import { toCsv, downloadCsv } from '~/lib/csv';
+import { tr, type Locale } from '~/lib/i18n/island';
 
-interface Props { cases: Case[]; }
+interface Props { cases: Case[]; locale?: Locale; }
 
 type SortKey = 'submitted' | 'decode' | 'prefill' | 'ttft' | 'tbt';
 type ViewMode = 'table' | 'scatter' | 'bar';
 type YMetric = 'decode' | 'prefill' | 'ttft' | 'tbt';
 type GroupBy = 'precision' | 'engine' | 'country' | 'model';
 
-const METRIC_LABEL: Record<YMetric, { label: string; unit: string }> = {
+const METRIC_LABEL_ZH: Record<YMetric, { label: string; unit: string }> = {
   decode: { label: 'Decode 吞吐', unit: 'tok/s' },
   prefill: { label: 'Prefill 吞吐', unit: 'tok/s' },
+  ttft: { label: 'TTFT p50', unit: 'ms' },
+  tbt: { label: 'TBT p50', unit: 'ms' }
+};
+const METRIC_LABEL_EN: Record<YMetric, { label: string; unit: string }> = {
+  decode: { label: 'Decode throughput', unit: 'tok/s' },
+  prefill: { label: 'Prefill throughput', unit: 'tok/s' },
   ttft: { label: 'TTFT p50', unit: 'ms' },
   tbt: { label: 'TBT p50', unit: 'ms' }
 };
@@ -40,7 +47,10 @@ const GROUP_PALETTE = [
   'oklch(50% 0.16 165)'
 ];
 
-export default function Leaderboard({ cases }: Props) {
+export default function Leaderboard({ cases, locale = 'zh' }: Props) {
+  const t = (k: Parameters<typeof tr>[1]) => tr(locale, k);
+  const en = locale === 'en';
+  const METRIC_LABEL = en ? METRIC_LABEL_EN : METRIC_LABEL_ZH;
   const [sort, setSort] = useState<SortKey>('submitted');
   const [hwFilter, setHwFilter] = useState<string>('');
   const [modelFilter, setModelFilter] = useState<string>('');
@@ -143,36 +153,36 @@ export default function Leaderboard({ cases }: Props) {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center text-sm">
         <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-               placeholder="搜索 (h100, deepseek, fp8...)"
-               aria-label="搜索案例"
+               placeholder={en ? 'Search (h100, deepseek, fp8...)' : '搜索 (h100, deepseek, fp8...)'}
+               aria-label={en ? 'Search cases' : '搜索案例'}
                className="px-2 py-1 rounded border min-w-[12rem]"
                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
-        <select aria-label="按硬件筛选" value={hwFilter} onChange={(e) => setHwFilter(e.target.value)}
+        <select aria-label={en ? 'Filter by hardware' : '按硬件筛选'} value={hwFilter} onChange={(e) => setHwFilter(e.target.value)}
                 className="px-2 py-1 rounded border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-          <option value="">所有硬件</option>
+          <option value="">{en ? 'All hardware' : '所有硬件'}</option>
           {hwOptions.map((h) => <option key={h} value={h}>{h}</option>)}
         </select>
-        <select aria-label="按模型筛选" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}
+        <select aria-label={en ? 'Filter by model' : '按模型筛选'} value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}
                 className="px-2 py-1 rounded border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-          <option value="">所有模型</option>
+          <option value="">{en ? 'All models' : '所有模型'}</option>
           {modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
-        <select aria-label="按精度筛选" value={precisionFilter} onChange={(e) => setPrecisionFilter(e.target.value)}
+        <select aria-label={en ? 'Filter by precision' : '按精度筛选'} value={precisionFilter} onChange={(e) => setPrecisionFilter(e.target.value)}
                 className="px-2 py-1 rounded border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-          <option value="">所有精度</option>
+          <option value="">{en ? 'All precisions' : '所有精度'}</option>
           {precisionOptions.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
         <label className="flex items-center gap-1">
-          <span style={{ color: 'var(--color-text-muted)' }}>解耦:</span>
-          <select aria-label="按解耦部署筛选" value={disagg} onChange={(e) => setDisagg(e.target.value as 'all' | 'yes' | 'no')}
+          <span style={{ color: 'var(--color-text-muted)' }}>{en ? 'Disagg:' : '解耦:'}</span>
+          <select aria-label={en ? 'Filter by disaggregated deploy' : '按解耦部署筛选'} value={disagg} onChange={(e) => setDisagg(e.target.value as 'all' | 'yes' | 'no')}
                   className="px-2 py-1 rounded border" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-            <option value="all">全部</option>
+            <option value="all">{en ? 'All' : '全部'}</option>
             <option value="yes">disagg</option>
             <option value="no">co-located</option>
           </select>
         </label>
         <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          {filtered.length} / {cases.length} 显示
+          {filtered.length} / {cases.length} {en ? 'shown' : '显示'}
         </span>
         <button type="button"
                 onClick={() => {
@@ -204,16 +214,16 @@ export default function Leaderboard({ cases }: Props) {
                 }}
                 className="text-xs px-3 py-1 rounded border"
                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer' }}>
-          ⬇ 导出 CSV
+          ⬇ {t('lb.export.csv')}
         </button>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap text-sm">
-        <span style={{ color: 'var(--color-text-muted)' }}>视图:</span>
+        <span style={{ color: 'var(--color-text-muted)' }}>{en ? 'View:' : '视图:'}</span>
         {([
-          { v: 'table' as const, l: '表格' },
-          { v: 'scatter' as const, l: '散点图' },
-          { v: 'bar' as const, l: '柱状图' }
+          { v: 'table' as const, l: t('lb.view.table') },
+          { v: 'scatter' as const, l: t('lb.view.scatter') },
+          { v: 'bar' as const, l: t('lb.view.bar') }
         ]).map((opt) => (
           <button key={opt.v} type="button" onClick={() => setView(opt.v)}
                   className="px-3 py-1 rounded text-xs"
@@ -226,7 +236,7 @@ export default function Leaderboard({ cases }: Props) {
         ))}
         {view !== 'table' && (
           <>
-            <label className="ml-3">指标
+            <label className="ml-3">{en ? 'Metric' : '指标'}
               <select aria-label="Y axis metric" value={yMetric} onChange={(e) => setYMetric(e.target.value as YMetric)}
                       className="ml-1 px-2 py-1 rounded border text-xs"
                       style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
@@ -236,14 +246,14 @@ export default function Leaderboard({ cases }: Props) {
                 <option value="tbt">TBT p50 ms</option>
               </select>
             </label>
-            <label>分组
+            <label>{en ? 'Group by' : '分组'}
               <select aria-label="Group by" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}
                       className="ml-1 px-2 py-1 rounded border text-xs"
                       style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-                <option value="precision">按精度</option>
-                <option value="engine">按引擎</option>
-                <option value="country">按国别</option>
-                <option value="model">按模型</option>
+                <option value="precision">{en ? 'by precision' : '按精度'}</option>
+                <option value="engine">{en ? 'by engine' : '按引擎'}</option>
+                <option value="country">{en ? 'by country' : '按国别'}</option>
+                <option value="model">{en ? 'by model' : '按模型'}</option>
               </select>
             </label>
           </>

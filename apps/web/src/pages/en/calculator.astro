@@ -17,7 +17,7 @@ const engines = await getEngines();
     <section class="py-12">
       <SectionHeader eyebrow="CALCULATOR" title={t(locale, 'page.calculator.title')}
         subtitle={t(locale, 'page.calculator.subtitle')} />
-      <CalculatorIsland models={models} hardware={hardware} cases={cases} engines={engines} client:load />
+      <CalculatorIsland models={models} hardware={hardware} cases={cases} engines={engines} locale="en" client:load />
     </section>
   </Container>
 </BaseLayout>

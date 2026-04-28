@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
 import type { Hardware, Vendor } from '@evokernel/schemas';
 import { toCsv, downloadCsv } from '~/lib/csv';
+import { tr, type Locale } from '~/lib/i18n/island';
 
 type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Pick<Vendor, 'id' | 'name' | 'country' | 'chinese_names'> };
 
-interface Props { hardware: ResolvedHw[]; }
+interface Props { hardware: ResolvedHw[]; locale?: Locale; }
 
 type Country = 'all' | 'CN' | 'overseas';
 type Form = 'all' | 'sxm' | 'oam' | 'pcie' | 'nvl' | 'proprietary';
@@ -12,8 +13,11 @@ type Status = 'all' | 'in-production' | 'discontinued' | 'taping-out' | 'announc
 
 const FORM_OPTS: Form[] = ['all', 'sxm', 'oam', 'pcie', 'nvl', 'proprietary'];
 const STATUS_OPTS: Status[] = ['all', 'in-production', 'discontinued', 'taping-out', 'announced'];
-const STATUS_LABEL: Record<Status, string> = {
+const STATUS_LABEL_ZH: Record<Status, string> = {
   all: '全部', 'in-production': '在售', discontinued: '停产', 'taping-out': '流片中', announced: '已发布'
+};
+const STATUS_LABEL_EN: Record<Status, string> = {
+  all: 'All', 'in-production': 'In production', discontinued: 'Discontinued', 'taping-out': 'Taping out', announced: 'Announced'
 };
 
 function fmtBw(bw: number | null | undefined): string {
@@ -21,7 +25,10 @@ function fmtBw(bw: number | null | undefined): string {
   return bw >= 1000 ? `${(bw / 1000).toFixed(1)} TB/s` : `${bw} GB/s`;
 }
 
-export default function HardwareGrid({ hardware }: Props) {
+export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
+  const t = (k: Parameters<typeof tr>[1]) => tr(locale, k);
+  const STATUS_LABEL = locale === 'en' ? STATUS_LABEL_EN : STATUS_LABEL_ZH;
+  const en = locale === 'en';
   const [country, setCountry] = useState<Country>('all');
   const [form, setForm] = useState<Form>('all');
   const [status, setStatus] = useState<Status>('all');
@@ -71,13 +78,13 @@ export default function HardwareGrid({ hardware }: Props) {
       <aside className="space-y-5 self-start text-sm" style={{ position: 'sticky', top: '5rem' }}>
         <div>
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-                 placeholder="搜索 (h100, 昇腾, MI3...)"
+                 placeholder={en ? 'Search (h100, ascend, MI3...)' : '搜索 (h100, 昇腾, MI3...)'}
                  className="w-full px-3 py-1.5 rounded border text-sm"
                  style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
         </div>
 
         <div>
-          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>厂商国别</h4>
+          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{t('filter.country')}</h4>
           <div className="flex gap-1 flex-wrap">
             {(['all', 'CN', 'overseas'] as Country[]).map((c) => (
               <button key={c} onClick={() => setCountry(c)} type="button"
@@ -88,24 +95,24 @@ export default function HardwareGrid({ hardware }: Props) {
                         border: '1px solid var(--color-border)',
                         cursor: 'pointer'
                       }}>
-                {c === 'all' ? '全部' : c === 'CN' ? '国产' : '海外'}
+                {c === 'all' ? (en ? 'All' : '全部') : c === 'CN' ? t('filter.country.cn') : t('filter.country.overseas')}
               </button>
             ))}
           </div>
         </div>
 
         <div>
-          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>形态</h4>
-          <select aria-label="按形态筛选" value={form} onChange={(e) => setForm(e.target.value as Form)}
+          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Form factor' : '形态'}</h4>
+          <select aria-label={en ? 'Filter by form factor' : '按形态筛选'} value={form} onChange={(e) => setForm(e.target.value as Form)}
                   className="w-full px-2 py-1 rounded border text-sm"
                   style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-            {FORM_OPTS.map((f) => <option key={f} value={f}>{f === 'all' ? '全部' : f.toUpperCase()}</option>)}
+            {FORM_OPTS.map((f) => <option key={f} value={f}>{f === 'all' ? (en ? 'All' : '全部') : f.toUpperCase()}</option>)}
           </select>
         </div>
 
         <div>
-          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>状态</h4>
-          <select aria-label="按状态筛选" value={status} onChange={(e) => setStatus(e.target.value as Status)}
+          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Status' : '状态'}</h4>
+          <select aria-label={en ? 'Filter by status' : '按状态筛选'} value={status} onChange={(e) => setStatus(e.target.value as Status)}
                   className="w-full px-2 py-1 rounded border text-sm"
                   style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
             {STATUS_OPTS.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
@@ -113,25 +120,25 @@ export default function HardwareGrid({ hardware }: Props) {
         </div>
 
         <div className="space-y-2">
-          <label className="flex items-center gap-2"><input type="checkbox" checked={fp8} onChange={(e) => setFp8(e.target.checked)} /> 支持 FP8</label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={fp4} onChange={(e) => setFp4(e.target.checked)} /> 支持 FP4</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={fp8} onChange={(e) => setFp8(e.target.checked)} /> {en ? 'Supports FP8' : '支持 FP8'}</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={fp4} onChange={(e) => setFp4(e.target.checked)} /> {en ? 'Supports FP4' : '支持 FP4'}</label>
         </div>
 
         <div>
-          <h4 className="font-semibold mb-1 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>最小显存 ({minMem} GB)</h4>
+          <h4 className="font-semibold mb-1 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? `Min memory (${minMem} GB)` : `最小显存 (${minMem} GB)`}</h4>
           <input type="range" min={0} max={300} step={16} value={minMem} onChange={(e) => setMinMem(+e.target.value)}
-                 aria-label="最小显存" className="w-full" />
+                 aria-label={en ? 'Min memory' : '最小显存'} className="w-full" />
         </div>
 
         <div>
-          <h4 className="font-semibold mb-1 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>最小 BF16 ({minBf16} TF)</h4>
+          <h4 className="font-semibold mb-1 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? `Min BF16 (${minBf16} TF)` : `最小 BF16 (${minBf16} TF)`}</h4>
           <input type="range" min={0} max={5000} step={250} value={minBf16} onChange={(e) => setMinBf16(+e.target.value)}
-                 aria-label="最小 BF16 TFLOPS" className="w-full" />
+                 aria-label={en ? 'Min BF16 TFLOPS' : '最小 BF16 TFLOPS'} className="w-full" />
         </div>
 
         <div className="text-xs flex items-center justify-between" style={{ color: 'var(--color-text-muted)' }}>
-          <span>{filtered.length} / {hardware.length} 显示</span>
-          <button onClick={reset} type="button" className="underline" style={{ color: 'var(--color-accent)' }}>重置</button>
+          <span>{filtered.length} / {hardware.length} {en ? 'shown' : '显示'}</span>
+          <button onClick={reset} type="button" className="underline" style={{ color: 'var(--color-accent)' }}>{t('filter.reset')}</button>
         </div>
 
         <button type="button"
@@ -160,26 +167,26 @@ export default function HardwareGrid({ hardware }: Props) {
                 }}
                 className="text-xs w-full px-3 py-1.5 rounded border mt-2"
                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer' }}>
-          ⬇ 导出 CSV ({filtered.length})
+          ⬇ {t('filter.export.csv')} ({filtered.length})
         </button>
       </aside>
 
       <div>
         {cn.length > 0 && <>
-          <h3 className="text-xl font-semibold mb-4" style={{ color: 'var(--color-china)' }}>国产 ({cn.length})</h3>
+          <h3 className="text-xl font-semibold mb-4" style={{ color: 'var(--color-china)' }}>{en ? 'China' : '国产'} ({cn.length})</h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-12">
-            {cn.map((h) => <HwCard key={h.id} h={h} isCN />)}
+            {cn.map((h) => <HwCard key={h.id} h={h} isCN locale={locale} />)}
           </div>
         </>}
         {overseas.length > 0 && <>
-          <h3 className="text-xl font-semibold mb-4">海外 ({overseas.length})</h3>
+          <h3 className="text-xl font-semibold mb-4">{en ? 'Overseas' : '海外'} ({overseas.length})</h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {overseas.map((h) => <HwCard key={h.id} h={h} />)}
+            {overseas.map((h) => <HwCard key={h.id} h={h} locale={locale} />)}
           </div>
         </>}
         {filtered.length === 0 && (
           <div className="text-center py-16 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            没有匹配的硬件。<button type="button" onClick={reset} className="underline" style={{ color: 'var(--color-accent)' }}>重置筛选</button>
+            {en ? 'No hardware matches. ' : '没有匹配的硬件。'}<button type="button" onClick={reset} className="underline" style={{ color: 'var(--color-accent)' }}>{en ? 'Reset filter' : '重置筛选'}</button>
           </div>
         )}
       </div>
@@ -210,9 +217,11 @@ function VendorBadgeInline({ vendorId, vendorName, country }: { vendorId: string
   );
 }
 
-function HwCard({ h, isCN = false }: { h: ResolvedHw; isCN?: boolean }) {
+function HwCard({ h, isCN = false, locale = 'zh' }: { h: ResolvedHw; isCN?: boolean; locale?: Locale }) {
+  const en = locale === 'en';
+  const detailHref = en ? `/en/hardware/${h.id}/` : `/hardware/${h.id}/`;
   return (
-    <a href={`/hardware/${h.id}/`} className="block">
+    <a href={detailHref} className="block">
       <article className="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
                style={{
                  background: 'var(--color-surface-raised)',
@@ -228,7 +237,7 @@ function HwCard({ h, isCN = false }: { h: ResolvedHw; isCN?: boolean }) {
               <h4 className="text-base font-semibold mt-0.5">{h.name}</h4>
             </div>
           </div>
-          {isCN && <span className="text-xs px-2 py-0.5 rounded flex-shrink-0" style={{ background: 'color-mix(in oklch, var(--color-china) 14%, var(--color-bg))', color: 'var(--color-china)' }}>国产</span>}
+          {isCN && <span className="text-xs px-2 py-0.5 rounded flex-shrink-0" style={{ background: 'color-mix(in oklch, var(--color-china) 14%, var(--color-bg))', color: 'var(--color-china)' }}>{en ? 'China' : '国产'}</span>}
         </div>
         <dl className="grid grid-cols-3 gap-2 text-xs">
           <div><dt style={{ color: 'var(--color-text-muted)' }}>BF16</dt><dd className="font-mono mt-0.5">{h.compute.bf16_tflops?.value ?? '—'}<span style={{ color: 'var(--color-text-muted)' }}> TF</span></dd></div>
@@ -237,7 +246,7 @@ function HwCard({ h, isCN = false }: { h: ResolvedHw; isCN?: boolean }) {
         </dl>
         <div className="flex gap-1 mt-3 flex-wrap">
           <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-text-muted) 14%, var(--color-bg))', color: 'var(--color-text-muted)' }}>{h.form_factor.toUpperCase()}</span>
-          <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-text-muted) 14%, var(--color-bg))', color: 'var(--color-text-muted)' }}>{h.status === 'in-production' ? '在售' : h.status}</span>
+          <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-text-muted) 14%, var(--color-bg))', color: 'var(--color-text-muted)' }}>{h.status === 'in-production' ? (en ? 'In production' : '在售') : h.status}</span>
           {h.compute.fp8_tflops && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-measured) 14%, var(--color-bg))', color: 'var(--color-tier-measured)' }}>FP8</span>}
           {h.compute.fp4_tflops && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-measured) 14%, var(--color-bg))', color: 'var(--color-tier-measured)' }}>FP4</span>}
         </div>

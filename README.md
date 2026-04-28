@@ -89,8 +89,8 @@ curl https://evokernel.dev/api/openapi.json | jq '.info.version'
 
 ## 已知限制
 
-- **React island 内部文案**: `/en/calculator/`, `/en/cases/`, `/en/hardware/` 等页面的页面 chrome (导航 / 页头 / 段落标题) 均已英文化, 但交互式 React island 内部按钮 ("选模型" / "选硬件" / 视图切换 等) 当前仍为中文。这是已知 cosmetic gap, 不影响功能 (硬件名/模型名/数据值天生即英文)。后续会通过 `locale` prop 逐 island 改造。
 - **公网域名**: 当前仅本地 `pnpm preview` 上线; `evokernel.dev` 域名为示意, 真公网部署见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+- **Calculator 详细解释段落**: `/en/calculator/` 的步骤标题、按钮、关键结果行已英文化, 但部分公式注释和 TCO 假设说明等 verbose helper 段落仍为中文。核心交互流程完全可用。
 
 ## English
 

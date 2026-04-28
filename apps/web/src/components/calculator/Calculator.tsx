@@ -6,6 +6,7 @@ import {
 import type { Hardware, Model, Case, Engine } from '@evokernel/schemas';
 import { calculate, buildEfficiencyMap } from '~/lib/calculator';
 import type { Precision } from '~/lib/calculator';
+import { tr, type Locale } from '~/lib/i18n/island';
 
 interface HistoryEntry {
   key: string;
@@ -25,11 +26,13 @@ interface Props {
   hardware: Hardware[];
   cases: Case[];
   engines: Engine[];
+  locale?: Locale;
 }
 
 type Step = 1 | 2 | 3;
 
-export default function Calculator({ models, hardware, cases, engines }: Props) {
+export default function Calculator({ models, hardware, cases, engines, locale = 'zh' }: Props) {
+  const t = (k: Parameters<typeof tr>[1], v?: Parameters<typeof tr>[2]) => tr(locale, k, v);
   const [step, setStep] = useState<Step>(1);
   const [modelId, setModelId] = useState('');
 
@@ -172,9 +175,9 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
     <div className="grid grid-cols-1 lg:grid-cols-[14rem,1fr] gap-8">
       <nav className="space-y-2 sticky top-4 self-start" style={{ alignSelf: 'start' }}>
         {[
-          { n: 1 as Step, label: '选模型', done: !!modelId },
-          { n: 2 as Step, label: '选硬件', done: !!hwId },
-          { n: 3 as Step, label: '选场景', done: true }
+          { n: 1 as Step, label: t('calc.step.model'), done: !!modelId },
+          { n: 2 as Step, label: t('calc.step.hardware'), done: !!hwId },
+          { n: 3 as Step, label: t('calc.step.scenario'), done: true }
         ].map((s) => (
           <button key={s.n} onClick={() => setStep(s.n)} type="button"
                   className="block w-full text-left px-3 py-2 rounded text-sm transition-colors"
@@ -193,8 +196,8 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
         {history.length > 0 && (
           <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs uppercase tracking-wide font-semibold" style={{ color: 'var(--color-text-muted)' }}>历史 / History</h4>
-              <button type="button" onClick={clearHistory} className="text-xs underline" style={{ color: 'var(--color-text-muted)', cursor: 'pointer' }}>清空</button>
+              <h4 className="text-xs uppercase tracking-wide font-semibold" style={{ color: 'var(--color-text-muted)' }}>{t('calc.history')}</h4>
+              <button type="button" onClick={clearHistory} className="text-xs underline" style={{ color: 'var(--color-text-muted)', cursor: 'pointer' }}>{locale === 'en' ? 'Clear' : '清空'}</button>
             </div>
             <ul className="space-y-1">
               {history.map((h) => (
@@ -207,7 +210,7 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
                       {h.hwName} ×{h.hwCount} · {h.precision.toUpperCase()} · TP{h.tp}
                     </div>
                     <div className="text-[0.65rem] mt-0.5 font-mono" style={{ color: h.feasible ? 'var(--color-tier-measured)' : 'oklch(55% 0.2 25)' }}>
-                      {h.feasible ? `${h.decodeUpper} tok/s` : '不可行'}
+                      {h.feasible ? `${h.decodeUpper} tok/s` : t('calc.infeasible')}
                     </div>
                   </button>
                 </li>
@@ -220,7 +223,7 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
       <div className="space-y-6">
         {step === 1 && (
           <section>
-            <h3 className="text-lg font-semibold mb-3">1. 选模型</h3>
+            <h3 className="text-lg font-semibold mb-3">{t('calc.step.model.title')}</h3>
             <div className="grid sm:grid-cols-2 gap-2">
               {models.map((m) => (
                 <button key={m.id} type="button"
@@ -243,7 +246,7 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
 
         {step === 2 && (
           <section>
-            <h3 className="text-lg font-semibold mb-3">2. 选硬件</h3>
+            <h3 className="text-lg font-semibold mb-3">{t('calc.step.hardware.title')}</h3>
             <div className="grid sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-2">
               {hardware.map((h) => (
                 <button key={h.id} type="button"
@@ -262,7 +265,7 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
               ))}
             </div>
             <div className="mt-3 flex items-center gap-3 text-sm">
-              <label>卡数 <input type="number" min={1} max={384} value={hwCount} onChange={(e) => setHwCount(+e.target.value || 1)}
+              <label>{t('calc.cards')} <input type="number" min={1} max={384} value={hwCount} onChange={(e) => setHwCount(+e.target.value || 1)}
                                 className="ml-2 w-20 px-2 py-1 rounded border"
                                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} /></label>
             </div>
@@ -271,7 +274,7 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
 
         {step === 3 && (
           <section>
-            <h3 className="text-lg font-semibold mb-3">3. 选场景</h3>
+            <h3 className="text-lg font-semibold mb-3">{t('calc.step.scenario.title')}</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
               <label className="flex items-center gap-2">Prefill seq<input type="number" min={1} value={prefill} onChange={(e) => setPrefill(+e.target.value || 1)} className="ml-1 w-24 px-1 border rounded" style={{ borderColor: 'var(--color-border)' }} /></label>
               <label className="flex items-center gap-2">Decode seq<input type="number" min={1} value={decode} onChange={(e) => setDecode(+e.target.value || 1)} className="ml-1 w-24 px-1 border rounded" style={{ borderColor: 'var(--color-border)' }} /></label>
@@ -330,8 +333,9 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
               batch={batch} prefill={prefill} decode={decode}
               engineId={engineId}
               result={result}
+              locale={locale}
             />
-            <ResultPanel result={result} cases={cases} hwCount={hwCount} hwTdpW={hardware.find((h) => h.id === hwId)?.power.tdp_w?.value ?? 700} />
+            <ResultPanel result={result} cases={cases} hwCount={hwCount} hwTdpW={hardware.find((h) => h.id === hwId)?.power.tdp_w?.value ?? 700} locale={locale} />
           </>
         )}
       </div>
@@ -339,7 +343,8 @@ export default function Calculator({ models, hardware, cases, engines }: Props) 
   );
 }
 
-function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNullable<ReturnType<typeof calculate>>; cases: Case[]; hwCount: number; hwTdpW: number }) {
+function ResultPanel({ result, cases: _cases, hwCount, hwTdpW, locale = 'zh' }: { result: NonNullable<ReturnType<typeof calculate>>; cases: Case[]; hwCount: number; hwTdpW: number; locale?: Locale }) {
+  const t = (k: Parameters<typeof tr>[1]) => tr(locale, k);
   // pass hwTdpW down via TCOPanel default prop trick: not needed since component reads its own state.
   void hwTdpW;
   const r = result;
@@ -348,10 +353,10 @@ function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNu
       {/* Tier 0 */}
       <div className="rounded-lg border p-5"
            style={{ borderColor: 'var(--color-tier-measured)', background: 'color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg))' }}>
-        <h4 className="font-semibold mb-3">实测案例 (Tier 0) — {r.tier0Cases.length} 条</h4>
+        <h4 className="font-semibold mb-3">{t('calc.tier0.title')} — {r.tier0Cases.length}</h4>
         {r.tier0Cases.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            尚无匹配的实测案例。<a href="https://github.com/evokernel/evokernel-spec" className="underline" style={{ color: 'var(--color-accent)' }}>贡献你的实测?</a>
+            {t('calc.tier0.empty.prefix')}<a href="https://github.com/evokernel/evokernel-spec" className="underline" style={{ color: 'var(--color-accent)' }}>{t('calc.tier0.empty.contribute')}</a>
           </p>
         ) : (
           <ul className="space-y-2">
@@ -373,13 +378,13 @@ function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNu
 
       {/* Tier 1 */}
       <div className="rounded-lg border p-5" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
-        <h4 className="font-semibold mb-3">理论上界 (Tier 1, Roofline)</h4>
+        <h4 className="font-semibold mb-3">{t('calc.tier1.title')}</h4>
         <p className="text-xs mb-4 p-2 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-estimated) 12%, var(--color-bg))', color: 'var(--color-tier-estimated)' }}>
           ⚠️ 理论上界, 真实场景通常达 40-70% of this. 已应用 efficiency=0.5 的粗略系数。
         </p>
         <dl className="grid grid-cols-2 gap-3 text-sm mb-4">
-          <div><dt style={{ color: 'var(--color-text-muted)' }}>Decode 吞吐上界</dt><dd className="font-mono text-xl">{r.tier1Roofline.decodeThroughputUpperBound.toFixed(0)} <span className="text-sm opacity-60">tok/s/card</span></dd></div>
-          <div><dt style={{ color: 'var(--color-text-muted)' }}>瓶颈</dt><dd className="text-xl">{r.tier1Roofline.isComputeBound ? '计算受限' : '内存带宽受限'}</dd></div>
+          <div><dt style={{ color: 'var(--color-text-muted)' }}>{t('calc.decode.upper')}</dt><dd className="font-mono text-xl">{r.tier1Roofline.decodeThroughputUpperBound.toFixed(0)} <span className="text-sm opacity-60">tok/s/card</span></dd></div>
+          <div><dt style={{ color: 'var(--color-text-muted)' }}>{t('calc.bottleneck')}</dt><dd className="text-xl">{r.tier1Roofline.isComputeBound ? t('calc.bottleneck.compute') : t('calc.bottleneck.memory')}</dd></div>
           <div><dt style={{ color: 'var(--color-text-muted)' }}>算术强度</dt><dd className="font-mono">{r.tier1Roofline.arithmeticIntensity.toFixed(1)} FLOP/byte</dd></div>
           <div><dt style={{ color: 'var(--color-text-muted)' }}>Ridge point</dt><dd className="font-mono">{r.tier1Roofline.ridgePoint.toFixed(1)}</dd></div>
         </dl>
@@ -392,11 +397,11 @@ function ResultPanel({ result, cases: _cases, hwCount, hwTdpW }: { result: NonNu
         <h4 className="font-semibold mb-3">配置检查</h4>
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <div><dt style={{ color: 'var(--color-text-muted)' }}>需求</dt><dd className="font-mono">{r.configCheck.memoryRequiredGb.toFixed(1)} GB</dd></div>
-          <div><dt style={{ color: 'var(--color-text-muted)' }}>单卡显存</dt><dd className="font-mono">{r.configCheck.memoryAvailableGb} GB</dd></div>
+          <div><dt style={{ color: 'var(--color-text-muted)' }}>{t('calc.memory.percard')}</dt><dd className="font-mono">{r.configCheck.memoryAvailableGb} GB</dd></div>
           <div><dt style={{ color: 'var(--color-text-muted)' }}>权重</dt><dd className="font-mono">{r.configCheck.weightsGb.toFixed(1)} GB</dd></div>
           <div><dt style={{ color: 'var(--color-text-muted)' }}>KV cache</dt><dd className="font-mono">{r.configCheck.kvCacheGb.toFixed(1)} GB</dd></div>
         </dl>
-        {!r.configCheck.feasible && <p className="mt-3 text-sm" style={{ color: 'oklch(55% 0.2 25)' }}>❌ 配置不可行 (见下方建议)</p>}
+        {!r.configCheck.feasible && <p className="mt-3 text-sm" style={{ color: 'oklch(55% 0.2 25)' }}>{t('calc.memory.infeasible')}</p>}
         {r.configCheck.warnings.length > 0 && (
           <ul className="mt-2 list-disc pl-5 text-sm">{r.configCheck.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
         )}
@@ -510,9 +515,12 @@ interface ShareExportProps {
   batch: number; prefill: number; decode: number;
   engineId: string;
   result: NonNullable<ReturnType<typeof calculate>>;
+  locale?: Locale;
 }
 
 function ShareExport(p: ShareExportProps) {
+  const locale = p.locale ?? 'zh';
+  const t = (k: Parameters<typeof tr>[1]) => tr(locale, k);
   const [copied, setCopied] = useState<'url' | 'json' | 'yaml' | null>(null);
 
   const flash = (k: 'url' | 'json' | 'yaml') => { setCopied(k); setTimeout(() => setCopied(null), 1500); };
@@ -575,18 +583,18 @@ function ShareExport(p: ShareExportProps) {
 
   return (
     <div className="flex flex-wrap gap-2 items-center pb-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
-      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>分享 / 导出:</span>
+      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{t('calc.share.label')}</span>
       <button type="button" onClick={copyUrl} className={btnCls} style={btnStyle}>
-        🔗 {copied === 'url' ? '已复制!' : '复制链接'}
+        🔗 {copied === 'url' ? t('calc.share.copied') : (locale === 'en' ? 'Copy link' : '复制链接')}
       </button>
       <button type="button" onClick={copyJson} className={btnCls} style={btnStyle}>
-        {} {copied === 'json' ? '已复制!' : '导出 JSON'}
+        {} {copied === 'json' ? t('calc.share.copied') : t('calc.share.exportJson')}
       </button>
       <button type="button" onClick={copyYaml} className={btnCls} style={btnStyle}>
-        ≣ {copied === 'yaml' ? '已复制!' : '导出 YAML'}
+        ≣ {copied === 'yaml' ? t('calc.share.copied') : t('calc.share.exportYaml')}
       </button>
       <span className="text-xs ml-auto" style={{ color: 'var(--color-text-muted)' }}>
-        URL 包含全部状态, 直接分享即可
+        {t('calc.share.urlnote')}
       </span>
     </div>
   );
