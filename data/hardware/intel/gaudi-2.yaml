@@ -11,6 +11,13 @@ compute:
   bf16_tflops: { value: 432, evidence_ref: ev-gaudi2-001 }
   fp16_tflops: { value: 432, evidence_ref: ev-gaudi2-001 }
   int8_tops: { value: 865, evidence_ref: ev-gaudi2-001 }
+architecture:
+  compute_unit_count: { value: 24, evidence_ref: ev-gaudi2-arch-001 }
+  compute_unit_label: Cluster
+  hbm_stacks: { value: 6, evidence_ref: ev-gaudi2-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-gaudi2-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-gaudi2-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-gaudi2-001 }
 memory:
   capacity_gb: { value: 96, evidence_ref: ev-gaudi2-001 }
   bandwidth_gbps: { value: 2450, evidence_ref: ev-gaudi2-001 }
@@ -39,5 +46,11 @@ evidence:
     url: https://www.intel.com/content/www/us/en/products/details/processors/ai-accelerators/gaudi2.html
     accessed: '2026-04-28'
     citation: 'Intel Gaudi 2 product page'
+  - id: ev-gaudi2-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://habana.ai/products/gaudi2/
+    accessed: '2026-04-28'
+    citation: 'Gaudi 2: 24 Tensor Processor Cores (TPCs) + matrix engines, 6× HBM2e ⇒ 96 GB; 24× 100 GbE on-chip RoCE NICs; TSMC 7nm'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'

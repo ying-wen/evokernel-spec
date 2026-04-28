@@ -11,6 +11,13 @@ compute:
   bf16_tflops: { value: 1835, evidence_ref: ev-gaudi3-001 }
   fp16_tflops: { value: 1835, evidence_ref: ev-gaudi3-001 }
   int8_tops: { value: 1835, evidence_ref: ev-gaudi3-001 }
+architecture:
+  compute_unit_count: { value: 64, evidence_ref: ev-gaudi3-arch-001 }
+  compute_unit_label: Cluster
+  hbm_stacks: { value: 8, evidence_ref: ev-gaudi3-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-gaudi3-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-gaudi3-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-gaudi3-001 }
 memory:
   capacity_gb: { value: 128, evidence_ref: ev-gaudi3-001 }
   bandwidth_gbps: { value: 3700, evidence_ref: ev-gaudi3-001 }
@@ -39,5 +46,11 @@ evidence:
     url: https://www.intel.com/content/www/us/en/products/details/processors/ai-accelerators/gaudi3.html
     accessed: '2026-04-28'
     citation: 'Intel Gaudi 3 product page'
+  - id: ev-gaudi3-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://habana.ai/products/gaudi3/
+    accessed: '2026-04-28'
+    citation: 'Gaudi 3: dual-die package, 64 TPCs total + 8 MMEs, 8× HBM2e ⇒ 128 GB; 24× 200 GbE on-chip RoCE; TSMC 5nm'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'

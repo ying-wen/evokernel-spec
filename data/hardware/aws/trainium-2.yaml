@@ -11,6 +11,11 @@ compute:
   bf16_tflops: { value: 650, evidence_ref: ev-trn2-001 }
   fp16_tflops: { value: 650, evidence_ref: ev-trn2-001 }
   int8_tops: { value: 1300, evidence_ref: ev-trn2-001 }
+architecture:
+  compute_unit_count: { value: 8, evidence_ref: ev-trn2-arch-001 }
+  compute_unit_label: XPU
+  hbm_stacks: { value: 4, evidence_ref: ev-trn2-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-trn2-arch-001 }
 memory:
   capacity_gb: { value: 96, evidence_ref: ev-trn2-001 }
   bandwidth_gbps: { value: 2900, evidence_ref: ev-trn2-001 }
@@ -39,5 +44,11 @@ evidence:
     url: https://aws.amazon.com/ai/machine-learning/trainium/
     accessed: '2026-04-28'
     citation: 'AWS Trainium 2 product page'
+  - id: ev-trn2-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/trainium2.html
+    accessed: '2026-04-28'
+    citation: 'Trainium 2: 8 NeuronCore-v3 engines, 4× HBM3 ⇒ 96 GB; NeuronLink-v3 fabric scales to 64 chips per Trn2 UltraServer; TSMC 5nm-class'
 disclaimers:
   - 'AWS does not sell chips; only available via EC2 Trn2 instances.'

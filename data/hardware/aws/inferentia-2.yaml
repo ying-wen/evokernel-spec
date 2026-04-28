@@ -11,6 +11,11 @@ compute:
   bf16_tflops: { value: 190, evidence_ref: ev-inf2-001 }
   fp16_tflops: { value: 190, evidence_ref: ev-inf2-001 }
   int8_tops: { value: 380, evidence_ref: ev-inf2-001 }
+architecture:
+  compute_unit_count: { value: 2, evidence_ref: ev-inf2-arch-001 }
+  compute_unit_label: XPU
+  hbm_stacks: { value: 2, evidence_ref: ev-inf2-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-inf2-arch-001 }
 memory:
   capacity_gb: { value: 32, evidence_ref: ev-inf2-001 }
   bandwidth_gbps: { value: 820, evidence_ref: ev-inf2-001 }
@@ -39,5 +44,11 @@ evidence:
     url: https://aws.amazon.com/ai/machine-learning/inferentia/
     accessed: '2026-04-28'
     citation: 'AWS Inferentia 2 product page'
+  - id: ev-inf2-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/neuron-hardware/inferentia2.html
+    accessed: '2026-04-28'
+    citation: 'Inferentia 2: 2 NeuronCore-v2 engines (each tensor + scalar + vector + GPSIMD), 2× HBM2e ⇒ 32 GB; TSMC 7nm-class'
 disclaimers:
   - 'Inferentia2 only available via EC2 Inf2 instances.'

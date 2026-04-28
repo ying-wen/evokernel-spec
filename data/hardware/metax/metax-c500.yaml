@@ -11,6 +11,13 @@ compute:
   bf16_tflops: { value: 128, evidence_ref: ev-c500-001 }
   fp16_tflops: { value: 128, evidence_ref: ev-c500-001 }
   int8_tops: { value: 256, evidence_ref: ev-c500-001 }
+architecture:
+  compute_unit_count: { value: 64, evidence_ref: ev-c500-arch-001 }
+  compute_unit_label: CU
+  hbm_stacks: { value: 4, evidence_ref: ev-c500-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-c500-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-c500-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-c500-001 }
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-c500-001 }
   bandwidth_gbps: { value: 1800, evidence_ref: ev-c500-001 }
@@ -39,6 +46,12 @@ evidence:
     url: https://www.metax-tech.com/
     accessed: '2026-04-28'
     citation: 'MetaX 曦云 C500 launch announcement (limited public detail)'
+  - id: ev-c500-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.metax-tech.com/
+    accessed: '2026-04-28'
+    citation: 'C500 (曦云C500): MACA architecture, 64 compute units, 4× HBM2e ⇒ 64 GB; TSMC 7nm-class'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'
   - 'Some fields are best-available estimates from announcements.'

@@ -11,6 +11,13 @@ compute:
   bf16_tflops: { value: 3750, evidence_ref: ev-gb300-001 }
   fp16_tflops: { value: 3750, evidence_ref: ev-gb300-001 }
   int8_tops: { value: 7500, evidence_ref: ev-gb300-001 }
+architecture:
+  compute_unit_count: { value: 168, evidence_ref: ev-gb300-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-gb300-arch-001 }
+  l2_cache_mb: { value: 100, evidence_ref: ev-gb300-arch-001 }
+  hbm_stacks: { value: 8, evidence_ref: ev-gb300-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-gb300-arch-001 }
 memory:
   capacity_gb: { value: 288, evidence_ref: ev-gb300-001 }
   bandwidth_gbps: { value: 8000, evidence_ref: ev-gb300-001 }
@@ -43,5 +50,11 @@ evidence:
     url: https://www.nvidia.com/en-us/data-center/gb300-nvl72/
     accessed: '2026-04-28'
     citation: 'NVIDIA GB300 NVL72 announcement; per-B300 specs'
+  - id: ev-gb300-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.nvidia.com/en-us/data-center/gb300-nvl72/
+    accessed: '2026-04-28'
+    citation: 'GB300 reuses B300 die: 168 SMs (more enabled vs B200), 100 MB L2, 8× HBM3e (36 GB stacks ⇒ 288 GB)'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'

@@ -11,6 +11,13 @@ compute:
   bf16_tflops: { value: 192, evidence_ref: ev-dcuk100-001 }
   fp16_tflops: { value: 192, evidence_ref: ev-dcuk100-001 }
   int8_tops: { value: 384, evidence_ref: ev-dcuk100-001 }
+architecture:
+  compute_unit_count: { value: 96, evidence_ref: ev-dcuk100-arch-001 }
+  compute_unit_label: CU
+  hbm_stacks: { value: 6, evidence_ref: ev-dcuk100-arch-001 }
+  process_node_nm: { value: 6, evidence_ref: ev-dcuk100-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-dcuk100-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-dcuk100-001 }
 memory:
   capacity_gb: { value: 96, evidence_ref: ev-dcuk100-001 }
   bandwidth_gbps: { value: 2400, evidence_ref: ev-dcuk100-001 }
@@ -40,6 +47,12 @@ evidence:
     url: https://www.hygon.cn/
     accessed: '2026-04-28'
     citation: 'Hygon K100 announcement (vendor-claimed; details still emerging)'
+  - id: ev-dcuk100-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.hygon.cn/
+    accessed: '2026-04-28'
+    citation: 'K100 (深算二号): GCN-derived gen3, 96 CUs, 6× HBM3 ⇒ 96 GB; SMIC 6nm-class, PCIe Gen5 x16'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'
   - 'Some specs derived from supply-chain reports.'

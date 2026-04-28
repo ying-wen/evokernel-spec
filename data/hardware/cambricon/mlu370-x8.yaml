@@ -11,6 +11,13 @@ compute:
   bf16_tflops: { value: 96, evidence_ref: ev-mlu370-001 }
   fp16_tflops: { value: 96, evidence_ref: ev-mlu370-001 }
   int8_tops: { value: 256, evidence_ref: ev-mlu370-001 }
+architecture:
+  compute_unit_count: { value: 64, evidence_ref: ev-mlu370-arch-001 }
+  compute_unit_label: IPU
+  hbm_stacks: { value: 2, evidence_ref: ev-mlu370-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-mlu370-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-mlu370-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-mlu370-001 }
 memory:
   capacity_gb: { value: 48, evidence_ref: ev-mlu370-001 }
   bandwidth_gbps: { value: 614, evidence_ref: ev-mlu370-001 }
@@ -40,5 +47,11 @@ evidence:
     url: https://www.cambricon.com/
     accessed: '2026-04-28'
     citation: 'Cambricon MLU370 series product overview'
+  - id: ev-mlu370-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.cambricon.com/
+    accessed: '2026-04-28'
+    citation: 'MLU370-X8 (思元370-X8): MLUarch02, dual-die package with 64 IPUs total, 2× HBM2e ⇒ 48 GB; TSMC 7nm chiplets bridged via MLU-Link'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'

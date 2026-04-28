@@ -11,6 +11,11 @@ compute:
   bf16_tflops: { value: 459, evidence_ref: ev-tpuv5p-001 }
   fp16_tflops: { value: 459, evidence_ref: ev-tpuv5p-001 }
   int8_tops: { value: 918, evidence_ref: ev-tpuv5p-001 }
+architecture:
+  compute_unit_count: { value: 4, evidence_ref: ev-tpuv5p-arch-001 }
+  compute_unit_label: XPU
+  hbm_stacks: { value: 4, evidence_ref: ev-tpuv5p-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-tpuv5p-arch-001 }
 memory:
   capacity_gb: { value: 95, evidence_ref: ev-tpuv5p-001 }
   bandwidth_gbps: { value: 2765, evidence_ref: ev-tpuv5p-001 }
@@ -39,5 +44,11 @@ evidence:
     url: https://cloud.google.com/tpu/docs/v5p
     accessed: '2026-04-28'
     citation: 'Google Cloud TPU v5p documentation'
+  - id: ev-tpuv5p-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://cloud.google.com/tpu/docs/system-architecture-tpu-vm
+    accessed: '2026-04-28'
+    citation: 'TPU v5p: 4 systolic-array TensorCores per chip + scalar/vector units, 4× HBM2e ⇒ 95 GB; 3D-torus ICI fabric (up to 8960 chips/pod); TSMC 5nm-class'
 disclaimers:
   - 'TPU v5p only available via Google Cloud.'

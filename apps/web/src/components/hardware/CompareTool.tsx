@@ -88,6 +88,14 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
     }
   }, [hardware]);
 
+  // Auto-switch to table view when chart view becomes illegible (>CHART_LEGIBILITY_THRESHOLD selected).
+  // Only applies to radar / bar (roofline can absorb many overlapping curves).
+  useEffect(() => {
+    if ((chartType === 'radar' || chartType === 'bar') && selected.length > CHART_LEGIBILITY_THRESHOLD) {
+      setChartType('table');
+    }
+  }, [selected.length, chartType]);
+
   // Persist to URL on change (replaceState — no history pollution)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -200,13 +208,6 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
 
         <div className="rounded-lg border p-4 min-h-[28rem]"
              style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
-          {(chartType === 'radar' || chartType === 'bar') && selectedCards.length > CHART_LEGIBILITY_THRESHOLD && (
-            <div className="text-xs mb-3 px-3 py-2 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-estimated) 10%, var(--color-bg))', color: 'var(--color-tier-estimated)' }}>
-              {en
-                ? `⚠ ${selectedCards.length} cards selected — radar/bar legibility degrades above ${CHART_LEGIBILITY_THRESHOLD}. Consider switching to table view.`
-                : `⚠ 已选 ${selectedCards.length} 张 — 雷达图/柱状图在 ${CHART_LEGIBILITY_THRESHOLD} 张以上会重叠, 建议切到对比表`}
-            </div>
-          )}
           {selectedCards.length === 0 ? (
             <div className="flex items-center justify-center h-96 text-sm" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Pick cards on the left to compare (no upper limit)' : '请从左侧选择硬件进行对比 (无上限)'}</div>
           ) : chartType === 'radar' ? (
@@ -237,46 +238,7 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
           ) : chartType === 'roofline' ? (
             <RooflineOverlay selectedCards={selectedCards} locale={locale} />
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <th className="text-left p-2" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Metric' : '指标'}</th>
-                  {selectedCards.map((h, i) => (
-                    <th key={h.id} className="text-right p-2 font-medium"
-                        style={{ color: PALETTE[i % PALETTE.length] }}>{h.name}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {METRICS_LOCAL.map((m) => (
-                  <tr key={m.key} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                    <td className="p-2">{m.label} <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>{m.unit}</span></td>
-                    {selectedCards.map((h) => {
-                      const v = getMetric(h, m.key);
-                      return <td key={h.id} className="text-right p-2 font-mono">{v ? v.toLocaleString() : '—'}</td>;
-                    })}
-                  </tr>
-                ))}
-                <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                  <td className="p-2">{en ? 'Country' : '国别'}</td>
-                  {selectedCards.map((h) => (
-                    <td key={h.id} className="text-right p-2 text-xs">{h.vendor.country}</td>
-                  ))}
-                </tr>
-                <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                  <td className="p-2">{en ? 'Form factor' : '形态'}</td>
-                  {selectedCards.map((h) => (
-                    <td key={h.id} className="text-right p-2 text-xs">{h.form_factor.toUpperCase()}</td>
-                  ))}
-                </tr>
-                <tr className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                  <td className="p-2">{en ? 'Generation' : '代际'}</td>
-                  {selectedCards.map((h) => (
-                    <td key={h.id} className="text-right p-2 text-xs font-mono">{h.generation}</td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
+            <FlippedCompareTable selectedCards={selectedCards} metrics={METRICS_LOCAL} locale={locale} />
           )}
         </div>
       </div>
@@ -327,6 +289,149 @@ function RooflineOverlay({ selectedCards, locale = 'zh' }: { selectedCards: Reso
           ))}
         </LineChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Flipped compare table: hardware-as-row, metric-as-column. Sortable + filterable.
+// Best value per column gets a ★ marker.
+type FlipMetric = { key: Metric; label: string; unit: string };
+type SortDir = 'asc' | 'desc';
+type SortKey = Metric | 'name' | 'vendor' | 'release_year';
+
+function FlippedCompareTable({ selectedCards, metrics, locale }: {
+  selectedCards: ResolvedHw[];
+  metrics: ReadonlyArray<FlipMetric>;
+  locale: Locale;
+}) {
+  const en = locale === 'en';
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'bf16_tflops', dir: 'desc' });
+  const [filter, setFilter] = useState('');
+  const [showCnOnly, setShowCnOnly] = useState(false);
+
+  // For each metric, find the best value (higher = better for all current metrics)
+  const bestPerMetric = useMemo(() => {
+    const out: Partial<Record<Metric, number>> = {};
+    for (const m of metrics) {
+      out[m.key] = Math.max(...selectedCards.map((h) => getMetric(h, m.key)), 0);
+    }
+    return out;
+  }, [selectedCards, metrics]);
+
+  const filtered = useMemo(() => {
+    let rows = selectedCards;
+    if (showCnOnly) rows = rows.filter((h) => h.vendor.country === 'CN');
+    if (filter) {
+      const q = filter.toLowerCase();
+      rows = rows.filter((h) =>
+        h.name.toLowerCase().includes(q) ||
+        h.vendor.id.toLowerCase().includes(q) ||
+        h.vendor.name.toLowerCase().includes(q) ||
+        (h.vendor.chinese_names ?? []).some((n) => n.toLowerCase().includes(q))
+      );
+    }
+    return rows;
+  }, [selectedCards, filter, showCnOnly]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let av: number | string;
+      let bv: number | string;
+      if (sort.key === 'name') { av = a.name; bv = b.name; }
+      else if (sort.key === 'vendor') { av = a.vendor.id; bv = b.vendor.id; }
+      else if (sort.key === 'release_year') { av = a.release_year; bv = b.release_year; }
+      else { av = getMetric(a, sort.key); bv = getMetric(b, sort.key); }
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return sort.dir === 'asc' ? av - bv : bv - av;
+      }
+      const cmp = String(av).localeCompare(String(bv));
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+    return arr;
+  }, [filtered, sort]);
+
+  function handleSort(key: SortKey) {
+    setSort((s) => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  }
+
+  const Th = ({ k, children, align = 'right' }: { k: SortKey; children: React.ReactNode; align?: 'left' | 'right' }) => (
+    <th className={`px-2 py-2 font-medium select-none cursor-pointer ${align === 'right' ? 'text-right' : 'text-left'}`}
+        onClick={() => handleSort(k)}
+        style={{ color: sort.key === k ? 'var(--color-accent)' : 'var(--color-text-muted)' }}>
+      {children}{sort.key === k && (sort.dir === 'desc' ? ' ↓' : ' ↑')}
+    </th>
+  );
+
+  const cnCount = selectedCards.filter((h) => h.vendor.country === 'CN').length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3 items-center text-sm">
+        <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)}
+               placeholder={en ? 'Filter rows (vendor / name)...' : '过滤行 (厂商 / 型号)...'}
+               className="px-2 py-1 rounded border min-w-[14rem]"
+               style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
+        {cnCount > 0 && (
+          <label className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer"
+                 style={{ borderColor: showCnOnly ? 'var(--color-china)' : 'var(--color-border)',
+                          background: showCnOnly ? 'color-mix(in oklch, var(--color-china) 8%, var(--color-bg))' : 'var(--color-surface)' }}>
+            <input type="checkbox" checked={showCnOnly} onChange={(e) => setShowCnOnly(e.target.checked)} />
+            {en ? `China only (${cnCount})` : `仅国产 (${cnCount})`}
+          </label>
+        )}
+        <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          {sorted.length} / {selectedCards.length} {en ? 'rows · click any column header to sort · ★ = best in column' : '行 · 点击列头排序 · ★ = 该列最优'}
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
+        <table className="w-full text-sm">
+          <thead style={{ background: 'var(--color-surface)' }}>
+            <tr>
+              <Th k="name" align="left">{en ? 'Hardware' : '硬件'}</Th>
+              <Th k="vendor" align="left">{en ? 'Vendor' : '厂商'}</Th>
+              <Th k="release_year">{en ? 'Year' : '年份'}</Th>
+              {metrics.map((m) => (
+                <Th key={m.key} k={m.key}>{m.label} <span style={{ color: 'var(--color-text-muted)', fontWeight: 'normal' }}>{m.unit}</span></Th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 ? (
+              <tr><td colSpan={3 + metrics.length} className="text-center py-6" style={{ color: 'var(--color-text-muted)' }}>
+                {en ? 'No rows match filter' : '没有匹配的行'}
+              </td></tr>
+            ) : sorted.map((h) => {
+              const isCN = h.vendor.country === 'CN';
+              return (
+                <tr key={h.id} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
+                  <td className="px-2 py-2 font-medium">
+                    <a href={(en ? '/en' : '') + `/hardware/${h.id}/`} style={{ color: 'var(--color-text)' }}>{h.name}</a>
+                  </td>
+                  <td className="px-2 py-2 text-xs" style={{ color: isCN ? 'var(--color-china)' : 'var(--color-text-muted)' }}>
+                    {h.vendor.name}{isCN ? ' 🇨🇳' : ''}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs font-mono">{h.release_year}</td>
+                  {metrics.map((m) => {
+                    const v = getMetric(h, m.key);
+                    const isBest = v > 0 && v === bestPerMetric[m.key];
+                    return (
+                      <td key={m.key} className="px-2 py-2 text-right font-mono"
+                          style={{
+                            color: isBest ? 'var(--color-tier-measured)' : 'var(--color-text)',
+                            fontWeight: isBest ? 600 : 400
+                          }}>
+                        {v ? v.toLocaleString() : '—'}
+                        {isBest && <span title={en ? 'best in column' : '该列最优'}> ★</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

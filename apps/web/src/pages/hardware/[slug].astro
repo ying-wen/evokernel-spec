@@ -260,10 +260,21 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
             <div>
               <div class="text-xs uppercase tracking-wide font-semibold" style="color: var(--color-tier-measured);">实测校准 efficiency factor</div>
               <p class="text-sm mt-1">基于 <strong>{efficiency.sampleCount}</strong> 个该硬件的实测案例计算得出, 计算器使用此值替代默认 0.5。</p>
+              {efficiency.sampleCount >= 2 && (
+                <p class="text-xs mt-2" style={`color: ${efficiency.stddev > 0.15 ? 'var(--color-tier-estimated)' : 'var(--color-text-muted)'};`}>
+                  σ = {efficiency.stddev.toFixed(2)} · range [{efficiency.min.toFixed(2)}, {efficiency.max.toFixed(2)}]
+                  {efficiency.stddev > 0.15 && <span> · ⚠ 高方差: 多种 workload 结果差异大, 实际部署需取中值附近预估</span>}
+                </p>
+              )}
             </div>
             <div class="text-right">
-              <div class="text-3xl font-mono font-semibold" style="color: var(--color-tier-measured);">{efficiency.factor.toFixed(2)}</div>
-              <div class="text-xs" style="color: var(--color-text-muted);">measured / theoretical</div>
+              <div class="text-3xl font-mono font-semibold" style="color: var(--color-tier-measured);">
+                {efficiency.factor.toFixed(2)}
+                {efficiency.sampleCount >= 2 && (
+                  <span class="text-base font-normal" style="color: var(--color-text-muted);"> ± {efficiency.stddev.toFixed(2)}</span>
+                )}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-muted);">measured / theoretical (n={efficiency.sampleCount})</div>
             </div>
           </div>
         </div>

@@ -507,10 +507,12 @@ test.describe('Architecture schema + factual Topology', () => {
     await expect(page.getByText(/50 MB/i).first()).toBeVisible();
   });
 
-  test('hardware without architecture data shows illustrative disclaimer', async ({ page }) => {
-    // MI325X has no architecture block populated
-    await page.goto('/hardware/mi325x/');
-    await expect(page.locator('text=/illustrative/i').first()).toBeVisible();
+  test('all 28 hardware cards now have factual architecture (100% coverage)', async ({ page }) => {
+    // Spot-check a Chinese card and an AWS card to prove coverage went beyond just NVIDIA.
+    await page.goto('/hardware/ascend-910c/');
+    await expect(page.locator('text=/vendor floorplan/i').first()).toBeVisible();
+    await page.goto('/hardware/inferentia-2/');
+    await expect(page.locator('text=/vendor floorplan/i').first()).toBeVisible();
   });
 });
 
@@ -534,6 +536,35 @@ test.describe('Compare with no card cap', () => {
     await page.getByRole('button', { name: /全选|^all$/, exact: true }).first().click();
     // Selection count badge should show at least 20 (we have 28 cards)
     await expect(page.getByText(/已选 \d{2,}/).first()).toBeVisible();
+  });
+
+  test('selecting >8 cards in radar view auto-switches to table', async ({ page }) => {
+    await page.goto('/compare/?view=radar&ids=h100-sxm5,h200-sxm,b200-sxm');
+    await page.waitForSelector('input[type="text"]', { state: 'visible' });
+    await page.waitForTimeout(300); // let URL hydration settle (chartType -> radar)
+    // Click "全选" — pushes selection past 8
+    await page.getByRole('button', { name: '全选', exact: true }).first().click();
+    await page.waitForTimeout(500);
+    // After auto-switch the URL no longer has view=radar (table is default, so param dropped)
+    await page.waitForFunction(() => !new URL(window.location.href).searchParams.get('view'), { timeout: 3000 });
+    // And the flipped table renders with ★ markers
+    await expect(page.locator('text=/★/').first()).toBeVisible();
+  });
+
+  test('flipped compare table: hardware-as-rows with sort + filter + ★ best marker', async ({ page }) => {
+    await page.goto('/compare/?view=table&ids=h100-sxm5,b200-sxm,mi355x,ascend-910c');
+    await page.waitForSelector('input[type="text"]', { state: 'visible' });
+    // Each row should be a hardware (not a metric) — column headers include 'BF16'
+    await expect(page.getByRole('columnheader', { name: /硬件/ }).first()).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /BF16/ }).first()).toBeVisible();
+    // ★ best marker visible somewhere
+    await expect(page.locator('text=/★/').first()).toBeVisible();
+    // Filter input narrows rows
+    const filterInput = page.getByPlaceholder(/过滤行|Filter rows/).first();
+    await filterInput.click();
+    await filterInput.pressSequentially('h100', { delay: 30 });
+    // Wait for React state + re-render
+    await expect(page.getByText(/^[12] \/ 4 行/).first()).toBeVisible({ timeout: 5000 });
   });
 });
 

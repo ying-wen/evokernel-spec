@@ -11,6 +11,11 @@ compute:
   bf16_tflops: { value: 192, evidence_ref: ev-t21-001 }
   fp16_tflops: { value: 192, evidence_ref: ev-t21-001 }
   int8_tops: { value: 384, evidence_ref: ev-t21-001 }
+architecture:
+  compute_unit_count: { value: 80, evidence_ref: ev-t21-arch-001 }
+  compute_unit_label: Cluster
+  hbm_stacks: { value: 4, evidence_ref: ev-t21-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-t21-arch-001 }
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-t21-001 }
   bandwidth_gbps: { value: 1600, evidence_ref: ev-t21-001 }
@@ -40,6 +45,12 @@ evidence:
     url: https://www.enflame-tech.com/
     accessed: '2026-04-28'
     citation: 'Enflame Yunsui T21 product page (limited public spec)'
+  - id: ev-t21-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.enflame-tech.com/
+    accessed: '2026-04-28'
+    citation: 'T21 (云燧T21): Gen3 GPGPU, ~80 compute clusters, 4× HBM2e ⇒ 64 GB; TSMC 7nm-class'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'
   - 'Public spec sheets limited; some fields are best-available estimates.'

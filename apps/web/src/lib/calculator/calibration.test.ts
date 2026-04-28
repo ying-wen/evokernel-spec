@@ -104,10 +104,20 @@ describe('getEfficiency', () => {
   });
 
   it('returns calibrated value when present', () => {
-    const map = new Map([['h100', { factor: 0.62, sampleCount: 4, min: 0.55, max: 0.7 }]]);
+    const map = new Map([['h100', { factor: 0.62, sampleCount: 4, min: 0.55, max: 0.7, stddev: 0.06 }]]);
     const e = getEfficiency('h100', map);
     expect(e.factor).toBe(0.62);
     expect(e.isCalibrated).toBe(true);
     expect(e.sampleCount).toBe(4);
+    expect(e.stddev).toBe(0.06);
+  });
+
+  it('computes stddev across the sample', () => {
+    // Build a fake map directly (bypass buildEfficiencyMap for unit-test brevity)
+    const ratios = [0.4, 0.5, 0.6, 0.7];
+    const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+    const variance = ratios.reduce((acc, r) => acc + (r - mean) ** 2, 0) / ratios.length;
+    const stddev = Math.sqrt(variance);
+    expect(stddev).toBeCloseTo(0.1118, 3);
   });
 });

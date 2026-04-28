@@ -14,6 +14,8 @@ export interface EfficiencyEntry {
   /** Min and max observed ratios across the sample (signals confidence). */
   min: number;
   max: number;
+  /** Population standard deviation of the ratios. >0.15 → high variance signal. */
+  stddev: number;
 }
 
 const DEFAULT_FACTOR = 0.5;
@@ -86,11 +88,16 @@ export function buildEfficiencyMap(
   const out = new Map<string, EfficiencyEntry>();
   for (const [hwId, ratios] of buckets) {
     const factor = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+    // Population stddev (we treat the corpus as the entire universe of observations,
+    // not a sample to extrapolate from)
+    const variance = ratios.reduce((acc, r) => acc + (r - factor) ** 2, 0) / ratios.length;
+    const stddev = Math.sqrt(variance);
     out.set(hwId, {
       factor,
       sampleCount: ratios.length,
       min: Math.min(...ratios),
-      max: Math.max(...ratios)
+      max: Math.max(...ratios),
+      stddev
     });
   }
   return out;
@@ -98,13 +105,22 @@ export function buildEfficiencyMap(
 
 /**
  * Return the calibrated efficiency for a given hardware id, or the default.
- * The third return value (`isCalibrated`) lets the UI flag "based on N cases" vs default.
+ * `isCalibrated` lets the UI flag "based on N cases" vs default.
+ * `stddev` and `min`/`max` let the UI surface confidence: stddev > 0.15
+ * usually means multiple workload regimes are mixed in the corpus.
  */
 export function getEfficiency(
   hwId: string,
   map: Map<string, EfficiencyEntry>
-): { factor: number; isCalibrated: boolean; sampleCount: number } {
+): { factor: number; isCalibrated: boolean; sampleCount: number; stddev: number; min: number; max: number } {
   const entry = map.get(hwId);
-  if (!entry) return { factor: DEFAULT_FACTOR, isCalibrated: false, sampleCount: 0 };
-  return { factor: entry.factor, isCalibrated: true, sampleCount: entry.sampleCount };
+  if (!entry) return { factor: DEFAULT_FACTOR, isCalibrated: false, sampleCount: 0, stddev: 0, min: 0, max: 0 };
+  return {
+    factor: entry.factor,
+    isCalibrated: true,
+    sampleCount: entry.sampleCount,
+    stddev: entry.stddev,
+    min: entry.min,
+    max: entry.max
+  };
 }
