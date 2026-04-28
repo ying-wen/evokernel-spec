@@ -1,0 +1,67 @@
+id: a100-sxm4
+name: NVIDIA A100 SXM4 80GB
+vendor: nvidia
+generation: ampere
+status: in-production
+release_year: 2020
+form_factor: sxm
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 312, evidence_ref: ev-a100-001 }
+  fp16_tflops: { value: 312, evidence_ref: ev-a100-001 }
+  int8_tops: { value: 624, evidence_ref: ev-a100-001 }
+architecture:
+  compute_unit_count: { value: 108, evidence_ref: ev-a100-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-a100-arch-001 }
+  l2_cache_mb: { value: 40, evidence_ref: ev-a100-arch-001 }
+  hbm_stacks: { value: 5, evidence_ref: ev-a100-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-a100-arch-001 }
+  die_area_mm2: { value: 826, evidence_ref: ev-a100-arch-001 }
+  transistor_count_b: { value: 54, evidence_ref: ev-a100-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-a100-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-a100-001 }
+memory:
+  capacity_gb: { value: 80, evidence_ref: ev-a100-001 }
+  bandwidth_gbps: { value: 2039, evidence_ref: ev-a100-001 }
+  type: HBM2e
+scale_up:
+  protocol: NVLink-3.0
+  bandwidth_gbps: 600
+  world_size: 8
+  topology: switched
+  switch: nvswitch-gen2
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: InfiniBand-HDR
+  nic: ConnectX-6
+power:
+  tdp_w: { value: 400, evidence_ref: ev-a100-001 }
+software_support:
+  drivers: ['CUDA-11.x', 'CUDA-12.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: sglang, status: officially-supported, versions: ['0.4'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.14'] }
+    - { id: lmdeploy, status: officially-supported, versions: ['0.6'] }
+  quantizations: [bf16, fp16, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp, pp, ep, sp, disaggregated]
+aliases: ['A100 SXM', 'A100-80GB', 'A100']
+chinese_names: []
+evidence:
+  - id: ev-a100-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.nvidia.com/en-us/data-center/a100/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA A100 Tensor Core GPU Datasheet (80GB SXM variant)'
+  - id: ev-a100-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf
+    accessed: '2026-04-28'
+    citation: 'NVIDIA Ampere Architecture Whitepaper (GA100 die: 108 SMs enabled, 40 MB L2, 54B transistors, 826 mm² @ TSMC 7nm)'
+disclaimers:
+  - 'A100 has no FP8 native (Hopper+); FP8 only via emulated paths.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'

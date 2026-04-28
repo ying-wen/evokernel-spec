@@ -1,0 +1,23 @@
+id: nvidia-dgx-a100
+name: NVIDIA DGX A100 8-GPU
+vendor: nvidia
+type: integrated-server
+card: a100-sxm4
+card_count: 8
+scale_up_domain_size: 8
+intra_node_interconnect: NVLink-3-via-NVSwitch-Gen2
+inter_node_interconnect: InfiniBand-HDR
+cooling: air
+rack_power_kw: 6.5
+total_memory_gb: 640
+total_compute_pflops_bf16: 2.5
+release_year: 2020
+evidence:
+  - id: ev-dgxa100-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/data-center/dgx-a100/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA DGX A100 system datasheet'
+disclaimers:
+  - 'DGX A100 is the legacy reference platform — superseded by HGX H100/B200/GB200 in new deployments.'

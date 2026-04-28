@@ -3,7 +3,7 @@ import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getOperators, getModels } from '~/lib/data';
+import { getOperators, getModels, getResolvedHardware } from '~/lib/data';
 
 export async function getStaticPaths() {
   const operators = await getOperators();
@@ -12,8 +12,38 @@ export async function getStaticPaths() {
 
 const { op } = Astro.props;
 const allModels = await getModels();
+const allHw = await getResolvedHardware();
 // Find models that reference this operator in decomposition
 const usedBy = allModels.filter((m) => m.operator_decomposition.some((d) => d.operator === op.id));
+
+// HARDWARE FITNESS ANALYSIS:
+// For a representative model + this operator, compute per-hardware:
+//   - arithmetic intensity (FLOPs/bytes) of this op token
+//   - hardware ridge point (peak compute / peak bandwidth) [FLOP/byte]
+//   - bottleneck: compute-bound vs memory-bound
+//   - achievable throughput on this op (per token) given the binding regime
+const repModel = usedBy.find((m) => m.id === 'llama-4-scout') ?? usedBy[0];
+const repDecomp = repModel?.operator_decomposition.find((d) => d.operator === op.id);
+
+const intensity = repDecomp && repDecomp.bytes_per_token > 0
+  ? repDecomp.flops_per_token / repDecomp.bytes_per_token
+  : 0;
+
+const fitnessRows = intensity > 0
+  ? allHw
+      .map((hw) => {
+        const peakBf16 = hw.compute.bf16_tflops?.value;
+        const peakBw = hw.memory.bandwidth_gbps?.value;
+        if (!peakBf16 || !peakBw) return null;
+        const ridgePoint = (peakBf16 * 1000) / peakBw;
+        const isComputeBound = intensity >= ridgePoint;
+        const achievableTflops = isComputeBound ? peakBf16 : (peakBw * intensity) / 1000;
+        const utilizationPct = (achievableTflops / peakBf16) * 100;
+        return { hw, ridgePoint, isComputeBound, achievableTflops, peakBf16Tflops: peakBf16, utilizationPct };
+      })
+      .filter((r) => r !== null)
+      .sort((a, b) => b!.achievableTflops - a!.achievableTflops)
+  : [];
 ---
 <BaseLayout title={`${op.name} 算子`}>
   <Container width="narrow">
@@ -34,6 +64,57 @@ const usedBy = allModels.filter((m) => m.operator_decomposition.some((d) => d.op
         <SpecRow label="Bytes"><code style="font-family: var(--font-mono); font-size: 0.875rem;">{op.bytes_formula}</code></SpecRow>
       </div>
     </section>
+
+    {fitnessRows.length > 0 && repModel && repDecomp && (
+      <section class="pb-12">
+        <h3 class="text-lg font-semibold mb-2">硬件适配性 / Hardware fitness for this operator</h3>
+        <p class="text-xs mb-4 px-3 py-2 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">
+          基于代表模型 <a href={`/models/${repModel.id}/`} class="underline" style="color: var(--color-accent);">{repModel.name}</a> 的此算子参数 (FLOPs/token = {repDecomp.flops_per_token.toExponential(2)}, Bytes/token = {repDecomp.bytes_per_token.toExponential(2)}, 算术强度 = <strong>{(repDecomp.flops_per_token / repDecomp.bytes_per_token).toFixed(1)} FLOP/byte</strong>)。
+          每行展示该硬件在 BF16 精度下的 ridge point、瓶颈类型、以及该算子可达吞吐 (TFLOP/s)。
+        </p>
+        <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+          <table class="w-full text-sm">
+            <thead style="background: var(--color-surface);">
+              <tr>
+                <th class="text-left px-3 py-2 font-medium">硬件</th>
+                <th class="text-right px-3 py-2 font-medium">Ridge point</th>
+                <th class="text-center px-3 py-2 font-medium">瓶颈</th>
+                <th class="text-right px-3 py-2 font-medium">可达 TFLOP/s</th>
+                <th class="text-right px-3 py-2 font-medium">峰值利用率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fitnessRows.slice(0, 12).map((r) => {
+                const isCN = r.hw.vendor.country === 'CN';
+                const tooLow = r.utilizationPct < 30;
+                return (
+                  <tr class="border-t" style="border-color: var(--color-border);">
+                    <td class="px-3 py-2">
+                      <a href={`/hardware/${r.hw.id}/`} style="color: var(--color-text);" class="font-medium">{r.hw.name}</a>
+                      {isCN && <span class="text-xs ml-1" style="color: var(--color-china);">🇨🇳</span>}
+                      <div class="text-xs" style="color: var(--color-text-muted);">peak BF16 {r.peakBf16Tflops.toFixed(0)} TF · BW {(r.hw.memory.bandwidth_gbps?.value ?? 0) / 1000} TB/s</div>
+                    </td>
+                    <td class="text-right px-3 py-2 font-mono text-xs" style="color: var(--color-text-muted);">{r.ridgePoint.toFixed(1)}</td>
+                    <td class="text-center px-3 py-2 text-xs">
+                      {r.isComputeBound
+                        ? <span style="color: var(--color-accent);">计算 compute</span>
+                        : <span style="color: var(--color-china);">内存带宽 mem-bw</span>}
+                    </td>
+                    <td class="text-right px-3 py-2 font-mono">{r.achievableTflops.toFixed(0)}</td>
+                    <td class="text-right px-3 py-2 font-mono text-xs" style={`color: ${tooLow ? 'var(--color-tier-estimated)' : 'var(--color-text)'};`}>
+                      {r.utilizationPct.toFixed(0)}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {fitnessRows.length > 12 && (
+          <p class="text-xs mt-2" style="color: var(--color-text-muted);">显示前 12 张 (按可达 TFLOP/s 降序) · 共 {fitnessRows.length} 张可比较</p>
+        )}
+      </section>
+    )}
 
     <section class="pb-12">
       <h3 class="text-lg font-semibold mb-3">使用此算子的模型 ({usedBy.length})</h3>

@@ -1,0 +1,61 @@
+id: mi300a
+name: AMD Instinct MI300A
+vendor: amd
+generation: cdna3-apu
+status: in-production
+release_year: 2023
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1962, evidence_ref: ev-mi300a-001 }
+  bf16_tflops: { value: 981, evidence_ref: ev-mi300a-001 }
+  fp16_tflops: { value: 981, evidence_ref: ev-mi300a-001 }
+  int8_tops: { value: 1962, evidence_ref: ev-mi300a-001 }
+architecture:
+  compute_unit_count: { value: 228, evidence_ref: ev-mi300a-arch-001 }
+  compute_unit_label: CU
+  l2_cache_mb: { value: 256, evidence_ref: ev-mi300a-arch-001 }
+  hbm_stacks: { value: 8, evidence_ref: ev-mi300a-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-mi300a-arch-001 }
+  die_area_mm2: { value: 1017, evidence_ref: ev-mi300a-arch-001 }
+  transistor_count_b: { value: 146, evidence_ref: ev-mi300a-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-mi300a-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-mi300a-001 }
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-mi300a-001 }
+  bandwidth_gbps: { value: 5300, evidence_ref: ev-mi300a-001 }
+  type: HBM3
+scale_up:
+  protocol: Infinity-Fabric
+  bandwidth_gbps: 768
+  world_size: 4
+  topology: fully-connected
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: RoCEv2
+power:
+  tdp_w: { value: 760, evidence_ref: ev-mi300a-001 }
+software_support:
+  drivers: ['ROCm-6.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+  quantizations: [bf16, fp16, fp8-e4m3, int8]
+  parallelism: [tp, pp]
+aliases: ['MI300A', 'MI300A APU']
+evidence:
+  - id: ev-mi300a-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi300a.html
+    accessed: '2026-04-28'
+    citation: 'AMD MI300A APU product page (24× Zen-4 cores + 228 CDNA-3 CUs unified memory)'
+  - id: ev-mi300a-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-3-white-paper.pdf
+    accessed: '2026-04-28'
+    citation: 'CDNA 3 APU: 228 CUs (vs 304 in MI300X) + 24× Zen-4 cores in same package, 256 MB Infinity Cache, 8× HBM3 ⇒ 128 GB unified, 146B transistors @ TSMC 5+6nm chiplets'
+disclaimers:
+  - 'MI300A is an APU (CPU + GPU integrated); used in El Capitan supercomputer + emerging AI training systems.'
+  - 'Smaller GPU CU count vs MI300X (228 vs 304) trades for embedded Zen-4 cores + unified memory model.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'

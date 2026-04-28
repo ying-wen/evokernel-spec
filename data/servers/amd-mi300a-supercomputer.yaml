@@ -1,0 +1,23 @@
+id: amd-mi300a-supercomputer
+name: HPE Cray EX255a (MI300A APU node)
+vendor: amd
+type: integrated-server
+card: mi300a
+card_count: 4
+scale_up_domain_size: 4
+intra_node_interconnect: Infinity-Fabric
+inter_node_interconnect: HPE-Slingshot-11
+cooling: liquid
+rack_power_kw: 30
+total_memory_gb: 512
+total_compute_pflops_bf16: 3.92
+release_year: 2024
+evidence:
+  - id: ev-mi300a-srv-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.hpe.com/us/en/compute/hpc/cray-supercomputers.html
+    accessed: '2026-04-28'
+    citation: 'HPE Cray EX255a blade — 4× MI300A APUs per node, used in El Capitan exascale system at LLNL'
+disclaimers:
+  - 'EX255a node is APU-based: each MI300A integrates 24 Zen-4 cores + 228 CDNA-3 CUs with unified HBM.'

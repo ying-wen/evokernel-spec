@@ -204,16 +204,16 @@ test.describe('JSON API and timeline', () => {
     const body = await r!.json();
     expect(body.name).toContain('EvoKernel');
     expect(body.license).toBe('CC-BY-SA-4.0');
-    expect(body.counts.hardware).toBe(28);
+    expect(body.counts.hardware).toBeGreaterThanOrEqual(28);
     expect(body.counts.case).toBeGreaterThanOrEqual(20);
   });
 
-  test('/api/hardware.json contains all 28 hardware', async ({ page }) => {
+  test('/api/hardware.json contains all hardware (28+)', async ({ page }) => {
     const r = await page.goto('/api/hardware.json');
     expect(r?.status()).toBe(200);
     const body = await r!.json();
-    expect(body.count).toBe(28);
-    expect(body.items.length).toBe(28);
+    expect(body.count).toBeGreaterThanOrEqual(28);
+    expect(body.items.length).toBeGreaterThanOrEqual(28);
     expect(body.items.find((x: { id: string }) => x.id === 'h100-sxm5')).toBeTruthy();
     expect(body.items.find((x: { id: string }) => x.id === 'ascend-910c')).toBeTruthy();
   });
@@ -291,8 +291,8 @@ test.describe.serial('Iter-10 features', () => {
     const cnToggle = page.getByRole('button', { name: '国产', exact: true }).first();
     await cnToggle.waitFor({ state: 'visible', timeout: 10000 });
     await cnToggle.click();
-    // Counter shows 13 / 28
-    await expect(page.getByText(/13 \/ 28 显示/i)).toBeVisible({ timeout: 10000 });
+    // CN count is stable at 13 (we keep tight control over CN cards); total fluctuates as corpus grows
+    await expect(page.getByText(/13 \/ \d+ 显示/i)).toBeVisible({ timeout: 10000 });
     // Overseas section should disappear
     await expect(page.getByRole('heading', { name: /^海外/ })).not.toBeVisible();
   });
@@ -302,7 +302,7 @@ test.describe.serial('Iter-10 features', () => {
     await page.waitForSelector('input[type="search"]', { state: 'visible' });
     await page.getByRole('checkbox', { name: /FP4/i }).check();
     // Should show fewer than total
-    await expect(page.getByText(/\/ 28 显示/)).toBeVisible();
+    await expect(page.getByText(/\/ \d+ 显示/)).toBeVisible();
     // FP4 cards exist (B200, B300, MI355X, etc.)
     await expect(page.getByText(/B200|B300|MI355X/).first()).toBeVisible();
   });
@@ -495,6 +495,17 @@ test.describe('Operator coverage panel', () => {
   test('Chinese accelerator (Ascend 910C) operator coverage shows different status mix', async ({ page }) => {
     await page.goto('/hardware/ascend-910c/');
     await expect(page.locator('text=/🟢 mature/').first()).toBeVisible();
+  });
+});
+
+test.describe('Operator hardware-fitness analysis', () => {
+  test('matmul operator detail shows hardware-fitness table with ridge point + bottleneck', async ({ page }) => {
+    await page.goto('/operators/matmul/');
+    await expect(page.getByRole('heading', { name: /硬件适配性|Hardware fitness/i })).toBeVisible();
+    // Ridge point column
+    await expect(page.getByRole('columnheader', { name: /Ridge point/i })).toBeVisible();
+    // 至少一行显示 compute or mem-bw bottleneck
+    await expect(page.locator('text=/计算 compute|内存带宽 mem-bw/').first()).toBeVisible();
   });
 });
 

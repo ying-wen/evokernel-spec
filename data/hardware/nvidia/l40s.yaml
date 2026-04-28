@@ -1,0 +1,66 @@
+id: l40s
+name: NVIDIA L40S
+vendor: nvidia
+generation: ada-lovelace
+status: in-production
+release_year: 2023
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1466, evidence_ref: ev-l40s-001 }
+  bf16_tflops: { value: 366, evidence_ref: ev-l40s-001 }
+  fp16_tflops: { value: 366, evidence_ref: ev-l40s-001 }
+  int8_tops: { value: 1466, evidence_ref: ev-l40s-001 }
+architecture:
+  compute_unit_count: { value: 142, evidence_ref: ev-l40s-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-l40s-arch-001 }
+  l2_cache_mb: { value: 96, evidence_ref: ev-l40s-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-l40s-arch-001 }
+  die_area_mm2: { value: 609, evidence_ref: ev-l40s-arch-001 }
+  transistor_count_b: { value: 76, evidence_ref: ev-l40s-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-l40s-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-l40s-001 }
+memory:
+  capacity_gb: { value: 48, evidence_ref: ev-l40s-001 }
+  bandwidth_gbps: { value: 864, evidence_ref: ev-l40s-001 }
+  type: GDDR6
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 64
+  world_size: 8
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: InfiniBand-NDR
+  nic: ConnectX-7
+power:
+  tdp_w: { value: 350, evidence_ref: ev-l40s-001 }
+software_support:
+  drivers: ['CUDA-12.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: sglang, status: officially-supported, versions: ['0.4'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.14'] }
+    - { id: lmdeploy, status: officially-supported, versions: ['0.6'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp, pp]
+aliases: ['L40S', 'L40 Server']
+chinese_names: []
+evidence:
+  - id: ev-l40s-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.nvidia.com/en-us/data-center/l40s/
+    accessed: '2026-04-28'
+    citation: 'NVIDIA L40S Datasheet (Ada Lovelace inference-optimized PCIe card)'
+  - id: ev-l40s-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://images.nvidia.com/aem-dam/Solutions/Data-Center/l4/nvidia-ada-gpu-architecture-whitepaper-v2.1.pdf
+    accessed: '2026-04-28'
+    citation: 'NVIDIA Ada Lovelace Whitepaper (AD102 die: 142 SMs enabled in L40S, 96 MB L2, 76B transistors, 609 mm² @ TSMC 4N)'
+disclaimers:
+  - 'L40S uses GDDR6 (not HBM); memory bandwidth is much lower than H100/A100, making it bandwidth-bound for many decode workloads.'
+  - 'Designed for graphics + inference workloads (gaming derivative); strong FP8/INT8 throughput per dollar.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
