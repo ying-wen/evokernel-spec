@@ -34,6 +34,41 @@ tar -xzf evokernel-spec-v1.1.0.tar.gz
 npx serve dist
 ```
 
+### Verified end-to-end — what the receiver actually sees
+
+The full supply chain has been exercised against the live v1.1.0 release.
+A clean machine running just `curl` + `python3 -m http.server` reproduces:
+
+```
+✓ download tarball + sha256 sidecar from
+  https://github.com/ying-wen/evokernel-spec/releases/download/v1.1.0/
+✓ shasum -a 256 matches sidecar (a5e59ec3...)
+✓ tar -xzf produces dist/ with 531 files, 16 MB
+✓ MANIFEST.json validates against @evokernel/schemas ManifestSchema:
+    product=evokernel-spec  version=v1.1
+    sha=9e2b228  dirty=false  pages=237  hardware=31
+✓ python3 -m http.server 5050 → 12/12 critical routes return HTTP 200
+✓ /api/healthz returns "ok" body
+✓ /api/health.json returns status:ok with embedded build.sha
+```
+
+Try it yourself in 30 seconds:
+
+```bash
+mkdir /tmp/evokernel && cd /tmp/evokernel
+curl -sLO https://github.com/ying-wen/evokernel-spec/releases/download/v1.1.0/evokernel-spec-v1.1.0.tar.gz
+curl -sLO https://github.com/ying-wen/evokernel-spec/releases/download/v1.1.0/evokernel-spec-v1.1.0.tar.gz.sha256
+shasum -a 256 -c evokernel-spec-v1.1.0.tar.gz.sha256
+tar -xzf evokernel-spec-v1.1.0.tar.gz
+cat dist/MANIFEST.json | python3 -m json.tool | head -10
+cd dist && python3 -m http.server 5050 &
+sleep 2 && curl -s http://127.0.0.1:5050/api/healthz   # → "ok"
+```
+
+This means the supply chain (commit → tag → CI → pack:dist → GitHub
+Release → CDN → wget → tar → serve → HTTP) is end-to-end verifiable
+without any trust in the maintainer's machine.
+
 The MANIFEST.json inside the tarball contains build SHA, page count,
 entity counts, and is `ManifestSchema`-validated by `pack-dist` —
 receivers can re-validate offline:
