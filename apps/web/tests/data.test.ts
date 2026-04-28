@@ -5,9 +5,9 @@ import {
 } from '~/lib/data';
 
 describe('data layer', () => {
-  it('loads 22 vendors', async () => {
+  it('loads 22+ vendors', async () => {
     const v = await getVendors();
-    expect(v.length).toBe(22);
+    expect(v.length).toBeGreaterThanOrEqual(22);
   });
 
   // Use lower-bound assertions so corpus growth doesn't break tests
@@ -48,9 +48,9 @@ describe('data layer', () => {
     expect(dsr1?.resolved.engine.id).toBe('mindie');
   });
 
-  it('china hardware: 13 cards from CN vendors', async () => {
+  it('china hardware: 13+ cards from CN vendors', async () => {
     const resolved = await getResolvedHardware();
     const china = resolved.filter((h) => h.vendor.country === 'CN');
-    expect(china.length).toBe(13);
+    expect(china.length).toBeGreaterThanOrEqual(13);
   });
 });

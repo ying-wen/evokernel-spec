@@ -1,0 +1,54 @@
+id: groq-lpu
+name: Groq LPU (TSP v1)
+vendor: groq
+generation: groq-tsp-gen1
+status: in-production
+release_year: 2024
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 750, evidence_ref: ev-groq-001 }
+  bf16_tflops: { value: 188, evidence_ref: ev-groq-001 }
+  fp16_tflops: { value: 188, evidence_ref: ev-groq-001 }
+  int8_tops: { value: 750, evidence_ref: ev-groq-001 }
+architecture:
+  compute_unit_count: { value: 5120, evidence_ref: ev-groq-001 }
+  compute_unit_label: PEs
+  on_die_sram_mb: { value: 230, evidence_ref: ev-groq-001 }
+  process_node_nm: { value: 14, evidence_ref: ev-groq-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-groq-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-groq-001 }
+  deterministic_latency: true
+memory:
+  capacity_gb: { value: 0.23, evidence_ref: ev-groq-001 }
+  bandwidth_gbps: { value: 80000, evidence_ref: ev-groq-001 }
+  type: on-die-sram
+scale_up:
+  protocol: GroqRack-Mesh
+  bandwidth_gbps: 160
+  world_size: 8
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 80
+  protocol: Ethernet-RoCE
+power:
+  tdp_w: { value: 215, evidence_ref: ev-groq-001 }
+software_support:
+  drivers: ['GroqWare-SDK-2.x']
+  engines:
+    - { id: vllm, status: community-port, notes: 'Groq inference engine handles serving directly' }
+  quantizations: [bf16, fp16, fp8-e4m3, int8]
+  parallelism: [tp, pp]
+aliases: ['LPU', 'GroqChip', 'Groq Tensor Streaming Processor']
+chinese_names: ['Groq 语言处理单元 (LPU)']
+evidence:
+  - id: ev-groq-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://groq.com/lpu-inference-engine/
+    accessed: '2026-04-29'
+    citation: 'Groq LPU specifications — 230 MB SRAM, 80 TB/s memory bandwidth (on-die), deterministic single-batch latency. TSP v1 first-generation at 14nm Global Foundries.'
+disclaimers:
+  - 'Memory capacity is on-die SRAM only; the LPU has NO DRAM. Models must fit in 230 MB or be sharded across cards.'
+  - 'Roofline analysis is unusual: memory-bandwidth ceiling is dramatically higher than HBM cards but capacity is dramatically lower.'
+  - 'Deterministic latency makes this the only chip in the corpus where p99 ≈ p50 by design — useful for SLA-bound serving.'

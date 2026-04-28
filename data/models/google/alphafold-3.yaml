@@ -1,0 +1,59 @@
+id: alphafold-3
+name: AlphaFold 3
+lab: google
+release_date: 2024-05-08
+license: creative-commons-by-nc-4.0
+domain: scientific
+workload_kind: forward-only-batch
+architecture:
+  family: dense
+  # AlphaFold 3 isn't a transformer in the LLM sense; we shoehorn into
+  # the existing schema with approximate equivalent params for roofline math.
+  total_params_b: 0.21
+  active_params_b: 0.21
+  layers: 48
+  hidden_size: 384
+  ffn_size: 1536
+  num_attention_heads: 16
+  num_kv_heads: 16
+  head_dim: 24
+  vocab_size: 64
+  max_context_length: 5120
+  attention_type: pair-bias-attention
+operator_decomposition:
+  # AF3 dominates with PairFormer + Diffusion blocks; matmul + pair-bias
+  # attention + per-pair MLP + softmax. FLOPs/token here are FLOPs per
+  # residue per diffusion step (typical 200 steps @ 5000 residues).
+  - operator: pair-bias-attention
+    flops_per_token: 2400000000
+    bytes_per_token: 800000000
+    notes: 'Pair representation update — quadratic in residue count, dominant cost'
+  - operator: matmul
+    flops_per_token: 1200000000
+    bytes_per_token: 400000000
+    notes: 'PairFormer + Diffusion linear projections'
+  - operator: triangle-multiplication
+    flops_per_token: 600000000
+    bytes_per_token: 600000000
+    notes: 'AF3-specific triangle update — FP32-sensitive numerics'
+  - operator: rmsnorm
+    flops_per_token: 8000000
+    bytes_per_token: 4000000
+modalities:
+  - text
+weight_format: bf16
+paper_url: https://www.nature.com/articles/s41586-024-07487-w
+github_url: https://github.com/google-deepmind/alphafold3
+notes: |
+  AlphaFold 3 (Abramson et al. 2024, Nature). Predicts joint structure of
+  proteins, DNA, RNA, ligands, and ions. Uses PairFormer + Diffusion
+  Module instead of AlphaFold 2's Evoformer + IPA.
+
+  Critical for scientific accelerators: this is NOT a transformer LLM
+  workload. Pair-bias attention is O(N^2) in residue count (typical
+  N=2000), making memory-bandwidth dominant for large complexes.
+  FP32 precision needed in triangle multiplication for numerical
+  stability; FP16/BF16 work for most other ops.
+
+  Inference is single-shot (forward-only-batch), not autoregressive.
+  Latency target: 1-30 minutes per structure depending on size.

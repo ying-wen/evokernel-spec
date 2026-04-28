@@ -4,16 +4,18 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![Tests](https://img.shields.io/badge/tests-151_passing-success)](#)
-[![Pages](https://img.shields.io/badge/pages-237-blue)](#)
+[![Tests](https://img.shields.io/badge/tests-167_passing-success)](#)
+[![Pages](https://img.shields.io/badge/pages-254-blue)](#)
 [![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
+[![Release](https://img.shields.io/badge/release-v1.1.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ![Home](docs/screenshots/home.png)
 
 ## Highlights
 
-- **31 加速卡** (8 张 含 vendor-floorplan 架构数据): NVIDIA / AMD / Intel / AWS / Google + **9 家国产** (昇腾 · 寒武纪 · 海光 · 摩尔线程 · 燧原 · 壁仞 · 沐曦 · 天数智芯 · 平头哥)
-- **17 frontier 开源模型**: DeepSeek V4 Pro / Flash / R1, Kimi K2.6, GLM-5.1, Qwen 3.5/3.6, Llama 4, Mistral Small 4, Gemma 4, MiniMax M2.7, gpt-oss + 算子 FLOP/byte 拆解
+- **36 加速卡** 跨 17 家厂商: NVIDIA / AMD / Intel / AWS / Google / Cerebras / Groq / Tenstorrent + **9 家国产** (昇腾 · 寒武纪 · 海光 · 摩尔线程 · 燧原 · 壁仞 · 沐曦 · 天数智芯 · 平头哥)
+- **覆盖各种形态**: 数据中心 SXM/OAM/PCIe + **wafer-scale (Cerebras WSE-3)** + **on-die SRAM (Groq LPU)** + **reconfigurable RDU (SambaNova)** + 国产超节点 (CloudMatrix 384/768)
+- **17+2 frontier 模型**: 大语言 (DeepSeek V4 Pro / Kimi K2.6 / Qwen 3.6 / Llama 4 / GLM-5 etc.) + **scientific (AlphaFold 3 蛋白折叠 · GraphCast 全球天气)** + 算子 FLOP/byte 拆解
 - **22 部署案例**: 含 CloudMatrix 384 超节点、disaggregated 部署、所有 9 家国产卡
 - **Tier 0 实测查表 + Tier 1 透明 Roofline 计算器**: 含 per-operator breakdown / concurrency sweep / TCO ($/M tokens) / disaggregated mode
 - **/pricing TCO 排行榜**: 公式公开 · 18 张卡 best/median/worst $/M tokens

@@ -1,0 +1,61 @@
+id: ascend-950
+name: 昇腾 950
+vendor: huawei
+generation: ascend-950-gen1
+status: announced
+release_year: 2026
+form_factor: oam
+compute:
+  fp4_tflops: { value: 4500, evidence_ref: ev-asc950-001 }
+  fp8_tflops: { value: 2250, evidence_ref: ev-asc950-001 }
+  bf16_tflops: { value: 1500, evidence_ref: ev-asc950-001 }
+  fp16_tflops: { value: 1500, evidence_ref: ev-asc950-001 }
+  fp32_tflops: { value: 750, evidence_ref: ev-asc950-001 }
+  int8_tops: { value: 3000, evidence_ref: ev-asc950-001 }
+architecture:
+  compute_unit_count: { value: 96, evidence_ref: ev-asc950-arch }
+  compute_unit_label: AI Core
+  l2_cache_mb: { value: 256, evidence_ref: ev-asc950-arch }
+  hbm_stacks: { value: 8, evidence_ref: ev-asc950-arch }
+  process_node_nm: { value: 5, evidence_ref: ev-asc950-arch }
+memory:
+  capacity_gb: { value: 256, evidence_ref: ev-asc950-001 }
+  bandwidth_gbps: { value: 6400, evidence_ref: ev-asc950-001 }
+  type: HBM3e
+scale_up:
+  protocol: HCCS-v3
+  bandwidth_gbps: 1600
+  world_size: 16
+  topology: switched
+  switch: huawei-hccs-v3-switch
+scale_out:
+  bandwidth_gbps_per_card: 800
+  protocol: RoCEv3
+power:
+  tdp_w: { value: 1200, evidence_ref: ev-asc950-001 }
+software_support:
+  drivers: ['CANN-9.0']
+  engines:
+    - { id: mindie, status: officially-supported, versions: ['2.0.RC1'] }
+    - { id: vllm, status: community-port, notes: 'vllm-ascend fork (Ascend 950 support landed 2026 Q3)' }
+  quantizations: [bf16, fp16, fp8-e4m3, fp4, int8, int4-awq]
+  parallelism: [tp, pp, ep, sp, disaggregated]
+aliases: ['Ascend 950', '昇腾950']
+chinese_names: ['昇腾 950', '华为昇腾950']
+evidence:
+  - id: ev-asc950-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://e.huawei.com/cn/products/computing/ascend-950
+    accessed: '2026-04-29'
+    citation: '华为 2025 Q3 公告昇腾 950 路线图：FP4 原生 4.5 PFLOPS，HBM3e 256 GB，HCCS-v3 1.6 TB/s scale-up，MindIE 2.0 + CANN 9.0 软件栈支持'
+  - id: ev-asc950-arch
+    tier: estimated
+    source_type: third-party-review
+    url: https://e.huawei.com/cn/products/computing/ascend
+    accessed: '2026-04-29'
+    citation: '昇腾 950 架构估算：96 个 AI Core (Da Vinci 4.0)，8 stack HBM3e，5nm 制程 (SMIC 等代工)。GA 时间 2026 Q4，规格可能调整。'
+disclaimers:
+  - 'Status: announced — 公开路线图 2025 Q3 公布, GA 计划 2026 Q4。规格基于路线图, GA 时可能调整。'
+  - '部分规格基于路线图推算 (compute_unit_count, process_node) 而非官方白皮书；属于 estimated 等级。'
+  - 'CloudMatrix 768 集群方案与 Ascend 950 同期发布，scale-up 域规模较 384 翻倍。'

@@ -18,21 +18,36 @@ const mode: 'single' | 'eight' | 'pod' | 'super-pod' =
 // Memory: prefer factual architecture.hbm_stacks, fall back to inference from capacity / type
 const memGb = hw.memory.capacity_gb?.value ?? 0;
 const memType = hw.memory.type;
+// Stack-based memories (HBM family): each stack is a fixed size; inferred count = capacity / stack-size.
+// Non-stack memories (GDDR/LPDDR/DDR): rendered as discrete chips, count is heuristic.
+// On-die memories (wafer-scale, Groq): rendered as a single overlay band, NOT separate stacks.
 const stackSizeGb: Record<string, number> = {
   HBM2: 16, HBM2e: 16, HBM3: 24, HBM3e: 36, HBM4: 48,
-  GDDR6: 0, LPDDR5: 0, unknown: 0
+  GDDR6: 0, GDDR7: 0, LPDDR5: 0, LPDDR5X: 0, DDR5: 0,
+  'on-die-sram': 0, 'on-package-sram': 0,
+  unknown: 0
 };
 const hbmStackSize = stackSizeGb[memType] ?? 0;
 const inferredHbmStacks = hbmStackSize > 0 && memGb > 0 ? Math.max(2, Math.min(8, Math.round(memGb / hbmStackSize))) : 0;
 const factualHbmStacks = hw.architecture?.hbm_stacks?.value;
 const hbmStacks = factualHbmStacks ?? inferredHbmStacks;
 
-// Compute units: prefer factual architecture.compute_unit_count, fall back to TFLOPS bucket
+// v1.2: niche memory categories (Cerebras wafer-scale, Groq on-die SRAM)
+const isOnDieMemory = memType === 'on-die-sram' || memType === 'on-package-sram';
+const isWaferScale = hw.architecture?.wafer_scale === true || hw.form_factor === 'wafer-scale';
+const onDieSramMb = hw.architecture?.on_die_sram_mb?.value;
+const isDeterministicLatency = hw.architecture?.deterministic_latency === true;
+const isReconfigurable = hw.architecture?.reconfigurable === true;
+
+// Compute units: prefer factual architecture.compute_unit_count, fall back to TFLOPS bucket.
+// For wafer-scale, the real CU count (e.g. WSE-3 = 900k) is too large to render as a grid;
+// cap the visual at 256 tiles for legibility while showing the actual number in the annotation.
 const bf16 = hw.compute.bf16_tflops?.value ?? 0;
 const inferredCuCount = bf16 >= 2000 ? 144 : bf16 >= 1000 ? 132 : bf16 >= 500 ? 96 : bf16 >= 200 ? 80 : bf16 >= 100 ? 64 : 32;
 const factualCuCount = hw.architecture?.compute_unit_count?.value;
-const cuCount = factualCuCount ?? inferredCuCount;
-const isFactual = !!(factualCuCount && factualHbmStacks);
+const realCuCount = factualCuCount ?? inferredCuCount;
+const cuCount = isWaferScale ? Math.min(256, realCuCount) : realCuCount;
+const isFactual = !!(factualCuCount && (factualHbmStacks || isOnDieMemory));
 
 const gridCols = Math.ceil(Math.sqrt(cuCount * 1.5));
 const gridRows = Math.ceil(cuCount / gridCols);
@@ -160,20 +175,30 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
       <line x1="680" y1="190" x2="720" y2="190" stroke={china} stroke-width="2" stroke-opacity="0.4"/>
 
       <!-- Annotations -->
-      <text x="395" y="55" text-anchor="middle" font-size="8" fill={muted}>{cuCount} {cuLabel}s · darker block = tensor / matrix engine</text>
+      <text x="395" y="55" text-anchor="middle" font-size="8" fill={muted}>
+        {isWaferScale ? `${realCuCount.toLocaleString()} ${cuLabel}s (capped at ${cuCount} for visual)` : `${cuCount} ${cuLabel}s`} · darker block = tensor / matrix engine
+      </text>
       <text x="400" y="345" text-anchor="middle" font-size="9" font-weight="600" fill="var(--color-text)">
         {bf16.toFixed(0)} TFLOPS BF16 · {hw.compute.fp8_tflops?.value ? `${hw.compute.fp8_tflops.value.toFixed(0)} FP8 · ` : ''}{memGb} GB {memType} @ {memBwTbs} TB/s · {tdpW} W TDP
       </text>
     </svg>
     {isFactual ? (
-      <p class="text-xs mt-2 px-3 py-2 rounded flex items-center gap-2" style="background: color-mix(in oklch, var(--color-tier-measured) 8%, var(--color-bg)); color: var(--color-tier-measured);">
+      <p class="text-xs mt-2 px-3 py-2 rounded flex items-center gap-2 flex-wrap" style="background: color-mix(in oklch, var(--color-tier-measured) 8%, var(--color-bg)); color: var(--color-tier-measured);">
         <span style="font-weight: 600;">🟢 vendor floorplan</span>
-        <span>{cuCount} {cuLabel}s · {hbmStacks}× HBM · {l2CacheMb ?? '—'} MB L2 · {processNm ?? '—'} nm · {transistorsB ?? '—'} B transistors{dieAreaMm2 ? ` · ${dieAreaMm2} mm²` : ''}</span>
+        <span>{realCuCount.toLocaleString()} {cuLabel}s · {isOnDieMemory && onDieSramMb ? `${onDieSramMb.toLocaleString()} MB on-die SRAM` : `${hbmStacks}× HBM`} · {l2CacheMb ? `${l2CacheMb} MB L2 · ` : ''}{processNm ?? '—'} nm{transistorsB ? ` · ${transistorsB} B transistors` : ''}{dieAreaMm2 ? ` · ${dieAreaMm2} mm²` : ''}</span>
       </p>
     ) : (
       <p class="text-xs mt-2 px-3 py-2 rounded" style="background: color-mix(in oklch, var(--color-tier-estimated) 8%, var(--color-bg)); color: var(--color-tier-estimated);">
         ⚠ illustrative / 示意性版图: compute-unit and HBM-stack count are <strong>inferred</strong> from public BF16 / memory specs. <code>architecture</code> field not populated for this card yet. <a href="https://github.com/evokernel/evokernel-spec" class="underline">Contribute floorplan data →</a>
       </p>
+    )}
+    {(isWaferScale || isDeterministicLatency || isReconfigurable || isOnDieMemory) && (
+      <div class="text-xs mt-2 flex gap-2 flex-wrap">
+        {isWaferScale && <span class="px-2 py-1 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent); font-weight: 600;">🌐 wafer-scale (no host-device transfer)</span>}
+        {isOnDieMemory && <span class="px-2 py-1 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent); font-weight: 600;">📦 on-die SRAM only (capacity ≪ HBM, bandwidth ≫ HBM)</span>}
+        {isDeterministicLatency && <span class="px-2 py-1 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent); font-weight: 600;">⏱ deterministic latency (p99 ≈ p50)</span>}
+        {isReconfigurable && <span class="px-2 py-1 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent); font-weight: 600;">🔄 reconfigurable dataflow (RDU)</span>}
+      </div>
     )}
   </div>
 

@@ -3,10 +3,25 @@ import { EvidenceSchema, ValueWithEvidenceSchema } from './evidence';
 
 const Slug = z.string().regex(/^[a-z0-9-]+$/);
 
-export const FormFactorSchema = z.enum(['sxm', 'oam', 'pcie', 'nvl', 'proprietary']);
+export const FormFactorSchema = z.enum([
+  // Data-center accelerators (existing)
+  'sxm', 'oam', 'pcie', 'nvl', 'proprietary',
+  // v1.2: niche + edge categories
+  'wafer-scale',     // Cerebras WSE — single-die, no HBM
+  'edge-m2',         // M.2 form factor (Hailo, Coral)
+  'embedded-soc',    // RK3588, Apple Silicon NPU portion
+  'apu',             // CPU+GPU coherent (MI300A, GH200)
+  'vector-card',     // NEC SX-Aurora
+  'reconfigurable'   // SambaNova RDU
+]);
 export const HardwareStatusSchema = z.enum(['in-production', 'discontinued', 'taping-out', 'announced']);
 export const MemoryTypeSchema = z.enum([
-  'HBM2', 'HBM2e', 'HBM3', 'HBM3e', 'HBM4', 'GDDR6', 'LPDDR5', 'unknown'
+  'HBM2', 'HBM2e', 'HBM3', 'HBM3e', 'HBM4',
+  'GDDR6', 'GDDR7',
+  'LPDDR5', 'LPDDR5X', 'DDR5',
+  'on-die-sram',          // Cerebras WSE-3, Groq LPU
+  'on-package-sram',      // SambaNova SN40L
+  'unknown'
 ]);
 
 const ComputeSchema = z.object({
@@ -15,8 +30,14 @@ const ComputeSchema = z.object({
   bf16_tflops: ValueWithEvidenceSchema(z.number().nonnegative()),
   fp16_tflops: ValueWithEvidenceSchema(z.number().nonnegative()),
   fp32_tflops: ValueWithEvidenceSchema(z.number().nonnegative()).optional(),
+  // v1.2: HPC + scientific computing critical
+  fp64_tflops: ValueWithEvidenceSchema(z.number().nonnegative()).optional(),
+  // v1.2: tf32 — common on NVIDIA/AMD AI ratings
+  tf32_tflops: ValueWithEvidenceSchema(z.number().nonnegative()).optional(),
   int8_tops: ValueWithEvidenceSchema(z.number().nonnegative()),
-  int4_tops: ValueWithEvidenceSchema(z.number().nonnegative()).optional()
+  int4_tops: ValueWithEvidenceSchema(z.number().nonnegative()).optional(),
+  // v1.2: edge inference rating
+  tops_per_watt: ValueWithEvidenceSchema(z.number().nonnegative()).optional()
 });
 
 const MemorySchema = z.object({
@@ -31,16 +52,30 @@ const MemorySchema = z.object({
 // Ascend 910C, etc.) populate this; others can stay undefined.
 const ArchitectureSchema = z.object({
   compute_unit_count: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
-  compute_unit_label: z.enum(['SM', 'CU', 'AI Core', 'IPU', 'XPU', 'Cluster']).optional(),
+  compute_unit_label: z.enum([
+    'SM', 'CU', 'AI Core', 'IPU', 'XPU', 'Cluster',
+    'Tile',          // Cerebras
+    'PEs',           // Groq LPU (parallel processing elements)
+    'RDU-Tile',      // SambaNova
+    'Tensix',        // Tenstorrent
+    'NeuralEngine',  // Apple, Qualcomm
+    'NPU-Core'       // generic edge NPU
+  ]).optional(),
   tensor_cores_per_cu: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
   l1_cache_kb_per_cu: ValueWithEvidenceSchema(z.number().positive()).optional(),
   l2_cache_mb: ValueWithEvidenceSchema(z.number().positive()).optional(),
   hbm_stacks: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
+  // v1.2: niche on-die memory architectures (Cerebras 44 GB, Groq 230 MB)
+  on_die_sram_mb: ValueWithEvidenceSchema(z.number().positive()).optional(),
   process_node_nm: ValueWithEvidenceSchema(z.number().positive()).optional(),
   die_area_mm2: ValueWithEvidenceSchema(z.number().positive()).optional(),
   transistor_count_b: ValueWithEvidenceSchema(z.number().positive()).optional(),
   pcie_gen: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
-  pcie_lanes: ValueWithEvidenceSchema(z.number().int().positive()).optional()
+  pcie_lanes: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
+  // v1.2: behavioral flags that change calculator semantics
+  reconfigurable: z.boolean().optional(),         // SambaNova RDU
+  deterministic_latency: z.boolean().optional(),  // Groq LPU
+  wafer_scale: z.boolean().optional()             // Cerebras
 });
 
 const ScaleUpSchema = z.object({

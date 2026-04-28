@@ -1,0 +1,52 @@
+id: wormhole-n300
+name: Tenstorrent Wormhole n300
+vendor: tenstorrent
+generation: tenstorrent-wormhole-gen2
+status: in-production
+release_year: 2024
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 466, evidence_ref: ev-tt-wh-001 }
+  bf16_tflops: { value: 233, evidence_ref: ev-tt-wh-001 }
+  fp16_tflops: { value: 233, evidence_ref: ev-tt-wh-001 }
+  fp32_tflops: { value: 74, evidence_ref: ev-tt-wh-001 }
+  int8_tops: { value: 466, evidence_ref: ev-tt-wh-001 }
+architecture:
+  compute_unit_count: { value: 128, evidence_ref: ev-tt-wh-001 }
+  compute_unit_label: Tensix
+  process_node_nm: { value: 12, evidence_ref: ev-tt-wh-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-tt-wh-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-tt-wh-001 }
+memory:
+  capacity_gb: { value: 24, evidence_ref: ev-tt-wh-001 }
+  bandwidth_gbps: { value: 576, evidence_ref: ev-tt-wh-001 }
+  type: GDDR6
+scale_up:
+  protocol: Galaxy-Mesh
+  bandwidth_gbps: 800
+  world_size: 32
+  topology: 2D-torus
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: Ethernet
+power:
+  tdp_w: { value: 300, evidence_ref: ev-tt-wh-001 }
+software_support:
+  drivers: ['TT-Metal', 'TT-NN', 'TT-Buda']
+  engines:
+    - { id: vllm, status: community-port, notes: 'tt-vllm fork; full open-source software stack' }
+  quantizations: [bf16, fp16, fp8-e4m3, int8]
+  parallelism: [tp, pp]
+aliases: ['Wormhole', 'Wormhole n300', 'tt-wh-n300']
+chinese_names: ['Tenstorrent 虫洞 n300']
+evidence:
+  - id: ev-tt-wh-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://tenstorrent.com/hardware/wormhole
+    accessed: '2026-04-29'
+    citation: 'Tenstorrent Wormhole n300 — 128 Tensix cores, 24GB GDDR6, 12nm Global Foundries, RISC-V based, fully open-source software stack (TT-Metal/TT-NN). Galaxy interconnect for 32-card 2D-torus topology.'
+disclaimers:
+  - 'Tenstorrent emphasizes open-source software and RISC-V instruction set — distinct from CUDA/ROCm/CANN walled gardens.'
+  - 'Tile-based architecture: each Tensix core has 5 RISC-V CPUs + 1 matrix engine + 32 KB compute SRAM.'

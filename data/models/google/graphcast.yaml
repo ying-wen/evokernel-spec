@@ -1,0 +1,62 @@
+id: graphcast
+name: GraphCast
+lab: google
+release_date: 2023-11-14
+license: creative-commons-by-nc-sa-4.0
+domain: scientific
+workload_kind: graph-iteration
+architecture:
+  family: dense
+  # GraphCast is a graph neural network operating on icosahedral mesh
+  # over Earth's surface; we approximate with transformer-equivalent
+  # params for roofline math. ~36.7M params, 1° resolution = 721x1440 grid.
+  total_params_b: 0.0367
+  active_params_b: 0.0367
+  layers: 16
+  hidden_size: 512
+  ffn_size: 1024
+  num_attention_heads: 8
+  num_kv_heads: 8
+  head_dim: 64
+  vocab_size: 256
+  max_context_length: 1038240
+  attention_type: graph-message-passing
+operator_decomposition:
+  # GraphCast inference: encoder (grid → mesh) + 16 processor steps
+  # (mesh GNN) + decoder (mesh → grid). FLOPs/token = per grid-point
+  # per autoregressive 6-hour step; full 10-day forecast = 40 iterations.
+  - operator: graph-message-passing
+    flops_per_token: 280000000
+    bytes_per_token: 280000000
+    notes: 'Mesh GNN message passing — 16 processor steps, edge-bound'
+  - operator: matmul
+    flops_per_token: 180000000
+    bytes_per_token: 60000000
+    notes: 'Encoder/decoder MLPs + per-edge MLPs'
+  - operator: scatter-gather
+    flops_per_token: 40000000
+    bytes_per_token: 200000000
+    notes: 'Grid ↔ icosahedral mesh interpolation — bandwidth-bound'
+  - operator: layernorm
+    flops_per_token: 4000000
+    bytes_per_token: 2000000
+modalities:
+  - text
+weight_format: fp32
+paper_url: https://www.science.org/doi/10.1126/science.adi2336
+github_url: https://github.com/google-deepmind/graphcast
+notes: |
+  GraphCast (Lam et al. 2023, Science). 0.25° / 1° global weather
+  forecast at 6-hour intervals, up to 10 days. Outperforms HRES
+  (operational numerical weather prediction) on 90% of variables.
+
+  Critical scientific-computing workload characteristic: graph-based
+  iterative inference (40 forward passes for a 10-day forecast) over
+  ~1M-vertex mesh. NOT autoregressive in the LLM sense — each step
+  produces global state.
+
+  Memory-bandwidth-bound on accelerators with HBM (1M vertex × 474
+  variables = ~2 GB activations per step). Triangulated icosahedral
+  mesh creates irregular memory access patterns that favor cards with
+  large cache hierarchies (H100 50 MB L2, MI300X 256 MB Infinity Cache)
+  over those with raw HBM bandwidth alone.

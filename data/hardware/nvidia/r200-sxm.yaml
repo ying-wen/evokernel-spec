@@ -1,0 +1,64 @@
+id: r200-sxm
+name: NVIDIA R200 SXM (Vera Rubin)
+vendor: nvidia
+generation: rubin-gen1
+status: announced
+release_year: 2026
+form_factor: sxm
+compute:
+  fp4_tflops: { value: 30000, evidence_ref: ev-r200-001 }
+  fp8_tflops: { value: 15000, evidence_ref: ev-r200-001 }
+  bf16_tflops: { value: 7500, evidence_ref: ev-r200-001 }
+  fp16_tflops: { value: 7500, evidence_ref: ev-r200-001 }
+  fp32_tflops: { value: 3700, evidence_ref: ev-r200-001 }
+  int8_tops: { value: 15000, evidence_ref: ev-r200-001 }
+architecture:
+  compute_unit_count: { value: 200, evidence_ref: ev-r200-arch }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-r200-arch }
+  l2_cache_mb: { value: 128, evidence_ref: ev-r200-arch }
+  hbm_stacks: { value: 8, evidence_ref: ev-r200-001 }
+  process_node_nm: { value: 3, evidence_ref: ev-r200-arch }
+  pcie_gen: { value: 6, evidence_ref: ev-r200-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-r200-001 }
+memory:
+  capacity_gb: { value: 288, evidence_ref: ev-r200-001 }
+  bandwidth_gbps: { value: 13000, evidence_ref: ev-r200-001 }
+  type: HBM4
+scale_up:
+  protocol: NVLink-6.0
+  bandwidth_gbps: 3600
+  world_size: 144
+  topology: switched
+  switch: nvswitch-gen5
+scale_out:
+  bandwidth_gbps_per_card: 1600
+  protocol: InfiniBand-XDR
+  nic: ConnectX-9
+power:
+  tdp_w: { value: 1800, evidence_ref: ev-r200-001 }
+software_support:
+  drivers: ['CUDA-13.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.7-rubin'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.16'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, fp4, int8]
+  parallelism: [tp, pp, ep, sp, disaggregated]
+aliases: ['Rubin R200', 'Vera Rubin R200']
+chinese_names: ['英伟达 Rubin R200']
+evidence:
+  - id: ev-r200-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.nvidia.com/en-us/data-center/rubin/
+    accessed: '2026-04-29'
+    citation: 'NVIDIA Rubin announcement (Computex 2025): NVLink-6.0 at 3.6 TB/s, NVL144 rack-scale, HBM4 with 288 GB / 13 TB/s. Vendor-claimed; not yet GA.'
+  - id: ev-r200-arch
+    tier: estimated
+    source_type: third-party-review
+    url: https://www.semianalysis.com/p/rubin-architecture-deep-dive
+    accessed: '2026-04-29'
+    citation: 'Rubin die: 200 SMs enabled, 128 MB L2, dual-die package on TSMC 3nm. Specs estimated from public roadmap; subject to change at GA.'
+disclaimers:
+  - 'Status: announced — not yet in customer hands. Specs sourced from Computex 2025 keynote; subject to revision at GA.'
+  - 'NVL144 super-pod (144 R200 in one scale-up domain) is planned for 2026 H2.'
