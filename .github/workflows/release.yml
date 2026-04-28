@@ -1,0 +1,103 @@
+name: release
+# Triggered when someone pushes a `v*` tag (e.g. `git tag v1.1.0 && git push --tags`).
+# Produces a GitHub Release with the offline tarball attached, so users
+# can `wget evokernel-spec-v1.1.0.tar.gz` without cloning the full repo
+# (which is ~50 MB including data + screenshots).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Releases need to write to the repo's Releases API.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    name: Build offline tarball + publish GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history so build-meta sha works
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate data corpus (release gate)
+        run: pnpm validate
+
+      - name: Build static site
+        run: pnpm build
+
+      - name: Pack offline tarball + manifest + sha256
+        run: pnpm pack:dist
+
+      # The tarball name has a sha + timestamp in it — promote it to a
+      # stable filename matching the tag for the release artifact, while
+      # keeping the original (provenance) name as a sibling.
+      - name: Stage release artifacts under stable names
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p .release
+          # Original (provenance-named) tarball + sha256
+          cp .runtime/*.tar.gz .release/
+          cp .runtime/*.sha256 .release/
+          # Stable alias for users who want predictable filenames
+          ORIG=$(ls .runtime/*.tar.gz | head -1)
+          STABLE=".release/evokernel-spec-${TAG}.tar.gz"
+          cp "$ORIG" "$STABLE"
+          (cd .release && sha256sum "evokernel-spec-${TAG}.tar.gz" > "evokernel-spec-${TAG}.tar.gz.sha256")
+          ls -lh .release/
+
+      - name: Generate release notes from commits since previous tag
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          PREV=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1 || echo "")
+          if [ -n "$PREV" ]; then
+            echo "Comparing $PREV → $TAG"
+            COMMITS=$(git log --pretty=format:'- %s (%h)' "${PREV}..${TAG}")
+            HEADER="## What's new since ${PREV}"
+          else
+            COMMITS=$(git log --pretty=format:'- %s (%h)' -n 30)
+            HEADER="## Initial release"
+          fi
+          {
+            echo "${HEADER}"
+            echo ""
+            echo "${COMMITS}"
+            echo ""
+            echo "## Offline deployment"
+            echo ""
+            echo "Download \`evokernel-spec-${TAG}.tar.gz\`, verify the checksum, then serve:"
+            echo ""
+            echo "\`\`\`bash"
+            echo "wget https://github.com/\${GITHUB_REPOSITORY}/releases/download/${TAG}/evokernel-spec-${TAG}.tar.gz"
+            echo "wget https://github.com/\${GITHUB_REPOSITORY}/releases/download/${TAG}/evokernel-spec-${TAG}.tar.gz.sha256"
+            echo "sha256sum -c evokernel-spec-${TAG}.tar.gz.sha256"
+            echo "tar -xzf evokernel-spec-${TAG}.tar.gz"
+            echo "npx serve dist  # or any static HTTP server"
+            echo "\`\`\`"
+            echo ""
+            echo "The tarball ships a top-level \`MANIFEST.json\` with build SHA, page count, and entity counts for provenance verification."
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}  # e.g. v1.1.0-rc1 → prerelease
+          files: |
+            .release/evokernel-spec-*.tar.gz
+            .release/evokernel-spec-*.tar.gz.sha256

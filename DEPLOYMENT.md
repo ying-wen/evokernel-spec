@@ -2,6 +2,46 @@
 
 This is a fully static site — `pnpm build` produces a `apps/web/dist/` directory that can be served by any static host. The recommended target is **Cloudflare Pages** (free tier sufficient for the V1 traffic envelope).
 
+## Releasing a versioned offline tarball
+
+Maintainers cut a versioned release by tagging:
+
+```bash
+git tag -a v1.1.0 -m "v1.1.0 — pricing page + 31 hardware + offline tarball"
+git push origin v1.1.0
+```
+
+This triggers `.github/workflows/release.yml`, which:
+
+1. Validates the data corpus
+2. Builds the static site
+3. Runs `pack:dist` to produce the offline tarball + sha256 + MANIFEST.json
+4. Stages a stable-named copy (`evokernel-spec-v1.1.0.tar.gz`) alongside the
+   provenance-named copy (`evokernel-spec-{sha}-{ts}.tar.gz`)
+5. Generates release notes from commits since the previous tag
+6. Publishes a GitHub Release with both tarballs + sha256 sidecars attached
+
+Tags matching `v*-*` (e.g. `v1.1.0-rc1`) are auto-marked as
+**prereleases** so they don't take over the "Latest" badge.
+
+End users can then:
+
+```bash
+wget https://github.com/{owner}/evokernel-spec/releases/download/v1.1.0/evokernel-spec-v1.1.0.tar.gz
+wget https://github.com/{owner}/evokernel-spec/releases/download/v1.1.0/evokernel-spec-v1.1.0.tar.gz.sha256
+sha256sum -c evokernel-spec-v1.1.0.tar.gz.sha256
+tar -xzf evokernel-spec-v1.1.0.tar.gz
+npx serve dist
+```
+
+The MANIFEST.json inside the tarball contains build SHA, page count,
+entity counts, and is `ManifestSchema`-validated by `pack-dist` —
+receivers can re-validate offline:
+
+```bash
+node -e "const m = require('./dist/MANIFEST.json'); console.log(m.product, m.version, m.build.sha)"
+```
+
 ## Local production (one-command launch)
 
 For local hosting, demos, or air-gapped environments, the repo ships a single
