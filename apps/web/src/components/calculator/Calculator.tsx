@@ -335,7 +335,7 @@ export default function Calculator({ models, hardware, cases, engines, locale = 
               result={result}
               locale={locale}
             />
-            <ResultPanel result={result} cases={cases} hwCount={hwCount} hwTdpW={hardware.find((h) => h.id === hwId)?.power.tdp_w?.value ?? 700} locale={locale} />
+            <ResultPanel result={result} cases={cases} hwCount={hwCount} selectedHw={hardware.find((h) => h.id === hwId) ?? null} locale={locale} />
           </>
         )}
       </div>
@@ -343,10 +343,23 @@ export default function Calculator({ models, hardware, cases, engines, locale = 
   );
 }
 
-function ResultPanel({ result, cases: _cases, hwCount, hwTdpW, locale = 'zh' }: { result: NonNullable<ReturnType<typeof calculate>>; cases: Case[]; hwCount: number; hwTdpW: number; locale?: Locale }) {
+function ResultPanel({ result, cases, hwCount, selectedHw, locale = 'zh' }: {
+  result: NonNullable<ReturnType<typeof calculate>>;
+  cases: Case[];
+  hwCount: number;
+  selectedHw: Hardware | null;
+  locale?: Locale;
+}) {
   const t = (k: Parameters<typeof tr>[1]) => tr(locale, k);
-  // pass hwTdpW down via TCOPanel default prop trick: not needed since component reads its own state.
-  void hwTdpW;
+  const en = locale === 'en';
+  const hwTdpW = selectedHw?.power.tdp_w?.value ?? 700;
+  // CN-vendor "no Tier 0 yet" notice — if the selected card is a Chinese accelerator
+  // and the corpus contains zero cases for THIS specific hardware (any model), the
+  // calculator falls back to the default 0.5 efficiency. Surface this so users
+  // understand the calibration gap and the high value of contributing first measurement.
+  const CN_VENDORS = new Set(['huawei', 'cambricon', 'hygon', 'moore-threads', 'enflame', 'biren', 'metax', 'iluvatar', 'pingtouge']);
+  const hasAnyCaseForThisHw = !!selectedHw && cases.some((c) => c.stack.hardware.id === selectedHw.id);
+  const showCnNoTier0 = !!selectedHw && CN_VENDORS.has(selectedHw.vendor) && !hasAnyCaseForThisHw;
   const r = result;
   return (
     <section className="mt-6 space-y-6">
@@ -354,6 +367,13 @@ function ResultPanel({ result, cases: _cases, hwCount, hwTdpW, locale = 'zh' }: 
       <div className="rounded-lg border p-5"
            style={{ borderColor: 'var(--color-tier-measured)', background: 'color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg))' }}>
         <h4 className="font-semibold mb-3">{t('calc.tier0.title')} — {r.tier0Cases.length}</h4>
+        {showCnNoTier0 && (
+          <div className="mb-3 p-3 rounded text-xs" style={{ background: 'color-mix(in oklch, var(--color-china) 8%, var(--color-bg))', color: 'var(--color-china)' }}>
+            {en
+              ? <>🇨🇳 No measured cases yet for this Chinese accelerator. Tier 1 below uses the default <strong>0.5</strong> efficiency factor; expect 30-50% real-world throughput. Software stacks like CANN / MUSA / MindIE close this gap year-over-year — first measurement contribution is high-value.</>
+              : <>🇨🇳 该国产加速器暂无实测案例。下方 Tier 1 使用默认 <strong>0.5</strong> efficiency, 预计实测可达理论上界的 30-50%。CANN / MUSA / MindIE 等软件栈每年迭代显著缩小该差距 — 首个实测贡献价值最高。</>}
+          </div>
+        )}
         {r.tier0Cases.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
             {t('calc.tier0.empty.prefix')}<a href="https://github.com/evokernel/evokernel-spec" className="underline" style={{ color: 'var(--color-accent)' }}>{t('calc.tier0.empty.contribute')}</a>

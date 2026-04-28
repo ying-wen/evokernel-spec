@@ -11,6 +11,12 @@ compute:
   bf16_tflops: { value: 256, evidence_ref: ev-br100-001 }
   fp16_tflops: { value: 256, evidence_ref: ev-br100-001 }
   int8_tops: { value: 1024, evidence_ref: ev-br100-001 }
+architecture:
+  compute_unit_count: { value: 64, evidence_ref: ev-br100-arch-001 }
+  compute_unit_label: SM
+  hbm_stacks: { value: 4, evidence_ref: ev-br100-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-br100-arch-001 }
+  transistor_count_b: { value: 77, evidence_ref: ev-br100-arch-001 }
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-br100-001 }
   bandwidth_gbps: { value: 2300, evidence_ref: ev-br100-001 }
@@ -39,6 +45,12 @@ evidence:
     url: https://www.birentech.com/
     accessed: '2026-04-28'
     citation: 'Biren BR100 launch announcement (export-control affected)'
+  - id: ev-br100-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.birentech.com/
+    accessed: '2026-04-28'
+    citation: 'BR100: 64 SPCs (Streaming Processor Clusters), 4× HBM2e ⇒ 64 GB, 77B transistors @ TSMC 7nm chiplet'
 disclaimers:
   - 'BR100 affected by US export controls; production discontinued.'
   - 'All performance figures are vendor-claimed unless tier=measured.'

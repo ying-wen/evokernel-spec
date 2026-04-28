@@ -11,6 +11,11 @@ compute:
   bf16_tflops: { value: 128, evidence_ref: ev-br104-001 }
   fp16_tflops: { value: 128, evidence_ref: ev-br104-001 }
   int8_tops: { value: 512, evidence_ref: ev-br104-001 }
+architecture:
+  compute_unit_count: { value: 32, evidence_ref: ev-br104-arch-001 }
+  compute_unit_label: SM
+  hbm_stacks: { value: 2, evidence_ref: ev-br104-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-br104-arch-001 }
 memory:
   capacity_gb: { value: 32, evidence_ref: ev-br104-001 }
   bandwidth_gbps: { value: 1150, evidence_ref: ev-br104-001 }
@@ -39,6 +44,12 @@ evidence:
     url: https://www.birentech.com/
     accessed: '2026-04-28'
     citation: 'Biren BR104 announcement (export-control compliant variant of BR100)'
+  - id: ev-br104-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.birentech.com/
+    accessed: '2026-04-28'
+    citation: 'BR104: 32 SPCs derated from BR100, 2× HBM2e stacks ⇒ 32 GB; TSMC 7nm-class'
 disclaimers:
   - 'BR104 is export-control-compliant variant; reduced from BR100.'
   - 'All performance figures are vendor-claimed unless tier=measured.'

@@ -11,6 +11,13 @@ compute:
   bf16_tflops: { value: 2250, evidence_ref: ev-gb200-001 }
   fp16_tflops: { value: 2250, evidence_ref: ev-gb200-001 }
   int8_tops: { value: 4500, evidence_ref: ev-gb200-001 }
+architecture:
+  compute_unit_count: { value: 160, evidence_ref: ev-gb200-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-gb200-arch-001 }
+  l2_cache_mb: { value: 100, evidence_ref: ev-gb200-arch-001 }
+  hbm_stacks: { value: 8, evidence_ref: ev-gb200-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-gb200-arch-001 }
 memory:
   capacity_gb: { value: 192, evidence_ref: ev-gb200-001 }
   bandwidth_gbps: { value: 8000, evidence_ref: ev-gb200-001 }
@@ -44,6 +51,12 @@ evidence:
     url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
     accessed: '2026-04-28'
     citation: 'NVIDIA GB200 NVL72 product page; per-GPU specs (each GB200 contains 2 B200s)'
+  - id: ev-gb200-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://resources.nvidia.com/en-us-blackwell-architecture
+    accessed: '2026-04-28'
+    citation: 'GB200 reuses Blackwell B200 die: 160 SMs, 100 MB L2, 8× HBM3e (per-GPU); 2 GPUs + 1 Grace CPU per Bianca board'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'
   - 'GB200 chip pairs 2 B200 GPUs with 1 Grace CPU; specs above are per-B200.'

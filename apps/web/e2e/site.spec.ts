@@ -514,6 +514,18 @@ test.describe('Architecture schema + factual Topology', () => {
   });
 });
 
+test.describe('Calculator CN no-Tier-0 notice', () => {
+  test('selecting a Chinese accelerator with no measured cases surfaces calibration notice', async ({ page }) => {
+    // enflame-t21 is a CN card with bf16 and zero cases in corpus
+    await page.goto('/calculator/?model=llama-4-scout&hw=enflame-t21');
+    await page.waitForSelector('button[type="button"]', { state: 'visible' });
+    // Wait for Tier 0 heading to appear (proves result rendered)
+    await expect(page.getByRole('heading', { name: /Tier 0|实测案例/i }).first()).toBeVisible({ timeout: 15000 });
+    // CN notice should appear (zh locale by default on /calculator/)
+    await expect(page.locator('text=/国产加速器暂无实测案例/').first()).toBeVisible();
+  });
+});
+
 test.describe('Compare with no card cap', () => {
   test('user can select more than 8 cards in compare', async ({ page }) => {
     await page.goto('/compare/');

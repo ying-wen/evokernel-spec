@@ -11,6 +11,11 @@ compute:
   bf16_tflops: { value: 320, evidence_ref: ev-asc910b-001 }
   fp16_tflops: { value: 320, evidence_ref: ev-asc910b-001 }
   int8_tops: { value: 640, evidence_ref: ev-asc910b-001 }
+architecture:
+  compute_unit_count: { value: 32, evidence_ref: ev-asc910b-arch-001 }
+  compute_unit_label: AI Core
+  hbm_stacks: { value: 4, evidence_ref: ev-asc910b-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-asc910b-arch-001 }
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-asc910b-001 }
   bandwidth_gbps: { value: 1600, evidence_ref: ev-asc910b-001 }
@@ -43,6 +48,12 @@ evidence:
     url: https://e.huawei.com/en/products/computing/ascend
     accessed: '2026-04-28'
     citation: 'Huawei Ascend 910B product overview'
+  - id: ev-asc910b-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://e.huawei.com/en/products/computing/ascend
+    accessed: '2026-04-28'
+    citation: 'Ascend 910B: Da Vinci 2.0 architecture, 32 AI Cores; 4× HBM2e ⇒ 64 GB; SMIC N+1 / 7nm-class'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'
   - 'FP8 and FP4 not supported on this generation.'

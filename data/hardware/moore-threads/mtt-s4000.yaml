@@ -11,6 +11,12 @@ compute:
   bf16_tflops: { value: 100, evidence_ref: ev-mtts4000-001 }
   fp16_tflops: { value: 100, evidence_ref: ev-mtts4000-001 }
   int8_tops: { value: 200, evidence_ref: ev-mtts4000-001 }
+architecture:
+  compute_unit_count: { value: 48, evidence_ref: ev-mtts4000-arch-001 }
+  compute_unit_label: Cluster
+  process_node_nm: { value: 7, evidence_ref: ev-mtts4000-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-mtts4000-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-mtts4000-001 }
 memory:
   capacity_gb: { value: 48, evidence_ref: ev-mtts4000-001 }
   bandwidth_gbps: { value: 768, evidence_ref: ev-mtts4000-001 }
@@ -40,6 +46,12 @@ evidence:
     url: https://www.mthreads.com/product/S4000
     accessed: '2026-04-28'
     citation: 'Moore Threads MTT S4000 product page'
+  - id: ev-mtts4000-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.mthreads.com/product/S4000
+    accessed: '2026-04-28'
+    citation: 'KUAE S4000 (MUSA architecture): 48 compute clusters; PCIe Gen5 x16; SMIC 7nm-class fabrication'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'
   - 'MUSA programming model is CUDA-compatible at source level.'
