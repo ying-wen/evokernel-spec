@@ -41,17 +41,45 @@
 | ![Cases](docs/screenshots/cases.png) | ![Quality](docs/screenshots/quality.png) |
 | **案例排行榜** — 多维筛选 + 排序 | **数据质量** — 实时审计 + 覆盖缺口 |
 
-## 本地开发
+## 快速上线 (Quick start)
+
+一行命令生产级本地部署 — 自动 install · validate · build · 启动 · health-poll · 12 路由 smoke check:
 
 ```bash
 git clone https://github.com/evokernel/evokernel-spec
 cd evokernel-spec
+./launch.sh                # 或者: pnpm launch
+```
+
+成功后控制台打印:
+```
+  ✓  evokernel-spec is LIVE
+  URL:        http://127.0.0.1:4321/
+  Health:     http://127.0.0.1:4321/api/health.json
+  Build SHA:  774ba71
+  Pages:      237 page(s) built
+  Hardware:   31 cards loaded
+```
+
+```bash
+pnpm launch:fast          # 跳过 build/validate, 用现有 dist (秒级重启)
+pnpm launch:stop          # 干净关停
+pnpm health               # 查看健康端点 JSON
+curl http://127.0.0.1:4321/api/healthz   # K8s 风格 plain "ok" 探针
+```
+
+systemd 单元 / launchd plist 详见 [DEPLOYMENT.md](DEPLOYMENT.md#local-production-one-command-launch)。
+
+## 本地开发
+
+```bash
 pnpm install
 
 # Development
-pnpm dev          # http://localhost:4321
+pnpm dev          # http://localhost:4321 (HMR)
 pnpm build        # static build to apps/web/dist
 pnpm preview      # serve dist locally
+pnpm test:e2e     # full Playwright sweep (87 tests, ~9s)
 
 # Data quality
 pnpm validate     # zod schema + cross-references

@@ -155,8 +155,23 @@ fi
 ok "health probe passing (HTTP 200, status:ok)"
 
 # ---- 6. smoke-check critical routes ----
+# 12 routes covering: home (zh+en), hub pages, calculator, pricing,
+# operator/case detail (deep links), API JSON, and the cheap liveness probe.
 log "smoke-checking critical routes"
-routes=(/ /hardware/ /models/ /cases/ /calculator/ /pricing/ /china/ /en/)
+routes=(
+  /
+  /en/
+  /hardware/
+  /models/
+  /cases/
+  /calculator/
+  /pricing/
+  /china/
+  /showcase/
+  /quality/
+  /api/healthz
+  /api/index.json
+)
 failed_routes=()
 for route in "${routes[@]}"; do
   code=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 3 "http://${HOST}:${PORT}${route}" 2>/dev/null || echo "000")

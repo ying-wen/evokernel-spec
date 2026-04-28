@@ -198,6 +198,18 @@ test.describe('Entity detail pages', () => {
 });
 
 test.describe('Health endpoint (uptime probe)', () => {
+  test('/api/healthz returns plain "ok" — k8s liveness style', async ({ request }) => {
+    const r = await request.get('/api/healthz');
+    expect(r.status()).toBe(200);
+    expect(await r.text()).toBe('ok\n');
+    // Note: in static SSG export, Astro's Response headers (content-type,
+    // cache-control, x-evokernel) are stripped by the preview file server —
+    // those are only honored under SSR. The static server infers
+    // content-type from the file extension. For load-balancer probes that
+    // need correct content-type, deploy with Cloudflare Pages /
+    // nginx Location override OR switch this route to SSR.
+  });
+
   test('/api/health.json returns 200 + status:ok with build SHA + corpus counts', async ({ page }) => {
     const r = await page.goto('/api/health.json');
     expect(r?.status()).toBe(200);
