@@ -9,6 +9,7 @@
     "preview": "astro preview",
     "test": "vitest --run",
     "test:e2e": "playwright test",
+    "test:lighthouse": "RUN_LIGHTHOUSE=1 playwright test e2e/lighthouse.spec.ts",
     "check": "astro check"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "@types/react-dom": "^19.0.0",
     "lighthouse": "^13.1.0",
     "pagefind": "^1.2.0",
+    "tslib": "^2.8.1",
     "vitest": "^2.1.0"
   }
 }

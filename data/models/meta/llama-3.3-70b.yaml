@@ -1,0 +1,41 @@
+id: llama-3.3-70b
+name: Llama 3.3 70B Instruct
+lab: meta
+release_date: 2024-12-06
+license: Llama-3.3-Community
+architecture:
+  family: dense
+  total_params_b: 70
+  active_params_b: 70
+  layers: 80
+  hidden_size: 8192
+  ffn_size: 28672
+  num_attention_heads: 64
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 128256
+  max_context_length: 131072
+  attention_type: gqa
+operator_decomposition:
+  # Per-token estimates at decode (single-pass, batch=1, no KV write).
+  # FLOPs ≈ 2 × active_params_b × 1e9 = 140 GFLOP
+  # Bytes ≈ active_params_b × 2 (BF16) = 140 GB read
+  # GEMM dominates (FFN + projections); attention small per-token at decode.
+  - operator: matmul
+    flops_per_token: 132000000000
+    bytes_per_token: 132000000000
+  - operator: attention
+    flops_per_token: 7500000000
+    bytes_per_token: 7500000000
+  - operator: rmsnorm
+    flops_per_token: 8400000
+    bytes_per_token: 1310720
+  - operator: rope
+    flops_per_token: 524288
+    bytes_per_token: 65536
+  - operator: silu
+    flops_per_token: 156905472
+    bytes_per_token: 78643200
+modalities:
+  - text
+weight_format: bf16

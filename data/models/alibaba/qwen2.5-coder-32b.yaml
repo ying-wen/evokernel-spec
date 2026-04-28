@@ -1,0 +1,38 @@
+id: qwen2.5-coder-32b
+name: Qwen2.5-Coder 32B Instruct
+lab: alibaba
+release_date: 2024-11-12
+license: Apache-2.0
+architecture:
+  family: dense
+  total_params_b: 32
+  active_params_b: 32
+  layers: 64
+  hidden_size: 5120
+  ffn_size: 27648
+  num_attention_heads: 40
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 152064
+  max_context_length: 131072
+  attention_type: gqa
+operator_decomposition:
+  # Decode-step approximation. FLOPs ≈ 2 × 32B = 64 GFLOP/token.
+  - operator: matmul
+    flops_per_token: 60500000000
+    bytes_per_token: 60500000000
+  - operator: attention
+    flops_per_token: 3500000000
+    bytes_per_token: 3500000000
+  - operator: rmsnorm
+    flops_per_token: 6553600
+    bytes_per_token: 819200
+  - operator: rope
+    flops_per_token: 327680
+    bytes_per_token: 40960
+  - operator: silu
+    flops_per_token: 121634816
+    bytes_per_token: 60817408
+modalities:
+  - text
+weight_format: bf16

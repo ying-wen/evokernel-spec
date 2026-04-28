@@ -1,0 +1,24 @@
+id: cambricon-mlu590-pod
+name: 寒武纪 思元 590 集群 (16 节点)
+vendor: cambricon
+type: pod
+card: mlu590
+card_count: 128
+scale_up_domain_size: 8
+intra_node_interconnect: MLU-Link-v2
+inter_node_interconnect: RoCEv2-200G
+cooling: liquid
+rack_power_kw: 60
+total_memory_gb: 8192
+total_compute_pflops_bf16: 32.768
+release_year: 2024
+chinese_names: ['思元590集群']
+evidence:
+  - id: ev-mlu590pod-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.cambricon.com/
+    accessed: '2026-04-28'
+    citation: 'Cambricon 思元590 production cluster blueprint (16 nodes × 8 cards = 128 MLU590; estimated from product brief)'
+disclaimers:
+  - 'Configuration estimated from production deployments; vendor product brief lacks per-node spec.'

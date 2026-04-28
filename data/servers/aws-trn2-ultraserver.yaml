@@ -1,0 +1,23 @@
+id: aws-trn2-ultraserver
+name: AWS Trn2 UltraServer
+vendor: aws
+type: super-pod
+card: trainium-2
+card_count: 64
+scale_up_domain_size: 64
+intra_node_interconnect: NeuronLink-v3
+inter_node_interconnect: EFA-v3
+cooling: liquid
+rack_power_kw: 100
+total_memory_gb: 6144
+total_compute_pflops_bf16: 41.6
+release_year: 2024
+evidence:
+  - id: ev-trn2us-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://aws.amazon.com/blogs/aws/aws-trainium2-instances-ec2-trn2/
+    accessed: '2026-04-28'
+    citation: 'AWS Trn2 UltraServer announcement: 64 Trainium2 chips per UltraServer in single scale-up domain via NeuronLink-v3'
+disclaimers:
+  - 'Trn2 UltraServer connects 4× Trn2 instances (each 16-chip) via inter-instance NeuronLink for a 64-chip scale-up domain.'

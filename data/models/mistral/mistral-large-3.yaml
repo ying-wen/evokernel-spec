@@ -1,0 +1,38 @@
+id: mistral-large-3
+name: Mistral Large 3
+lab: mistral
+release_date: 2025-08-14
+license: MRL-2
+architecture:
+  family: dense
+  total_params_b: 123
+  active_params_b: 123
+  layers: 88
+  hidden_size: 12288
+  ffn_size: 28672
+  num_attention_heads: 96
+  num_kv_heads: 8
+  head_dim: 128
+  vocab_size: 32768
+  max_context_length: 128000
+  attention_type: gqa
+operator_decomposition:
+  # Per-token decode estimates. ~246 GFLOP/token.
+  - operator: matmul
+    flops_per_token: 232000000000
+    bytes_per_token: 232000000000
+  - operator: attention
+    flops_per_token: 12500000000
+    bytes_per_token: 12500000000
+  - operator: rmsnorm
+    flops_per_token: 14745600
+    bytes_per_token: 1966080
+  - operator: rope
+    flops_per_token: 786432
+    bytes_per_token: 98304
+  - operator: silu
+    flops_per_token: 252706816
+    bytes_per_token: 126353408
+modalities:
+  - text
+weight_format: bf16
