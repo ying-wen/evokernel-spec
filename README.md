@@ -108,20 +108,42 @@ curl https://evokernel.dev/api/openapi.json | jq '.info.version'
 
 完整 OpenAPI 3.1 规范: [`/api/openapi.json`](https://evokernel.dev/api/openapi.json)
 
+## 文档导航 / Documentation Map
+
+| 文件 | 内容 |
+|---|---|
+| [README.md](README.md) | 项目概览、快速上线、API、贡献入口（你在看的） |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | **架构图、目录结构、添加新硬件/模型/案例的流程、调试技巧** |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | 本地一键部署、Cloudflare Pages、nginx、systemd、Release 工作流 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | DCO 签署规范、双语贡献指南 |
+| [SECURITY.md](SECURITY.md) | 安全漏洞披露政策、tarball 校验流程 |
+| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | **已知问题、限制、变通方案（按严重度分级）** |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | **v1.2 / v1.3 / v2.0 路线图，欢迎 PR** |
+| [CHANGELOG.md](CHANGELOG.md) | 版本变更日志（Keep-a-Changelog 格式） |
+
 ## 贡献
 
 每个数字都需要 evidence 引证。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-最高优先级贡献机会: [实时 /quality 数据质量页](https://evokernel.dev/quality/) 中标记的国产硬件无 case 的卡。
+最高优先级贡献机会:
+- **数据**：[实时 /quality 数据质量页](https://evokernel.dev/quality/) 中标记的国产硬件无 case 的卡
+- **代码**：[ROADMAP.md](docs/ROADMAP.md) v1.2 中 high-priority 项均欢迎 PR
 
 ## 部署
 
-详见 [DEPLOYMENT.md](DEPLOYMENT.md)。推荐 Cloudflare Pages (本项目静态构建, 完全适配)。
+- **本地一键部署**: `./launch.sh`（见上方"快速上线"）
+- **生产部署**: Cloudflare Pages / Vercel / nginx / systemd 等详见 [DEPLOYMENT.md](DEPLOYMENT.md)
+- **离线分发**: `pnpm pack:dist` 生成 2.6 MB tar.gz + sha256
 
-## 已知限制
+## 已知问题与下一步
 
-- **公网域名**: 当前仅本地 `pnpm preview` 上线; `evokernel.dev` 域名为示意, 真公网部署见 [DEPLOYMENT.md](DEPLOYMENT.md)。
-- **Calculator 详细解释段落**: `/en/calculator/` 的步骤标题、按钮、关键结果行已英文化, 但部分公式注释和 TCO 假设说明等 verbose helper 段落仍为中文。核心交互流程完全可用。
+完整列表见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) 和 [docs/ROADMAP.md](docs/ROADMAP.md)。当前关注:
+
+- 🟡 `/api/health.json` SSG 限制：body 正确但 HTTP 状态码恒为 200（v1.2 规划修复）
+- 🟡 23/31 张卡的 architecture 数据为 `tier: estimated`，等待 vendor 白皮书或 Tier 0 测量
+- 🟡 EN 翻译滞后于 ZH（i18n fallback 防止 404，但部分页面文案仍为中文）
+- 🟡 Lighthouse CI 是周度 cron，不是 PR-time gate（v1.2 计划接入）
+- 🟢 Compare > 8 张卡 radar/bar 可读性下降（已有软警告，v1.2 规划 small-multiples）
 
 ## English
 
