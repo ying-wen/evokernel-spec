@@ -2,6 +2,93 @@
 
 This is a fully static site — `pnpm build` produces a `apps/web/dist/` directory that can be served by any static host. The recommended target is **Cloudflare Pages** (free tier sufficient for the V1 traffic envelope).
 
+## Local production (one-command launch)
+
+For local hosting, demos, or air-gapped environments, the repo ships a single
+launch script with full readiness verification:
+
+```bash
+./launch.sh
+```
+
+What it does (idempotent — safe to re-run):
+
+1. Frees port 4321 (kills any prior listener)
+2. `pnpm install` if `node_modules/` missing
+3. Validates the data corpus (`pnpm validate` → zod + cross-refs)
+4. `pnpm build` → 237+ static pages in `apps/web/dist/`
+5. Starts `pnpm preview` detached, logs to `.runtime/preview.log`
+6. Polls `/api/health.json` until `status: ok` (timeout 30 s, returns 503 on degraded corpus)
+7. Smoke-checks 8 critical routes (`/`, `/hardware/`, `/cases/`, `/calculator/`, `/pricing/`, `/china/`, `/en/`, `/models/`)
+8. Prints live URL + build SHA + stop instructions
+
+Flags:
+
+| Flag | Effect |
+|---|---|
+| `--no-build` | Reuse existing `apps/web/dist/` (faster restart) |
+| `--no-validate` | Skip data validation |
+| `--stop` | Cleanly kill the running preview |
+| `--help` | Show inline help |
+
+Environment overrides:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `4321` | Server port |
+| `HOST` | `127.0.0.1` | Bind address (set to `0.0.0.0` to expose on LAN) |
+
+Health endpoint contract:
+
+```bash
+curl -s http://127.0.0.1:4321/api/health.json
+```
+
+```json
+{
+  "status": "ok",                    // "degraded" → HTTP 503
+  "name": "evokernel-spec",
+  "version": "v1.1",
+  "build": { "sha": "...", "built_at": "..." },
+  "served_at": "...",
+  "data_loaded": { "hardware": 31, "models": 17, "cases": 22, ... }
+}
+```
+
+Readiness contract: the probe returns `503 + status:degraded` when the
+corpus loader fails OR returns zero hardware/models — so external uptime
+monitors (statuscake, uptime-robot, cloudflare healthchecks) get a real
+signal instead of a false-positive 200.
+
+### Use systemd / launchd to keep it running across reboots
+
+```ini
+# /etc/systemd/system/evokernel.service
+[Unit]
+Description=EvoKernel Spec
+After=network.target
+
+[Service]
+Type=simple
+User=evokernel
+WorkingDirectory=/opt/evokernel-spec
+ExecStart=/opt/evokernel-spec/launch.sh --no-build
+ExecStop=/opt/evokernel-spec/launch.sh --stop
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now evokernel
+curl http://127.0.0.1:4321/api/health.json   # verify
+```
+
+For macOS launchd, use the equivalent `.plist` with `KeepAlive=true`.
+
+---
+
 ## Prerequisites
 
 - GitHub repository with this code pushed

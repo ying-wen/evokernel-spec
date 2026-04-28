@@ -197,6 +197,25 @@ test.describe('Entity detail pages', () => {
   });
 });
 
+test.describe('Health endpoint (uptime probe)', () => {
+  test('/api/health.json returns 200 + status:ok with build SHA + corpus counts', async ({ page }) => {
+    const r = await page.goto('/api/health.json');
+    expect(r?.status()).toBe(200);
+    const body = await r!.json();
+    expect(body.status).toBe('ok');
+    expect(body.name).toBe('evokernel-spec');
+    expect(body.build.sha).toMatch(/^[a-f0-9]{6,40}$|^unknown$/);
+    expect(body.build.built_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(body.served_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // Critical: all 10 corpus loaders must report counts
+    expect(body.data_loaded.hardware).toBeGreaterThanOrEqual(28);
+    expect(body.data_loaded.models).toBeGreaterThanOrEqual(14);
+    expect(body.data_loaded.cases).toBeGreaterThanOrEqual(20);
+    // No-cache header so probes always see fresh state
+    expect(r!.headers()['cache-control']).toMatch(/no-cache|no-store/);
+  });
+});
+
 test.describe('JSON API and timeline', () => {
   test('/api/index.json returns API descriptor', async ({ page }) => {
     const r = await page.goto('/api/index.json');
