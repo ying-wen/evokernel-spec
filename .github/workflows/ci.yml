@@ -98,3 +98,53 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report
           retention-days: 7
+
+  deployment-smoke:
+    runs-on: ubuntu-latest
+    name: Deployment smoke (launch.sh + 12 critical routes + offline tarball)
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: apps/web/dist
+      # launch.sh polls /api/health.json then smoke-checks 12 critical
+      # routes against the actually-built artifact. --no-build reuses
+      # dist from upstream build job; --no-validate skips revalidation
+      # (already covered by validate-data job).
+      - name: Run launch.sh (skip rebuild + revalidate)
+        run: ./launch.sh --no-build --no-validate
+        timeout-minutes: 2
+      - name: Verify health endpoints
+        run: |
+          echo '=== /api/healthz ==='
+          curl -sf http://127.0.0.1:4321/api/healthz
+          echo '=== /api/health.json ==='
+          curl -sf http://127.0.0.1:4321/api/health.json | tee /tmp/health.json
+          jq -e '.status == "ok"' /tmp/health.json
+          jq -e '.data_loaded.hardware >= 28' /tmp/health.json
+          jq -e '.data_loaded.models >= 14' /tmp/health.json
+      - name: Pack offline distribution (tar.gz + sha256)
+        run: pnpm pack:dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offline-tarball
+          path: |
+            .runtime/*.tar.gz
+            .runtime/*.sha256
+          retention-days: 14
+      - if: always()
+        run: ./launch.sh --stop || true
+      - if: failure()
+        run: |
+          echo '=== preview log ==='
+          cat .runtime/preview.log || echo 'no preview log'

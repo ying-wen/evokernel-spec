@@ -4,22 +4,25 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![Tests](https://img.shields.io/badge/tests-117_passing-success)](#)
-[![Pages](https://img.shields.io/badge/pages-134-blue)](#)
+[![Tests](https://img.shields.io/badge/tests-151_passing-success)](#)
+[![Pages](https://img.shields.io/badge/pages-237-blue)](#)
+[![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
 
 ![Home](docs/screenshots/home.png)
 
 ## Highlights
 
-- **28 加速卡**: NVIDIA / AMD / Intel / AWS / Google + **9 家国产** (昇腾 · 寒武纪 · 海光 · 摩尔线程 · 燧原 · 壁仞 · 沐曦 · 天数智芯 · 平头哥)
-- **14 frontier 开源模型**: DeepSeek V4 Pro / Flash / R1, Kimi K2.6, GLM-5.1, Qwen 3.5/3.6, Llama 4, Mistral Small 4, Gemma 4, MiniMax M2.7, gpt-oss
-- **20 部署案例**: 含 CloudMatrix 384 超节点、disaggregated 部署、所有 9 家国产卡
+- **31 加速卡** (8 张 含 vendor-floorplan 架构数据): NVIDIA / AMD / Intel / AWS / Google + **9 家国产** (昇腾 · 寒武纪 · 海光 · 摩尔线程 · 燧原 · 壁仞 · 沐曦 · 天数智芯 · 平头哥)
+- **17 frontier 开源模型**: DeepSeek V4 Pro / Flash / R1, Kimi K2.6, GLM-5.1, Qwen 3.5/3.6, Llama 4, Mistral Small 4, Gemma 4, MiniMax M2.7, gpt-oss + 算子 FLOP/byte 拆解
+- **22 部署案例**: 含 CloudMatrix 384 超节点、disaggregated 部署、所有 9 家国产卡
 - **Tier 0 实测查表 + Tier 1 透明 Roofline 计算器**: 含 per-operator breakdown / concurrency sweep / TCO ($/M tokens) / disaggregated mode
+- **/pricing TCO 排行榜**: 公式公开 · 18 张卡 best/median/worst $/M tokens
 - **国产芯片专题**: 矩阵热力图 + 代际谱系 + 软件生态对照
 - **数据可信度三档**: 📄 官方声称 · ✅ 实测验证 · ⚠️ 社区估算
-- **5 个 JSON API**: `/api/{index,hardware,models,cases,openapi}.json` (CC-BY-SA 4.0)
+- **6 个 JSON API**: `/api/{index,hardware,models,cases,openapi}.json` + `/api/health.json`+`/api/healthz` (CC-BY-SA 4.0)
+- **生产级本地部署**: `./launch.sh` 一键 build+health-poll+12 路由 smoke / `pack:dist` 离线 tar.gz + sha256 sidecar
 - **WCAG 2 AA 兼容**, 中文+英文, 支持深色主题
-- **完整 CI**: 5 jobs, 117 测试, 0 类型错误, 周度 evidence 链接健康检查
+- **完整 CI 6 jobs**: validate · type-check · unit · build · e2e (151 测试, axe a11y, Lighthouse) · deployment-smoke (launch.sh + 健康探针 + 离线 tarball artifact) · 周度 evidence 链接健康检查
 
 ## 截图
 
