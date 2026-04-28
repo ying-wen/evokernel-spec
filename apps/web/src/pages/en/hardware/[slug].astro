@@ -5,9 +5,10 @@ import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
-import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware } from '~/lib/data';
+import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators } from '~/lib/data';
 import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
 import Topology from '~/components/hardware/Topology.astro';
+import OperatorCoverage from '~/components/hardware/OperatorCoverage.astro';
 import Substitutes from '~/components/hardware/Substitutes.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import { hardwareLD, breadcrumbLD } from '~/lib/jsonld';
@@ -174,6 +175,11 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
     <section class="pb-8">
       <h3 class="text-lg font-semibold mb-3">Which models can it run?</h3>
       <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Operator support &amp; optimization headroom</h3>
+      <OperatorCoverage hw={allHardwareRaw.find((x) => x.id === hw.id)!} operators={await getOperators()} models={allModels} cases={allCases} hardware={allHardwareRaw} />
     </section>
 
     <section class="pb-8">

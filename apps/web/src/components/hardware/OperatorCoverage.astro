@@ -1,0 +1,162 @@
+---
+import type { Hardware, Operator, Case, Model } from '@evokernel/schemas';
+import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
+
+interface Props {
+  hw: Hardware;
+  operators: Operator[];
+  models: Model[];
+  cases: Case[];
+  hardware: Hardware[];
+}
+const { hw, operators, models, cases, hardware } = Astro.props;
+
+// 1. Determine which operator categories this hardware actually supports through its engine list
+//    (we use software_support.engines as a proxy — if any engine is supported, all standard ops
+//    are supported; specialized ops (FlashAttn-3, MoE-gate) require modern engine versions)
+const supportedEngines = new Set(hw.software_support.engines.map((e) => e.id));
+const hasModernAttn = supportedEngines.has('vllm') || supportedEngines.has('sglang') || supportedEngines.has('tensorrt-llm') || supportedEngines.has('mindie');
+const hasMoE = hasModernAttn; // same engines that support attention also support MoE in v1+
+
+// 2. Compute per-operator headroom: best measured efficiency on this hw vs theoretical
+//    (efficiency factor < 1.0 = headroom for kernel optimization)
+const efficiencyMap = buildEfficiencyMap(cases, hardware, models);
+const eff = getEfficiency(hw.id, efficiencyMap);
+const overallEff = eff.factor;
+
+// 3. Per-category status table
+type CovStatus = 'mature' | 'partial' | 'gap' | 'unknown';
+function statusFor(op: Operator): { status: CovStatus; reason: string } {
+  switch (op.category) {
+    case 'matmul':
+      // Matmul is universally supported
+      return { status: 'mature', reason: 'GEMM supported on all inference engines' };
+    case 'attention':
+      if (op.id === 'flash-attention-3') {
+        // FA3 needs Hopper+ or modern engine
+        const hasHopperOrNewer = hw.generation === 'hopper' || hw.generation === 'blackwell' || hw.compute.fp8_tflops?.value;
+        return hasHopperOrNewer && hasModernAttn
+          ? { status: 'mature', reason: 'FA-3 on modern engine + tensor cores' }
+          : { status: 'gap', reason: 'No FA-3 path; falls back to FA-2 / vanilla SDPA' };
+      }
+      return hasModernAttn ? { status: 'mature', reason: 'paged-attention via vLLM/SGLang/MindIE' } : { status: 'partial', reason: 'no production attention engine' };
+    case 'norm':
+    case 'activation':
+    case 'embedding':
+      return { status: 'mature', reason: 'fused into engine kernels' };
+    case 'moe-routing':
+      return hasMoE
+        ? { status: 'mature', reason: 'MoE gating supported via vLLM ≥0.4 / SGLang' }
+        : { status: 'gap', reason: 'no MoE-aware engine' };
+    case 'communication':
+      // all-reduce / all-to-all depend on scale-up protocol
+      if (op.id === 'all2all') {
+        const ws = hw.scale_up.world_size;
+        return ws >= 8
+          ? { status: 'mature', reason: `all-to-all via ${hw.scale_up.protocol} world_size=${ws}` }
+          : { status: 'partial', reason: 'small scale-up domain; expert-parallel needs careful sharding' };
+      }
+      return { status: 'mature', reason: `${hw.scale_up.protocol} ring all-reduce` };
+    case 'misc':
+    default:
+      return { status: 'unknown', reason: '' };
+  }
+}
+
+const statusColor: Record<CovStatus, string> = {
+  mature: 'var(--color-tier-measured)',
+  partial: 'var(--color-tier-estimated)',
+  gap: 'oklch(55% 0.2 25)',
+  unknown: 'var(--color-text-muted)'
+};
+const statusBadge: Record<CovStatus, string> = {
+  mature: '🟢 mature',
+  partial: '🟡 partial',
+  gap: '🔴 gap',
+  unknown: '— unknown'
+};
+const opRows = operators.map((op) => {
+  const s = statusFor(op);
+  return { op, ...s };
+});
+
+// 4. Optimization-space headroom — derive from overall efficiency vs ceiling 1.0
+// If <0.5 → big headroom; 0.5-0.7 → moderate; 0.7-0.85 → tight; >0.85 → near-saturation
+let headroom: { tier: 'big' | 'moderate' | 'tight' | 'saturated'; pct: number; explainer: string };
+if (!eff.isCalibrated) {
+  headroom = { tier: 'moderate', pct: 50, explainer: 'No cases yet — using default 0.5 efficiency. Real headroom unknown until first measurement lands.' };
+} else if (overallEff < 0.5) {
+  headroom = { tier: 'big', pct: Math.round((1 - overallEff) * 100), explainer: `Currently reaching ${(overallEff * 100).toFixed(0)}% of theoretical roofline. Massive kernel-tuning headroom — every +0.05 in efficiency ≈ +10% effective throughput.` };
+} else if (overallEff < 0.7) {
+  headroom = { tier: 'moderate', pct: Math.round((1 - overallEff) * 100), explainer: `Reaching ${(overallEff * 100).toFixed(0)}% of roofline. Moderate headroom; focus on attention + MoE kernel fusion.` };
+} else if (overallEff < 0.85) {
+  headroom = { tier: 'tight', pct: Math.round((1 - overallEff) * 100), explainer: `${(overallEff * 100).toFixed(0)}% of roofline — tight. Look at memory-traffic reduction (KV-cache compression, paged-attention) more than compute.` };
+} else {
+  headroom = { tier: 'saturated', pct: Math.round((1 - overallEff) * 100), explainer: `Near saturation at ${(overallEff * 100).toFixed(0)}% of roofline. Further gains require workload restructure (disaggregated, speculative, smaller batch).` };
+}
+
+const headroomColor = {
+  big: 'oklch(55% 0.22 25)',
+  moderate: 'oklch(70% 0.16 80)',
+  tight: 'var(--color-tier-measured)',
+  saturated: 'var(--color-accent)'
+};
+
+// 5. Group ops by category for visual structure
+const byCategory = new Map<string, typeof opRows>();
+for (const row of opRows) {
+  const arr = byCategory.get(row.op.category) ?? [];
+  arr.push(row);
+  byCategory.set(row.op.category, arr);
+}
+const categoryLabel: Record<string, string> = {
+  matmul: 'Matrix multiply (GEMM)',
+  attention: 'Attention',
+  norm: 'Normalization',
+  activation: 'Activation',
+  embedding: 'Embedding',
+  'moe-routing': 'MoE routing',
+  communication: 'Communication (collective)',
+  misc: 'Misc'
+};
+---
+<div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+  <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+    <div>
+      <h4 class="text-base font-semibold">算子支持 & 优化空间 / Operator support &amp; headroom</h4>
+      <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+        Per-operator support derived from <code>software_support.engines</code> + scale-up topology. Optimization headroom from measured efficiency factor.
+      </p>
+    </div>
+    <div class="text-right" style={`color: ${headroomColor[headroom.tier]};`}>
+      <div class="text-xs font-semibold uppercase tracking-wide">Optimization headroom</div>
+      <div class="text-3xl font-mono font-bold mt-1">+{headroom.pct} pp</div>
+      <div class="text-xs uppercase">{headroom.tier}</div>
+    </div>
+  </div>
+
+  <p class="text-sm mb-5 px-3 py-2 rounded" style={`background: color-mix(in oklch, ${headroomColor[headroom.tier]} 8%, var(--color-bg)); color: var(--color-text);`}>
+    {headroom.explainer}
+  </p>
+
+  <div class="space-y-4">
+    {Array.from(byCategory.entries()).map(([cat, rows]) => (
+      <div>
+        <h5 class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--color-text-muted);">{categoryLabel[cat] ?? cat}</h5>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {rows.map(({ op, status, reason }) => (
+            <div class="p-3 rounded border" style={`border-color: color-mix(in oklch, ${statusColor[status]} 25%, var(--color-border)); background: color-mix(in oklch, ${statusColor[status]} 5%, var(--color-bg));`}>
+              <div class="flex items-center justify-between gap-2">
+                <a href={`/operators/${op.id}/`} class="text-sm font-medium underline" style="color: var(--color-text);">{op.name}</a>
+                <span class="text-xs font-medium" style={`color: ${statusColor[status]};`}>{statusBadge[status]}</span>
+              </div>
+              {reason && (
+                <div class="text-xs mt-1" style="color: var(--color-text-muted);">{reason}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+</div>

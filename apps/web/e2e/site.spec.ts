@@ -482,6 +482,38 @@ test.describe('i18n English mirror', () => {
   });
 });
 
+test.describe('Operator coverage panel', () => {
+  test('hardware detail shows operator coverage with headroom badge', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    await expect(page.getByRole('heading', { name: /Operator support|算子支持/i }).first()).toBeVisible();
+    // Headroom KPI badge
+    await expect(page.locator('text=/Optimization headroom/i').first()).toBeVisible();
+    // At least one operator card with status badge (mature/partial/gap)
+    await expect(page.locator('text=/🟢 mature|🟡 partial|🔴 gap/').first()).toBeVisible();
+  });
+
+  test('Chinese accelerator (Ascend 910C) operator coverage shows different status mix', async ({ page }) => {
+    await page.goto('/hardware/ascend-910c/');
+    await expect(page.locator('text=/🟢 mature/').first()).toBeVisible();
+  });
+});
+
+test.describe('Hardware filter bar (sticky horizontal)', () => {
+  test('filter bar is horizontal, not vertical sidebar', async ({ page }) => {
+    await page.goto('/hardware/');
+    await page.waitForSelector('input[type="search"]', { state: 'visible' });
+    // Filter bar must be a single sticky banner above grid
+    const bar = page.locator('.hw-filter-bar').first();
+    await expect(bar).toBeVisible();
+    // Search + country + form-factor + status + FP8 + FP4 + Export should all be on one row
+    const box = await bar.boundingBox();
+    if (box) {
+      // Filter bar height should be moderate (under 200px), not full-page sidebar (>500px)
+      expect(box.height).toBeLessThan(220);
+    }
+  });
+});
+
 test.describe('SEO structured data', () => {
   test('hardware detail has Product JSON-LD + breadcrumbs', async ({ page }) => {
     await page.goto('/hardware/h100-sxm5/');

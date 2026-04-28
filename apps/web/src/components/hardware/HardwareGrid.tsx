@@ -73,23 +73,45 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
     setFp8(false); setFp4(false); setMinMem(0); setMinBf16(0); setSearch('');
   };
 
-  return (
-    <div className="grid lg:grid-cols-[15rem,1fr] gap-8">
-      <aside className="hw-filter-aside space-y-5 self-start text-sm rounded-lg border p-4"
-             style={{
-               background: 'var(--color-surface-raised)',
-               borderColor: 'var(--color-border)'
-             }}>
-        <div>
-          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-                 placeholder={en ? 'Search (h100, ascend, MI3...)' : '搜索 (h100, 昇腾, MI3...)'}
-                 className="w-full px-3 py-1.5 rounded border text-sm"
-                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
-        </div>
+  const exportCsv = () => {
+    const rows = filtered.map((h) => ({
+      id: h.id, name: h.name, vendor: h.vendor.id, country: h.vendor.country,
+      form_factor: h.form_factor, status: h.status, release_year: h.release_year,
+      bf16_tflops: h.compute.bf16_tflops?.value ?? '',
+      fp8_tflops: h.compute.fp8_tflops?.value ?? '',
+      fp4_tflops: h.compute.fp4_tflops?.value ?? '',
+      int8_tops: h.compute.int8_tops?.value ?? '',
+      memory_gb: h.memory.capacity_gb?.value ?? '',
+      memory_bw_gbps: h.memory.bandwidth_gbps?.value ?? '',
+      memory_type: h.memory.type,
+      scale_up_protocol: h.scale_up.protocol,
+      scale_up_bw_gbps: h.scale_up.bandwidth_gbps,
+      scale_up_world_size: h.scale_up.world_size,
+      scale_out_protocol: h.scale_out.protocol,
+      scale_out_bw_gbps: h.scale_out.bandwidth_gbps_per_card,
+      tdp_w: h.power.tdp_w?.value ?? ''
+    }));
+    const cols = Object.keys(rows[0] ?? {});
+    if (cols.length === 0) return;
+    const csv = toCsv(rows, cols);
+    downloadCsv(`evokernel-hardware-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  };
 
-        <div>
-          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{t('filter.country')}</h4>
-          <div className="flex gap-1 flex-wrap">
+  return (
+    <div className="space-y-6">
+      {/* Sticky horizontal filter bar — full-width, can't overlap cards */}
+      <div className="hw-filter-bar rounded-lg border p-3 text-sm"
+           style={{
+             background: 'var(--color-surface-raised)',
+             borderColor: 'var(--color-border)'
+           }}>
+        <div className="flex flex-wrap gap-3 items-center">
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+                 placeholder={en ? 'Search hardware...' : '搜索硬件...'}
+                 className="flex-1 min-w-[12rem] px-3 py-1.5 rounded border text-sm"
+                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
+
+          <div className="flex gap-1">
             {(['all', 'CN', 'overseas'] as Country[]).map((c) => (
               <button key={c} onClick={() => setCountry(c)} type="button"
                       className="px-2 py-1 rounded text-xs"
@@ -103,77 +125,55 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
               </button>
             ))}
           </div>
-        </div>
 
-        <div>
-          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Form factor' : '形态'}</h4>
           <select aria-label={en ? 'Filter by form factor' : '按形态筛选'} value={form} onChange={(e) => setForm(e.target.value as Form)}
-                  className="w-full px-2 py-1 rounded border text-sm"
+                  className="px-2 py-1 rounded border text-xs"
                   style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-            {FORM_OPTS.map((f) => <option key={f} value={f}>{f === 'all' ? (en ? 'All' : '全部') : f.toUpperCase()}</option>)}
+            {FORM_OPTS.map((f) => <option key={f} value={f}>{f === 'all' ? (en ? 'Form: all' : '形态: 全部') : f.toUpperCase()}</option>)}
           </select>
-        </div>
 
-        <div>
-          <h4 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Status' : '状态'}</h4>
           <select aria-label={en ? 'Filter by status' : '按状态筛选'} value={status} onChange={(e) => setStatus(e.target.value as Status)}
-                  className="w-full px-2 py-1 rounded border text-sm"
+                  className="px-2 py-1 rounded border text-xs"
                   style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-            {STATUS_OPTS.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            {STATUS_OPTS.map((s) => <option key={s} value={s}>{en ? `Status: ${STATUS_LABEL[s].toLowerCase()}` : `状态: ${STATUS_LABEL[s]}`}</option>)}
           </select>
+
+          <label className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer"
+                 style={{ borderColor: fp8 ? 'var(--color-accent)' : 'var(--color-border)', background: fp8 ? 'color-mix(in oklch, var(--color-accent) 8%, var(--color-bg))' : 'var(--color-surface)' }}>
+            <input type="checkbox" checked={fp8} onChange={(e) => setFp8(e.target.checked)} />
+            FP8
+          </label>
+          <label className="flex items-center gap-1 text-xs px-2 py-1 rounded border cursor-pointer"
+                 style={{ borderColor: fp4 ? 'var(--color-accent)' : 'var(--color-border)', background: fp4 ? 'color-mix(in oklch, var(--color-accent) 8%, var(--color-bg))' : 'var(--color-surface)' }}>
+            <input type="checkbox" checked={fp4} onChange={(e) => setFp4(e.target.checked)} />
+            FP4
+          </label>
+
+          <button type="button" onClick={exportCsv}
+                  className="text-xs px-3 py-1 rounded border"
+                  style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer' }}>
+            ⬇ {t('filter.export.csv')} ({filtered.length})
+          </button>
+
+          <span className="ml-auto text-xs flex items-center gap-3" style={{ color: 'var(--color-text-muted)' }}>
+            <span>{filtered.length} / {hardware.length} {en ? 'shown' : '显示'}</span>
+            <button onClick={reset} type="button" className="underline" style={{ color: 'var(--color-accent)', cursor: 'pointer' }}>{t('filter.reset')}</button>
+          </span>
         </div>
 
-        <div className="space-y-2">
-          <label className="flex items-center gap-2"><input type="checkbox" checked={fp8} onChange={(e) => setFp8(e.target.checked)} /> {en ? 'Supports FP8' : '支持 FP8'}</label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={fp4} onChange={(e) => setFp4(e.target.checked)} /> {en ? 'Supports FP4' : '支持 FP4'}</label>
+        <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t" style={{ borderColor: 'var(--color-border)' }}>
+          <label className="text-xs flex items-center gap-2">
+            <span style={{ color: 'var(--color-text-muted)', minWidth: '8rem' }}>{en ? `Min memory: ${minMem} GB` : `最小显存: ${minMem} GB`}</span>
+            <input type="range" min={0} max={300} step={16} value={minMem} onChange={(e) => setMinMem(+e.target.value)}
+                   aria-label={en ? 'Min memory' : '最小显存'} className="flex-1" />
+          </label>
+          <label className="text-xs flex items-center gap-2">
+            <span style={{ color: 'var(--color-text-muted)', minWidth: '8rem' }}>{en ? `Min BF16: ${minBf16} TF` : `最小 BF16: ${minBf16} TF`}</span>
+            <input type="range" min={0} max={5000} step={250} value={minBf16} onChange={(e) => setMinBf16(+e.target.value)}
+                   aria-label={en ? 'Min BF16 TFLOPS' : '最小 BF16 TFLOPS'} className="flex-1" />
+          </label>
         </div>
-
-        <div>
-          <h4 className="font-semibold mb-1 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? `Min memory (${minMem} GB)` : `最小显存 (${minMem} GB)`}</h4>
-          <input type="range" min={0} max={300} step={16} value={minMem} onChange={(e) => setMinMem(+e.target.value)}
-                 aria-label={en ? 'Min memory' : '最小显存'} className="w-full" />
-        </div>
-
-        <div>
-          <h4 className="font-semibold mb-1 text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{en ? `Min BF16 (${minBf16} TF)` : `最小 BF16 (${minBf16} TF)`}</h4>
-          <input type="range" min={0} max={5000} step={250} value={minBf16} onChange={(e) => setMinBf16(+e.target.value)}
-                 aria-label={en ? 'Min BF16 TFLOPS' : '最小 BF16 TFLOPS'} className="w-full" />
-        </div>
-
-        <div className="text-xs flex items-center justify-between" style={{ color: 'var(--color-text-muted)' }}>
-          <span>{filtered.length} / {hardware.length} {en ? 'shown' : '显示'}</span>
-          <button onClick={reset} type="button" className="underline" style={{ color: 'var(--color-accent)' }}>{t('filter.reset')}</button>
-        </div>
-
-        <button type="button"
-                onClick={() => {
-                  const rows = filtered.map((h) => ({
-                    id: h.id, name: h.name, vendor: h.vendor.id, country: h.vendor.country,
-                    form_factor: h.form_factor, status: h.status, release_year: h.release_year,
-                    bf16_tflops: h.compute.bf16_tflops?.value ?? '',
-                    fp8_tflops: h.compute.fp8_tflops?.value ?? '',
-                    fp4_tflops: h.compute.fp4_tflops?.value ?? '',
-                    int8_tops: h.compute.int8_tops?.value ?? '',
-                    memory_gb: h.memory.capacity_gb?.value ?? '',
-                    memory_bw_gbps: h.memory.bandwidth_gbps?.value ?? '',
-                    memory_type: h.memory.type,
-                    scale_up_protocol: h.scale_up.protocol,
-                    scale_up_bw_gbps: h.scale_up.bandwidth_gbps,
-                    scale_up_world_size: h.scale_up.world_size,
-                    scale_out_protocol: h.scale_out.protocol,
-                    scale_out_bw_gbps: h.scale_out.bandwidth_gbps_per_card,
-                    tdp_w: h.power.tdp_w?.value ?? ''
-                  }));
-                  const cols = Object.keys(rows[0] ?? {});
-                  if (cols.length === 0) return;
-                  const csv = toCsv(rows, cols);
-                  downloadCsv(`evokernel-hardware-${new Date().toISOString().slice(0, 10)}.csv`, csv);
-                }}
-                className="text-xs w-full px-3 py-1.5 rounded border mt-2"
-                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer' }}>
-          ⬇ {t('filter.export.csv')} ({filtered.length})
-        </button>
-      </aside>
+      </div>
 
       <div>
         {cn.length > 0 && <>
@@ -195,14 +195,11 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
         )}
       </div>
       <style>{`
-        @media (min-width: 1024px) {
-          .hw-filter-aside {
-            position: sticky;
-            top: 5rem;
-            z-index: 10;
-            max-height: calc(100vh - 6rem);
-            overflow-y: auto;
-          }
+        .hw-filter-bar {
+          position: sticky;
+          top: 4rem;
+          z-index: 20;
+          backdrop-filter: blur(8px);
         }
       `}</style>
     </div>

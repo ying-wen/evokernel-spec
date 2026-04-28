@@ -104,7 +104,7 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
       <rect x="120" y="180" width="560" height="22" rx="2" fill="color-mix(in oklch, var(--color-accent) 18%, var(--color-bg))" stroke={accent} stroke-width="0.5"/>
       <text x="400" y="195" text-anchor="middle" font-size="9" font-weight="600" fill={accent}>L2 / shared cache · NoC</text>
 
-      <!-- Compute-unit grid (top half) -->
+      <!-- Compute-unit grid (top half) — each CU shows tensor core + scalar core hint -->
       {Array.from({ length: cuCount }).slice(0, Math.floor(cuCount / 2)).map((_, i) => {
         const col = i % gridCols;
         const row = Math.floor(i / gridCols);
@@ -113,7 +113,13 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
         const x = 130 + col * cellW;
         const y = 40 + row * cellH;
         return (
-          <rect x={x} y={y} width={cellW - 2} height={cellH - 2} rx="1.5" fill="color-mix(in oklch, var(--color-accent) 28%, var(--color-bg))" stroke={accent} stroke-width="0.4"/>
+          <g>
+            <rect x={x} y={y} width={cellW - 2} height={cellH - 2} rx="1.5" fill="color-mix(in oklch, var(--color-accent) 28%, var(--color-bg))" stroke={accent} stroke-width="0.4"/>
+            {/* Tensor-core inner block */}
+            {cellW > 18 && cellH > 14 && (
+              <rect x={x + 2} y={y + 2} width={(cellW - 6) * 0.55} height={cellH - 6} rx="0.5" fill="color-mix(in oklch, var(--color-accent) 50%, var(--color-bg))" stroke="none"/>
+            )}
+          </g>
         );
       })}
       <!-- Compute-unit grid (bottom half) -->
@@ -125,12 +131,25 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
         const x = 130 + col * cellW;
         const y = 210 + row * cellH;
         return (
-          <rect x={x} y={y} width={cellW - 2} height={cellH - 2} rx="1.5" fill="color-mix(in oklch, var(--color-accent) 28%, var(--color-bg))" stroke={accent} stroke-width="0.4"/>
+          <g>
+            <rect x={x} y={y} width={cellW - 2} height={cellH - 2} rx="1.5" fill="color-mix(in oklch, var(--color-accent) 28%, var(--color-bg))" stroke={accent} stroke-width="0.4"/>
+            {cellW > 18 && cellH > 14 && (
+              <rect x={x + 2} y={y + 2} width={(cellW - 6) * 0.55} height={cellH - 6} rx="0.5" fill="color-mix(in oklch, var(--color-accent) 50%, var(--color-bg))" stroke="none"/>
+            )}
+          </g>
         );
       })}
 
+      <!-- L1 cache annotation rail along bottom of upper grid -->
+      <line x1="125" y1="173" x2="675" y2="173" stroke={accent} stroke-width="0.5" stroke-dasharray="2 2" stroke-opacity="0.4"/>
+      <text x="125" y="170" font-size="6" fill={muted}>L1$ / register file (per {cuLabel})</text>
+
+      <!-- HBM ↔ L2 ↔ CU traffic indicator -->
+      <line x1="80" y1="190" x2="120" y2="190" stroke={china} stroke-width="2" stroke-opacity="0.4"/>
+      <line x1="680" y1="190" x2="720" y2="190" stroke={china} stroke-width="2" stroke-opacity="0.4"/>
+
       <!-- Annotations -->
-      <text x="395" y="55" text-anchor="middle" font-size="8" fill={muted}>{cuCount} {cuLabel}s</text>
+      <text x="395" y="55" text-anchor="middle" font-size="8" fill={muted}>{cuCount} {cuLabel}s · darker block = tensor / matrix engine</text>
       <text x="400" y="345" text-anchor="middle" font-size="9" font-weight="600" fill="var(--color-text)">
         {bf16.toFixed(0)} TFLOPS BF16 · {hw.compute.fp8_tflops?.value ? `${hw.compute.fp8_tflops.value.toFixed(0)} FP8 · ` : ''}{memGb} GB {memType} @ {memBwTbs} TB/s · {tdpW} W TDP
       </text>
