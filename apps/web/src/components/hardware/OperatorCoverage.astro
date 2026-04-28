@@ -63,10 +63,12 @@ function statusFor(op: Operator): { status: CovStatus; reason: string } {
   }
 }
 
+// Status colors darkened where needed to meet WCAG AA contrast on the
+// surface-raised background (var(--color-tier-estimated) is too light at 70%).
 const statusColor: Record<CovStatus, string> = {
   mature: 'var(--color-tier-measured)',
-  partial: 'var(--color-tier-estimated)',
-  gap: 'oklch(55% 0.2 25)',
+  partial: 'oklch(50% 0.16 80)',      // darker amber
+  gap: 'oklch(50% 0.22 25)',
   unknown: 'var(--color-text-muted)'
 };
 const statusBadge: Record<CovStatus, string> = {
@@ -95,11 +97,14 @@ if (!eff.isCalibrated) {
   headroom = { tier: 'saturated', pct: Math.round((1 - overallEff) * 100), explainer: `Near saturation at ${(overallEff * 100).toFixed(0)}% of roofline. Further gains require workload restructure (disaggregated, speculative, smaller batch).` };
 }
 
+// All headroom colors must clear WCAG AA contrast (4.5:1 normal, 3:1 large)
+// against the page background. The previous oklch(70% ...) value yielded ~2.7:1
+// — darkened to 50% for sufficient contrast on light backgrounds.
 const headroomColor = {
-  big: 'oklch(55% 0.22 25)',
-  moderate: 'oklch(70% 0.16 80)',
-  tight: 'var(--color-tier-measured)',
-  saturated: 'var(--color-accent)'
+  big: 'oklch(50% 0.22 25)',       // red-orange, 'big' headroom
+  moderate: 'oklch(50% 0.16 80)',  // amber, darkened for AA contrast
+  tight: 'oklch(48% 0.18 145)',    // dark green
+  saturated: 'oklch(48% 0.20 255)' // dark blue
 };
 
 // 5. Group ops by category for visual structure

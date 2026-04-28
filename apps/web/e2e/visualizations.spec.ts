@@ -4,14 +4,23 @@ test.describe('New visualization features', () => {
   test('compare page with radar / bar / table view toggle', async ({ page }) => {
     await page.goto('/compare/');
     await expect(page.getByRole('heading', { name: /硬件对比/ })).toBeVisible();
-    // Default radar view
-    await expect(page.locator('svg.recharts-surface').first()).toBeVisible();
+    // Default is now table view (per user request: "默认先上来table"); BF16 column header visible
+    await expect(page.getByRole('columnheader', { name: /BF16/ }).first()).toBeVisible({ timeout: 10000 });
+    // Switch to radar (explicit waits to absorb hydration jitter under parallel workers)
+    const radarBtn = page.getByRole('button', { name: '雷达图', exact: true });
+    await radarBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await radarBtn.click();
+    await expect(page.locator('svg.recharts-surface').first()).toBeVisible({ timeout: 10000 });
     // Switch to bar
-    await page.getByRole('button', { name: /柱状图/ }).click();
-    await expect(page.locator('svg.recharts-surface').first()).toBeVisible();
-    // Switch to table
-    await page.getByRole('button', { name: /对比表/ }).click();
-    await expect(page.getByText(/BF16/).first()).toBeVisible();
+    const barBtn = page.getByRole('button', { name: '柱状图', exact: true });
+    await barBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await barBtn.click();
+    await expect(page.locator('svg.recharts-surface').first()).toBeVisible({ timeout: 10000 });
+    // Switch back to table
+    const tableBtn = page.getByRole('button', { name: '表格', exact: true });
+    await tableBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await tableBtn.click();
+    await expect(page.getByRole('columnheader', { name: /BF16/ }).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('topology svg renders on hardware detail (8-card)', async ({ page }) => {

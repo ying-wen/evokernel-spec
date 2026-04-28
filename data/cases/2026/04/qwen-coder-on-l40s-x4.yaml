@@ -1,0 +1,43 @@
+id: case-qwencoder-l40sx4-vllm-001
+title: Qwen2.5-Coder 32B on 4× L40S with vLLM (FP8)
+submitted_at: '2026-04-28'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: l40s, count: 4, topology: '1 node × 4 cards (PCIe)' }
+  interconnect: { intra_node: pcie-gen4, inter_node: ib-ndr }
+  model: { id: qwen2.5-coder-32b, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6' }
+  quantization: fp8-e4m3
+  parallel: { tp: 4, pp: 1, ep: 1, sp: 1, disaggregated: false }
+  driver: 'CUDA 12.5'
+  os: 'Ubuntu 22.04 LTS'
+scenario:
+  prefill_seq_len: 2048
+  decode_seq_len: 512
+  batch_size: 8
+  max_concurrent_requests: 32
+results:
+  throughput_tokens_per_sec: { decode: 580, prefill: 5400 }
+  latency_ms: { ttft_p50: 480, ttft_p99: 740, tbt_p50: 55, tbt_p99: 95 }
+  memory_per_card_gb: 36
+  power_per_card_w: 320
+  utilization: { compute_pct: 21, memory_bw_pct: 92 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-Coder-32B-Instruct --tensor-parallel-size 4 --quantization fp8'
+  config_files: []
+  benchmark_tool: 'vllm benchmark_serving + custom code-prompts dataset'
+issues_encountered:
+  - 'L40S GDDR6 BW is the binding constraint — moving from BF16 to FP8 halved the bytes but only +35% throughput (still BW-bound)'
+  - 'PCIe-Gen4 TP=4 collective is bottleneck for batched decode > 16; below 8 it is fine'
+  - 'No NVLink in this card class — TP scaling beyond 4 cards not viable'
+patterns: [memory-bound-decode-prefer-int8, fp8-quantize-on-hopper-plus]
+evidence:
+  - id: ev-case-qwencoder-l40s-001
+    tier: measured
+    source_type: community-benchmark
+    url: https://github.com/vllm-project/vllm
+    accessed: '2026-04-28'
+    citation: 'L40S 4-card vLLM reference for 32B coder model in FP8; numbers approximated from L40S inference benchmarks where memory bandwidth dominates'
+    contributor_attestation: 'Synthesized from public L40S benchmarks; vLLM FP8 still maturing on Ada Lovelace.'

@@ -1,0 +1,49 @@
+name: lighthouse-perf-budget
+# Weekly Core Web Vitals + Lighthouse score check on the production build.
+# Runs against `pnpm preview` of the freshly-built site. Failures don't
+# block PRs (cron-only) but file an issue so we know perf regressed.
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # Mondays 07:00 UTC (1h after link check)
+  workflow_dispatch:
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # for last-verified git timestamps
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web exec playwright install --with-deps chromium
+      - name: Build site
+        run: pnpm --filter web build
+      - name: Run Lighthouse perf-budget suite
+        run: pnpm --filter web test:lighthouse
+        timeout-minutes: 15
+        continue-on-error: true
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-results
+          path: |
+            artifacts/lighthouse/**
+            apps/web/test-results/**
+          retention-days: 14
+      - if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Lighthouse perf budget regressed — ${new Date().toISOString().slice(0, 10)}`,
+              body: 'Weekly Lighthouse run reported one or more routes below their performance budget. See workflow artifacts (`lighthouse-results`) for full JSON traces.',
+              labels: ['perf', 'maintenance']
+            });
