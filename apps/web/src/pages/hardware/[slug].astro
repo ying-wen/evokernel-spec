@@ -84,6 +84,21 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       </div>
     </section>
 
+    <nav class="hw-toc sticky py-2 mb-2" aria-label="In-page sections" style="top: 4rem; z-index: 15; background: color-mix(in oklch, var(--color-bg) 88%, transparent); backdrop-filter: blur(8px);">
+      <div class="flex gap-1 flex-wrap text-xs">
+        <a href="#specs" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">规格 Specs</a>
+        {hw.architecture && <a href="#architecture" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">架构 Arch</a>}
+        <a href="#interconnect" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">互联 Interconnect</a>
+        <a href="#topology" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">拓扑 Topology</a>
+        <a href="#models" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">适配模型 Models</a>
+        <a href="#operators" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">算子 Operators</a>
+        <a href="#substitutes" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">替代品 Substitutes</a>
+        <a href="#engines" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">引擎 Engines</a>
+        <a href="#cases" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">案例 Cases</a>
+        <a href="#citations" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">引证 Citations</a>
+      </div>
+    </nav>
+
     <section class="pb-8">
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard label="BF16" sublabel="TFLOP/s">
@@ -119,7 +134,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       </div>
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="specs">
       <h3 class="text-lg font-semibold mb-3">完整规格</h3>
       <div class="grid lg:grid-cols-2 gap-6">
         <div>
@@ -142,7 +157,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
         </div>
       </div>
       {hw.architecture && (
-        <div class="mt-6">
+        <div class="mt-6" id="architecture">
           <h4 class="text-sm font-semibold mb-2 flex items-center gap-2" style="color: var(--color-text-muted);">
             <span>芯片架构</span>
             <span class="text-xs px-1.5 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-tier-measured) 14%, var(--color-bg)); color: var(--color-tier-measured); font-weight: 600;">🟢 vendor floorplan</span>
@@ -166,7 +181,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       )}
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="interconnect">
       <div class="grid lg:grid-cols-2 gap-6">
         <div>
           <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Scale-Up (节点内)</h4>
@@ -189,26 +204,26 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       </div>
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="topology">
       <h3 class="text-lg font-semibold mb-3">拓扑示意</h3>
       <Topology hw={hw} />
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="models">
       <h3 class="text-lg font-semibold mb-3">能跑哪些模型?</h3>
       <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="operators">
       <h3 class="text-lg font-semibold mb-3">算子支持 & 优化空间</h3>
       <OperatorCoverage hw={allHardwareRaw.find((x) => x.id === hw.id)!} operators={await getOperators()} models={allModels} cases={allCases} hardware={allHardwareRaw} />
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="substitutes">
       <Substitutes hw={hw} allHardware={await getResolvedHardware()} />
     </section>
 
-    <section class="pb-12">
+    <section class="pb-12" id="engines">
       <h3 class="text-lg font-semibold mb-3">软件栈支持</h3>
       <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
         <table class="w-full text-sm">
@@ -280,7 +295,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
         </div>
       )}
 
-      <h3 class="text-lg font-semibold mb-3">已有部署案例 ({relatedCases.length})</h3>
+      <h3 class="text-lg font-semibold mb-3" id="cases">已有部署案例 ({relatedCases.length})</h3>
       {relatedCases.length === 0 ? (
         <div class="text-sm p-6 rounded-lg border" style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-surface);">
           暂无该硬件的实测案例。
@@ -311,7 +326,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       )}
     </section>
 
-    <section class="pb-16">
+    <section class="pb-16" id="citations">
       <h3 class="text-lg font-semibold mb-3">引证</h3>
       <ol class="space-y-2 text-sm">
         {hw.evidence.map((e, i) => (

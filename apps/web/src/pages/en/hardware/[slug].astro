@@ -85,6 +85,21 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       </div>
     </section>
 
+    <nav class="hw-toc sticky py-2 mb-2" aria-label="In-page sections" style="top: 4rem; z-index: 15; background: color-mix(in oklch, var(--color-bg) 88%, transparent); backdrop-filter: blur(8px);">
+      <div class="flex gap-1 flex-wrap text-xs">
+        <a href="#specs" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Specs</a>
+        {hw.architecture && <a href="#architecture" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Architecture</a>}
+        <a href="#interconnect" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Interconnect</a>
+        <a href="#topology" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Topology</a>
+        <a href="#models" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Models</a>
+        <a href="#operators" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Operators</a>
+        <a href="#substitutes" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Substitutes</a>
+        <a href="#engines" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Engines</a>
+        <a href="#cases" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Cases</a>
+        <a href="#citations" class="px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">Citations</a>
+      </div>
+    </nav>
+
     <section class="pb-8">
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard label="BF16" sublabel="TFLOP/s">
@@ -120,7 +135,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       </div>
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="specs">
       <h3 class="text-lg font-semibold mb-3">Full specs</h3>
       <div class="grid lg:grid-cols-2 gap-6">
         <div>
@@ -143,7 +158,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
         </div>
       </div>
       {hw.architecture && (
-        <div class="mt-6">
+        <div class="mt-6" id="architecture">
           <h4 class="text-sm font-semibold mb-2 flex items-center gap-2" style="color: var(--color-text-muted);">
             <span>Die architecture</span>
             <span class="text-xs px-1.5 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-tier-measured) 14%, var(--color-bg)); color: var(--color-tier-measured); font-weight: 600;">🟢 vendor floorplan</span>
@@ -167,7 +182,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       )}
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="interconnect">
       <div class="grid lg:grid-cols-2 gap-6">
         <div>
           <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Scale-Up (intra-node)</h4>
@@ -190,26 +205,26 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       </div>
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="topology">
       <h3 class="text-lg font-semibold mb-3">Topology</h3>
       <Topology hw={hw} />
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="models">
       <h3 class="text-lg font-semibold mb-3">Which models can it run?</h3>
       <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="operators">
       <h3 class="text-lg font-semibold mb-3">Operator support &amp; optimization headroom</h3>
       <OperatorCoverage hw={allHardwareRaw.find((x) => x.id === hw.id)!} operators={await getOperators()} models={allModels} cases={allCases} hardware={allHardwareRaw} />
     </section>
 
-    <section class="pb-8">
+    <section class="pb-8" id="substitutes">
       <Substitutes hw={hw} allHardware={await getResolvedHardware()} />
     </section>
 
-    <section class="pb-12">
+    <section class="pb-12" id="engines">
       <h3 class="text-lg font-semibold mb-3">Software-stack support</h3>
       <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
         <table class="w-full text-sm">
@@ -281,7 +296,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
         </div>
       )}
 
-      <h3 class="text-lg font-semibold mb-3">Existing deployment cases ({relatedCases.length})</h3>
+      <h3 class="text-lg font-semibold mb-3" id="cases">Existing deployment cases ({relatedCases.length})</h3>
       {relatedCases.length === 0 ? (
         <div class="text-sm p-6 rounded-lg border" style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-surface);">
           No measured cases yet for this card.
@@ -312,7 +327,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       )}
     </section>
 
-    <section class="pb-16">
+    <section class="pb-16" id="citations">
       <h3 class="text-lg font-semibold mb-3">Citations</h3>
       <ol class="space-y-2 text-sm">
         {hw.evidence.map((e, i) => (

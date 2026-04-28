@@ -498,6 +498,21 @@ test.describe('Operator coverage panel', () => {
   });
 });
 
+test.describe('Hardware-detail in-page TOC', () => {
+  test('sticky TOC nav has anchor pills + sections have matching IDs', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    const toc = page.locator('nav.hw-toc').first();
+    await expect(toc).toBeVisible();
+    // Pills exist
+    await expect(toc.getByRole('link', { name: /规格|Specs/ }).first()).toBeVisible();
+    await expect(toc.getByRole('link', { name: /拓扑|Topology/ }).first()).toBeVisible();
+    // Anchor target exists
+    expect(await page.locator('#topology').count()).toBe(1);
+    expect(await page.locator('#operators').count()).toBe(1);
+    expect(await page.locator('#cases').count()).toBe(1);
+  });
+});
+
 test.describe('Architecture schema + factual Topology', () => {
   test('H100 detail shows vendor-floorplan badge with real CU count', async ({ page }) => {
     await page.goto('/hardware/h100-sxm5/');

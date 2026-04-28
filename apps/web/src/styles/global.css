@@ -15,3 +15,8 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* In-page anchor jumps must clear the sticky top nav (~3rem) plus the per-page
+   sticky TOC bar (~3rem). 7rem total scroll-margin keeps headings in view. */
+:where(html) { scroll-behavior: smooth; }
+:where([id]) { scroll-margin-top: 7rem; }
