@@ -87,6 +87,11 @@ curl https://evokernel.dev/api/openapi.json | jq '.info.version'
 
 详见 [DEPLOYMENT.md](DEPLOYMENT.md)。推荐 Cloudflare Pages (本项目静态构建, 完全适配)。
 
+## 已知限制
+
+- **React island 内部文案**: `/en/calculator/`, `/en/cases/`, `/en/hardware/` 等页面的页面 chrome (导航 / 页头 / 段落标题) 均已英文化, 但交互式 React island 内部按钮 ("选模型" / "选硬件" / 视图切换 等) 当前仍为中文。这是已知 cosmetic gap, 不影响功能 (硬件名/模型名/数据值天生即英文)。后续会通过 `locale` prop 逐 island 改造。
+- **公网域名**: 当前仅本地 `pnpm preview` 上线; `evokernel.dev` 域名为示意, 真公网部署见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+
 ## English
 
 Open-source knowledge base for AI inference deployment across hardware (incl. 9 Chinese vendors) and frontier open-source models, with transparent Tier 0/1 calculator. Inspired by [SemiAnalysis InferenceX](https://inferencex.semianalysis.com/), differentiated by Chinese accelerator coverage + evidence-backed data + open API.

@@ -47,8 +47,13 @@ test.describe.serial('Calculator flow', () => {
   test('three-step flow yields a result', async ({ page }) => {
     await page.goto('/calculator/');
     await waitForHydration(page);
-    await page.getByRole('button', { name: /Llama 4 Scout/i }).click();
-    await page.getByRole('button', { name: /H100 SXM5/i }).click();
+    const modelBtn = page.getByRole('button', { name: /Llama 4 Scout/i }).first();
+    await modelBtn.scrollIntoViewIfNeeded();
+    await modelBtn.click();
+    const hwBtn = page.getByRole('button', { name: /H100 SXM5/i }).first();
+    await hwBtn.waitFor({ state: 'visible', timeout: 15000 });
+    await hwBtn.scrollIntoViewIfNeeded();
+    await hwBtn.click();
     await expect(page.getByRole('heading', { name: /理论上界 \(Tier 1, Roofline\)/i })).toBeVisible();
     await expect(page.getByText(/Decode 吞吐上界/i)).toBeVisible();
     await expect(page.locator('dd.font-mono.text-xl').first()).toBeVisible();
@@ -400,6 +405,17 @@ test.describe('i18n English mirror', () => {
     expect(await page.locator('link[hreflang="en"]').getAttribute('href')).toContain('/en');
     expect(await page.locator('link[hreflang="x-default"]').count()).toBe(1);
   });
+
+  // Regression guard: every route reachable from EN nav must return 200, not 404.
+  for (const r of ['/en/hardware/', '/en/models/', '/en/cases/', '/en/calculator/', '/en/china/', '/en/compare/', '/en/showcase/']) {
+    test(`${r} returns 200 with English chrome`, async ({ page }) => {
+      const res = await page.goto(r);
+      expect(res?.status()).toBe(200);
+      // Nav uses English labels (proves locale propagated)
+      const nav = page.getByLabel('Main navigation');
+      await expect(nav.getByRole('link', { name: 'Hardware', exact: true })).toBeVisible();
+    });
+  }
 });
 
 test.describe('SEO structured data', () => {
