@@ -192,8 +192,8 @@ test.describe('Entity detail pages', () => {
     // The table view should render with H100 and B200 columns
     await expect(page.getByText('H100 SXM5 80GB').first()).toBeVisible();
     await expect(page.getByText('B200 SXM 180GB').first()).toBeVisible();
-    // Selected count badge (MAX_PICK = 8)
-    await expect(page.getByText(/2\/8 选中/).first()).toBeVisible();
+    // Selected count badge (no upper limit)
+    await expect(page.getByText(/已选 2/).first()).toBeVisible();
   });
 });
 
@@ -495,6 +495,33 @@ test.describe('Operator coverage panel', () => {
   test('Chinese accelerator (Ascend 910C) operator coverage shows different status mix', async ({ page }) => {
     await page.goto('/hardware/ascend-910c/');
     await expect(page.locator('text=/🟢 mature/').first()).toBeVisible();
+  });
+});
+
+test.describe('Architecture schema + factual Topology', () => {
+  test('H100 detail shows vendor-floorplan badge with real CU count', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    await expect(page.locator('text=/vendor floorplan/i').first()).toBeVisible();
+    // Architecture spec block must surface the real numbers (132 SMs, 50 MB L2)
+    await expect(page.getByText(/132/).first()).toBeVisible();
+    await expect(page.getByText(/50 MB/i).first()).toBeVisible();
+  });
+
+  test('hardware without architecture data shows illustrative disclaimer', async ({ page }) => {
+    // MI325X has no architecture block populated
+    await page.goto('/hardware/mi325x/');
+    await expect(page.locator('text=/illustrative/i').first()).toBeVisible();
+  });
+});
+
+test.describe('Compare with no card cap', () => {
+  test('user can select more than 8 cards in compare', async ({ page }) => {
+    await page.goto('/compare/');
+    await page.waitForSelector('input[type="text"]', { state: 'visible' });
+    // Click "全选" to select all hardware
+    await page.getByRole('button', { name: /全选|^all$/, exact: true }).first().click();
+    // Selection count badge should show at least 20 (we have 28 cards)
+    await expect(page.getByText(/已选 \d{2,}/).first()).toBeVisible();
   });
 });
 

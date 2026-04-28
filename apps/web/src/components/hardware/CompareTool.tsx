@@ -48,7 +48,9 @@ function getMetric(h: ResolvedHw, k: Metric): number {
   }
 }
 
-const MAX_PICK = 8;
+// No hard cap — users can compare all hardware. Chart views (radar/bar) get
+// a soft warning when selection exceeds CHART_LEGIBILITY_THRESHOLD.
+const CHART_LEGIBILITY_THRESHOLD = 8;
 
 const VIEW_KEYS = ['radar', 'bar', 'roofline', 'table'] as const;
 type ViewType = (typeof VIEW_KEYS)[number];
@@ -106,10 +108,11 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
   function toggle(id: string) {
     setSelected((s) => {
       if (s.includes(id)) return s.filter((x) => x !== id);
-      if (s.length >= MAX_PICK) return s;
       return [...s, id];
     });
   }
+  function selectAll() { setSelected(cards.map((h) => h.id)); }
+  function clearAll() { setSelected([]); }
 
   // Normalize for radar: each metric scaled to 0-100 across selected
   const radarData = useMemo(() => {
@@ -150,8 +153,14 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
                     cursor: 'pointer'
                   }}>{opt.l}</button>
         ))}
-        <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          {en ? `${selected.length}/${MAX_PICK} selected` : `${selected.length}/${MAX_PICK} 选中`}
+        <span className="ml-auto text-xs flex items-center gap-2" style={{ color: 'var(--color-text-muted)' }}>
+          <button type="button" onClick={selectAll} className="underline" style={{ color: 'var(--color-accent)', cursor: 'pointer' }}>
+            {en ? 'all' : '全选'}
+          </button>
+          <button type="button" onClick={clearAll} className="underline" style={{ color: 'var(--color-accent)', cursor: 'pointer' }}>
+            {en ? 'clear' : '清空'}
+          </button>
+          <span>{en ? `${selected.length} selected` : `已选 ${selected.length}`}</span>
         </span>
       </div>
 
@@ -170,7 +179,7 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
             {cards.map((h) => {
               const idx = selected.indexOf(h.id);
               const isSel = idx >= 0;
-              const color = isSel ? PALETTE[idx]! : 'transparent';
+              const color = isSel ? PALETTE[idx % PALETTE.length]! : 'transparent';
               const isCN = h.vendor.country === 'CN';
               return (
                 <button key={h.id} type="button" onClick={() => toggle(h.id)}
@@ -191,8 +200,15 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
 
         <div className="rounded-lg border p-4 min-h-[28rem]"
              style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-raised)' }}>
+          {(chartType === 'radar' || chartType === 'bar') && selectedCards.length > CHART_LEGIBILITY_THRESHOLD && (
+            <div className="text-xs mb-3 px-3 py-2 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-estimated) 10%, var(--color-bg))', color: 'var(--color-tier-estimated)' }}>
+              {en
+                ? `⚠ ${selectedCards.length} cards selected — radar/bar legibility degrades above ${CHART_LEGIBILITY_THRESHOLD}. Consider switching to table view.`
+                : `⚠ 已选 ${selectedCards.length} 张 — 雷达图/柱状图在 ${CHART_LEGIBILITY_THRESHOLD} 张以上会重叠, 建议切到对比表`}
+            </div>
+          )}
           {selectedCards.length === 0 ? (
-            <div className="flex items-center justify-center h-96 text-sm" style={{ color: 'var(--color-text-muted)' }}>{en ? `Pick 2–${MAX_PICK} cards on the left to compare` : `请从左侧选择 2-${MAX_PICK} 张卡进行对比`}</div>
+            <div className="flex items-center justify-center h-96 text-sm" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Pick cards on the left to compare (no upper limit)' : '请从左侧选择硬件进行对比 (无上限)'}</div>
           ) : chartType === 'radar' ? (
             <ResponsiveContainer width="100%" height={420}>
               <RadarChart data={radarData}>
@@ -200,7 +216,7 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
                 <PolarAngleAxis dataKey="metric" tick={{ fontSize: 12, fill: 'var(--color-text)' }} />
                 <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} />
                 {selectedCards.map((h, i) => (
-                  <Radar key={h.id} name={h.name} dataKey={h.id} stroke={PALETTE[i]} fill={PALETTE[i]} fillOpacity={0.25} />
+                  <Radar key={h.id} name={h.name} dataKey={h.id} stroke={PALETTE[i % PALETTE.length]} fill={PALETTE[i % PALETTE.length]} fillOpacity={0.25} />
                 ))}
                 <Legend wrapperStyle={{ fontSize: 12 }} />
               </RadarChart>
@@ -214,7 +230,7 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
                 <Tooltip contentStyle={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 {selectedCards.map((h, i) => (
-                  <Bar key={h.id} dataKey={h.id} name={h.name} fill={PALETTE[i]} />
+                  <Bar key={h.id} dataKey={h.id} name={h.name} fill={PALETTE[i % PALETTE.length]} />
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -227,7 +243,7 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
                   <th className="text-left p-2" style={{ color: 'var(--color-text-muted)' }}>{en ? 'Metric' : '指标'}</th>
                   {selectedCards.map((h, i) => (
                     <th key={h.id} className="text-right p-2 font-medium"
-                        style={{ color: PALETTE[i] }}>{h.name}</th>
+                        style={{ color: PALETTE[i % PALETTE.length] }}>{h.name}</th>
                   ))}
                 </tr>
               </thead>
@@ -307,7 +323,7 @@ function RooflineOverlay({ selectedCards, locale = 'zh' }: { selectedCards: Reso
           <Tooltip contentStyle={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', fontSize: 11 }} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           {selectedCards.map((h, i) => (
-            <Line key={h.id} type="monotone" dataKey={h.id} name={h.name} stroke={PALETTE[i]} strokeWidth={2} dot={false} />
+            <Line key={h.id} type="monotone" dataKey={h.id} name={h.name} stroke={PALETTE[i % PALETTE.length]} strokeWidth={2} dot={false} />
           ))}
         </LineChart>
       </ResponsiveContainer>

@@ -25,6 +25,24 @@ const MemorySchema = z.object({
   type: MemoryTypeSchema
 });
 
+// Optional inner-architecture detail. When present, Topology renders a
+// floorplan grounded in vendor data; when absent, Topology falls back to a
+// bucketed inferred die diagram. Top-cited cards (H100, B200, MI355X,
+// Ascend 910C, etc.) populate this; others can stay undefined.
+const ArchitectureSchema = z.object({
+  compute_unit_count: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
+  compute_unit_label: z.enum(['SM', 'CU', 'AI Core', 'IPU', 'XPU', 'Cluster']).optional(),
+  tensor_cores_per_cu: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
+  l1_cache_kb_per_cu: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  l2_cache_mb: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  hbm_stacks: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
+  process_node_nm: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  die_area_mm2: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  transistor_count_b: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  pcie_gen: ValueWithEvidenceSchema(z.number().int().positive()).optional(),
+  pcie_lanes: ValueWithEvidenceSchema(z.number().int().positive()).optional()
+});
+
 const ScaleUpSchema = z.object({
   protocol: z.string().min(1),
   bandwidth_gbps: z.number().positive(),
@@ -64,6 +82,7 @@ export const HardwareSchema = z.object({
   release_year: z.number().int().min(2010).max(2035),
   form_factor: FormFactorSchema,
   compute: ComputeSchema,
+  architecture: ArchitectureSchema.optional(),
   memory: MemorySchema,
   scale_up: ScaleUpSchema,
   scale_out: ScaleOutSchema,

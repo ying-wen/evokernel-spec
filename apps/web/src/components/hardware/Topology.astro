@@ -15,7 +15,7 @@ const mode: 'single' | 'eight' | 'pod' | 'super-pod' =
   cardCount <= 8 ? 'eight' :
   cardCount <= 64 ? 'pod' : 'super-pod';
 
-// Infer HBM stack count from total capacity + type
+// Memory: prefer factual architecture.hbm_stacks, fall back to inference from capacity / type
 const memGb = hw.memory.capacity_gb?.value ?? 0;
 const memType = hw.memory.type;
 const stackSizeGb: Record<string, number> = {
@@ -23,12 +23,17 @@ const stackSizeGb: Record<string, number> = {
   GDDR6: 0, LPDDR5: 0, unknown: 0
 };
 const hbmStackSize = stackSizeGb[memType] ?? 0;
-const hbmStacks = hbmStackSize > 0 && memGb > 0 ? Math.max(2, Math.min(8, Math.round(memGb / hbmStackSize))) : 0;
+const inferredHbmStacks = hbmStackSize > 0 && memGb > 0 ? Math.max(2, Math.min(8, Math.round(memGb / hbmStackSize))) : 0;
+const factualHbmStacks = hw.architecture?.hbm_stacks?.value;
+const hbmStacks = factualHbmStacks ?? inferredHbmStacks;
 
-// Compute-unit grid for die layout — proxy for SMs/CUs/cores. Higher BF16 TFLOPS → denser grid.
+// Compute units: prefer factual architecture.compute_unit_count, fall back to TFLOPS bucket
 const bf16 = hw.compute.bf16_tflops?.value ?? 0;
-const cuCount = bf16 >= 2000 ? 144 : bf16 >= 1000 ? 132 : bf16 >= 500 ? 96 : bf16 >= 200 ? 80 : bf16 >= 100 ? 64 : 32;
-// Pack into rectangular grid 16:9-ish
+const inferredCuCount = bf16 >= 2000 ? 144 : bf16 >= 1000 ? 132 : bf16 >= 500 ? 96 : bf16 >= 200 ? 80 : bf16 >= 100 ? 64 : 32;
+const factualCuCount = hw.architecture?.compute_unit_count?.value;
+const cuCount = factualCuCount ?? inferredCuCount;
+const isFactual = !!(factualCuCount && factualHbmStacks);
+
 const gridCols = Math.ceil(Math.sqrt(cuCount * 1.5));
 const gridRows = Math.ceil(cuCount / gridCols);
 
@@ -38,9 +43,15 @@ const muted = 'var(--color-text-muted)';
 const surface = 'var(--color-surface-raised)';
 const border = 'var(--color-border)';
 
-// Vendor-specific compute-unit name
 const vendorId = typeof hw.vendor === 'string' ? hw.vendor : hw.vendor.id;
-const cuLabel = vendorId === 'amd' ? 'CU' : vendorId === 'huawei' ? 'AI Core' : vendorId === 'cambricon' ? 'IPU' : 'SM';
+// Prefer factual compute_unit_label, fall back to vendor heuristic
+const cuLabel = hw.architecture?.compute_unit_label
+  ?? (vendorId === 'amd' ? 'CU' : vendorId === 'huawei' ? 'AI Core' : vendorId === 'cambricon' ? 'IPU' : 'SM');
+
+const l2CacheMb = hw.architecture?.l2_cache_mb?.value;
+const processNm = hw.architecture?.process_node_nm?.value;
+const transistorsB = hw.architecture?.transistor_count_b?.value;
+const dieAreaMm2 = hw.architecture?.die_area_mm2?.value;
 
 const tdpW = hw.power.tdp_w?.value ?? 0;
 const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.value / 1000).toFixed(1) : '?';
@@ -154,9 +165,16 @@ const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.val
         {bf16.toFixed(0)} TFLOPS BF16 · {hw.compute.fp8_tflops?.value ? `${hw.compute.fp8_tflops.value.toFixed(0)} FP8 · ` : ''}{memGb} GB {memType} @ {memBwTbs} TB/s · {tdpW} W TDP
       </text>
     </svg>
-    <p class="text-xs mt-2 px-3 py-2 rounded" style="background: color-mix(in oklch, var(--color-tier-estimated) 8%, var(--color-bg)); color: var(--color-tier-estimated);">
-      ⚠ illustrative die layout / 示意性版图: compute-unit count and HBM-stack count are inferred from public specs (BF16 TFLOPS bucket + memory.type stack size); not vendor floorplan. Authoritative inner-arch (SM/CU count, L2 size) requires <code>architecture</code> schema field — coming in v1.1.
-    </p>
+    {isFactual ? (
+      <p class="text-xs mt-2 px-3 py-2 rounded flex items-center gap-2" style="background: color-mix(in oklch, var(--color-tier-measured) 8%, var(--color-bg)); color: var(--color-tier-measured);">
+        <span style="font-weight: 600;">🟢 vendor floorplan</span>
+        <span>{cuCount} {cuLabel}s · {hbmStacks}× HBM · {l2CacheMb ?? '—'} MB L2 · {processNm ?? '—'} nm · {transistorsB ?? '—'} B transistors{dieAreaMm2 ? ` · ${dieAreaMm2} mm²` : ''}</span>
+      </p>
+    ) : (
+      <p class="text-xs mt-2 px-3 py-2 rounded" style="background: color-mix(in oklch, var(--color-tier-estimated) 8%, var(--color-bg)); color: var(--color-tier-estimated);">
+        ⚠ illustrative / 示意性版图: compute-unit and HBM-stack count are <strong>inferred</strong> from public BF16 / memory specs. <code>architecture</code> field not populated for this card yet. <a href="https://github.com/evokernel/evokernel-spec" class="underline">Contribute floorplan data →</a>
+      </p>
+    )}
   </div>
 
   <hr style={`border-color: ${border}; margin: 1.25rem 0;`}/>

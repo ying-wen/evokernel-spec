@@ -11,6 +11,14 @@ compute:
   bf16_tflops: { value: 2300, evidence_ref: ev-mi355x-001 }
   fp16_tflops: { value: 2300, evidence_ref: ev-mi355x-001 }
   int8_tops: { value: 4600, evidence_ref: ev-mi355x-001 }
+architecture:
+  compute_unit_count: { value: 256, evidence_ref: ev-mi355x-arch-001 }
+  compute_unit_label: CU
+  l2_cache_mb: { value: 256, evidence_ref: ev-mi355x-arch-001 }
+  hbm_stacks: { value: 8, evidence_ref: ev-mi355x-arch-001 }
+  process_node_nm: { value: 3, evidence_ref: ev-mi355x-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-mi355x-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-mi355x-001 }
 memory:
   capacity_gb: { value: 288, evidence_ref: ev-mi355x-001 }
   bandwidth_gbps: { value: 8000, evidence_ref: ev-mi355x-001 }
@@ -40,5 +48,11 @@ evidence:
     url: https://www.amd.com/en/products/accelerators/instinct/mi355x.html
     accessed: '2026-04-28'
     citation: 'AMD MI355X announcement (vendor-claimed)'
+  - id: ev-mi355x-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.amd.com/en/products/accelerators/instinct/mi355x.html
+    accessed: '2026-04-28'
+    citation: 'CDNA 4 architecture: 256 CUs (4 XCDs × 64 CU configurable), 256 MB Infinity Cache, 8× HBM3e stacks @ 36 GB ⇒ 288 GB, FP4 native @ 9.2 PFLOPS, TSMC 3nm'
 disclaimers:
   - 'All performance figures are vendor-claimed unless tier=measured.'
