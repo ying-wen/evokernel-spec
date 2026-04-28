@@ -57,7 +57,7 @@ function readUrlState(hardware: ResolvedHw[]): { ids: string[]; view: ViewType }
   const idsParam = params.get('ids');
   const viewParam = params.get('view') as ViewType | null;
   const ids = (idsParam ?? '').split(',').filter(Boolean).filter((id) => hardware.some((h) => h.id === id));
-  const view = viewParam && (VIEW_KEYS as readonly string[]).includes(viewParam) ? viewParam : 'radar';
+  const view = viewParam && (VIEW_KEYS as readonly string[]).includes(viewParam) ? viewParam : 'table';
   if (!ids.length && !idsParam) return null;
   return { ids, view };
 }
@@ -72,7 +72,7 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
       }))
     : METRICS;
   const [selected, setSelected] = useState<string[]>(['h100-sxm5', 'b200-sxm', 'mi355x', 'ascend-910c']);
-  const [chartType, setChartType] = useState<ViewType>('radar');
+  const [chartType, setChartType] = useState<ViewType>('table');
   const [filter, setFilter] = useState('');
 
   // Hydrate from URL on mount
@@ -89,7 +89,7 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     if (selected.length > 0) params.set('ids', selected.join(',')); else params.delete('ids');
-    if (chartType !== 'radar') params.set('view', chartType); else params.delete('view');
+    if (chartType !== 'table') params.set('view', chartType); else params.delete('view');
     const qs = params.toString();
     const next = window.location.pathname + (qs ? '?' + qs : '');
     window.history.replaceState(null, '', next);
@@ -161,11 +161,15 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
                    className="w-full px-3 py-1.5 rounded border text-sm"
                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
           </div>
-          <div className="space-y-1 max-h-96 overflow-y-auto pr-1">
+          <div className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>
+            {en ? `${cards.length} hardware available` : `${cards.length} 张可选`}
+          </div>
+          <div className="space-y-1 overflow-y-auto pr-1" style={{ maxHeight: 'calc(100vh - 14rem)' }}>
             {cards.map((h) => {
               const idx = selected.indexOf(h.id);
               const isSel = idx >= 0;
               const color = isSel ? PALETTE[idx]! : 'transparent';
+              const isCN = h.vendor.country === 'CN';
               return (
                 <button key={h.id} type="button" onClick={() => toggle(h.id)}
                         className="w-full text-left px-3 py-2 rounded text-sm border flex items-center gap-2"
@@ -174,8 +178,9 @@ export default function CompareTool({ hardware, locale = 'zh' }: Props) {
                           background: isSel ? `color-mix(in oklch, ${color} 8%, var(--color-bg))` : 'var(--color-surface)',
                           cursor: 'pointer'
                         }}>
-                  <span className="w-2 h-2 rounded-full inline-block" style={{ background: color, border: isSel ? 'none' : '1px solid var(--color-border)' }}></span>
-                  <span className="truncate">{h.name}</span>
+                  <span className="w-2 h-2 rounded-full inline-block flex-shrink-0" style={{ background: color, border: isSel ? 'none' : '1px solid var(--color-border)' }}></span>
+                  <span className="truncate flex-1">{h.name}</span>
+                  {isCN && <span className="text-[0.6rem] px-1 rounded flex-shrink-0" style={{ background: 'color-mix(in oklch, var(--color-china) 14%, var(--color-bg))', color: 'var(--color-china)' }}>CN</span>}
                 </button>
               );
             })}

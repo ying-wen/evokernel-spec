@@ -74,8 +74,12 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
   };
 
   return (
-    <div className="grid lg:grid-cols-[14rem,1fr] gap-8">
-      <aside className="space-y-5 self-start text-sm" style={{ position: 'sticky', top: '5rem' }}>
+    <div className="grid lg:grid-cols-[15rem,1fr] gap-8">
+      <aside className="hw-filter-aside space-y-5 self-start text-sm rounded-lg border p-4"
+             style={{
+               background: 'var(--color-surface-raised)',
+               borderColor: 'var(--color-border)'
+             }}>
         <div>
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
                  placeholder={en ? 'Search (h100, ascend, MI3...)' : '搜索 (h100, 昇腾, MI3...)'}
@@ -190,6 +194,17 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
           </div>
         )}
       </div>
+      <style>{`
+        @media (min-width: 1024px) {
+          .hw-filter-aside {
+            position: sticky;
+            top: 5rem;
+            z-index: 10;
+            max-height: calc(100vh - 6rem);
+            overflow-y: auto;
+          }
+        }
+      `}</style>
     </div>
   );
 }

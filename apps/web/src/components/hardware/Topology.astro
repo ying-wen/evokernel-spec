@@ -1,8 +1,6 @@
 ---
 import type { Hardware } from '@evokernel/schemas';
 
-// Accept either raw Hardware or ResolvedHardware (vendor as object). We only
-// touch fields that are identical in both shapes.
 interface Props { hw: Omit<Hardware, 'vendor'> & { vendor: string | { id: string } }; }
 const { hw } = Astro.props;
 
@@ -12,113 +10,247 @@ const sw = hw.scale_up.switch ?? null;
 const scaleUpBw = hw.scale_up.bandwidth_gbps;
 const scaleOutBw = hw.scale_out.bandwidth_gbps_per_card;
 
-// Layout mode: single, 8-card, super-pod (>16)
 const mode: 'single' | 'eight' | 'pod' | 'super-pod' =
   cardCount === 1 ? 'single' :
   cardCount <= 8 ? 'eight' :
   cardCount <= 64 ? 'pod' : 'super-pod';
+
+// Infer HBM stack count from total capacity + type
+const memGb = hw.memory.capacity_gb?.value ?? 0;
+const memType = hw.memory.type;
+const stackSizeGb: Record<string, number> = {
+  HBM2: 16, HBM2e: 16, HBM3: 24, HBM3e: 36, HBM4: 48,
+  GDDR6: 0, LPDDR5: 0, unknown: 0
+};
+const hbmStackSize = stackSizeGb[memType] ?? 0;
+const hbmStacks = hbmStackSize > 0 && memGb > 0 ? Math.max(2, Math.min(8, Math.round(memGb / hbmStackSize))) : 0;
+
+// Compute-unit grid for die layout — proxy for SMs/CUs/cores. Higher BF16 TFLOPS → denser grid.
+const bf16 = hw.compute.bf16_tflops?.value ?? 0;
+const cuCount = bf16 >= 2000 ? 144 : bf16 >= 1000 ? 132 : bf16 >= 500 ? 96 : bf16 >= 200 ? 80 : bf16 >= 100 ? 64 : 32;
+// Pack into rectangular grid 16:9-ish
+const gridCols = Math.ceil(Math.sqrt(cuCount * 1.5));
+const gridRows = Math.ceil(cuCount / gridCols);
 
 const accent = 'var(--color-accent)';
 const china = 'var(--color-china)';
 const muted = 'var(--color-text-muted)';
 const surface = 'var(--color-surface-raised)';
 const border = 'var(--color-border)';
+
+// Vendor-specific compute-unit name
+const vendorId = typeof hw.vendor === 'string' ? hw.vendor : hw.vendor.id;
+const cuLabel = vendorId === 'amd' ? 'CU' : vendorId === 'huawei' ? 'AI Core' : vendorId === 'cambricon' ? 'IPU' : 'SM';
+
+const tdpW = hw.power.tdp_w?.value ?? 0;
+const memBwTbs = hw.memory.bandwidth_gbps?.value ? (hw.memory.bandwidth_gbps.value / 1000).toFixed(1) : '?';
 ---
 <div class="rounded-lg border p-6" style={`background: ${surface}; border-color: ${border};`}>
-  <div class="text-xs font-semibold mb-3" style={`color: ${muted};`}>
-    SCALE-UP 拓扑 · world_size = {cardCount} · {protocol} @ {scaleUpBw} GB/s
+  <div class="flex justify-between items-center mb-4">
+    <div class="text-xs font-semibold uppercase tracking-wide" style={`color: ${muted};`}>
+      拓扑结构 · Topology
+    </div>
+    <div class="text-xs font-mono" style={`color: ${muted};`}>
+      {cardCount === 1 ? '单卡 / single card' : `${cardCount} 卡 scale-up domain`}
+    </div>
+  </div>
+
+  <!-- DIE DIAGRAM (always shown) -->
+  <div class="mb-6">
+    <div class="text-xs font-medium mb-2" style="color: var(--color-text);">芯片内部 / Die-level architecture</div>
+    <svg viewBox="0 0 800 360" class="w-full max-w-3xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} die diagram`}>
+      <!-- HBM stacks on left and right -->
+      {hbmStacks > 0 && Array.from({ length: Math.ceil(hbmStacks / 2) }).map((_, i) => {
+        const yStep = 280 / Math.max(1, Math.ceil(hbmStacks / 2));
+        const y = 40 + i * yStep;
+        return (
+          <g>
+            <rect x="20" y={y} width="60" height={yStep - 8} rx="4" fill="color-mix(in oklch, var(--color-china) 14%, var(--color-bg))" stroke={china} stroke-width="1.5"/>
+            <text x="50" y={y + (yStep - 8) / 2 + 4} text-anchor="middle" font-size="9" font-weight="600" fill={china}>HBM</text>
+          </g>
+        );
+      })}
+      {hbmStacks > 0 && Array.from({ length: Math.floor(hbmStacks / 2) }).map((_, i) => {
+        const yStep = 280 / Math.max(1, Math.floor(hbmStacks / 2));
+        const y = 40 + i * yStep;
+        return (
+          <g>
+            <rect x="720" y={y} width="60" height={yStep - 8} rx="4" fill="color-mix(in oklch, var(--color-china) 14%, var(--color-bg))" stroke={china} stroke-width="1.5"/>
+            <text x="750" y={y + (yStep - 8) / 2 + 4} text-anchor="middle" font-size="9" font-weight="600" fill={china}>HBM</text>
+          </g>
+        );
+      })}
+
+      <!-- Die outline -->
+      <rect x="100" y="30" width="600" height="300" rx="10" fill="var(--color-bg)" stroke={accent} stroke-width="2" stroke-opacity="0.5"/>
+      <text x="400" y="22" text-anchor="middle" font-size="10" font-weight="600" fill={accent}>{hw.name}</text>
+
+      <!-- L2 cache strip across center -->
+      <rect x="120" y="180" width="560" height="22" rx="2" fill="color-mix(in oklch, var(--color-accent) 18%, var(--color-bg))" stroke={accent} stroke-width="0.5"/>
+      <text x="400" y="195" text-anchor="middle" font-size="9" font-weight="600" fill={accent}>L2 / shared cache · NoC</text>
+
+      <!-- Compute-unit grid (top half) -->
+      {Array.from({ length: cuCount }).slice(0, Math.floor(cuCount / 2)).map((_, i) => {
+        const col = i % gridCols;
+        const row = Math.floor(i / gridCols);
+        const cellW = 520 / gridCols;
+        const cellH = 130 / Math.max(1, Math.ceil(cuCount / 2 / gridCols));
+        const x = 130 + col * cellW;
+        const y = 40 + row * cellH;
+        return (
+          <rect x={x} y={y} width={cellW - 2} height={cellH - 2} rx="1.5" fill="color-mix(in oklch, var(--color-accent) 28%, var(--color-bg))" stroke={accent} stroke-width="0.4"/>
+        );
+      })}
+      <!-- Compute-unit grid (bottom half) -->
+      {Array.from({ length: cuCount }).slice(Math.floor(cuCount / 2)).map((_, i) => {
+        const col = i % gridCols;
+        const row = Math.floor(i / gridCols);
+        const cellW = 520 / gridCols;
+        const cellH = 110 / Math.max(1, Math.ceil(cuCount / 2 / gridCols));
+        const x = 130 + col * cellW;
+        const y = 210 + row * cellH;
+        return (
+          <rect x={x} y={y} width={cellW - 2} height={cellH - 2} rx="1.5" fill="color-mix(in oklch, var(--color-accent) 28%, var(--color-bg))" stroke={accent} stroke-width="0.4"/>
+        );
+      })}
+
+      <!-- Annotations -->
+      <text x="395" y="55" text-anchor="middle" font-size="8" fill={muted}>{cuCount} {cuLabel}s (估算 / illustrative)</text>
+      <text x="400" y="345" text-anchor="middle" font-size="9" font-weight="600" fill="var(--color-text)">
+        {bf16.toFixed(0)} TFLOPS BF16 · {hw.compute.fp8_tflops?.value ? `${hw.compute.fp8_tflops.value.toFixed(0)} FP8 · ` : ''}{memGb} GB {memType} @ {memBwTbs} TB/s · {tdpW} W TDP
+      </text>
+    </svg>
+  </div>
+
+  <hr style={`border-color: ${border}; margin: 1.25rem 0;`}/>
+
+  <!-- CLUSTER TOPOLOGY -->
+  <div class="text-xs font-medium mb-2" style="color: var(--color-text);">
+    集群拓扑 / Cluster topology · {protocol} @ {scaleUpBw} GB/s
   </div>
 
   {mode === 'single' && (
-    <svg viewBox="0 0 400 200" class="w-full max-w-md mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} 单卡拓扑`}>
-      <rect x="160" y="60" width="80" height="80" rx="8" fill="var(--color-accent-soft)" stroke={accent} stroke-width="2"/>
-      <text x="200" y="100" text-anchor="middle" font-size="11" font-weight="600" fill={accent}>{hw.name.split(' ').slice(-1)[0]}</text>
-      <text x="200" y="118" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">{hw.memory.capacity_gb?.value ?? '?'} GB</text>
-      <text x="200" y="170" text-anchor="middle" font-size="10" fill="var(--color-text-muted)">单卡 · {hw.form_factor.toUpperCase()}</text>
+    <svg viewBox="0 0 400 160" class="w-full max-w-md mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} 单卡拓扑`}>
+      <rect x="160" y="40" width="80" height="80" rx="8" fill="var(--color-accent-soft)" stroke={accent} stroke-width="2"/>
+      <text x="200" y="78" text-anchor="middle" font-size="11" font-weight="600" fill={accent}>{hw.name.split(' ').slice(-1)[0]}</text>
+      <text x="200" y="96" text-anchor="middle" font-size="9" fill={muted}>{hw.memory.capacity_gb?.value ?? '?'} GB</text>
+      <text x="200" y="140" text-anchor="middle" font-size="10" fill={muted}>单卡 / single accelerator · {hw.form_factor.toUpperCase()}</text>
     </svg>
   )}
 
   {mode === 'eight' && (
-    <svg viewBox="0 0 600 320" class="w-full max-w-2xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} ${cardCount}-card scale-up domain`}>
-      <!-- switch -->
-      <rect x="240" y="140" width="120" height="40" rx="6" fill="var(--color-accent-soft)" stroke={accent} stroke-width="1.5"/>
-      <text x="300" y="158" text-anchor="middle" font-size="11" font-weight="600" fill={accent}>{sw ?? protocol}</text>
-      <text x="300" y="172" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">{scaleUpBw} GB/s</text>
+    <svg viewBox="0 0 720 360" class="w-full max-w-3xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} ${cardCount}-card scale-up domain`}>
+      <!-- Switch fabric in center -->
+      <rect x="280" y="160" width="160" height="40" rx="6" fill="color-mix(in oklch, var(--color-accent) 22%, var(--color-bg))" stroke={accent} stroke-width="1.5"/>
+      <text x="360" y="178" text-anchor="middle" font-size="11" font-weight="700" fill={accent}>{sw ?? `${protocol} switch`}</text>
+      <text x="360" y="192" text-anchor="middle" font-size="9" fill={muted}>{scaleUpBw} GB/s/link · all-to-all</text>
+
       <!-- 8 cards in 2 rows -->
       {Array.from({ length: cardCount }).map((_, i) => {
         const row = Math.floor(i / 4);
         const col = i % 4;
-        const x = 60 + col * 120;
-        const y = row === 0 ? 30 : 240;
-        const cy = row === 0 ? y + 30 : y;
+        const x = 60 + col * 160;
+        const y = row === 0 ? 30 : 280;
+        const cy = row === 0 ? y + 50 : y;
         return (
-          <>
-            <rect x={x} y={y} width="80" height="40" rx="4" fill={surface} stroke={accent} stroke-width="1.5"/>
-            <text x={x + 40} y={y + 24} text-anchor="middle" font-size="10" font-weight="600" fill="var(--color-text)">GPU {i}</text>
-            <line x1={x + 40} y1={cy} x2="300" y2={row === 0 ? 140 : 180} stroke={accent} stroke-opacity="0.45" stroke-width="1"/>
-          </>
+          <g>
+            <rect x={x} y={y} width="100" height="50" rx="4" fill={surface} stroke={accent} stroke-width="1.5"/>
+            <text x={x + 50} y={y + 22} text-anchor="middle" font-size="11" font-weight="600" fill="var(--color-text)">GPU {i}</text>
+            <text x={x + 50} y={y + 38} text-anchor="middle" font-size="8" fill={muted}>{hw.memory.capacity_gb?.value ?? '?'}GB</text>
+            <line x1={x + 50} y1={cy} x2="360" y2={row === 0 ? 160 : 200} stroke={accent} stroke-opacity="0.45" stroke-width="1.2"/>
+          </g>
         );
       })}
+      <text x="360" y="345" text-anchor="middle" font-size="10" fill={muted}>
+        {cardCount} cards · {hw.scale_up.topology} topology · scale-out: {scaleOutBw} Gbps/card
+      </text>
     </svg>
   )}
 
   {mode === 'pod' && (
-    <svg viewBox="0 0 600 280" class="w-full max-w-2xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} pod scale-up`}>
-      <!-- multiple nodes -->
+    <svg viewBox="0 0 720 320" class="w-full max-w-3xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} pod scale-up`}>
+      <!-- Top-of-rack switch -->
+      <rect x="240" y="20" width="240" height="32" rx="6" fill="color-mix(in oklch, var(--color-accent) 18%, var(--color-bg))" stroke={accent} stroke-width="1.5"/>
+      <text x="360" y="40" text-anchor="middle" font-size="11" font-weight="700" fill={accent}>ToR · {sw ?? protocol}</text>
       {Array.from({ length: Math.ceil(cardCount / 8) }).map((_, n) => {
-        const x = 30 + (n % 4) * 140;
-        const y = 30 + Math.floor(n / 4) * 130;
+        const x = 30 + (n % 4) * 170;
+        const y = 90 + Math.floor(n / 4) * 130;
         return (
-          <>
-            <rect x={x} y={y} width="120" height="100" rx="6" fill="var(--color-accent-soft)" stroke={accent} stroke-width="1.5" stroke-opacity="0.6"/>
-            <text x={x + 60} y={y + 18} text-anchor="middle" font-size="10" font-weight="600" fill={accent}>Node {n + 1}</text>
+          <g>
+            <rect x={x} y={y} width="150" height="110" rx="6" fill={surface} stroke={accent} stroke-width="1.5" stroke-opacity="0.6"/>
+            <text x={x + 75} y={y + 18} text-anchor="middle" font-size="11" font-weight="600" fill={accent}>Node {n + 1}</text>
             {Array.from({ length: 8 }).map((_, i) => (
-              <rect x={x + 8 + (i % 4) * 28} y={y + 30 + Math.floor(i / 4) * 30} width="24" height="22" rx="2" fill={surface} stroke={accent} stroke-width="0.5"/>
+              <rect x={x + 12 + (i % 4) * 32} y={y + 32 + Math.floor(i / 4) * 36} width="28" height="28" rx="2" fill="color-mix(in oklch, var(--color-accent) 28%, var(--color-bg))" stroke={accent} stroke-width="0.5"/>
             ))}
-          </>
+            <line x1={x + 75} y1={y} x2="360" y2="52" stroke={accent} stroke-opacity="0.35" stroke-width="1"/>
+          </g>
         );
       })}
-      <text x="300" y="260" text-anchor="middle" font-size="10" fill="var(--color-text-muted)">
-        Pod 级 · {Math.ceil(cardCount / 8)} 节点 × 8 卡 = {cardCount} 卡 · 节点间 {scaleOutBw} Gbps
+      <text x="360" y="305" text-anchor="middle" font-size="10" fill={muted}>
+        {Math.ceil(cardCount / 8)} 节点 × 8 卡 = {cardCount} 卡 · 节点内 {scaleUpBw} GB/s · 节点间 {scaleOutBw} Gbps RoCE/IB
       </text>
     </svg>
   )}
 
   {mode === 'super-pod' && (
-    <svg viewBox="0 0 600 380" class="w-full max-w-3xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} super-pod scale-up`}>
-      <!-- super-pod ring with N cards represented as small dots -->
-      <circle cx="300" cy="180" r="140" fill="none" stroke={china} stroke-width="2" stroke-dasharray="4 3" stroke-opacity="0.6"/>
-      <rect x="240" y="155" width="120" height="50" rx="8" fill={`color-mix(in oklch, ${china} 18%, var(--color-bg))`} stroke={china} stroke-width="1.5"/>
-      <text x="300" y="178" text-anchor="middle" font-size="11" font-weight="600" fill={china}>{protocol} fabric</text>
-      <text x="300" y="194" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">{cardCount} 卡 scale-up domain</text>
-      {Array.from({ length: Math.min(cardCount, 24) }).map((_, i) => {
-        const angle = (i / Math.min(cardCount, 24)) * Math.PI * 2 - Math.PI / 2;
-        const r = 140;
-        const cx = 300 + Math.cos(angle) * r;
-        const cy = 180 + Math.sin(angle) * r;
+    <svg viewBox="0 0 720 440" class="w-full max-w-4xl mx-auto" xmlns="http://www.w3.org/2000/svg" aria-label={`${hw.name} super-pod scale-up`}>
+      <!-- Spine switches at top -->
+      <text x="360" y="22" text-anchor="middle" font-size="11" font-weight="700" fill={china}>Spine ({protocol} fabric)</text>
+      {Array.from({ length: 4 }).map((_, i) => {
+        const x = 80 + i * 160;
         return (
-          <circle cx={cx} cy={cy} r="6" fill={`color-mix(in oklch, ${china} 25%, var(--color-bg))`} stroke={china} stroke-width="1"/>
+          <rect x={x} y={30} width="120" height="24" rx="4" fill="color-mix(in oklch, var(--color-china) 18%, var(--color-bg))" stroke={china} stroke-width="1"/>
         );
       })}
-      <text x="300" y="350" text-anchor="middle" font-size="11" fill="var(--color-text-muted)">
-        Super-pod (rack-scale) · {cardCount} cards · {scaleUpBw} GB/s/link
+      {/* Leaf switches */}
+      <text x="360" y="84" text-anchor="middle" font-size="10" font-weight="600" fill={muted}>Leaf switches</text>
+      {Array.from({ length: 8 }).map((_, i) => {
+        const x = 40 + i * 85;
+        return (
+          <g>
+            <rect x={x} y={94} width="70" height="20" rx="3" fill="color-mix(in oklch, var(--color-china) 12%, var(--color-bg))" stroke={china} stroke-width="0.8"/>
+            {/* Spine to leaf links */}
+            {Array.from({ length: 4 }).map((__, s) => (
+              <line x1={140 + s * 160} y1="54" x2={x + 35} y2="94" stroke={china} stroke-opacity="0.18" stroke-width="0.6"/>
+            ))}
+          </g>
+        );
+      })}
+      <!-- Compute nodes -->
+      {Array.from({ length: Math.min(32, Math.ceil(cardCount / 8)) }).map((_, n) => {
+        const x = 30 + (n % 8) * 86;
+        const y = 150 + Math.floor(n / 8) * 70;
+        const leafX = 40 + (n % 8) * 85 + 35;
+        return (
+          <g>
+            <rect x={x} y={y} width="76" height="50" rx="4" fill={surface} stroke={china} stroke-width="0.8"/>
+            <text x={x + 38} y={y + 18} text-anchor="middle" font-size="9" font-weight="600" fill="var(--color-text)">N{n + 1}</text>
+            {/* 8 small card squares */}
+            {Array.from({ length: 8 }).map((__, i) => (
+              <rect x={x + 6 + (i % 4) * 17} y={y + 25 + Math.floor(i / 4) * 11} width="14" height="9" rx="1" fill="color-mix(in oklch, var(--color-china) 30%, var(--color-bg))"/>
+            ))}
+            <line x1={x + 38} y1={y} x2={leafX} y2="114" stroke={china} stroke-opacity="0.25" stroke-width="0.6"/>
+          </g>
+        );
+      })}
+      <text x="360" y="430" text-anchor="middle" font-size="10" fill={muted}>
+        Super-pod (rack-scale) · {cardCount} cards in single scale-up domain · {scaleUpBw} GB/s/link · 2-tier Clos fabric
       </text>
-      {cardCount > 24 && (
-        <text x="300" y="368" text-anchor="middle" font-size="9" fill="var(--color-text-muted)">(显示 24 张代表节点; 实际 {cardCount})</text>
-      )}
     </svg>
   )}
 
   <div class="grid grid-cols-2 gap-4 mt-4 text-xs" style={`color: ${muted};`}>
     <div>
-      <div class="font-semibold mb-1" style="color: var(--color-text);">Scale-Up</div>
+      <div class="font-semibold mb-1" style="color: var(--color-text);">Scale-Up · 域内</div>
       <div>{protocol}</div>
       <div>{scaleUpBw} GB/s · 拓扑: {hw.scale_up.topology}</div>
+      <div>world_size = {cardCount}</div>
     </div>
     <div>
-      <div class="font-semibold mb-1" style="color: var(--color-text);">Scale-Out</div>
+      <div class="font-semibold mb-1" style="color: var(--color-text);">Scale-Out · 跨域</div>
       <div>{hw.scale_out.protocol}</div>
-      <div>{scaleOutBw} Gbps/卡</div>
+      <div>{scaleOutBw} Gbps/卡 NIC</div>
+      {hw.scale_out.nic && <div>{hw.scale_out.nic}</div>}
     </div>
   </div>
 </div>
