@@ -1,0 +1,166 @@
+---
+/**
+ * OperatorFitnessMatrix — for a given hardware, render a row per
+ * model showing which operator dominates and whether it's compute-
+ * or memory-bound on this card. Surfaces the v1.2 "any-model ×
+ * any-hardware compilation/optimization" thesis directly on the
+ * hardware detail page: a glanceable answer to "if I run X on this
+ * card, what's the bottleneck and how much head-room exists?"
+ *
+ * For each model:
+ *   1. Sum operator_decomposition's FLOPs/bytes — total per token
+ *   2. Pick the dominant operator (max FLOPs/token contribution)
+ *   3. Compute model arithmetic intensity (FLOPs/byte)
+ *   4. Compare against the hardware's ridge point (peak_flops /
+ *      peak_bandwidth) to call compute-bound vs memory-bound
+ *   5. Color-code the row by domain so scientific/edge stand out
+ */
+import type { Hardware, Model } from '@evokernel/schemas';
+
+interface Props {
+  hw: Hardware;
+  models: Model[];
+  precision?: 'bf16' | 'fp16' | 'fp8' | 'fp4';
+  topN?: number;
+}
+
+const { hw, models, precision = 'bf16', topN = 8 } = Astro.props as Props;
+
+// --- hardware peak metrics ---
+function pickPeakTflops(): number {
+  if (precision === 'fp4') return hw.compute.fp4_tflops?.value ?? hw.compute.fp8_tflops?.value ?? hw.compute.bf16_tflops?.value ?? 0;
+  if (precision === 'fp8') return hw.compute.fp8_tflops?.value ?? hw.compute.bf16_tflops?.value ?? 0;
+  if (precision === 'fp16') return hw.compute.fp16_tflops?.value ?? hw.compute.bf16_tflops?.value ?? 0;
+  return hw.compute.bf16_tflops?.value ?? 0;
+}
+
+const peakTflops = pickPeakTflops();
+const peakBwGbs = hw.memory.bandwidth_gbps?.value ?? 0;
+// Ridge point in FLOPs/byte: above this, model is compute-bound; below, memory-bound
+const ridgePoint = peakBwGbs > 0 ? (peakTflops * 1e12) / (peakBwGbs * 1e9) : 0;
+
+interface Row {
+  model: Model;
+  dominantOp: string;
+  totalFlopsPerToken: number;
+  totalBytesPerToken: number;
+  arithmeticIntensity: number;
+  bottleneck: 'compute' | 'memory' | 'unknown';
+  computeBoundTokPerSec: number;
+  memoryBoundTokPerSec: number;
+  upperBoundTokPerSec: number;
+}
+
+const rows: Row[] = models
+  .filter((m) => m.operator_decomposition.length > 0)
+  .map((m) => {
+    const totalFlops = m.operator_decomposition.reduce((a, op) => a + op.flops_per_token, 0);
+    const totalBytes = m.operator_decomposition.reduce((a, op) => a + op.bytes_per_token, 0);
+    // Dominant op by FLOPs share (most common cost-driver)
+    const dominant = [...m.operator_decomposition].sort(
+      (a, b) => b.flops_per_token - a.flops_per_token
+    )[0];
+    const ai = totalBytes > 0 ? totalFlops / totalBytes : 0;
+    const computeBoundTokPerSec = totalFlops > 0 ? (peakTflops * 1e12) / totalFlops : 0;
+    const memoryBoundTokPerSec = totalBytes > 0 ? (peakBwGbs * 1e9) / totalBytes : 0;
+    const upper = Math.min(computeBoundTokPerSec, memoryBoundTokPerSec);
+    const bottleneck: Row['bottleneck'] =
+      ai === 0 ? 'unknown' : ai >= ridgePoint ? 'compute' : 'memory';
+    return {
+      model: m,
+      dominantOp: dominant?.operator ?? '—',
+      totalFlopsPerToken: totalFlops,
+      totalBytesPerToken: totalBytes,
+      arithmeticIntensity: ai,
+      bottleneck,
+      computeBoundTokPerSec,
+      memoryBoundTokPerSec,
+      upperBoundTokPerSec: upper
+    };
+  })
+  // Show the most-portable models first; cap at topN
+  .sort((a, b) => b.upperBoundTokPerSec - a.upperBoundTokPerSec)
+  .slice(0, topN);
+
+const fmtTok = (n: number) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n.toFixed(0));
+
+// Domain → color mapping (covers the v1.2 9-domain enum)
+const domainColor: Record<string, string> = {
+  llm: 'var(--color-text-muted)',
+  scientific: 'var(--color-china)',
+  multimodal: 'var(--color-accent)',
+  vision: 'var(--color-accent)',
+  speech: 'var(--color-tier-measured)',
+  recommender: 'var(--color-tier-estimated)',
+  code: 'var(--color-text-muted)',
+  rl: 'var(--color-tier-estimated)',
+  graph: 'var(--color-china)'
+};
+const bottleneckColor: Record<Row['bottleneck'], string> = {
+  compute: 'var(--color-accent)',
+  memory: 'var(--color-china)',
+  unknown: 'var(--color-text-muted)'
+};
+const bottleneckLabel: Record<Row['bottleneck'], string> = {
+  compute: '🔥 计算',
+  memory: '💾 内存带宽',
+  unknown: '— 未知'
+};
+---
+<div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+  <div class="px-4 py-3 border-b flex items-center justify-between flex-wrap gap-3" style="border-color: var(--color-border);">
+    <div>
+      <h4 class="text-sm font-semibold">算子级 fit · operator-level fit (per-token roofline)</h4>
+      <p class="text-xs mt-0.5" style="color: var(--color-text-muted);">
+        基于每个模型 operator_decomposition + 本卡 {precision.toUpperCase()} {peakTflops.toLocaleString()} TFLOPS / {peakBwGbs.toLocaleString()} GB/s 计算
+        · ridge point ≈ {ridgePoint.toFixed(0)} FLOPs/byte
+      </p>
+    </div>
+    <span class="text-xs" style="color: var(--color-text-muted);">
+      上界 = min(计算屋顶, 内存带宽屋顶) · efficiency 未应用
+    </span>
+  </div>
+  <table class="w-full text-sm">
+    <thead style="background: var(--color-surface);">
+      <tr>
+        <th class="text-left px-4 py-2 font-medium">模型</th>
+        <th class="text-left px-3 py-2 font-medium">domain</th>
+        <th class="text-left px-3 py-2 font-medium">主导算子</th>
+        <th class="text-right px-3 py-2 font-medium" title="arithmetic intensity">AI · F/B</th>
+        <th class="text-left px-3 py-2 font-medium">瓶颈</th>
+        <th class="text-right px-3 py-2 font-medium">tok/s 上界</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr class="border-t" style="border-color: var(--color-border);">
+          <td class="px-4 py-2">
+            <a href={`/models/${r.model.id}/`} class="font-medium" style="color: var(--color-text);">{r.model.name}</a>
+          </td>
+          <td class="px-3 py-2 text-xs">
+            <span style={`color: ${domainColor[r.model.domain ?? 'llm']}; font-weight: 600;`}>
+              {r.model.domain ?? 'llm'}
+            </span>
+          </td>
+          <td class="px-3 py-2 text-xs font-mono" style="color: var(--color-text-muted);">
+            {r.dominantOp}
+          </td>
+          <td class="px-3 py-2 text-right font-mono text-xs">
+            {r.arithmeticIntensity > 0 ? r.arithmeticIntensity.toFixed(1) : '—'}
+          </td>
+          <td class="px-3 py-2 text-xs">
+            <span style={`color: ${bottleneckColor[r.bottleneck]}; font-weight: 600;`}>
+              {bottleneckLabel[r.bottleneck]}
+            </span>
+          </td>
+          <td class="px-3 py-2 text-right font-mono">
+            {r.upperBoundTokPerSec > 0 ? fmtTok(r.upperBoundTokPerSec) : '—'}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  <div class="px-4 py-2 border-t text-xs" style="border-color: var(--color-border); color: var(--color-text-muted);">
+    需要 efficiency 校准 + concurrency 扫描 + TCO 估算 → <a href={`/calculator/?hw=${hw.id}`} class="underline" style="color: var(--color-accent);">在计算器中评估 →</a>
+  </div>
+</div>

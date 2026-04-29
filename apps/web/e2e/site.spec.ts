@@ -573,6 +573,49 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.2 niche hardware + scientific models + OperatorFitnessMatrix', () => {
+  test('Cerebras WSE-3 detail shows wafer-scale + on-die-SRAM badges', async ({ page }) => {
+    await page.goto('/hardware/wse-3/');
+    await expect(page.getByText(/wafer-scale/i).first()).toBeVisible();
+    await expect(page.getByText(/on-die SRAM/i).first()).toBeVisible();
+    await expect(page.getByText(/900,000/).first()).toBeVisible();
+  });
+
+  test('Groq LPU detail shows deterministic-latency + 230 MB on-die badges', async ({ page }) => {
+    await page.goto('/hardware/groq-lpu/');
+    await expect(page.getByText(/deterministic/i).first()).toBeVisible();
+    await expect(page.getByText(/230 MB/).first()).toBeVisible();
+  });
+
+  test('SambaNova SN40L detail shows reconfigurable RDU badge', async ({ page }) => {
+    await page.goto('/hardware/sn40l/');
+    await expect(page.getByText(/reconfigurable|RDU/i).first()).toBeVisible();
+    await expect(page.getByText(/1664 GB|1.5 TB/i).first()).toBeVisible();
+  });
+
+  test('AlphaFold 3 model page renders scientific-domain decomposition', async ({ page }) => {
+    await page.goto('/models/alphafold-3/');
+    await expect(page.getByText(/AlphaFold/i).first()).toBeVisible();
+    await expect(page.getByText(/pair-bias-attention/i).first()).toBeVisible();
+  });
+
+  test('GraphCast model page renders graph-iteration workload', async ({ page }) => {
+    await page.goto('/models/graphcast/');
+    await expect(page.getByText(/GraphCast/i).first()).toBeVisible();
+    await expect(page.getByText(/graph-message-passing/i).first()).toBeVisible();
+  });
+
+  test('OperatorFitnessMatrix on H100 shows model rows + bottleneck classification', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    // Section heading + at least one bottleneck label rendered (use .first()
+    // because both the h3 page section and the h4 component title match)
+    await expect(page.getByRole('heading', { name: /算子级 fit/ }).first()).toBeVisible();
+    await expect(page.getByText(/内存带宽|计算/).first()).toBeVisible();
+    // ridge-point computation visible in subtitle
+    await expect(page.getByText(/ridge point|FLOPs\/byte/i).first()).toBeVisible();
+  });
+});
+
 test.describe('Architecture schema + factual Topology', () => {
   test('H100 detail shows vendor-floorplan badge with real CU count', async ({ page }) => {
     await page.goto('/hardware/h100-sxm5/');

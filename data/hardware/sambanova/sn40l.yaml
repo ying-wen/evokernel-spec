@@ -1,0 +1,55 @@
+id: sn40l
+name: SambaNova SN40L
+vendor: sambanova
+generation: sambanova-rdu-gen4
+status: in-production
+release_year: 2024
+form_factor: reconfigurable
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1040, evidence_ref: ev-sn40l-001 }
+  bf16_tflops: { value: 638, evidence_ref: ev-sn40l-001 }
+  fp16_tflops: { value: 638, evidence_ref: ev-sn40l-001 }
+  fp32_tflops: { value: 320, evidence_ref: ev-sn40l-001 }
+  int8_tops: { value: 1040, evidence_ref: ev-sn40l-001 }
+architecture:
+  compute_unit_count: { value: 1040, evidence_ref: ev-sn40l-001 }
+  compute_unit_label: RDU-Tile
+  on_die_sram_mb: { value: 64, evidence_ref: ev-sn40l-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-sn40l-001 }
+  die_area_mm2: { value: 800, evidence_ref: ev-sn40l-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-sn40l-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-sn40l-001 }
+  reconfigurable: true
+memory:
+  capacity_gb: { value: 1664, evidence_ref: ev-sn40l-001 }
+  bandwidth_gbps: { value: 6400, evidence_ref: ev-sn40l-001 }
+  type: HBM3
+scale_up:
+  protocol: SambaFabric
+  bandwidth_gbps: 800
+  world_size: 16
+  topology: switched
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: Ethernet
+power:
+  tdp_w: { value: 300, evidence_ref: ev-sn40l-001 }
+software_support:
+  drivers: ['SambaNova-SDK-2.x', 'SambaFlow']
+  engines:
+    - { id: vllm, status: community-port, notes: 'SambaNova native serving stack' }
+  quantizations: [bf16, fp16, fp8-e4m3, int8]
+  parallelism: [tp, pp, dataflow]
+aliases: ['SN40L', 'Cardinal SN40L']
+chinese_names: ['SambaNova SN40L']
+evidence:
+  - id: ev-sn40l-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://sambanova.ai/products/sn40l
+    accessed: '2026-04-29'
+    citation: 'SambaNova SN40L (Cardinal): RDU (Reconfigurable Dataflow Unit) with 1040 PCUs, 64 MB on-chip SRAM, 1.5 TB HBM3 + DDR5 hybrid memory (1664 GB total), 5nm TSMC, 800 mm² die. Full system: 8-card SN40L node with 12 TB aggregate fast memory.'
+disclaimers:
+  - 'SN40L unique architecture: 3-tier memory (on-chip SRAM + HBM + DDR5) lets it host 5+ trillion-parameter models in a single node — no other accelerator does this.'
+  - 'Compute reported is per-RDU; sustained throughput depends on dataflow graph fit (reconfigurable; not all models map cleanly).'

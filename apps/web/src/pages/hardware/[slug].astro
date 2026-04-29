@@ -8,6 +8,7 @@ import TierChip from '~/components/ui/TierChip.astro';
 import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators } from '~/lib/data';
 import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
 import Topology from '~/components/hardware/Topology.astro';
+import OperatorFitnessMatrix from '~/components/hardware/OperatorFitnessMatrix.astro';
 import OperatorCoverage from '~/components/hardware/OperatorCoverage.astro';
 import Substitutes from '~/components/hardware/Substitutes.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
@@ -212,6 +213,11 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
     <section class="pb-8" id="models">
       <h3 class="text-lg font-semibold mb-3">能跑哪些模型?</h3>
       <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
+    </section>
+
+    <section class="pb-8" id="fit">
+      <h3 class="text-lg font-semibold mb-3">算子级 fit · 任意模型瓶颈类型 + 上界</h3>
+      <OperatorFitnessMatrix hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} />
     </section>
 
     <section class="pb-8" id="operators">

@@ -1,0 +1,7 @@
+id: apple
+name: Apple
+country: US
+type: both
+website: https://www.apple.com/mac/m4/
+chinese_names: ['苹果']
+aliases: ['Apple Silicon', 'Apple Inc.']

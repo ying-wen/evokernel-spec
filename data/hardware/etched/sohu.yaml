@@ -1,0 +1,58 @@
+id: sohu
+name: Etched Sohu
+vendor: etched
+generation: etched-sohu-gen1
+status: announced
+release_year: 2025
+form_factor: pcie
+compute:
+  fp4_tflops: { value: 4500, evidence_ref: ev-sohu-001 }
+  fp8_tflops: { value: 2250, evidence_ref: ev-sohu-001 }
+  bf16_tflops: { value: 1125, evidence_ref: ev-sohu-001 }
+  fp16_tflops: { value: 1125, evidence_ref: ev-sohu-001 }
+  int8_tops: { value: 2250, evidence_ref: ev-sohu-001 }
+architecture:
+  compute_unit_count: { value: 144, evidence_ref: ev-sohu-arch }
+  compute_unit_label: Tile
+  process_node_nm: { value: 4, evidence_ref: ev-sohu-arch }
+  pcie_gen: { value: 5, evidence_ref: ev-sohu-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-sohu-001 }
+memory:
+  capacity_gb: { value: 144, evidence_ref: ev-sohu-001 }
+  bandwidth_gbps: { value: 5760, evidence_ref: ev-sohu-001 }
+  type: HBM3e
+scale_up:
+  protocol: Etched-Mesh
+  bandwidth_gbps: 800
+  world_size: 8
+  topology: full-mesh
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: Ethernet-RoCE
+power:
+  tdp_w: { value: 700, evidence_ref: ev-sohu-001 }
+software_support:
+  drivers: ['Etched-SDK-1.x']
+  engines:
+    - { id: vllm, status: community-port, notes: 'Etched custom serving engine; vllm-etched-fork in progress' }
+  quantizations: [bf16, fp16, fp8-e4m3, fp4, int8]
+  parallelism: [tp, pp]
+aliases: ['Sohu', 'Etched Transformer ASIC']
+chinese_names: ['Etched Sohu Transformer 专用芯片']
+evidence:
+  - id: ev-sohu-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.etched.com/announcing-etched
+    accessed: '2026-04-29'
+    citation: 'Etched Sohu (announced June 2024): Transformer-only ASIC, claims 100,000+ tokens/sec on Llama 70B (8-card system), 144 GB HBM3e per chip. Status: announced, GA targeted late 2025.'
+  - id: ev-sohu-arch
+    tier: estimated
+    source_type: third-party-review
+    url: https://www.semianalysis.com/p/sohu-asic-deep-dive
+    accessed: '2026-04-29'
+    citation: 'Sohu architecture estimate: ~144 specialized Tiles optimized for transformer attention + MLP only. Cannot run non-transformer workloads (no graph ops, no conv, no MoE gate primitive without firmware extension).'
+disclaimers:
+  - 'Sohu is TRANSFORMER-ONLY: cannot run scientific (AlphaFold), graph (GraphCast), or vision (SAM/DINO) workloads. Domain restriction is the entire bet.'
+  - 'Status: announced (June 2024); GA pushed to late 2025 / 2026 — specs subject to revision at GA.'
+  - 'Vendor-claimed throughput numbers (100k+ tok/s on Llama 70B) imply ~10x H100 efficiency — independent verification pending.'
