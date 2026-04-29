@@ -95,7 +95,7 @@ jobs:
         # build+deploy succeeded — fast detection of base-path drift.
         run: |
           set -euo pipefail
-          BASE="https://ying-wen.github.io/evokernel-spec"
+          BASE="https://yingwen.io/evokernel-spec"
           ROUTES=(/ /en/ /hardware/ /models/ /cases/ /calculator/ /pricing/ /china/ /showcase/ /quality/ /contribute/ /api/healthz /api/index.json)
           fail=0
           for r in "${ROUTES[@]}"; do

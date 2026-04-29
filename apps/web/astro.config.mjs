@@ -17,8 +17,12 @@ import tailwindcss from '@tailwindcss/vite';
 const target = process.env.PUBLIC_DEPLOY ?? 'custom-domain';
 
 const TARGETS = {
+  // ying-wen has a verified custom domain `yingwen.io` on their GitHub Pages
+  // account, so project-page deploys are served at https://yingwen.io/<repo>/
+  // (not ying-wen.github.io). The default site URL reflects that; override via
+  // SITE_URL env when forking.
   'github-pages': {
-    site: process.env.SITE_URL ?? 'https://ying-wen.github.io',
+    site: process.env.SITE_URL ?? 'https://yingwen.io',
     base: process.env.BASE_PATH ?? '/evokernel-spec'
   },
   'custom-domain': {
