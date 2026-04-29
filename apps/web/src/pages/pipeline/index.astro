@@ -1,0 +1,183 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { getPipelineStages, getPatterns, getEngines } from '~/lib/data';
+import { pathname, type Locale } from '~/lib/i18n';
+
+interface Props { locale?: Locale }
+const { locale = 'zh' } = Astro.props as Props;
+const en = locale === 'en';
+
+const [stages, patterns, engines] = await Promise.all([
+  getPipelineStages(), getPatterns(), getEngines()
+]);
+
+// Pre-compute "patterns / stage" count for the visual flow
+const patternsByStage = new Map<string, number>();
+for (const p of patterns) {
+  for (const s of stages) {
+    if (s.related_patterns.includes(p.id)) {
+      patternsByStage.set(s.id, (patternsByStage.get(s.id) ?? 0) + 1);
+    }
+  }
+}
+
+// Color hue around the 7-step flow (cool → warm → cool → green for "live")
+const stageColors = [
+  'oklch(58% 0.16 250)', // acquire — cool blue
+  'oklch(58% 0.16 220)', // convert
+  'oklch(58% 0.18 60)',  // quantize — yellow/orange
+  'oklch(58% 0.20 25)',  // compile — orange/red (computational hot stage)
+  'oklch(58% 0.18 320)', // shard — purple
+  'oklch(58% 0.16 200)', // serve — teal
+  'oklch(58% 0.16 145)'  // observe — green ("live")
+];
+---
+<BaseLayout title={en ? 'Deployment pipeline' : '部署优化链路'} locale={locale}>
+  <Container width="wide">
+    <section class="pt-16 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        PIPELINE
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        {en ? 'From weights to live API — 7 stages' : '从权重到上线 — 7 阶段部署链路'}
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        {en
+          ? 'Every deployment goes through these 7 stages. The catalog of 9 patterns, 7 engines, and 22 measured cases all map onto exactly one stage — this gives you the order in which to apply them.'
+          : '每个推理部署都要走完这 7 阶段。9 个 pattern + 7 个引擎 + 22 个实测案例都对应到唯一一个阶段——这告诉你"按什么顺序解决问题"。'}
+      </p>
+    </section>
+
+    <!-- Visual 7-step flow -->
+    <section class="py-8">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        {stages.map((s, i) => {
+          const color = stageColors[i] ?? 'var(--color-accent)';
+          const patternCount = patternsByStage.get(s.id) ?? 0;
+          return (
+            <a href={pathname(`/pipeline/${s.id}/`)} class="block rounded-lg p-4 border transition-transform hover:-translate-y-0.5 relative"
+               style={`border-color: ${color}; background: color-mix(in oklch, ${color} 5%, var(--color-bg));`}>
+              <div class="text-xs font-mono mb-1" style={`color: ${color};`}>STAGE {s.order}/7</div>
+              <h3 class="text-base font-semibold" style="color: var(--color-text);">
+                {en ? s.name_en : s.name_zh}
+              </h3>
+              <div class="text-xs mt-2 flex flex-wrap gap-2" style="color: var(--color-text-muted);">
+                {patternCount > 0 && <span>{patternCount} {en ? 'patterns' : '模式'}</span>}
+                {s.tools.length > 0 && <span>{s.tools.length} {en ? 'tools' : '工具'}</span>}
+                {s.failure_modes.length > 0 && <span>{s.failure_modes.length} {en ? 'failures' : '失败模式'}</span>}
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+
+    <!-- Stage-by-stage summary -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-6">
+        {en ? 'What happens at each stage' : '每阶段的关键决策'}
+      </h2>
+      <ol class="space-y-4">
+        {stages.map((s, i) => {
+          const color = stageColors[i] ?? 'var(--color-accent)';
+          return (
+            <li class="grid md:grid-cols-[8rem,1fr] gap-4 items-start rounded-lg p-5 border"
+                style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div>
+                <div class="text-xs font-mono" style={`color: ${color};`}>STAGE {s.order}/7</div>
+                <a href={pathname(`/pipeline/${s.id}/`)} class="text-base font-semibold hover:underline" style="color: var(--color-text);">
+                  {en ? s.name_en : s.name_zh} →
+                </a>
+              </div>
+              <div>
+                <p class="text-sm mb-3" style="color: var(--color-text);">
+                  {en ? s.summary_en : s.summary_zh}
+                </p>
+                <div class="flex flex-wrap gap-2 text-xs">
+                  {s.decisions.length > 0 && (
+                    <span class="px-2 py-1 rounded" style="background: var(--color-surface);">
+                      📋 {s.decisions.length} {en ? 'decisions' : '决策点'}
+                    </span>
+                  )}
+                  {s.tools.length > 0 && (
+                    <span class="px-2 py-1 rounded" style="background: var(--color-surface);">
+                      🔧 {s.tools.length} {en ? 'tools' : '工具'}
+                    </span>
+                  )}
+                  {s.related_patterns.length > 0 && (
+                    <span class="px-2 py-1 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent);">
+                      ⚡ {s.related_patterns.length} {en ? 'patterns apply' : '应用 pattern'}
+                    </span>
+                  )}
+                  {s.invalidates_downstream.length > 0 && (
+                    <span class="px-2 py-1 rounded" style="background: color-mix(in oklch, var(--color-tier-estimated) 12%, var(--color-bg)); color: var(--color-tier-estimated);">
+                      ⚠ {en ? 'changes invalidate' : '改动作废'} {s.invalidates_downstream.length} {en ? 'downstream' : '后续阶段'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+
+    <!-- Cross-cutting: which engines are first-class everywhere -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">
+        {en ? 'Engines mapped to stages' : '引擎在各阶段的覆盖'}
+      </h2>
+      <p class="text-sm mb-6" style="color: var(--color-text-muted);">
+        {en
+          ? 'Which engines have first-class support at each stage. ✓ = native support, — = not in scope.'
+          : '每个引擎在哪些阶段有原生支持。✓ = 原生, — = 不涉及。'}
+      </p>
+      <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
+        <table class="w-full text-sm">
+          <thead style="background: var(--color-surface);">
+            <tr>
+              <th class="text-left px-3 py-2 font-medium">{en ? 'Engine' : '引擎'}</th>
+              {stages.map((s) => <th class="text-center px-2 py-2 font-medium text-xs">{s.order}. {en ? s.name_en.split(' ')[0] : s.name_zh.slice(0, 4)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {engines.map((e) => (
+              <tr class="border-t" style="border-color: var(--color-border);">
+                <td class="px-3 py-2">
+                  <a href={pathname(`/engines/${e.id}/`)} class="font-medium" style="color: var(--color-text);">{e.name}</a>
+                </td>
+                {stages.map((s) => {
+                  const supported = s.primary_engines.includes(e.id);
+                  return (
+                    <td class="text-center px-2 py-2" style={supported ? 'color: var(--color-tier-measured);' : 'color: var(--color-text-muted); opacity: 0.5;'}>
+                      {supported ? '✓' : '—'}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">
+          {en ? 'Found a missing decision or tool?' : '我们漏了某个决策点 / 工具?'}
+        </h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          {en
+            ? 'Pipeline schema is in schemas/pipeline-stage.ts. Each stage YAML lives at data/pipeline/. PR-able fields: decisions, tools, failure_modes, related_patterns.'
+            : 'Pipeline schema 在 schemas/pipeline-stage.ts; 每个 stage YAML 在 data/pipeline/。可贡献字段: decisions / tools / failure_modes / related_patterns。'}
+        </p>
+        <a href={pathname('/contribute/')} class="inline-block px-4 py-2 rounded-md font-medium text-sm"
+           style="background: var(--color-accent); color: white;">
+          ⚡ {en ? 'Contribute a stage decision →' : '提交决策点 / 工具 →'}
+        </a>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

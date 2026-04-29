@@ -1,0 +1,74 @@
+id: convert
+name_zh: 格式转换
+name_en: Format conversion
+order: 2
+summary_zh: 把权重从原始格式转换成目标引擎吃的格式 — safetensors 是通用基线; TRT-LLM / GGUF / MindIE 都需要专属转换。
+summary_en: Convert weights from source format to engine-native format. safetensors is the universal baseline; TRT-LLM / GGUF / MindIE need engine-specific conversion.
+
+description_md: |
+  ## 输入 / 输出
+
+  - **输入**: 上一阶段拉下来的 safetensors / pytorch_model.bin / GGUF
+  - **输出**: 目标引擎吃的格式
+
+  ## 引擎×格式映射
+
+  | 引擎 | 吃的格式 | 转换工具 |
+  |---|---|---|
+  | vLLM / SGLang / LMDeploy | safetensors (HF format) | 通常无需转换, HF 直接加载 |
+  | TensorRT-LLM | TRT engine (`.engine` per-arch) | `trtllm-build` |
+  | MindIE / 昇腾 | MindIE-format (.om) | `aoe` / MindStudio |
+  | llama.cpp / GGUF | GGUF | `convert-hf-to-gguf.py` |
+  | ExLlamaV2 | EXL2 quant format | `convert.py` |
+
+  ## 容易踩的坑
+
+  - **safetensors split files**: 大模型分成多个 shard, 自动 merge 时索引文件 `.index.json` 必须存在
+  - **不同精度的源格式**: BF16 → FP16 转换 *理论无损*, 但 NaN/Inf 边界会被截断
+  - **pytorch state_dict naming**: 不同微调版本可能改 layer 命名, 转换前用 `safetensors-cli` 校验
+
+decisions:
+  - question: 是否需要转换?
+    options: ['直接用 safetensors', '转 TRT engine', '转 GGUF', '转 MindIE .om']
+    common_default: 'safetensors 直接用 (大多数 PyTorch-based engine)'
+    guidance: '只有 TRT-LLM / 昇腾 / llama.cpp 需要专属格式; 其它都吃 HF 标准 safetensors'
+  - question: TRT-LLM build 时绑定哪个 GPU 架构?
+    options: ['sm_90 (H100/H200)', 'sm_100 (Blackwell)', 'sm_80 (A100)']
+    common_default: '匹配目标卡架构'
+    guidance: 'TRT engine 是 GPU-arch specific, sm_90 编译的不能跑在 A100 上; 多 arch 部署需要 build matrix'
+  - question: 是否做 ONNX export 中转?
+    options: ['直接转', '先 ONNX 再转 TRT']
+    common_default: '直接转'
+    guidance: 'ONNX 中转会丢一些动态 shape 信息; 现在 trtllm-build 直接吃 HF 格式更稳'
+
+tools:
+  - name: trtllm-build
+    engine_id: tensorrt-llm
+    role: 'TRT-LLM 模型编译: trtllm-build --checkpoint_dir ... --output_dir ...'
+    url: https://nvidia.github.io/TensorRT-LLM/installation/build-from-source.html
+  - name: convert-hf-to-gguf.py
+    role: 'llama.cpp 格式转换'
+    url: https://github.com/ggerganov/llama.cpp
+  - name: aoe / MindStudio
+    engine_id: mindie
+    role: '昇腾算子优化 + 模型转换'
+    url: https://www.hiascend.com/document
+  - name: safetensors-cli
+    role: '校验 / 修复 safetensors 文件'
+    url: https://huggingface.co/docs/safetensors/index
+
+failure_modes:
+  - symptom: 'TRT build OOM at 80%+ progress'
+    cause: 'TRT-LLM build 阶段需要 ~2-3x 模型大小的 host memory'
+    fix: '换用 swap 大的机器 build, 或者用 `--workers 1` 减少并发'
+  - symptom: 'GGUF 量化后 perplexity 暴涨'
+    cause: 'GGUF Q4_K_M 默认对所有层均匀量化, 部分敏感层 (embedding/output) 应保留更高精度'
+    fix: '用 imatrix 校准 + Q4_K_S 等更细粒度方案'
+  - symptom: 'MindIE 转换后某算子报 unsupported'
+    cause: 'CANN 版本对新算子支持有时间差'
+    fix: '查 CANN 版本兼容矩阵; 必要时用 customer op + AscendC 实现'
+
+related_patterns: []
+related_operators: []
+primary_engines: [tensorrt-llm, mindie, lmdeploy]
+invalidates_downstream: [quantize, compile, shard, serve]

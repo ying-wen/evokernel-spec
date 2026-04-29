@@ -1,0 +1,100 @@
+id: observe
+name_zh: 观测与迭代
+name_en: Observe & iterate
+order: 7
+summary_zh: 部署上线只是开始 — 持续监控吞吐 / 延迟 / 显存 / 错误率, 在工作负载漂移或硬件故障时回到上游阶段重做。
+summary_en: Deploying is only the beginning — continuously monitor throughput / latency / memory / errors. Workload drift or hardware faults trigger going back upstream.
+
+description_md: |
+  ## 必须监控的 4 类指标
+
+  ### 1. 吞吐 (throughput)
+  - prefill tok/s, decode tok/s, request/s
+  - 按 model / endpoint / tier 拆分
+
+  ### 2. 延迟分布 (latency)
+  - TTFT (time-to-first-token) p50/p95/p99
+  - TBT (time-between-tokens) p50/p95
+  - end-to-end latency for fixed-length generation
+
+  ### 3. 资源利用 (utilization)
+  - GPU SM 利用率 (`nvidia-smi dmon`, dcgm-exporter)
+  - HBM 占用 (KV pool / weights)
+  - 通信带宽利用 (nvlink / IB counters)
+  - PSU / cooling thermal headroom
+
+  ### 4. 质量 (quality)
+  - rejection rate (safety / refusal classifier)
+  - retry rate
+  - drift detection on output distribution
+  - per-request rejection-due-to-length
+
+  ## 何时触发上游回滚
+
+  | 信号 | 回到哪一步 |
+  |---|---|
+  | 显存利用率 95%+ 且 max-num-seqs 不能再降 | 回 [shard](/pipeline/shard/) — 加 TP/PP 或扩副本 |
+  | TTFT p95 突然翻倍 | 回 [serve](/pipeline/serve/) — 检查 prefix cache 命中率 |
+  | decode tok/s 长期低于预期 | 回 [compile](/pipeline/compile/) — 重新 autotune |
+  | 输出质量回退 | 回 [quantize](/pipeline/quantize/) — quant scheme 或重新校准 |
+  | 模型版本升级 | 回到 [acquire](/pipeline/acquire/) 重跑全链 |
+
+  ## 工具栈
+
+  - **GPU 监控**: dcgm-exporter + Prometheus + Grafana (NVIDIA 标准)
+  - **昇腾监控**: npu-smi + MindStudio Profiler
+  - **服务监控**: OpenTelemetry traces + Loki/CloudWatch logs
+  - **质量监控**: Evals (Anthropic-style rubric) + LangSmith / W&B
+
+decisions:
+  - question: 监控 stack 选择
+    options: ['Prometheus + Grafana', 'CloudWatch (AWS)', 'Datadog', 'NVIDIA NIM 内置']
+    common_default: 'Prometheus + Grafana (开源, 自托管)'
+    guidance: '中小规模 self-host; 多团队/多 region 可考虑 SaaS'
+  - question: 采样率多少?
+    options: ['1% (大流量)', '10%', '100% (低流量 / debug)']
+    common_default: '10%'
+    guidance: 'P99 延迟需要至少 10% 采样才够准; 100% 看预算'
+  - question: 是否在 production 跑 evals?
+    options: ['off', 'shadow eval (镜像流量)', 'in-line eval (拒绝低质量响应)']
+    common_default: 'shadow eval'
+    guidance: 'in-line 加延迟; shadow 安全但发现问题晚'
+  - question: 自动 / 手动 retune trigger?
+    options: ['手动 (人在 loop)', 'metric-based 触发', 'AI-ops 自动']
+    common_default: 'metric-based + 人审批'
+    guidance: 'pure 自动会 over-react 到瞬时流量; 完全手动会 miss SLA 窗口'
+
+tools:
+  - name: dcgm-exporter
+    role: 'NVIDIA GPU 指标 → Prometheus'
+    url: https://github.com/NVIDIA/dcgm-exporter
+  - name: vllm /metrics
+    engine_id: vllm
+    role: '内置 Prometheus endpoint, 暴露请求/吞吐/KV 利用'
+    url: https://docs.vllm.ai/en/latest/serving/metrics.html
+  - name: npu-smi + MindStudio Profiler
+    engine_id: mindie
+    role: '昇腾 NPU 监控 + 性能分析'
+    url: https://www.hiascend.com/document
+  - name: OpenTelemetry
+    role: 'distributed tracing, request-level visibility'
+    url: https://opentelemetry.io/
+  - name: Grafana
+    role: '可视化 + alerting'
+    url: https://grafana.com/
+
+failure_modes:
+  - symptom: 'KV cache 命中率突然从 60% 掉到 20%'
+    cause: 'system prompt 被改了或前端 client 不再 reuse'
+    fix: '检查上游 client; 或 prefix cache LRU 容量不够'
+  - symptom: 'GPU SM 利用率 < 40% 但 latency 高'
+    cause: '内存带宽 bound, compute 闲; calculator 预测过乐观'
+    fix: '检查 calibrated efficiency map; 看是否 quant 后真到了内存带宽 ceiling'
+  - symptom: '一晚上 OOM 几次'
+    cause: 'prefix cache 没 LRU; 或者 scheduler queue 没 backpressure'
+    fix: '降 max-num-seqs; 启用 client-side rate limit'
+
+related_patterns: [continuous-batching]
+related_operators: []
+primary_engines: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
+invalidates_downstream: []

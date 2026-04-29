@@ -10,4 +10,5 @@ export * from './parallel-strategy';
 export * from './model';
 export * from './case';
 export * from './pattern';
+export * from './pipeline-stage';
 export * from './manifest';

@@ -3,7 +3,7 @@ import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
 import Badge from '~/components/ui/Badge.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
-import { getPatterns, getCases, getEngines, getResolvedHardware, getModels } from '~/lib/data';
+import { getPatterns, getCases, getEngines, getResolvedHardware, getModels, getPipelineStages } from '~/lib/data';
 import { pathname, localePath } from '~/lib/i18n';
 import { marked } from 'marked';
 
@@ -14,9 +14,12 @@ export async function getStaticPaths() {
 const { p } = Astro.props;
 
 // Cross-reference everything that touches this pattern
-const [allCases, allEngines, allHardware, allModels] = await Promise.all([
-  getCases(), getEngines(), getResolvedHardware(), getModels()
+const [allCases, allEngines, allHardware, allModels, allStages] = await Promise.all([
+  getCases(), getEngines(), getResolvedHardware(), getModels(), getPipelineStages()
 ]);
+
+// Reverse-lookup: which pipeline stages reference this pattern?
+const stagesUsingPattern = allStages.filter((s) => s.related_patterns.includes(p.id));
 
 const supporting = allCases.filter((c) => c.patterns.includes(p.id));
 const html = await marked.parse(p.description_md);
@@ -84,6 +87,18 @@ const archetypeLabel: Record<string, string> = {
         {p.model_archetypes.map((a) => <Badge>{archetypeLabel[a] ?? a}</Badge>)}
       </div>
       <h1 style="font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem); font-weight: 600;">{p.name}</h1>
+
+      {stagesUsingPattern.length > 0 && (
+        <div class="mt-4 flex items-center gap-2 flex-wrap text-sm">
+          <span style="color: var(--color-text-muted);">应用于阶段:</span>
+          {stagesUsingPattern.map((s) => (
+            <a href={pathname(`/pipeline/${s.id}/`)} class="px-3 py-1 rounded border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 8%, var(--color-bg)); color: var(--color-accent);">
+              <span class="font-mono text-xs">{s.order}/7</span> {s.name_zh}
+            </a>
+          ))}
+        </div>
+      )}
     </section>
 
     <!-- Speedup quick-glance KPI strip -->

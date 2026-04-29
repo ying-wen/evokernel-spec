@@ -4,7 +4,7 @@ import { ZodError, type ZodSchema } from 'zod';
 import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
-  ModelSchema, CaseSchema, PatternSchema
+  ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema
 } from '@evokernel/schemas';
 import { loadYaml } from './lib/load-yaml.ts';
 
@@ -30,7 +30,8 @@ const ENTITY_GLOBS: Array<{ name: string; glob: string; schema: ZodSchema }> = [
   { name: 'parallel-strategy', glob: 'parallel-strategies/*.yaml', schema: ParallelStrategySchema },
   { name: 'model', glob: 'models/**/*.yaml', schema: ModelSchema },
   { name: 'case', glob: 'cases/**/*.yaml', schema: CaseSchema },
-  { name: 'pattern', glob: 'patterns/*.yaml', schema: PatternSchema }
+  { name: 'pattern', glob: 'patterns/*.yaml', schema: PatternSchema },
+  { name: 'pipeline-stage', glob: 'pipeline/*.yaml', schema: PipelineStageSchema }
 ];
 
 export async function validateAll(opts: { dataDir: string }): Promise<ValidationReport> {

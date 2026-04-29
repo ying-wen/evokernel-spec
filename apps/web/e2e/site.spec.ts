@@ -573,6 +573,46 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('Deployment pipeline (7-stage)', () => {
+  test('/pipeline/ overview shows all 7 stages with correct order', async ({ page }) => {
+    await page.goto('/pipeline/');
+    // 7 stage labels visible in stage cards
+    for (let i = 1; i <= 7; i++) {
+      await expect(page.getByText(new RegExp(`STAGE ${i}/7`)).first()).toBeVisible();
+    }
+    // Stage names (zh)
+    await expect(page.getByText(/获取权重/).first()).toBeVisible();
+    await expect(page.getByText(/编译与图捕获/).first()).toBeVisible();
+    await expect(page.getByText(/观测与迭代/).first()).toBeVisible();
+  });
+
+  test('/pipeline/quantize/ shows decisions + tools + failure modes + cross-links', async ({ page }) => {
+    await page.goto('/pipeline/quantize/');
+    await expect(page.getByText(/决策点/).first()).toBeVisible();
+    await expect(page.getByText(/工具.*Tools/i).first()).toBeVisible();
+    await expect(page.getByText(/常见失败.*Failure/i).first()).toBeVisible();
+    // At least one tool surfaced
+    await expect(page.locator('text=/AutoAWQ|AutoGPTQ/').first()).toBeVisible();
+    // Cross-link to a pattern
+    await expect(page.locator('a[href*="/patterns/memory-bound-decode-prefer-int8"]').first()).toBeVisible();
+  });
+
+  test('pattern detail surfaces "applies at stage" badge', async ({ page }) => {
+    await page.goto('/patterns/flashattention-v3/');
+    await expect(page.getByText(/应用于阶段/).first()).toBeVisible();
+    // Should link back to compile stage
+    await expect(page.locator('a[href*="/pipeline/compile"]').first()).toBeVisible();
+  });
+
+  test('/pipeline/acquire/ has prev=null + next=convert navigation', async ({ page }) => {
+    await page.goto('/pipeline/acquire/');
+    // Has next link to next stage
+    await expect(page.locator('a[href*="/pipeline/convert"]').first()).toBeVisible();
+    // The "invalidates downstream" section should list 5 downstream stages
+    await expect(page.getByText(/改动会作废以下下游阶段/).first()).toBeVisible();
+  });
+});
+
 test.describe('Optimization patterns hub + detail', () => {
   test('/patterns/ shows categorized hub with all 9 patterns', async ({ page }) => {
     await page.goto('/patterns/');

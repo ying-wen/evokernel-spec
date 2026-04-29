@@ -1,0 +1,65 @@
+id: acquire
+name_zh: 获取权重
+name_en: Acquire weights
+order: 1
+summary_zh: 从模型分发渠道（HuggingFace, ModelScope, 镜像）下载权重 + tokenizer + config，确认许可证允许目标用途。
+summary_en: Pull weights + tokenizer + config from model distribution (HF, ModelScope, mirrors), confirm license permits target use.
+
+description_md: |
+  ## 输入 / 输出
+
+  - **输入**: 模型 ID (如 `deepseek-ai/DeepSeek-V4-Pro`) + 一个能访问的镜像源
+  - **输出**: 本地磁盘上一份 safetensors / GGUF / 原生引擎格式的权重 + tokenizer + config.json
+
+  ## 关键决策
+
+  - **从哪儿拉**: HuggingFace 是默认; 大陆环境通常先试 [hf-mirror.com](https://hf-mirror.com) 或 ModelScope; 离线环境用 USB tarball
+  - **拉哪个 revision**: 模型作者偶尔修订, 用 `--revision <git-sha>` 锁定 commit
+  - **完整下载 vs 流式加载**: 单卡本地 prefer 全下; 集群部署经常 lazy-load 减少同步等待
+
+  ## 注意事项
+
+  - 许可证: Llama 系列要点 license 接受; DeepSeek-V4 Pro 含商业受限条款
+  - 完整性校验: HF 提供 `--check-files`, vendor 镜像可能没有 — 自己跑 sha256
+  - 大模型 (>200GB) 拉一次几个小时, 落到 NVMe SSD 而非 NFS
+
+decisions:
+  - question: 从哪个镜像 / 仓库拉
+    options: ['HuggingFace 官方', 'ModelScope', 'hf-mirror.com', 'GitHub Release', '本地 tarball / USB']
+    common_default: 'HuggingFace 官方 (海外) / hf-mirror (大陆)'
+    guidance: '海外稳定首选 HF; 大陆带宽受限时 ModelScope 通常 5-10x 更快; 离线时用 git LFS 镜像或 tarball'
+  - question: 锁定到具体 commit 还是 main?
+    options: ['main / latest', 'tagged release (v1.0)', 'commit hash (--revision <sha>)']
+    common_default: 'tagged release'
+    guidance: '生产部署一定锁 tag 或 sha; main 偶尔 push 修订会让你的 quantization scale 失效'
+  - question: 全量下载还是 streaming?
+    options: ['全量本地下载', '通过 fsspec 流式读取', 'lazy-load 启动时下载']
+    common_default: '全量本地下载'
+    guidance: '集群训练/推理一次启动几十节点时, lazy-load 可以减少冷启动等待'
+
+tools:
+  - name: huggingface-cli
+    role: 'HF 官方 CLI: huggingface-cli download <model-id>'
+    url: https://huggingface.co/docs/huggingface_hub/en/guides/cli
+  - name: modelscope
+    role: 'ModelScope CLI: modelscope download --model <id>'
+    url: https://www.modelscope.cn/docs
+  - name: hf_transfer
+    role: '加速 HF 下载, 多线程分块, 通常 3-5x 提速'
+    url: https://github.com/huggingface/hf_transfer
+
+failure_modes:
+  - symptom: 'TLS / 证书错误连接 HF'
+    cause: '大陆网络对 huggingface.co 偶发不稳定'
+    fix: '改用 hf-mirror.com 或 ModelScope; 或挂 HF_ENDPOINT=https://hf-mirror.com 环境变量'
+  - symptom: '下到一半磁盘满'
+    cause: 'safetensors 体积通常是模型公布参数 × 2-4 (BF16/FP32 混合)'
+    fix: '提前用 huggingface-cli scan-cache 查看占用; 大模型放到独立 NVMe 卷'
+  - symptom: 'tokenizer mismatch 报错'
+    cause: '只拉了 weights 没拉 tokenizer.json / special_tokens_map.json'
+    fix: '用 --include "*tokenizer*" 或全量 snapshot_download'
+
+related_patterns: []
+related_operators: []
+primary_engines: []  # All engines need this stage; no engine-specific
+invalidates_downstream: [convert, quantize, compile, shard, serve]

@@ -1,0 +1,87 @@
+id: compile
+name_zh: 编译与图捕获
+name_en: Compile & graph capture
+order: 4
+summary_zh: 把 PyTorch eager 模型编译成静态图 / engine — 这是性能最大变量。CUDA Graph capture / TRT engine build / torch.compile / MindIE compile 都属于此阶段。
+summary_en: Compile PyTorch eager into a static graph / engine — biggest perf lever. Includes CUDA Graph capture, TRT engine build, torch.compile, MindIE compile.
+
+description_md: |
+  ## 为什么"编译"是关键
+
+  Eager-mode PyTorch 每次 forward 都重新做调度/dispatch, 大量小 kernel 启动开销。
+  Compile 阶段把整个 attention block 折叠成 fused kernel, 把动态 control-flow 静态化,
+  把 layout 重排到 NHWC vs NCHW 的最优, 把多个 GEMM 合成 batched-GEMM.
+
+  典型加速: **2-5x decode 吞吐**, **30-60% TTFT 降低**.
+
+  ## 引擎 × 编译手段
+
+  | 引擎 | 编译机制 | 时机 |
+  |---|---|---|
+  | vLLM | CUDA Graph + custom kernel | 第一次 forward, ~30s capture |
+  | SGLang | torch.compile (Triton) + Flashinfer | 动态 |
+  | TRT-LLM | trtllm-build → .engine | 离线一次, 几分钟 |
+  | MindIE | aoe + AscendC | 离线 |
+  | LMDeploy TurboMind | 自研 graph compiler | 第一次 forward |
+
+  ## 取舍
+
+  - **CUDA Graph**: dynamic batch size 不好处理, 通常 capture 多个 size 备用
+  - **torch.compile**: warmup 慢 (200-500 step), 但灵活
+  - **TRT engine**: 最快但 GPU-arch 锁定, 不能跨架构
+
+decisions:
+  - question: 走哪条编译路径?
+    options: ['CUDA Graph (vLLM 默认)', 'torch.compile + Triton', 'TRT engine', '完全不编译 (eager)']
+    common_default: 'CUDA Graph 或 TRT engine'
+    guidance: '生产部署一定要编译; 开发/debug 阶段可以临时关 (vLLM `--enforce-eager`)'
+  - question: 容忍多长 warmup?
+    options: ['<5s (cold start critical)', '30s-1min (典型 vLLM)', '2-10min (TRT build)', '小时级 (大模型 + autotune)']
+    common_default: '30s-1min'
+    guidance: '冷启动敏感用 CUDA Graph (秒级 warmup); 部署稳定后可接受 TRT 数分钟 build'
+  - question: 启用 fused FlashAttention?
+    options: ['v2', 'v3 (Hopper)', 'xformers', 'naive PyTorch attention']
+    common_default: 'v2 (Ampere) 或 v3 (Hopper)'
+    guidance: 'Hopper 一定要 v3; v2 fallback 性能掉 1.5-2x; xformers 是过渡期方案'
+  - question: KV cache layout?
+    options: ['NHD (head outer)', 'HND (head inner)', 'paged-block-major']
+    common_default: 'paged-block-major (PagedAttention)'
+    guidance: '高并发服务 paged 必选; 单条流式生成可以用 NHD 简化'
+
+tools:
+  - name: torch.compile
+    role: 'PyTorch 2.x 自带; 通用 graph capture'
+    url: https://pytorch.org/docs/stable/torch.compiler.html
+  - name: Triton
+    role: 'Python 写 GPU kernel 的 DSL, vLLM/SGLang 大量用'
+    url: https://github.com/triton-lang/triton
+  - name: trtllm-build
+    engine_id: tensorrt-llm
+    role: 'TRT-LLM 离线 engine 编译'
+    url: https://nvidia.github.io/TensorRT-LLM
+  - name: cuda graphs
+    role: 'NVIDIA CUDA 12+ 内置, 减少 kernel launch 开销'
+    url: https://developer.nvidia.com/blog/cuda-graphs/
+  - name: aoe
+    engine_id: mindie
+    role: '昇腾自动算子优化器'
+    url: https://www.hiascend.com/document
+  - name: Flashinfer
+    role: 'CUDA + Triton attention library, SGLang 后端'
+    url: https://github.com/flashinfer-ai/flashinfer
+
+failure_modes:
+  - symptom: 'CUDA Graph capture 失败: "input shape changed"'
+    cause: 'batch size 在 capture 时被锁死, 运行时不同 shape 的请求触发重新 capture'
+    fix: '预先 capture 多个常用 batch size; 或者关掉 graph capture (`--enforce-eager`)'
+  - symptom: 'TRT engine 跑在另一张卡报错'
+    cause: 'TRT engine 是 GPU-arch (sm_90, sm_100) specific'
+    fix: '为目标卡重新 build; 多 arch 部署需要 build matrix'
+  - symptom: 'torch.compile 第一次 forward 之后变更 batch size 走 recompile'
+    cause: 'dynamic shape 没启用'
+    fix: '`mode="reduce-overhead"` + `dynamic=True`, 或者用 vLLM/SGLang 已经处理好的 capture 池'
+
+related_patterns: [flashattention-v3, paged-attention, continuous-batching]
+related_operators: [matmul, attention, flash-attention-3, rmsnorm, rope]
+primary_engines: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
+invalidates_downstream: [shard, serve]

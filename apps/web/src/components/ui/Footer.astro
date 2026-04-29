@@ -28,6 +28,8 @@ const builtLabel = isEn ? 'Built' : '构建于';
         <div class="font-semibold mb-2" style="color: var(--color-text);">{t(locale, 'footer.participate')}</div>
         <ul class="space-y-1 text-xs">
           <li><a href={localePath(locale, '/contribute')} style="color: var(--color-accent); font-weight: 600;">⚡ {t(locale, 'nav.contribute')} →</a></li>
+          <li><a href={localePath(locale, '/pipeline')}>{isEn ? 'Deployment pipeline' : '部署链路'}</a></li>
+          <li><a href={localePath(locale, '/patterns')}>{isEn ? 'Optimization patterns' : '优化模式'}</a></li>
           <li><a href={localePath(locale, '/about')}>{t(locale, 'footer.about')}</a></li>
           <li><a href={localePath(locale, '/learn')}>{t(locale, 'footer.learn')}</a></li>
           <li><a href={localePath(locale, '/showcase')}>{isEn ? 'Showcase' : '精选发现'}</a></li>

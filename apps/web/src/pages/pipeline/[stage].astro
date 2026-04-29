@@ -1,0 +1,238 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getPipelineStages, getPatterns, getOperators, getEngines } from '~/lib/data';
+import { marked } from 'marked';
+
+export async function getStaticPaths() {
+  const stages = await getPipelineStages();
+  return stages.map((s) => ({ params: { stage: s.id }, props: { s } }));
+}
+const { s } = Astro.props;
+
+const [allStages, allPatterns, allOperators, allEngines] = await Promise.all([
+  getPipelineStages(), getPatterns(), getOperators(), getEngines()
+]);
+const desc = await marked.parse(s.description_md);
+
+const relatedPatterns = allPatterns.filter((p) => s.related_patterns.includes(p.id));
+const relatedOperators = allOperators.filter((o) => s.related_operators.includes(o.id));
+const primaryEngines = allEngines.filter((e) => s.primary_engines.includes(e.id));
+
+const prevStage = allStages.find((x) => x.order === s.order - 1);
+const nextStage = allStages.find((x) => x.order === s.order + 1);
+const downstreamStages = allStages.filter((x) => s.invalidates_downstream.includes(x.id));
+---
+<BaseLayout title={s.name_zh}>
+  <Container>
+    <section class="pt-12 pb-3">
+      <Breadcrumbs items={[
+        { name: '首页', href: '/' },
+        { name: '部署链路', href: '/pipeline/' },
+        { name: s.name_zh }
+      ]} />
+    </section>
+
+    <section class="pt-3 pb-6">
+      <div class="text-xs font-mono uppercase tracking-widest font-semibold mb-2" style="color: var(--color-accent);">
+        STAGE {s.order} / 7
+      </div>
+      <h1 style="font-size: clamp(1.75rem, 1.5rem + 1.5vw, 2.75rem); font-weight: 600; letter-spacing: -0.02em;">
+        {s.name_zh} <span style="color: var(--color-text-muted); font-weight: 400;">/ {s.name_en}</span>
+      </h1>
+      <p class="text-base mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        {s.summary_zh}
+      </p>
+    </section>
+
+    <!-- prev / next nav (top) -->
+    <section class="pb-6 flex justify-between items-center text-sm">
+      {prevStage ? (
+        <a href={pathname(`/pipeline/${prevStage.id}/`)} class="hover:underline" style="color: var(--color-text-muted);">
+          ← Stage {prevStage.order}: {prevStage.name_zh}
+        </a>
+      ) : <span></span>}
+      {nextStage ? (
+        <a href={pathname(`/pipeline/${nextStage.id}/`)} class="hover:underline" style="color: var(--color-accent);">
+          Stage {nextStage.order}: {nextStage.name_zh} →
+        </a>
+      ) : <span></span>}
+    </section>
+
+    <!-- Description body -->
+    <section class="pb-8">
+      <article style="color: var(--color-text); line-height: 1.7; max-width: 48rem;" set:html={desc}></article>
+    </section>
+
+    <!-- Decisions -->
+    {s.decisions.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-4">📋 决策点 / Decisions ({s.decisions.length})</h3>
+        <ol class="space-y-4">
+          {s.decisions.map((d, i) => (
+            <li class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="text-xs font-mono mb-1" style="color: var(--color-accent);">D{i + 1}</div>
+              <h4 class="font-semibold text-base mb-2">{d.question}</h4>
+              {d.options.length > 0 && (
+                <div class="flex flex-wrap gap-1.5 mb-2">
+                  {d.options.map((o) => <Badge>{o}</Badge>)}
+                </div>
+              )}
+              {d.common_default && (
+                <p class="text-sm mb-1" style="color: var(--color-text);">
+                  <strong>默认 / Default:</strong>
+                  <span class="ml-1 px-2 py-0.5 rounded text-xs font-mono" style="background: color-mix(in oklch, var(--color-tier-measured) 10%, var(--color-bg)); color: var(--color-tier-measured);">
+                    {d.common_default}
+                  </span>
+                </p>
+              )}
+              {d.guidance && <p class="text-sm mt-2" style="color: var(--color-text-muted);">💡 {d.guidance}</p>}
+            </li>
+          ))}
+        </ol>
+      </section>
+    )}
+
+    <!-- Tools -->
+    {s.tools.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-4">🔧 工具 / Tools ({s.tools.length})</h3>
+        <div class="grid md:grid-cols-2 gap-3">
+          {s.tools.map((t) => (
+            <article class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex justify-between items-start gap-2 mb-1">
+                <h4 class="font-semibold font-mono text-sm" style="color: var(--color-text);">{t.name}</h4>
+                {t.engine_id && <Badge variant="accent">{t.engine_id}</Badge>}
+              </div>
+              <p class="text-sm" style="color: var(--color-text-muted);">{t.role}</p>
+              {t.url && (
+                <a href={t.url} target="_blank" rel="noopener" class="text-xs underline mt-2 inline-block" style="color: var(--color-accent);">
+                  docs / repo →
+                </a>
+              )}
+            </article>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Failure modes -->
+    {s.failure_modes.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-4">⚠️ 常见失败 / Failure modes ({s.failure_modes.length})</h3>
+        <ul class="space-y-3">
+          {s.failure_modes.map((f) => (
+            <li class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-tier-estimated);">
+              <div class="text-sm font-semibold mb-1" style="color: var(--color-tier-estimated);">🔻 {f.symptom}</div>
+              <div class="text-xs mb-1" style="color: var(--color-text-muted);"><strong>Cause:</strong> {f.cause}</div>
+              <div class="text-xs" style="color: var(--color-text-muted);"><strong>Fix:</strong> {f.fix}</div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <!-- Related patterns -->
+    {relatedPatterns.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-3">⚡ 应用 pattern ({relatedPatterns.length})</h3>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {relatedPatterns.map((p) => (
+            <a href={pathname(`/patterns/${p.id}/`)} class="block rounded p-3 text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{p.name}</div>
+              <div class="text-xs mt-1" style="color: var(--color-text-muted);">{p.category}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Related operators (for compile / shard etc) -->
+    {relatedOperators.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-3">⚙️ 相关算子 ({relatedOperators.length})</h3>
+        <div class="flex flex-wrap gap-2">
+          {relatedOperators.map((o) => (
+            <a href={pathname(`/operators/${o.id}/`)} class="px-3 py-1.5 rounded text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              {o.name}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Primary engines -->
+    {primaryEngines.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-3">🔌 主流引擎 / Primary engines ({primaryEngines.length})</h3>
+        <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
+          {primaryEngines.map((e) => (
+            <a href={pathname(`/engines/${e.id}/`)} class="block rounded p-3 text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{e.name}</div>
+              <div class="text-xs font-mono mt-1" style="color: var(--color-text-muted);">{e.id}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Invalidates downstream -->
+    {downstreamStages.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-3">⚠️ 改动会作废以下下游阶段</h3>
+        <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+          在这一阶段做出变更后, 以下阶段的产物失效, 需要重新执行:
+        </p>
+        <div class="flex flex-wrap gap-2">
+          {downstreamStages.map((d) => (
+            <a href={pathname(`/pipeline/${d.id}/`)} class="px-3 py-1.5 rounded text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-tier-estimated); background: color-mix(in oklch, var(--color-tier-estimated) 8%, var(--color-bg)); color: var(--color-tier-estimated);">
+              Stage {d.order}: {d.name_zh}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- prev/next bottom -->
+    <section class="py-12 border-t flex justify-between items-center text-sm" style="border-color: var(--color-border);">
+      {prevStage ? (
+        <a href={pathname(`/pipeline/${prevStage.id}/`)} class="px-4 py-2 rounded border hover:bg-surface-raised" style="border-color: var(--color-border); color: var(--color-text-muted);">
+          ← Stage {prevStage.order}: {prevStage.name_zh}
+        </a>
+      ) : <span></span>}
+      <a href={pathname('/pipeline/')} class="text-xs" style="color: var(--color-text-muted);">↑ Pipeline overview</a>
+      {nextStage ? (
+        <a href={pathname(`/pipeline/${nextStage.id}/`)} class="px-4 py-2 rounded font-medium" style="background: var(--color-accent); color: white;">
+          Stage {nextStage.order}: {nextStage.name_zh} →
+        </a>
+      ) : (
+        <a href={pathname('/calculator/')} class="px-4 py-2 rounded font-medium" style="background: var(--color-accent); color: white;">
+          打开计算器 →
+        </a>
+      )}
+    </section>
+  </Container>
+</BaseLayout>
+
+<style>
+  article :global(h1), article :global(h2), article :global(h3) { margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; }
+  article :global(h2) { font-size: 1.25rem; }
+  article :global(h3) { font-size: 1.05rem; }
+  article :global(p) { margin-bottom: 0.75rem; }
+  article :global(ul), article :global(ol) { margin-left: 1.5rem; list-style: disc; margin-bottom: 0.75rem; }
+  article :global(ol) { list-style: decimal; }
+  article :global(li) { margin-bottom: 0.25rem; }
+  article :global(code) { background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.875em; }
+  article :global(pre) { background: var(--color-surface); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; font-size: 0.85em; }
+  article :global(table) { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: 0.9em; }
+  article :global(th), article :global(td) { border: 1px solid var(--color-border); padding: 0.5rem; text-align: left; }
+  article :global(th) { background: var(--color-surface); font-weight: 600; }
+  article :global(strong) { color: var(--color-text); font-weight: 600; }
+</style>

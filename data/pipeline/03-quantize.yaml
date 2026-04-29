@@ -1,0 +1,85 @@
+id: quantize
+name_zh: 量化与校准
+name_en: Quantize & calibrate
+order: 3
+summary_zh: 把 BF16 权重 (有时也包括 KV cache) 压到更小的精度 — INT8 / INT4-AWQ / FP8。计算密集; 通常一次性离线，结果重复使用。
+summary_en: Compress BF16 weights (sometimes KV cache too) down to INT8 / INT4-AWQ / FP8. Compute-heavy; typically a one-time offline cost amortized over many inferences.
+
+description_md: |
+  ## 决策树
+
+  ```
+  decode 阶段是否 memory-bound? (用 calculator 检查 ridge point)
+    ├─ 否 (compute-bound) → 跳过量化或只量化激活
+    └─ 是 →
+       ├─ 硬件支持 FP8 native? (Hopper / Blackwell / MI355X)
+       │    └─ 用 FP8-e4m3, 几乎无质量损失
+       └─ 否 →
+            ├─ 需要 minimal 损失 → AWQ INT4 (准确率最好的低比特)
+            ├─ 需要最快 quant → GPTQ INT4
+            └─ 兼容性优先 → bitsandbytes INT8 (但慢)
+  ```
+
+  ## 校准 (calibration) 与否
+
+  - **静态量化** (FP8, INT8 GPTQ/AWQ): 需要校准集 (通常 128-512 条 prompt)
+  - **动态量化** (bitsandbytes 大部分): 不需要离线校准, 但运行时开销略高
+  - 校准集质量直接决定量化质量 — 用代表性的 production-like prompts, 不要用纯 wiki
+
+  ## 关键产物
+
+  - 量化后的权重文件 (通常缩小到 BF16 的 1/2 ~ 1/4)
+  - scale / zero-point 元数据 (per-tensor or per-channel)
+  - 校准日志 (perplexity 对比, 关键层质量回退)
+
+decisions:
+  - question: 用什么 quant 方案?
+    options: ['不量化 (BF16/FP16)', 'FP8-e4m3', 'INT8 W8A8', 'INT4-AWQ', 'INT4-GPTQ', 'bitsandbytes 8bit/4bit']
+    common_default: 'FP8 (Hopper+) 或 INT4-AWQ (旧硬件)'
+    guidance: 'Hopper+ 直接 FP8 几乎无损; A100 / 国产硬件用 INT4-AWQ 最稳; INT8 普遍较保守'
+  - question: 是否量化 KV cache?
+    options: ['BF16/FP16 KV', 'FP8 KV (Hopper+)', 'INT8 KV', '混合: weights INT4 + KV BF16']
+    common_default: '长 context 才量化 KV'
+    guidance: '32K+ context 时 KV 占用超过权重, 量化收益大; 短 context 不必折腾'
+  - question: 校准集多少 sample?
+    options: ['128', '256', '512', '1024+']
+    common_default: '256-512'
+    guidance: '校准集太小会 over-fit 校准 prompt 风格; 1024+ 收益递减'
+  - question: per-tensor / per-channel / per-group quant?
+    options: ['per-tensor (最快, 质量最差)', 'per-channel (平衡)', 'per-group g32 / g128 (AWQ 默认)']
+    common_default: 'per-channel 或 per-group g128'
+    guidance: 'AWQ 用 per-group; GPTQ 用 per-channel; INT8 服务通常 per-tensor 够用'
+
+tools:
+  - name: AutoAWQ
+    role: 'AWQ INT4 量化工具'
+    url: https://github.com/casper-hansen/AutoAWQ
+  - name: AutoGPTQ
+    role: 'GPTQ 量化工具'
+    url: https://github.com/PanQiWei/AutoGPTQ
+  - name: llm-compressor
+    role: 'NVIDIA Sparse / FP8 量化工具'
+    url: https://github.com/vllm-project/llm-compressor
+  - name: bitsandbytes
+    role: '动态 8bit/4bit, 无需校准'
+    url: https://github.com/bitsandbytes-foundation/bitsandbytes
+  - name: TensorRT-Model-Optimizer
+    engine_id: tensorrt-llm
+    role: 'TRT 系列量化工具链 (FP8/INT8/INT4)'
+    url: https://github.com/NVIDIA/TensorRT-Model-Optimizer
+
+failure_modes:
+  - symptom: 'AWQ 校准后 PPL 涨 5+ 点'
+    cause: '校准集与 production 分布偏差大 (e.g. 用 wiki 校准跑代码生成)'
+    fix: '换用代表性更好的校准集, 或混合多类校准 sample'
+  - symptom: 'FP8 推理出现 NaN'
+    cause: 'activation outliers 超过 FP8 e4m3 表示范围'
+    fix: '改用 e5m2 (更宽 dynamic range), 或对 outlier-prone 层单独 BF16'
+  - symptom: 'INT4 压缩比不如预期'
+    cause: '部分层 (embedding / lm_head) 量化收益小且质量损失大, 通常保留 BF16'
+    fix: '检查是否启用了 mixed-precision keep_layers'
+
+related_patterns: [memory-bound-decode-prefer-int8, kv-cache-int8]
+related_operators: [matmul, attention]
+primary_engines: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
+invalidates_downstream: [compile, shard, serve]

@@ -1,10 +1,10 @@
 import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
-  ModelSchema, CaseSchema, PatternSchema,
+  ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema,
   type Vendor, type Hardware, type Server, type Interconnect,
   type Operator, type Engine, type Quantization, type ParallelStrategy,
-  type Model, type Case, type Pattern
+  type Model, type Case, type Pattern, type PipelineStage
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
@@ -55,6 +55,10 @@ export async function getCases(): Promise<Case[]> {
 }
 export async function getPatterns(): Promise<Pattern[]> {
   return loadAll('patterns/*.yaml', PatternSchema);
+}
+export async function getPipelineStages(): Promise<PipelineStage[]> {
+  const stages = await loadAll('pipeline/*.yaml', PipelineStageSchema);
+  return stages.sort((a, b) => a.order - b.order);
 }
 
 export async function getResolvedHardware(): Promise<ResolvedHardware[]> {

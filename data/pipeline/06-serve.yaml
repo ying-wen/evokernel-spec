@@ -1,0 +1,101 @@
+id: serve
+name_zh: 运行时服务化
+name_en: Runtime serving
+order: 6
+summary_zh: 把编译好的 engine 包装成 OpenAI-兼容 API; 配置 KV cache 池、scheduler、prefix cache、speculative decoding 等运行时旋钮。
+summary_en: Wrap the compiled engine as an OpenAI-compatible API; configure KV pool size, scheduler, prefix cache, speculative decoding, and other runtime knobs.
+
+description_md: |
+  ## 关键运行时旋钮
+
+  | 旋钮 | 作用 | 典型值 |
+  |---|---|---|
+  | `gpu-memory-utilization` | KV pool 占显存比例 | 0.85-0.95 |
+  | `max-num-seqs` | 同时 in-flight 请求上限 | 256-512 |
+  | `max-model-len` | 单请求 context 上限 | 32K / 128K |
+  | `enable-prefix-caching` | 复用 system prompt KV | true (chatbot) |
+  | `enable-chunked-prefill` | 长 prompt 分段处理 | true (long-context) |
+  | `speculative-config` | speculative decoding 草稿模型 | model-specific |
+  | `scheduler-policy` | FCFS / priority / multi-tenant | FCFS 默认 |
+
+  ## 服务化栈
+
+  ```
+  Client (OpenAI SDK)
+       ↓ HTTP
+  API Gateway (Nginx / Cloudflare / AWS ALB)
+       ↓
+  Request Router (rate limit, auth, A/B test)
+       ↓
+  Engine Pool (vLLM / SGLang / TRT-LLM / MindIE)
+       ↓
+  GPU Workers (与 engine_compile 阶段产物绑定)
+  ```
+
+  ## 多模型 / 多副本调度
+
+  - 单模型多副本: 标准 K8s deployment + service
+  - 多模型 routing: SGLang Router, vLLM Production Stack, NVIDIA NIM
+  - 优先级队列: 付费用户/低延迟需求高优先级, batch job 后台
+
+decisions:
+  - question: KV pool 给多少?
+    options: ['默认 0.9', '保守 0.85', '激进 0.95']
+    common_default: '0.9'
+    guidance: '太高遇到 spike 直接 OOM; 太低浪费显存; 0.9 是经验值, 监控调整'
+  - question: max-num-seqs 多少?
+    options: ['64 (低延迟)', '256 (吞吐平衡)', '512+ (大 batch 服务)']
+    common_default: '256'
+    guidance: '高于卡数×8 的并发数从此处掐, 防止 KV pool 爆'
+  - question: 启用 prefix caching?
+    options: ['off', 'on (LRU)', 'on with custom TTL']
+    common_default: 'on (LRU)'
+    guidance: 'chatbot/RAG 必开, 多用户散发请求关闭可减少缓存污染'
+  - question: 启用 chunked prefill?
+    options: ['off', 'on (long-context default)']
+    common_default: 'on (32K+)'
+    guidance: '不开的话长 prompt 阻塞 decode; 开了 TTFT 略升但整体 throughput 高'
+  - question: 启用 speculative decoding?
+    options: ['off', 'medusa heads', 'EAGLE draft', 'small draft model']
+    common_default: 'off (尚未稳定)'
+    guidance: '草稿模型与目标对齐时收益 1.5-3x; 不对齐反慢, 先离线测接受率'
+
+tools:
+  - name: vLLM serve
+    engine_id: vllm
+    role: 'OpenAI 兼容 server: vllm serve <model> --port 8000'
+    url: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
+  - name: SGLang launch_server
+    engine_id: sglang
+    role: 'python -m sglang.launch_server'
+    url: https://docs.sglang.ai/start/start.html
+  - name: TRT-LLM Triton backend
+    engine_id: tensorrt-llm
+    role: 'TRT-LLM + NVIDIA Triton inference server'
+    url: https://github.com/triton-inference-server/tensorrtllm_backend
+  - name: MindIE service
+    engine_id: mindie
+    role: '昇腾 service runtime'
+    url: https://www.hiascend.com/document
+  - name: NVIDIA NIM
+    role: '生产级 inference microservice (NVIDIA 商业)'
+    url: https://www.nvidia.com/en-us/ai/nim/
+  - name: SGLang Router
+    role: '多副本 / 多模型 router with cache-aware load balancing'
+    url: https://docs.sglang.ai/router
+
+failure_modes:
+  - symptom: '服务跑一段时间后 OOM'
+    cause: 'KV pool fragmentation; 或 prefix cache 没有 LRU eviction 满'
+    fix: '降低 gpu-memory-utilization 0.9 → 0.85; 检查 prefix cache size limit'
+  - symptom: '高并发下 P99 latency 暴涨'
+    cause: 'scheduler queue 堆积; max-num-seqs 太高'
+    fix: '掐 max-num-seqs (回压客户端), 或加副本'
+  - symptom: 'TTFT 飘忽不定'
+    cause: 'chunked-prefill 与 decode 抢资源; long prompt 走完整 prefill 阻塞'
+    fix: '启用 chunked-prefill; 或者 disaggregate prefill/decode (见 pattern)'
+
+related_patterns: [paged-attention, prefix-caching, continuous-batching, speculative-decoding, disaggregated-prefill-decode]
+related_operators: [attention]
+primary_engines: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
+invalidates_downstream: []
