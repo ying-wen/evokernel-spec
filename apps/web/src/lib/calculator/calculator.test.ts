@@ -91,6 +91,7 @@ describe('calculate orchestrator', () => {
 
   const model: Model = {
     id: 'llama-4-scout', name: 'Llama 4 Scout', lab: 'meta', release_date: '2025-04-05', license: 'community',
+    domain: 'llm', workload_kind: 'autoregressive-decode',
     architecture: {
       family: 'moe', total_params_b: 109, active_params_b: 17, layers: 48, hidden_size: 5120, ffn_size: 16384,
       num_attention_heads: 40, num_kv_heads: 8, head_dim: 128, vocab_size: 200000, max_context_length: 1048576,

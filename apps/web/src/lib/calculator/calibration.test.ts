@@ -24,6 +24,7 @@ const hw: Hardware = {
 
 const model: Model = {
   id: 'test-model', name: 'Test', lab: 'test', release_date: '2026-01-01', license: 'mit',
+  domain: 'llm', workload_kind: 'autoregressive-decode',
   architecture: {
     family: 'dense', total_params_b: 70, active_params_b: 70,
     layers: 80, hidden_size: 8192, ffn_size: 28672,

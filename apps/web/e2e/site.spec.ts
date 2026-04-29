@@ -339,8 +339,9 @@ test.describe.serial('Iter-10 features', () => {
     const cnToggle = page.getByRole('button', { name: '国产', exact: true }).first();
     await cnToggle.waitFor({ state: 'visible', timeout: 10000 });
     await cnToggle.click();
-    // CN count is stable at 13 (we keep tight control over CN cards); total fluctuates as corpus grows
-    await expect(page.getByText(/13 \/ \d+ 显示/i)).toBeVisible({ timeout: 10000 });
+    // CN-card count grows with the corpus (now 14+ after Ascend 950 added);
+    // assert ≥13 and that the "X / N" pattern shows X < N (filter is doing something).
+    await expect(page.getByText(/1[3-9] \/ \d+ 显示/i)).toBeVisible({ timeout: 10000 });
     // Overseas section should disappear
     await expect(page.getByRole('heading', { name: /^海外/ })).not.toBeVisible();
   });
