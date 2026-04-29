@@ -573,6 +573,33 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('Contribute landing page (3 tracks)', () => {
+  test('zh /contribute shows 3 contributor tracks + lifecycle', async ({ page }) => {
+    await page.goto('/contribute/');
+    await expect(page.getByText(/厂商官方数据/).first()).toBeVisible();
+    await expect(page.getByText(/社区数据补充/).first()).toBeVisible();
+    await expect(page.getByText(/实测部署案例/).first()).toBeVisible();
+    await expect(page.getByText(/贡献闭环/).first()).toBeVisible();
+    // Each track has its CTA linking to a GitHub issue template
+    const ctas = page.locator('a[href*="01-vendor-data-claim.yaml"]');
+    await expect(ctas).toHaveCount(1);
+  });
+
+  test('en /en/contribute shows 3 tracks in English', async ({ page }) => {
+    await page.goto('/en/contribute/');
+    await expect(page.getByText(/Vendor official data/i).first()).toBeVisible();
+    await expect(page.getByText(/Community data correction/i).first()).toBeVisible();
+    await expect(page.getByText(/Reproducible deployment case/i).first()).toBeVisible();
+    await expect(page.getByText(/Contribution lifecycle/i).first()).toBeVisible();
+  });
+
+  test('contribute page links to DATA-TIERING + DEVELOPMENT docs', async ({ page }) => {
+    await page.goto('/contribute/');
+    await expect(page.locator('a[href*="DATA-TIERING.md"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="DEVELOPMENT.md"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.2 niche hardware + scientific models + OperatorFitnessMatrix', () => {
   test('Cerebras WSE-3 detail shows wafer-scale + on-die-SRAM badges', async ({ page }) => {
     await page.goto('/hardware/wse-3/');

@@ -115,12 +115,16 @@ curl https://evokernel.dev/api/openapi.json | jq '.info.version'
 | 文件 | 内容 |
 |---|---|
 | [README.md](README.md) | 项目概览、快速上线、API、贡献入口（你在看的） |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | **架构图、目录结构、添加新硬件/模型/案例的流程、调试技巧** |
+| [/contribute](https://github.com/ying-wen/evokernel-spec/blob/main/apps/web/src/pages/contribute.astro) | **3 条贡献者赛道（厂商 / 社区 / 实测）+ 闭环流程** |
+| [docs/DATA-TIERING.md](docs/DATA-TIERING.md) | **数据可信度三档政策、source-type → tier 矩阵、争议处理** |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 架构图、目录结构、添加新硬件/模型/案例的流程、调试技巧 |
+| [docs/V1.2-VISION.md](docs/V1.2-VISION.md) | "任意模型 × 任意硬件 编译/优化平台" 战略转向 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 本地一键部署、Cloudflare Pages、nginx、systemd、Release 工作流 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | DCO 签署规范、双语贡献指南 |
+| [CONTRIBUTORS.md](CONTRIBUTORS.md) | **贡献者署名榜** |
 | [SECURITY.md](SECURITY.md) | 安全漏洞披露政策、tarball 校验流程 |
-| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | **已知问题、限制、变通方案（按严重度分级）** |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | **v1.2 / v1.3 / v2.0 路线图，欢迎 PR** |
+| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | 已知问题、限制、变通方案（按严重度分级） |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | v1.2 / v1.3 / v2.0 路线图，欢迎 PR |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更日志（Keep-a-Changelog 格式） |
 
 ## 贡献

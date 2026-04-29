@@ -1,0 +1,157 @@
+name: ✅ 实测部署案例 / Reproducible Deployment Case
+description: 你在真硬件上跑了模型，提交一个 Tier 0 measured 案例
+title: '[case] '
+labels: [case, measured, contribution]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # 实测部署案例
+
+        **本模板的价值**: 一条 measured case 直接喂入 Calibration Map，
+        让该硬件在任意模型上的 Tier 1 估算变得更准。每条 case 都是数据飞轮的一格。
+
+        **要求**:
+        - 真实运行的硬件（不接受纯仿真）
+        - 公开可复现的配置（commit hash / Docker image / 启动命令）
+        - 完整的吞吐数字（prefill + decode tok/s）
+        - **不需要**给出绝对值的"最优"——次优数据也有用，calibration 看的是分布
+  - type: input
+    id: title
+    attributes:
+      label: Case 标题
+      description: '<硬件> + <模型> + <配置> 的简短描述'
+      placeholder: 'DeepSeek V4 Pro on 8× H100 SXM5 / vLLM 0.6 / FP8 / TP=8'
+    validations: { required: true }
+  - type: input
+    id: hw_id
+    attributes:
+      label: 硬件 ID
+      placeholder: h100-sxm5
+    validations: { required: true }
+  - type: input
+    id: hw_count
+    attributes:
+      label: 硬件数量（卡数）
+      placeholder: '8'
+    validations: { required: true }
+  - type: input
+    id: model_id
+    attributes:
+      label: 模型 ID
+      placeholder: deepseek-v4-pro
+    validations: { required: true }
+  - type: dropdown
+    id: engine
+    attributes:
+      label: 推理引擎
+      options:
+        - vllm
+        - sglang
+        - tensorrt-llm
+        - lmdeploy
+        - mindie
+        - cerebras-native
+        - groq-native
+        - other (specify in notes)
+    validations: { required: true }
+  - type: dropdown
+    id: precision
+    attributes:
+      label: 量化精度
+      options:
+        - bf16
+        - fp16
+        - fp8-e4m3
+        - fp8-e5m2
+        - fp4
+        - int8
+        - int4-awq
+        - int4-gptq
+        - mixed (specify in notes)
+    validations: { required: true }
+  - type: textarea
+    id: parallel_config
+    attributes:
+      label: 并行配置 (TP / PP / EP / SP)
+      description: 用 YAML 形式
+      render: yaml
+      value: |
+        tp: 8
+        pp: 1
+        ep: 1
+        sp: 1
+        disaggregated: false
+    validations: { required: true }
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 测试场景
+      description: prefill seq len / decode seq len / batch size / concurrency
+      render: yaml
+      value: |
+        prefill_seq_len: 1024
+        decode_seq_len: 256
+        batch_size: 16
+        concurrency: 64
+    validations: { required: true }
+  - type: textarea
+    id: results
+    attributes:
+      label: 实测结果
+      render: yaml
+      value: |
+        prefill_throughput_tok_per_sec: 12500
+        decode_throughput_tok_per_sec: 8200
+        # optional but valuable:
+        ttft_ms_p50: 45
+        ttft_ms_p95: 120
+        tbt_ms_p50: 12
+        tbt_ms_p95: 30
+        utilization_compute_pct: 62
+        utilization_memory_pct: 88
+    validations: { required: true }
+  - type: textarea
+    id: reproducibility
+    attributes:
+      label: 复现工件
+      description: Git commit / Docker image / 启动命令 / 日志（去敏后）
+      placeholder: |
+        # 例如：
+        Engine: vllm 0.6.4 (commit a1b2c3d)
+        Docker: nvcr.io/nvidia/vllm:24.10
+        Launch: python -m vllm.entrypoints.openai --model deepseek-ai/DeepSeek-V4-Pro --tp 8 --quantization fp8 ...
+        Log gist: https://gist.github.com/.../...
+    validations: { required: true }
+  - type: input
+    id: source_url
+    attributes:
+      label: Source URL（可选）
+      description: 如有：博客 / paper / MLPerf submission ID
+      placeholder: https://github.com/your-org/.../benchmark-2026-04-25
+  - type: textarea
+    id: notes
+    attributes:
+      label: 备注
+      description: 任何审查者需要的额外上下文（已知 anomaly / cluster 配置 / 网络环境等）
+  - type: checkboxes
+    id: dco
+    attributes:
+      label: DCO 签署
+      options:
+        - label: 我同意本贡献遵循项目 [DCO](https://developercertificate.org/)
+          required: true
+        - label: 我证明上述测量真实在所述硬件上得出，未篡改数字
+          required: true
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        **加速合并**: 推荐你直接开 PR 修改 `data/cases/{YYYY}/{MM}/{your-case-id}.yaml`
+        而不是仅开 issue。Schema 见 [schemas/case.ts](https://github.com/ying-wen/evokernel-spec/blob/main/schemas/case.ts)。
+        参考已有 case [data/cases/2026/04/](https://github.com/ying-wen/evokernel-spec/tree/main/data/cases/2026/04)。
+
+        **数据可信度**: case 提交后会经过维护者审查；通过后即纳入 calibration map，
+        下一次 build 自动反映在 /pricing、/showcase、calculator 上。

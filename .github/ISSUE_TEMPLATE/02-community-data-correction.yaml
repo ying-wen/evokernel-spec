@@ -1,0 +1,111 @@
+name: 🛠 社区数据补充 / 校正 / Community Data Correction
+description: 报告硬件、模型、案例数据的错误、缺失、过时；引用公开来源
+title: '[data-correction] '
+labels: [data-correction, community]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # 社区数据补充 / 校正
+
+        发现某张卡的内存带宽数字错了？某个模型缺 operator decomposition？某个 case URL 失效？
+        本模板用来报告。无论 1 行修正还是大块新增，都欢迎。
+
+        **不适合**:
+        - 你是厂商代表 → [#01 厂商官方数据](../new?template=01-vendor-data-claim.yaml)
+        - 你跑了实测 → [#03 部署案例](../new?template=03-deployment-case.yaml)
+        - 安全漏洞 → [SECURITY.md](https://github.com/ying-wen/evokernel-spec/blob/main/SECURITY.md)
+  - type: dropdown
+    id: entity_type
+    attributes:
+      label: 实体类型
+      options:
+        - hardware (加速卡)
+        - server (服务器/超节点)
+        - model (模型)
+        - vendor (厂商)
+        - operator (算子)
+        - engine (推理引擎)
+        - case (部署案例)
+        - quantization / parallel-strategy / pattern
+    validations: { required: true }
+  - type: input
+    id: entity_id
+    attributes:
+      label: 实体 ID (slug)
+      placeholder: 'h100-sxm5 / deepseek-v4-pro / case-dsv4pro-cm384-mindie-001'
+    validations: { required: true }
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: 变更类型
+      options:
+        - 数值错误（field 值不对）
+        - 字段缺失（schema 里有但当前 yaml 未填）
+        - Evidence URL 失效（404 / 已变更）
+        - 过期数据（产品 EOL / 模型已弃用）
+        - 新增条目（新硬件 / 新模型 / 新案例）
+        - 其他
+    validations: { required: true }
+  - type: textarea
+    id: current_state
+    attributes:
+      label: 当前状态
+      description: 引用现有 yaml 片段，或截图当前网页
+      render: yaml
+    validations: { required: false }
+  - type: textarea
+    id: proposed_state
+    attributes:
+      label: 建议变更
+      description: 按建议修改后的样子（YAML diff 优先）
+      render: yaml
+    validations: { required: true }
+  - type: input
+    id: evidence_url
+    attributes:
+      label: 公开来源 URL（至少 1 个）
+      description: 任何公开可访问的来源都接受。社区贡献默认 tier 由 source_type 决定，详见 [DATA-TIERING.md](https://github.com/ying-wen/evokernel-spec/blob/main/docs/DATA-TIERING.md)
+      placeholder: https://...
+    validations: { required: true }
+  - type: dropdown
+    id: source_type
+    attributes:
+      label: Source type（最贴近的）
+      options:
+        - vendor-whitepaper
+        - vendor-datasheet
+        - vendor-product-page
+        - vendor-press-release
+        - paper
+        - mlperf-submission
+        - community-benchmark
+        - third-party-review
+        - conference-talk
+        - other
+    validations: { required: true }
+  - type: textarea
+    id: notes
+    attributes:
+      label: 备注
+      description: 任何审查者需要知道的上下文（争议数据、多源对比、为什么这个数字优于现存的等）
+  - type: checkboxes
+    id: dco
+    attributes:
+      label: DCO 签署
+      options:
+        - label: 我同意本贡献遵循项目 [DCO](https://developercertificate.org/)
+          required: true
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        **审查 SLA**:
+        - 高风险变更（升级/降级 tier）：14 天内
+        - 普通修正：72 小时内
+        - 失效链接：周度 cron 自动检测，立即修复
+
+        **加速合并**: 直接附上 PR 链接（fork → branch → push → PR）
+        会比单独开 issue 快得多。请参考 [docs/DEVELOPMENT.md](https://github.com/ying-wen/evokernel-spec/blob/main/docs/DEVELOPMENT.md#adding-a-new-hardware-card)。

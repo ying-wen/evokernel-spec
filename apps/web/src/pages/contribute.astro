@@ -1,0 +1,232 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { t, localePath, type Locale } from '~/lib/i18n';
+import { getResolvedHardware, getModels, getCases, getVendors } from '~/lib/data';
+
+interface Props { locale?: Locale }
+const { locale = 'zh' } = Astro.props as Props;
+const en = locale === 'en';
+
+// Live counts so contributors see the corpus state at a glance
+const [vendors, hardware, models, cases] = await Promise.all([
+  getVendors(), getResolvedHardware(), getModels(), getCases()
+]);
+
+const repoUrl = 'https://github.com/ying-wen/evokernel-spec';
+const issueNew = (template: string) => `${repoUrl}/issues/new?template=${template}`;
+
+const tracks = [
+  {
+    badge: '🏷',
+    title: en ? 'Vendor official data' : '厂商官方数据',
+    tier: 'official',
+    audience: en
+      ? 'You represent NVIDIA / AMD / Huawei / Cambricon / etc.'
+      : '你代表 NVIDIA / AMD / 华为 / 寒武纪 等硬件厂商',
+    blurb: en
+      ? 'Add or correct authoritative numbers for your products. Cite a whitepaper or datasheet; reviewers verify your association via vendor PR channel. Your contributions get the vendor-attested label.'
+      : '为你的产品补充或校正权威数据。引用白皮书或 datasheet；维护者通过厂商 PR 渠道验证身份；带 vendor-attested 标签优先合并。',
+    cta: en ? 'Submit vendor claim →' : '提交厂商声明 →',
+    href: issueNew('01-vendor-data-claim.yaml'),
+    accent: 'var(--color-accent)'
+  },
+  {
+    badge: '🛠',
+    title: en ? 'Community data correction' : '社区数据补充 / 校正',
+    tier: 'estimated → official',
+    audience: en
+      ? 'Anyone with a public source — a paper, blog, GitHub repo, MLPerf result.'
+      : '任何有公开来源的人——论文、博客、GitHub repo、MLPerf 结果均可',
+    blurb: en
+      ? "Fix a wrong number. Add a missing field. Replace a 404 evidence URL. Same review path as vendor claims; tier assigned per source-type matrix in our policy."
+      : '修正一个错误数字 / 补全缺失字段 / 替换失效 evidence URL。与厂商声明同流程；按 source-type 矩阵自动分级。',
+    cta: en ? 'Report a correction →' : '提交校正 →',
+    href: issueNew('02-community-data-correction.yaml'),
+    accent: 'var(--color-china)'
+  },
+  {
+    badge: '✅',
+    title: en ? 'Reproducible deployment case' : '实测部署案例',
+    tier: 'measured',
+    audience: en
+      ? 'You ran a real model on real hardware and have logs to prove it.'
+      : '你在真硬件上跑了真模型，有日志可证',
+    blurb: en
+      ? 'A measured case enters the Calibration Map immediately and shifts every Tier 1 prediction for that hardware. The single highest-leverage contribution.'
+      : '一条 measured case 直接喂入 Calibration Map，立刻让该硬件在所有模型上的 Tier 1 估算更准。最高杠杆的贡献类型。',
+    cta: en ? 'Submit a case →' : '提交案例 →',
+    href: issueNew('03-deployment-case.yaml'),
+    accent: 'var(--color-tier-measured)'
+  }
+];
+
+const flowSteps = en
+  ? [
+      'Pick the matching track above and open an issue (or fork → PR directly).',
+      'Maintainers verify within 72 hours (vendor) / 7 days (community / case).',
+      'Once approved, the YAML lands in `data/`; CI re-validates on every commit.',
+      'Next build picks up the change automatically — `/showcase`, `/pricing`, calculator all refresh.',
+      'Tagged release attributes you in `CONTRIBUTORS.md` and the GitHub Release notes.'
+    ]
+  : [
+      '从上方 3 条赛道中选一条并开 issue (或直接 fork → PR)',
+      '维护者在 72 小时（厂商）或 7 天（社区/案例）内回应',
+      '审查通过后 YAML 进入 data/ 目录，CI 在每次提交都重新校验',
+      '下次 build 自动反映新数据 —— /showcase, /pricing, 计算器全部刷新',
+      '打 tag release 时你会出现在 CONTRIBUTORS.md 和 GitHub Release 注记里'
+    ];
+---
+<BaseLayout title={en ? 'Contribute' : '贡献入口'} locale={locale}>
+  <Container width="wide">
+    <section class="pt-16 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        CONTRIBUTE
+      </div>
+      <h1 style="font-size: clamp(2.5rem, 1.4rem + 5vw, 4.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        {en ? 'Help build the platform' : '一起构建这个平台'}
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        {en
+          ? `EvoKernel Spec is the open knowledge graph mapping any model onto any hardware. Today: ${vendors.length} vendors · ${hardware.length} accelerators · ${models.length} models · ${cases.length} measured cases. Every number cites a source. Three contributor tracks below.`
+          : `EvoKernel Spec 是把"任意模型 → 任意硬件"映射成可计算知识图的开源项目。当前：${vendors.length} 家厂商 · ${hardware.length} 张加速卡 · ${models.length} 个模型 · ${cases.length} 个实测案例。每个数字都带 evidence 引证。三条赛道见下。`}
+      </p>
+    </section>
+
+    <!-- 3 contributor tracks -->
+    <section class="grid lg:grid-cols-3 gap-4 py-8">
+      {tracks.map((track) => (
+        <article class="rounded-lg p-6 border h-full flex flex-col"
+                 style={`border-color: color-mix(in oklch, ${track.accent} 30%, var(--color-border)); background: var(--color-surface-raised);`}>
+          <div class="text-xs font-mono mb-2 uppercase tracking-wide" style={`color: ${track.accent};`}>
+            tier: {track.tier}
+          </div>
+          <div class="text-3xl mb-2">{track.badge}</div>
+          <h3 class="text-xl font-semibold mb-2">{track.title}</h3>
+          <p class="text-sm font-medium mb-3" style={`color: ${track.accent};`}>{track.audience}</p>
+          <p class="text-sm mb-6 flex-1" style="color: var(--color-text-muted);">{track.blurb}</p>
+          <a href={track.href} target="_blank" rel="noopener"
+             class="inline-block px-4 py-2 rounded-md font-medium text-sm text-center"
+             style={`background: ${track.accent}; color: white;`}>
+            {track.cta}
+          </a>
+        </article>
+      ))}
+    </section>
+
+    <!-- Lifecycle flow -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-6">
+        {en ? 'Contribution lifecycle' : '贡献闭环'}
+      </h2>
+      <ol class="grid md:grid-cols-5 gap-3">
+        {flowSteps.map((step, i) => (
+          <li class="rounded-lg p-4 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs font-mono mb-2" style="color: var(--color-accent);">{i + 1}/5</div>
+            <p class="text-sm" style="color: var(--color-text);">{step}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <!-- Tier policy explainer -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">
+        {en ? 'Data tiering — what each label means' : '数据可信度 —— 三档说明'}
+      </h2>
+      <p class="text-sm mb-6" style="color: var(--color-text-muted);">
+        {en
+          ? 'Every quantitative claim carries one of three tiers. The tier reflects evidence strength for that specific number, not the source document overall.'
+          : '每个量化声明都带三档之一。tier 反映的是该字段证据的强度，不是来源文档整体的可靠性。'}
+      </p>
+      <div class="grid md:grid-cols-3 gap-3">
+        <div class="rounded-lg p-4 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl mb-2">🏷</div>
+          <h3 class="font-semibold mb-1" style="color: var(--color-accent);">tier: official</h3>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            {en
+              ? 'Vendor-attested. Whitepapers, datasheets, MLPerf submissions signed by the manufacturer.'
+              : '厂商权威发布。白皮书、datasheet、厂商署名的 MLPerf submission。'}
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl mb-2">✅</div>
+          <h3 class="font-semibold mb-1" style="color: var(--color-tier-measured);">tier: measured</h3>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            {en
+              ? 'Independently observed on real hardware. Reproducible cases with logs + commit hash + scripts.'
+              : '在真硬件上独立观测得到。可复现，附带日志 + commit hash + 脚本。'}
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl mb-2">⚠️</div>
+          <h3 class="font-semibold mb-1" style="color: var(--color-tier-estimated);">tier: estimated</h3>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            {en
+              ? 'Derived, inferred, extrapolated. Calibrated against reality but not directly observed.'
+              : '推算、推断或外推得到。与实测对齐校准过，但不是直接观测。'}
+          </p>
+        </div>
+      </div>
+      <p class="text-xs mt-6" style="color: var(--color-text-muted);">
+        {en ? 'Full policy: ' : '完整政策见: '}
+        <a href={`${repoUrl}/blob/main/docs/DATA-TIERING.md`} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">
+          docs/DATA-TIERING.md →
+        </a>
+      </p>
+    </section>
+
+    <!-- Direct PR shortcut for power users -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">
+        {en ? 'Skip the issue, send a PR' : '直接发 PR (跳过 issue 流程)'}
+      </h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        {en
+          ? 'For experienced contributors: fork, branch, edit YAML, push, open PR. The issue template is just a guided form — power users save time by working directly in YAML.'
+          : '熟悉项目的贡献者建议直接 PR：fork → 新分支 → 改 YAML → push → PR。issue 模板只是引导表单，直接操作更快。'}
+      </p>
+      <pre class="text-xs px-4 py-3 rounded overflow-x-auto" style="background: var(--color-surface);"><code># {en ? 'Add a new hardware card' : '新增一张加速卡'}
+git clone https://github.com/ying-wen/evokernel-spec
+cd evokernel-spec
+pnpm install
+{en ? '# create' : '# 新建'} data/hardware/{`{vendor}`}/{`{slug}`}.yaml
+{en ? '# fill schema (see schemas/hardware.ts)' : '# 按 schema 填字段（参考 schemas/hardware.ts）'}
+pnpm validate           {en ? '# zod + cross-ref check' : '# zod schema + 交叉引用校验'}
+pnpm test               {en ? '# unit tests' : '# 单元测试'}
+./launch.sh             {en ? '# local preview before PR' : '# 本地预览验证'}
+git checkout -b add-{`{slug}`}
+git add data/hardware/{`{vendor}`}/{`{slug}`}.yaml
+git commit -s -m "data: add {`{slug}`} hardware"
+git push -u origin add-{`{slug}`}
+gh pr create</code></pre>
+      <p class="text-xs mt-4" style="color: var(--color-text-muted);">
+        {en ? 'Detailed dev guide: ' : '详细开发文档: '}
+        <a href={`${repoUrl}/blob/main/docs/DEVELOPMENT.md`} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">
+          docs/DEVELOPMENT.md →
+        </a>
+      </p>
+    </section>
+
+    <!-- Attribution & community -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">
+        {en ? 'Recognition & community' : '署名与社区'}
+      </h2>
+      <ul class="text-sm space-y-2" style="color: var(--color-text-muted);">
+        <li>📜 {en ? 'Every PR author is credited in ' : '每个 PR 作者都署名于 '}
+          <a href={`${repoUrl}/blob/main/CONTRIBUTORS.md`} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">CONTRIBUTORS.md</a>{en ? '.' : '。'}
+        </li>
+        <li>🚀 {en ? 'Tagged release notes auto-include all commits since previous tag.' : '每次 tag release 自动包含上次 tag 以来的所有 commit 署名。'}
+        </li>
+        <li>💬 {en ? 'Active discussions at ' : '社区讨论在 '}
+          <a href={`${repoUrl}/discussions`} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{repoUrl.replace('https://github.com/', '')}/discussions</a>{en ? '.' : '。'}
+        </li>
+        <li>🔒 {en ? 'For security issues, see ' : '安全相关请见 '}
+          <a href={`${repoUrl}/blob/main/SECURITY.md`} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">SECURITY.md</a>{en ? '.' : '。'}
+        </li>
+      </ul>
+    </section>
+  </Container>
+</BaseLayout>

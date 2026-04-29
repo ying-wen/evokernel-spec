@@ -1,0 +1,103 @@
+name: 🏷 厂商官方数据 / Vendor Official Data Claim
+description: 你是硬件厂商或代表厂商，提交/校正官方数据（FP8 TFLOPS, HBM 容量, 制程, 等）
+title: '[vendor-claim] '
+labels: [vendor-claim, data-correction, tier-official]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # 厂商官方数据补充 / 校正
+
+        **使用场景**: 你是 NVIDIA / AMD / Huawei / 寒武纪 / 海光 等厂商的代表，
+        或被授权代表厂商发布产品数据。提交后会获得 `tier: official` 等级。
+
+        **不适合**: 你只是社区用户在转载 vendor 数据 → 请改用 [#02 社区数据补充](../new?template=02-community-data-correction.yaml)；
+        你跑了实测 → 请改用 [#03 部署案例](../new?template=03-deployment-case.yaml)。
+
+        ---
+
+        **披露要求 (Disclosure)**:
+        - 你的 GitHub 账号需要绑定厂商邮箱域名（@nvidia.com 等），或在 issue
+          正文提供厂商署名信件链接
+        - 维护者会通过 vendor public-relations 渠道交叉验证
+  - type: input
+    id: hw_id
+    attributes:
+      label: 硬件 ID (slug, must match data/hardware/{vendor}/{slug}.yaml)
+      placeholder: h100-sxm5
+    validations: { required: true }
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: 变更类型
+      options:
+        - 新增字段（之前 schema 里没有）
+        - 修正现有字段（数值不准确）
+        - 升级 tier (estimated → official)
+        - 添加 evidence_ref (新引证)
+        - 弃用字段（产品 EOL）
+    validations: { required: true }
+  - type: textarea
+    id: changes
+    attributes:
+      label: 具体变更
+      description: 用 YAML diff 形式列出。可以多字段。
+      render: yaml
+      value: |
+        # 例如：
+        # compute:
+        #   fp8_tflops:
+        #     value: 1979  # 旧
+        #     value: 2050  # 新（按 GTC 2025 修订）
+        #     evidence_ref: ev-h100-001  # 旧
+        #     evidence_ref: ev-h100-2025-revision  # 新
+    validations: { required: true }
+  - type: input
+    id: evidence_url
+    attributes:
+      label: 主要 evidence URL
+      description: 必须是公开可访问的 URL（whitepaper / datasheet / product page），归属厂商或厂商授权
+      placeholder: https://resources.nvidia.com/en-us-tensor-core/h100-datasheet-2025-rev2.pdf
+    validations: { required: true }
+  - type: dropdown
+    id: source_type
+    attributes:
+      label: Evidence source_type（schema enum）
+      options:
+        - vendor-whitepaper
+        - vendor-datasheet
+        - vendor-product-page
+        - vendor-press-release
+        - mlperf-submission
+    validations: { required: true }
+  - type: textarea
+    id: citation
+    attributes:
+      label: 引文段落 / Citation paragraph
+      description: 复制 evidence URL 中包含目标数值的段落（≤200 字）
+      placeholder: 'NVIDIA H100 Tensor Core GPU Datasheet v2025.1, page 4: "...peak FP8 sparse..."'
+    validations: { required: true }
+  - type: checkboxes
+    id: vendor_attestation
+    attributes:
+      label: 厂商授权确认
+      options:
+        - label: 我能够代表厂商公开发布此数据，或数据来源已经公开
+          required: true
+        - label: 此数据所述时间点已商业供货，或已公开宣布商业化时间
+          required: true
+        - label: 我同意本贡献遵循项目 [DCO](https://developercertificate.org/)
+          required: true
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        **下一步**:
+        1. 维护者会在 72 小时内回应（按 SECURITY.md SLA）
+        2. 通过验证后，建议你直接开 PR 修改 `data/hardware/{vendor}/{id}.yaml` 并附上本 issue 链接
+        3. 修改合并后下一次 release 会自动包含变更
+
+        **PR 加速通道**: 厂商代表可获得 `vendor-attested` GitHub label，
+        优先合并（数据正确性争议除外）。
