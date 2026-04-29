@@ -30,7 +30,7 @@ reproduction:
   benchmark_tool: 'vllm benchmark_serving.py'
 issues_encountered:
   - 'FP8 calibration required ~30 minutes on first start'
-patterns: [memory-bound-decode-prefer-int8]
+patterns: [memory-bound-decode-prefer-int8, flashattention-v3, paged-attention, continuous-batching, prefix-caching]
 evidence:
   - id: ev-case-dsv4f-001
     tier: measured

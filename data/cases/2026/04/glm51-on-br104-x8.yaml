@@ -26,7 +26,7 @@ reproduction:
 issues_encountered:
   - 'BR104 export-control compliant variant 比 BR100 算力低约 50%'
   - '部分自定义 kernel (FlashAttn 替代) 未优化, decode 性能受限'
-patterns: [memory-bound-decode-prefer-int8]
+patterns: [memory-bound-decode-prefer-int8, paged-attention, continuous-batching]
 evidence:
   - id: ev-case-glm51-br104-001
     tier: measured

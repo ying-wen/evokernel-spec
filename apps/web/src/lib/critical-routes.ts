@@ -43,6 +43,7 @@ export const CRITICAL_ROUTES: CriticalRoute[] = [
   { path: '/showcase/',         reason: 'auto-insights',            contentType: 'text/html' },
   { path: '/quality/',          reason: 'data confidence dashboard', contentType: 'text/html' },
   { path: '/contribute/',       reason: 'contributor onboarding',    contentType: 'text/html' },
+  { path: '/patterns/',         reason: 'optimization patterns hub', contentType: 'text/html' },
   { path: '/api/healthz',       reason: 'k8s liveness probe',        contentType: null }, // SSG strips text/plain
   { path: '/api/index.json',    reason: 'API descriptor',           contentType: 'application/json' }
 ];

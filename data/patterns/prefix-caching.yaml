@@ -1,0 +1,53 @@
+id: prefix-caching
+name: Prefix Caching (system prompt / RAG 复用)
+category: kv-cache
+description_md: |
+  ## 动机
+
+  如果多个请求共享同一段前缀 (system prompt / few-shot examples / RAG context),
+  传统方式每条请求都重新计算 prefill。Prefix caching 把已经计算过的前缀 KV
+  保留下来, 后续命中前缀的请求直接跳过 prefill 这部分。
+
+  ## 实现细节
+  - LRU eviction (按访问顺序淘汰)
+  - 哈希前缀 token 序列, 比对命中
+  - SGLang 的 RadixAttention 用 trie 结构实现近似前缀共享 (子串部分共享)
+
+  ## 实战收益
+  - System prompt (典型 200-2000 token) 复用 → TTFT 缩短 50-80%
+  - RAG retrieved context 同段重复使用 → 同上
+  - 多轮对话历史: 之前轮次的 KV 自动复用
+
+  ## 跨引擎差异
+  - vLLM: enable_prefix_caching=True
+  - SGLang: 默认开启 RadixAttention (更激进)
+  - TensorRT-LLM: KV cache reuse, 需要显式标记 prompt 段
+applies_when:
+  - shared-system-prompt
+  - rag-deployment
+  - multi-turn-chat
+related_operators: [attention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
+hardware_requires: []
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning, multi-modal]
+speedup:
+  - metric: ttft
+    multiplier_min: 0.2
+    multiplier_max: 0.5
+    notes: 'system prompt 命中时 TTFT 缩短到原来的 20-50%'
+  - metric: prefill-throughput
+    multiplier_min: 2.0
+    multiplier_max: 8.0
+    notes: '高命中率服务 (chatbot/RAG) 整体 prefill 开销近乎消失'
+trade_offs:
+  - '冷启动无收益 (首条请求仍需 full prefill)'
+  - '增加 KV cache 显存压力 (需要保留 hot 前缀)'
+  - '请求 prompt 高度发散时收益小, 缓存反成负担'
+references:
+  - title: 'SGLang RadixAttention'
+    url: https://arxiv.org/abs/2312.07104
+    source_type: paper
+  - title: 'vLLM Prefix Caching docs'
+    url: https://docs.vllm.ai/en/latest/automatic_prefix_caching/apc.html
+    source_type: docs

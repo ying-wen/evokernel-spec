@@ -26,7 +26,7 @@ reproduction:
   benchmark_tool: 'lmdeploy bench'
 issues_encountered:
   - 'INT8 calibration 用了 1024 sample, BLEU 比 BF16 略降 (~0.3)'
-patterns: [memory-bound-decode-prefer-int8]
+patterns: [memory-bound-decode-prefer-int8, paged-attention, continuous-batching, moe-expert-routing-on-domestic]
 evidence:
   - id: ev-case-qwen36-mlu590-001
     tier: measured

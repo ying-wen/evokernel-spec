@@ -29,7 +29,7 @@ reproduction:
   startup_command: 'vllm serve meta-llama/Llama-4-Scout --tensor-parallel-size 8 --max-model-len 16384'
   benchmark_tool: 'vllm benchmark_serving.py + sharegpt'
 issues_encountered: []
-patterns: [memory-bound-decode-prefer-int8]
+patterns: [memory-bound-decode-prefer-int8, flashattention-v3, paged-attention, continuous-batching, prefix-caching]
 evidence:
   - id: ev-case-l4scout-001
     tier: measured

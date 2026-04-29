@@ -1,0 +1,59 @@
+id: speculative-decoding
+name: Speculative Decoding (草稿模型 + 验证)
+category: scheduling
+description_md: |
+  ## 动机
+
+  Decode 是 memory-bound: 每生成 1 token 要读全部权重一次, 算力大量空闲。
+  Speculative decoding 用一个轻量草稿模型 (draft) 一次预测 K 个 token,
+  再让目标模型 (target) 一次性 forward K+1 个 token 验证, 接受率高时一次
+  forward 出多个 token, 把算力填满。
+
+  ## 主流变种
+  - **Vanilla speculative**: 独立小模型作为草稿
+  - **Medusa**: 在目标模型上加几个独立 head 预测 K 个 token (不需要单独草稿)
+  - **EAGLE / EAGLE-2**: 一层 transformer 作为草稿, 共享底层权重
+  - **Lookahead decoding**: 草稿来自当前生成轨迹的统计模式
+
+  ## 收益条件
+  - 接受率 > 60% 时显著加速 (目标 + 草稿 ≈ 1 forward 出 1.5-3 token)
+  - 模型已经 memory-bound (decode 阶段)
+
+  ## 引擎支持
+  - vLLM 0.6+: spec_decode_config + medusa/eagle
+  - SGLang: speculative draft model
+  - TensorRT-LLM: Medusa 内置
+  - lmdeploy: 实验性
+applies_when:
+  - decode-throughput-target
+  - latency-sensitive-generation
+related_operators: [matmul, attention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm]
+hardware_requires:
+  - sufficient-compute-headroom-during-decode
+model_archetypes: [dense-llm, reasoning, speculative-target]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 1.5
+    multiplier_max: 3.0
+    notes: '依赖接受率: code generation 类任务接受率最高 (~70-85%); 创意写作低 (~40-55%)'
+  - metric: ttft
+    multiplier_min: 0.95
+    multiplier_max: 1.05
+    notes: 'TTFT 几乎不变 (草稿模型加载很快)'
+trade_offs:
+  - '需要训练或选择匹配的草稿模型 (通常 1/10 ~ 1/30 主模型大小)'
+  - '低接受率反而拖慢 (草稿浪费 + 验证开销)'
+  - '草稿模型权重占额外显存 (Medusa 头几乎无额外开销)'
+  - 'Batch 增大时收益递减, 因为 batch 已填满算力'
+references:
+  - title: 'Fast Inference from Transformers via Speculative Decoding'
+    url: https://arxiv.org/abs/2211.17192
+    source_type: paper
+  - title: 'Medusa: Simple Framework for Accelerating LLM Generation with Multiple Decoding Heads'
+    url: https://arxiv.org/abs/2401.10774
+    source_type: paper
+  - title: 'EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty'
+    url: https://arxiv.org/abs/2401.15077
+    source_type: paper

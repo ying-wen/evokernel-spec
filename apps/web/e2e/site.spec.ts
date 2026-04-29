@@ -573,6 +573,39 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('Optimization patterns hub + detail', () => {
+  test('/patterns/ shows categorized hub with all 9 patterns', async ({ page }) => {
+    await page.goto('/patterns/');
+    // Categories visible
+    await expect(page.getByText(/KV Cache 管理/).first()).toBeVisible();
+    await expect(page.getByText(/算子融合/).first()).toBeVisible();
+    await expect(page.getByText(/量化 \/ Quantization/).first()).toBeVisible();
+    // 9 pattern cards (header h1 + categorized sub-cards)
+    const cards = page.locator('a[href*="/patterns/"][href$="/"]');
+    expect(await cards.count()).toBeGreaterThanOrEqual(9);
+    // CTA at the bottom
+    await expect(page.getByText(/缺一个 pattern/i).first()).toBeVisible();
+  });
+
+  test('/patterns/flashattention-v3/ shows speedup KPI + engines + supporting cases', async ({ page }) => {
+    await page.goto('/patterns/flashattention-v3/');
+    // Speedup KPI rendered
+    await expect(page.getByText(/预期收益/).first()).toBeVisible();
+    await expect(page.locator('text=/1\\.5–2\\.0×/').first()).toBeVisible();
+    // Engines section
+    await expect(page.getByText(/支持引擎/).first()).toBeVisible();
+    // References section (we always require ≥1 paper/impl)
+    await expect(page.getByText(/参考资料/).first()).toBeVisible();
+  });
+
+  test('/patterns/paged-attention/ links to ≥10 supporting cases (data flywheel proof)', async ({ page }) => {
+    await page.goto('/patterns/paged-attention/');
+    // Most-used pattern in our corpus — should have many supporting cases
+    const caseLinks = page.locator('a[href*="/cases/case-"]');
+    expect(await caseLinks.count()).toBeGreaterThanOrEqual(10);
+  });
+});
+
 test.describe('Contribute landing page (3 tracks)', () => {
   test('zh /contribute shows 3 contributor tracks + lifecycle', async ({ page }) => {
     await page.goto('/contribute/');

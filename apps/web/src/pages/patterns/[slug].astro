@@ -1,9 +1,10 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
-import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getPatterns, getCases } from '~/lib/data';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import { getPatterns, getCases, getEngines, getResolvedHardware, getModels } from '~/lib/data';
+import { pathname, localePath } from '~/lib/i18n';
 import { marked } from 'marked';
 
 export async function getStaticPaths() {
@@ -11,36 +12,255 @@ export async function getStaticPaths() {
   return patterns.map((p) => ({ params: { slug: p.id }, props: { p } }));
 }
 const { p } = Astro.props;
-const allCases = await getCases();
+
+// Cross-reference everything that touches this pattern
+const [allCases, allEngines, allHardware, allModels] = await Promise.all([
+  getCases(), getEngines(), getResolvedHardware(), getModels()
+]);
+
 const supporting = allCases.filter((c) => c.patterns.includes(p.id));
 const html = await marked.parse(p.description_md);
+
+const supportingEngineNames = p.engines_supporting
+  .map((eid) => allEngines.find((e) => e.id === eid))
+  .filter((e): e is NonNullable<typeof e> => !!e);
+
+// Hardware that has at least one case using this pattern
+const hardwareWithEvidence = (() => {
+  const ids = new Set(supporting.map((c) => c.stack.hardware.id));
+  return allHardware.filter((h) => ids.has(h.id));
+})();
+
+// Models that have at least one case using this pattern
+const modelsWithEvidence = (() => {
+  const ids = new Set(supporting.map((c) => c.stack.model.id));
+  return allModels.filter((m) => ids.has(m.id));
+})();
+
+const categoryLabel: Record<string, string> = {
+  quantization: '量化 / Quantization',
+  parallel: '并行 / Parallelism',
+  'kv-cache': 'KV Cache',
+  communication: '通信 / Communication',
+  'kernel-fusion': '算子融合 / Kernel Fusion',
+  scheduling: '调度 / Scheduling',
+  disaggregation: '解耦部署 / Disaggregation',
+  misc: '其他 / Misc'
+};
+
+const metricLabel: Record<string, string> = {
+  'decode-throughput': 'Decode 吞吐',
+  'prefill-throughput': 'Prefill 吞吐',
+  ttft: 'TTFT (首 token 延迟)',
+  'memory-footprint': '显存占用',
+  'cost-per-token': '$/M tokens',
+  quality: '模型质量'
+};
+
+const archetypeLabel: Record<string, string> = {
+  'dense-llm': 'Dense LLM',
+  'moe-llm': 'MoE LLM',
+  'long-context': 'Long-context',
+  'multi-modal': 'Multi-modal',
+  diffusion: 'Diffusion',
+  scientific: 'Scientific',
+  reasoning: 'Reasoning',
+  'speculative-target': 'Speculative target'
+};
 ---
-<BaseLayout title={p.name} noIndex={true}>
-  <Container width="narrow">
-    <section class="py-12">
-      <a href={pathname("/")} class="text-sm" style="color: var(--color-text-muted);">← 首页</a>
-      <h1 style="font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem); margin-top: 1rem; font-weight: 600;">{p.name}</h1>
-      <div class="text-xs mt-2 flex gap-2 items-center"><span style="color: var(--color-text-muted);">类别:</span><Badge>{p.category}</Badge></div>
+<BaseLayout title={p.name}>
+  <Container>
+    <section class="pt-12 pb-3">
+      <Breadcrumbs items={[
+        { name: '首页', href: '/' },
+        { name: '优化模式', href: '/patterns/' },
+        { name: p.name }
+      ]} />
+    </section>
 
-      <article class="mt-6" style="color: var(--color-text); line-height: 1.7;" set:html={html}></article>
+    <section class="pt-3 pb-6">
+      <div class="flex items-center gap-3 mb-3 flex-wrap">
+        <Badge>{categoryLabel[p.category] ?? p.category}</Badge>
+        {p.model_archetypes.map((a) => <Badge>{archetypeLabel[a] ?? a}</Badge>)}
+      </div>
+      <h1 style="font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem); font-weight: 600;">{p.name}</h1>
+    </section>
 
-      <h3 class="text-lg font-semibold mt-12 mb-3">支撑案例 ({supporting.length})</h3>
+    <!-- Speedup quick-glance KPI strip -->
+    {p.speedup.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">📈 预期收益 / Speedup ranges</h3>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {p.speedup.map((s) => {
+            const isReduction = s.metric === 'memory-footprint' || s.metric === 'cost-per-token' || s.metric === 'ttft';
+            const formatted = isReduction
+              ? `${(s.multiplier_min * 100).toFixed(0)}–${(s.multiplier_max * 100).toFixed(0)}%`
+              : `${s.multiplier_min.toFixed(1)}–${s.multiplier_max.toFixed(1)}×`;
+            const color = isReduction
+              ? 'var(--color-tier-measured)'
+              : (s.multiplier_min > 1 ? 'var(--color-accent)' : 'var(--color-text-muted)');
+            return (
+              <article class="rounded-lg p-4 border" style={`border-color: ${color}; background: color-mix(in oklch, ${color} 5%, var(--color-bg));`}>
+                <div class="text-xs uppercase tracking-wide font-semibold mb-1" style={`color: ${color};`}>
+                  {metricLabel[s.metric] ?? s.metric}
+                </div>
+                <div class="font-mono text-3xl">{formatted}</div>
+                <div class="text-xs mt-1" style="color: var(--color-text);">
+                  {isReduction ? '相对于 baseline 的占比' : '吞吐倍率'}
+                </div>
+                {s.notes && <p class="text-xs mt-2" style="color: var(--color-text-muted);">{s.notes}</p>}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    )}
+
+    <!-- Description (markdown body) -->
+    <section class="pb-12">
+      <article style="color: var(--color-text); line-height: 1.7; max-width: 48rem;" set:html={html}></article>
+    </section>
+
+    <!-- Trade-offs -->
+    {p.trade_offs.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">⚠️ 权衡 / Trade-offs</h3>
+        <ul class="space-y-2 text-sm" style="color: var(--color-text);">
+          {p.trade_offs.map((t) => (
+            <li class="rounded-lg p-3 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              {t}
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <!-- Engines supporting -->
+    {supportingEngineNames.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">🔧 支持引擎 ({supportingEngineNames.length})</h3>
+        <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+          {supportingEngineNames.map((e) => (
+            <a href={pathname(`/engines/${e.id}/`)} class="block rounded-lg p-3 border transition-transform hover:-translate-y-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{e.name}</div>
+              <div class="text-xs mt-1" style="color: var(--color-text-muted);">{e.id}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Hardware requires -->
+    {p.hardware_requires.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">⚙️ 硬件前置条件</h3>
+        <ul class="text-sm space-y-1" style="color: var(--color-text-muted);">
+          {p.hardware_requires.map((req) => (
+            <li class="font-mono text-xs px-3 py-1.5 rounded inline-block mr-2 mb-1" style="background: var(--color-surface);">
+              {req}
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <!-- Models with measured cases using this pattern -->
+    {modelsWithEvidence.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">📚 已在以下模型有实测案例 ({modelsWithEvidence.length})</h3>
+        <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
+          {modelsWithEvidence.map((m) => (
+            <a href={pathname(`/models/${m.id}/`)} class="block rounded p-2 text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              {m.name}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Hardware with measured cases using this pattern -->
+    {hardwareWithEvidence.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">🖥 已在以下硬件有实测案例 ({hardwareWithEvidence.length})</h3>
+        <div class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+          {hardwareWithEvidence.map((h) => (
+            <a href={pathname(`/hardware/${h.id}/`)} class="block rounded p-2 text-sm border transition-transform hover:translate-x-0.5"
+               style={`border-color: ${h.vendor.country === 'CN' ? 'var(--color-china)' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+              {h.name}
+              {h.vendor.country === 'CN' && <span class="ml-1 text-xs" style="color: var(--color-china);">🇨🇳</span>}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- Supporting cases -->
+    <section class="pb-12">
+      <h3 class="text-lg font-semibold mb-3">✅ 支撑案例 ({supporting.length})</h3>
       {supporting.length === 0 ? (
-        <p class="text-sm" style="color: var(--color-text-muted);">暂无关联案例。</p>
+        <p class="text-sm rounded-lg p-4 border" style="border-color: var(--color-border); background: var(--color-surface-raised); color: var(--color-text-muted);">
+          暂无关联案例。<a href={pathname('/contribute/')} class="underline" style="color: var(--color-accent);">提交一个使用此模式的部署案例 →</a>
+        </p>
       ) : (
-        <ul class="space-y-2 text-sm">
+        <ul class="space-y-2">
           {supporting.map((c) => (
-            <li><a href={pathname(`/cases/${c.id}`)} class="underline" style="color: var(--color-accent);">{c.title}</a></li>
+            <li class="rounded-lg p-3 border transition-transform hover:translate-x-0.5"
+                style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <a href={pathname(`/cases/${c.id}/`)} class="block">
+                <div class="font-medium" style="color: var(--color-text);">{c.title}</div>
+                <div class="text-xs font-mono mt-1" style="color: var(--color-text-muted);">
+                  {c.stack.hardware.id} ×{c.stack.hardware.count} · {c.stack.model.id} · {c.stack.engine.id} · {c.stack.quantization}
+                </div>
+                <div class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  {c.results.throughput_tokens_per_sec.decode.toLocaleString()} tok/s decode
+                </div>
+              </a>
+            </li>
           ))}
         </ul>
       )}
+    </section>
+
+    <!-- References -->
+    {p.references.length > 0 && (
+      <section class="pb-12 border-t" style="border-color: var(--color-border);">
+        <h3 class="text-lg font-semibold mt-8 mb-3">📖 参考资料 / References</h3>
+        <ul class="space-y-2 text-sm">
+          {p.references.map((r) => (
+            <li>
+              <a href={r.url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{r.title}</a>
+              <span class="text-xs ml-2" style="color: var(--color-text-muted);">[{r.source_type}]</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <!-- CTA: how to contribute -->
+    <section class="pb-12">
+      <div class="rounded-lg p-5 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-base font-semibold mb-2">🚀 用了这个 pattern？</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          提交一个 measured case 让 calibration map 更准 — 你的实测会直接影响计算器对该硬件的预测。
+        </p>
+        <a href={pathname('/contribute/')} class="inline-block mt-3 px-4 py-2 rounded-md font-medium text-sm"
+           style="background: var(--color-accent); color: white;">
+          {`提交部署案例 →`}
+        </a>
+      </div>
     </section>
   </Container>
 </BaseLayout>
 
 <style>
   article :global(h1), article :global(h2), article :global(h3) { margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; }
+  article :global(h2) { font-size: 1.25rem; }
+  article :global(h3) { font-size: 1.05rem; }
   article :global(p) { margin-bottom: 0.75rem; }
   article :global(ul) { margin-left: 1.5rem; list-style: disc; margin-bottom: 0.75rem; }
+  article :global(li) { margin-bottom: 0.25rem; }
   article :global(code) { background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.875em; }
+  article :global(strong) { color: var(--color-text); font-weight: 600; }
 </style>

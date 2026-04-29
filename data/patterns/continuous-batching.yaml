@@ -1,0 +1,49 @@
+id: continuous-batching
+name: Continuous Batching (token-level dynamic batching)
+category: scheduling
+description_md: |
+  ## 动机
+
+  传统 static batching: 等齐一个 batch 一起 forward, 一起结束。问题是不同请求
+  的 generation length 差异巨大, 最先结束的请求要等最长的请求, 算力利用率掉头。
+
+  Continuous batching (Orca, 2022) 在每个 forward step 边界重新拆分: 已结束的
+  请求出 batch, 新请求进 batch, batch 大小动态变化。这让 GPU 持续保持高利用。
+
+  ## 核心数据结构
+  - 调度器维护 running queue + waiting queue
+  - 每个 forward step: 检查哪些请求结束了, 释放 KV; 接纳新请求, 分配 KV
+  - PagedAttention 是 enabler (变长 KV 分配)
+
+  ## 引擎实现
+  - vLLM 是首发开源实现
+  - SGLang/TensorRT-LLM/lmdeploy 都跟进
+  - mindie/MindIE 在国产硬件上的实现
+
+  ## vs static batching 收益
+  - decode 吞吐: 2-10x (取决于请求长度方差)
+  - GPU 利用率: 30% → 80%+
+applies_when:
+  - high-throughput-serving
+  - variable-length-completions
+related_operators: [attention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
+hardware_requires: []
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 2.0
+    multiplier_max: 10.0
+    notes: '相对于 static batching; 完成时间方差越大收益越大'
+trade_offs:
+  - 'Per-request latency 略增 (调度开销 ~1-2%)'
+  - 'Tail latency: 长请求尾部仍可能阻塞短请求的接纳'
+  - '实现复杂度高 — 但所有主流 engine 已经默认开启'
+references:
+  - title: 'Orca: A Distributed Serving System for Transformer-Based Generative Models'
+    url: https://www.usenix.org/conference/osdi22/presentation/yu
+    source_type: paper
+  - title: 'vLLM continuous batching guide'
+    url: https://docs.vllm.ai/en/latest/serving/scheduling.html
+    source_type: docs

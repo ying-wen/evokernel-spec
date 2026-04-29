@@ -21,3 +21,30 @@ applies_when:
   - large-active-params
 related_operators: [matmul, attention]
 supporting_cases_min: 0
+engines_supporting: [vllm, sglang, lmdeploy, tensorrt-llm, mindie]
+hardware_requires:
+  - int8-weight-decompression-fast-path
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 1.5
+    multiplier_max: 2.5
+    notes: '小 batch (≤16) 时增益最大; 大 batch 转为算力受限, 量化收益减小'
+  - metric: memory-footprint
+    multiplier_min: 0.4
+    multiplier_max: 0.55
+    notes: 'INT4 约缩减到 BF16 的 1/4'
+trade_offs:
+  - '质量回退: AWQ 通常 <0.3 PPL, INT4-GPTQ 偶尔 0.5-1.0 PPL'
+  - '需要离线校准数据, 推理前的一次性成本'
+  - 'prefill 阶段 (compute-bound) 量化几乎无加速'
+references:
+  - title: 'AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration'
+    url: https://arxiv.org/abs/2306.00978
+    source_type: paper
+  - title: 'GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers'
+    url: https://arxiv.org/abs/2210.17323
+    source_type: paper
+  - title: 'vLLM AWQ guide'
+    url: https://docs.vllm.ai/en/latest/quantization/auto_awq.html
+    source_type: docs

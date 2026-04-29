@@ -25,7 +25,7 @@ reproduction:
   benchmark_tool: 'vllm benchmark_serving.py'
 issues_encountered:
   - 'DTK 24.04 vLLM-rocm fork compatibility — needed manual patch for 4096-block KV'
-patterns: []
+patterns: [paged-attention, continuous-batching, moe-expert-routing-on-domestic]
 evidence:
   - id: ev-case-l4s-dcuk100-001
     tier: measured

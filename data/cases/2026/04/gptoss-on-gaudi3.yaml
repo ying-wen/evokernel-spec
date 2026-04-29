@@ -25,7 +25,7 @@ reproduction:
   benchmark_tool: 'vllm benchmark_serving.py'
 issues_encountered:
   - 'Gaudi 3 vLLM 移植版需要专门的 HPU graph compile, 首次预热 ~6min'
-patterns: []
+patterns: [memory-bound-decode-prefer-int8, paged-attention, continuous-batching]
 evidence:
   - id: ev-case-gptoss-gaudi-001
     tier: measured

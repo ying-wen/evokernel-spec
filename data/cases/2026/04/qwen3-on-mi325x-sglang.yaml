@@ -30,7 +30,7 @@ reproduction:
   benchmark_tool: 'sglang.bench_serving'
 issues_encountered:
   - 'ROCm FP8 calibration 必须在 SGLang 0.4 + Python 3.11; 3.10 上报 import error'
-patterns: [memory-bound-decode-prefer-int8]
+patterns: [memory-bound-decode-prefer-int8, paged-attention, continuous-batching, prefix-caching]
 evidence:
   - id: ev-case-qwen36-mi325-001
     tier: measured

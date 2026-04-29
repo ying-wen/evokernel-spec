@@ -24,7 +24,7 @@ bottleneck: memory-bandwidth
 reproduction:
   startup_command: 'vllm serve THUDM/GLM-5.1 --tp 8 --enable-expert-parallel'
   benchmark_tool: 'vllm benchmark_serving.py'
-patterns: [memory-bound-decode-prefer-int8]
+patterns: [memory-bound-decode-prefer-int8, flashattention-v3, paged-attention, continuous-batching, prefix-caching, kv-cache-int8]
 evidence:
   - id: ev-case-glm51-h200-001
     tier: measured

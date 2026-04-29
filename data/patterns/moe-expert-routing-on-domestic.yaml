@@ -20,3 +20,23 @@ applies_when:
   - small-batch-decode
 related_operators: [moe-gate, all2all]
 supporting_cases_min: 0
+engines_supporting: [mindie, vllm]
+hardware_requires:
+  - private-scaleup-protocol
+  - moe-router-on-host-or-device
+model_archetypes: [moe-llm]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 1.1
+    multiplier_max: 1.4
+    notes: '相对于盲目套用 NVIDIA EP 配置; 主要来源于消除 all-to-all 倾斜'
+trade_offs:
+  - 'EP=1 + TP 大时显存占用更高 (每张卡需保有所有 expert 权重)'
+  - '随 CANN/MUSA 的 all-to-all 优化迭代, 此 pattern 重要性逐年下降'
+references:
+  - title: 'CANN Communication Library (HCCL) docs'
+    url: https://www.hiascend.com/document
+    source_type: docs
+  - title: 'MoE Routing on Heterogeneous Clusters (Moonshot blog)'
+    url: https://github.com/kvcache-ai/Mooncake
+    source_type: blog

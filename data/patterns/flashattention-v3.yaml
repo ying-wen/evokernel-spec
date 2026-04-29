@@ -1,0 +1,55 @@
+id: flashattention-v3
+name: FlashAttention v3 (Hopper async + FP8 path)
+category: kernel-fusion
+description_md: |
+  ## 简介
+
+  FlashAttention v3 是针对 Hopper (H100/H200) 重写的 attention kernel,
+  利用 async memory copies + warp-specialization 在 BF16 上达到 1.5–2.0x v2 提速,
+  在 FP8 上达到 ~840 TFLOPS (75% 硬件峰值利用率)。
+
+  ## 关键创新
+  - 用 async TMA (Tensor Memory Accelerator) 在拷贝和算子之间重叠
+  - Warp-specialization: 部分 warp 专做 GEMM, 部分专做 softmax
+  - FP8 native attention: 中间 statistics 仍用 FP32, 输出 FP8
+
+  ## 何时启用
+  - prefill 阶段 (long-context, attention 是主要瓶颈)
+  - long generation (decode 时 KV-cache 大)
+  - Hopper 及更新硬件 (Blackwell 自带类似优化)
+
+  ## 实现
+  - vLLM 0.6+ 默认启用
+  - SGLang 0.4+ 默认启用
+  - TensorRT-LLM 内置
+  - lmdeploy: TurboMind backend
+applies_when:
+  - long-context-prefill
+  - hopper-or-newer
+related_operators: [attention, flashattention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy]
+hardware_requires:
+  - hopper-architecture-or-newer
+  - tensor-memory-accelerator
+model_archetypes: [dense-llm, moe-llm, long-context, multi-modal]
+speedup:
+  - metric: prefill-throughput
+    multiplier_min: 1.5
+    multiplier_max: 2.0
+    notes: '相对于 FlashAttention v2 BF16; FP8 路径再提升 1.3-1.6x'
+  - metric: ttft
+    multiplier_min: 0.55
+    multiplier_max: 0.75
+    notes: 'long-context (8K+) prompt 下 TTFT 下降明显'
+trade_offs:
+  - 'Hopper-only: Ada/Ampere 退化为 v2 路径'
+  - 'FP8 路径需要校准 (per-token scale), 否则掉精度 0.5-1.5 PPL'
+  - 'Sliding-window attention (Mistral 风格) 兼容性需要 v3.1+'
+references:
+  - title: 'FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision'
+    url: https://arxiv.org/abs/2407.08608
+    source_type: paper
+  - title: 'tridao/flash-attention'
+    url: https://github.com/Dao-AILab/flash-attention
+    source_type: implementation

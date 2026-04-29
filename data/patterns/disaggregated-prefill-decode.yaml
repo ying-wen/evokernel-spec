@@ -16,8 +16,37 @@ description_md: |
   - Mooncake (Moonshot)
   - DistServe (UCSD)
   - SGLang disaggregated mode
+  - vLLM 0.6 disaggregated prefill (实验)
 applies_when:
   - heterogeneous-cluster
   - high-throughput-low-latency-target
 related_operators: [attention, all2all]
 supporting_cases_min: 0
+engines_supporting: [vllm, sglang, mindie]
+hardware_requires:
+  - high-bandwidth-interconnect-between-pools
+  - sufficient-decode-pool-memory
+model_archetypes: [dense-llm, moe-llm, long-context]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 1.4
+    multiplier_max: 2.2
+    notes: '相同卡总数下 decode tok/s 提升 (因为 prefill/decode 不再争抢内存带宽)'
+  - metric: cost-per-token
+    multiplier_min: 0.6
+    multiplier_max: 0.85
+    notes: 'TCO 降低 15-40%, 取决于工作负载 prefill:decode 比例'
+trade_offs:
+  - 'TTFT 增加 ~5-15ms (KV 传输额外延迟)'
+  - '调度系统复杂度上升, 需要 router + KV cache 传输协议'
+  - '不适合超低 batch / 单请求工作负载'
+references:
+  - title: 'Mooncake: A KVCache-centric Disaggregated Architecture'
+    url: https://github.com/kvcache-ai/Mooncake
+    source_type: implementation
+  - title: 'DistServe: Disaggregating Prefill and Decoding for Goodput-optimized LLM Serving'
+    url: https://arxiv.org/abs/2401.09670
+    source_type: paper
+  - title: 'SGLang disaggregated mode'
+    url: https://docs.sglang.ai/router/disaggregated-prefill-decode.html
+    source_type: docs

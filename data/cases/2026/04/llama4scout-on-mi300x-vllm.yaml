@@ -23,7 +23,7 @@ bottleneck: memory-bandwidth
 reproduction:
   startup_command: 'vllm serve meta-llama/Llama-4-Scout --tp 8'
   benchmark_tool: 'vllm benchmark_serving.py + sharegpt'
-patterns: []
+patterns: [paged-attention, continuous-batching, prefix-caching]
 evidence:
   - id: ev-case-l4s-mi300x-001
     tier: measured

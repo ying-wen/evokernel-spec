@@ -1,42 +1,177 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
-import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { getPatterns, getCases } from '~/lib/data';
+import { pathname } from '~/lib/i18n';
+import type { PatternCategory } from '@evokernel/schemas';
 
-const patterns = (await getPatterns()).sort((a, b) => a.id.localeCompare(b.id));
+const patterns = (await getPatterns()).sort((a, b) => a.name.localeCompare(b.name));
 const allCases = await getCases();
-function supportingCount(pid: string) {
-  return allCases.filter((c) => c.patterns.includes(pid)).length;
+
+const supportingCount = (pid: string) => allCases.filter((c) => c.patterns.includes(pid)).length;
+
+// Group by category — most actionable axis for a deployment engineer
+type Cat = PatternCategory;
+const categoryOrder: Cat[] = [
+  'kv-cache', 'kernel-fusion', 'quantization', 'parallel',
+  'scheduling', 'communication', 'disaggregation', 'misc'
+];
+const categoryLabel: Record<Cat, string> = {
+  'kv-cache': 'KV Cache 管理',
+  'kernel-fusion': '算子融合 / Fused kernels',
+  quantization: '量化 / Quantization',
+  parallel: '并行策略 / Parallelism',
+  scheduling: '调度 / Scheduling',
+  communication: '通信 / Communication',
+  disaggregation: '解耦部署 / Disaggregation',
+  misc: '其他 / Misc'
+};
+const categoryEmoji: Record<Cat, string> = {
+  'kv-cache': '🗂',
+  'kernel-fusion': '⚡',
+  quantization: '📐',
+  parallel: '🪢',
+  scheduling: '🎯',
+  communication: '🔀',
+  disaggregation: '🔗',
+  misc: '📦'
+};
+
+const grouped = new Map<Cat, typeof patterns>();
+for (const p of patterns) {
+  const arr = grouped.get(p.category as Cat) ?? [];
+  arr.push(p);
+  grouped.set(p.category as Cat, arr);
 }
+
+// Pre-compute a "signature speedup" for each pattern — the most prominent
+// metric to display in the card. Prefer decode-throughput → ttft → memory-footprint.
+const headlineMetrics = ['decode-throughput', 'ttft', 'memory-footprint', 'prefill-throughput', 'cost-per-token', 'quality'] as const;
+function headline(p: typeof patterns[number]) {
+  for (const metric of headlineMetrics) {
+    const s = p.speedup.find((x) => x.metric === metric);
+    if (s) {
+      const isReduction = ['memory-footprint', 'cost-per-token', 'ttft'].includes(metric);
+      return {
+        label: metric === 'decode-throughput' ? 'decode' :
+               metric === 'prefill-throughput' ? 'prefill' :
+               metric === 'memory-footprint' ? '显存' :
+               metric === 'cost-per-token' ? '$/M' :
+               metric === 'ttft' ? 'TTFT' : 'quality',
+        value: isReduction
+          ? `${(s.multiplier_min * 100).toFixed(0)}–${(s.multiplier_max * 100).toFixed(0)}%`
+          : `${s.multiplier_min.toFixed(1)}–${s.multiplier_max.toFixed(1)}×`,
+        positive: !isReduction
+      };
+    }
+  }
+  return null;
+}
+
+const totalCases = allCases.length;
+const annotatedCases = allCases.filter((c) => c.patterns.length > 0).length;
 ---
-<BaseLayout title="优化模式">
-  <Container width="narrow">
-    <section class="py-12">
-      <SectionHeader eyebrow="PATTERNS" title="优化模式" subtitle={`${patterns.length} 个跨 case 的可迁移知识标签`} />
-      <ul class="space-y-3 mt-8">
-        {patterns.map((p) => (
-          <li>
-            <a href={pathname(`/patterns/${p.id}/`)} class="block p-5 rounded-lg border transition-transform hover:-translate-y-0.5"
-               style="background: var(--color-surface-raised); border-color: var(--color-border);">
-              <div class="flex justify-between items-start gap-3">
-                <h3 class="text-base font-semibold">{p.name}</h3>
-                <div class="flex gap-1 flex-shrink-0">
-                  <Badge variant="accent">{p.category}</Badge>
-                  <Badge>{supportingCount(p.id)} cases</Badge>
-                </div>
-              </div>
-              {p.applies_when.length > 0 && (
-                <div class="text-xs mt-2 flex flex-wrap gap-1" style="color: var(--color-text-muted);">
-                  适用: {p.applies_when.map((a) => <span class="px-2 py-0.5 rounded" style="background: var(--color-surface);">{a}</span>)}
-                </div>
-              )}
-            </a>
-          </li>
-        ))}
-      </ul>
+<BaseLayout title="优化模式 / Optimization Patterns">
+  <Container width="wide">
+    <section class="pt-16 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        PATTERNS
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        编译与优化模式
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        把"让任意模型在任意硬件上跑得快"的 know-how 抽成可引用的 pattern：每条都有 <strong style="color: var(--color-accent);">引擎支持矩阵</strong>、
+        <strong style="color: var(--color-tier-measured);">实测速比范围</strong>、<strong style="color: var(--color-tier-estimated);">权衡 / trade-offs</strong>，
+        以及链向真实部署案例。
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div>
+          <span style="color: var(--color-text-muted);">Patterns: </span>
+          <strong>{patterns.length}</strong>
+        </div>
+        <div>
+          <span style="color: var(--color-text-muted);">案例覆盖率: </span>
+          <strong>{annotatedCases}/{totalCases}</strong>
+          <span class="text-xs" style="color: var(--color-text-muted);">
+            ({Math.round((annotatedCases / Math.max(totalCases, 1)) * 100)}%)
+          </span>
+        </div>
+        <div>
+          <span style="color: var(--color-text-muted);">分类: </span>
+          <strong>{grouped.size}</strong>
+        </div>
+      </div>
+    </section>
+
+    {categoryOrder.filter((cat) => grouped.has(cat)).map((cat) => {
+      const ps = grouped.get(cat)!;
+      return (
+        <section class="py-8 border-t" style="border-color: var(--color-border);">
+          <h2 class="text-2xl font-semibold mb-1 flex items-center gap-2">
+            <span style="font-size: 1.25rem;">{categoryEmoji[cat]}</span>
+            {categoryLabel[cat]}
+            <span class="text-sm font-normal" style="color: var(--color-text-muted);">({ps.length})</span>
+          </h2>
+
+          <ul class="grid md:grid-cols-2 gap-3 mt-4">
+            {ps.map((p) => {
+              const h = headline(p);
+              const cases = supportingCount(p.id);
+              return (
+                <li>
+                  <a href={pathname(`/patterns/${p.id}/`)} class="block h-full p-4 rounded-lg border transition-transform hover:-translate-y-0.5"
+                     style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                    <div class="flex justify-between items-start gap-3 mb-2">
+                      <h3 class="text-base font-semibold flex-1" style="color: var(--color-text);">{p.name}</h3>
+                      {h && (
+                        <div class="text-right flex-shrink-0">
+                          <div class="font-mono font-semibold" style={`color: ${h.positive ? 'var(--color-accent)' : 'var(--color-tier-measured)'};`}>
+                            {h.value}
+                          </div>
+                          <div class="text-xs" style="color: var(--color-text-muted);">{h.label}</div>
+                        </div>
+                      )}
+                    </div>
+                    <div class="flex gap-1 flex-wrap mb-2">
+                      {p.model_archetypes.slice(0, 3).map((a) => <Badge>{a}</Badge>)}
+                    </div>
+                    <div class="text-xs flex gap-3 flex-wrap" style="color: var(--color-text-muted);">
+                      <span>{p.engines_supporting.length} 引擎</span>
+                      <span>{cases} 实测案例</span>
+                      {p.references.length > 0 && <span>{p.references.length} 参考</span>}
+                    </div>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      );
+    })}
+
+    <!-- CTA -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">缺一个 pattern? 知道一个我们没列的优化技术?</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          PR 增加 <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">data/patterns/&lt;slug&gt;.yaml</code> 即可。
+          schema 见 <a href={pathname('/about/')} class="underline" style="color: var(--color-accent);">/about</a> · 必须带 references (≥1 paper 或 implementation)。
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href="https://github.com/ying-wen/evokernel-spec/blob/main/schemas/pattern.ts" target="_blank" rel="noopener"
+             class="text-sm px-4 py-2 rounded-md font-medium border"
+             style="border-color: var(--color-border); color: var(--color-text);">
+            schemas/pattern.ts →
+          </a>
+          <a href={pathname('/contribute/')} class="text-sm px-4 py-2 rounded-md font-medium"
+             style="background: var(--color-accent); color: white;">
+            ⚡ 提交 pattern / case →
+          </a>
+        </div>
+      </div>
     </section>
   </Container>
 </BaseLayout>

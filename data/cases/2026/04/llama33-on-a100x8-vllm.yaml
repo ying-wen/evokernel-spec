@@ -32,7 +32,7 @@ reproduction:
 issues_encountered:
   - 'A100 lacks native FP8; quantizing to W4A16 gives further 1.6× decode but quality regression on coding prompts'
   - 'KV cache @ batch 16 + seq 32k consumed ~62 GB/card; 80 GB headroom limits long-context'
-patterns: [memory-bound-decode-prefer-int8, paged-attention-vllm]
+patterns: [memory-bound-decode-prefer-int8, paged-attention, continuous-batching, prefix-caching]
 evidence:
   - id: ev-case-llama33-a100-001
     tier: measured

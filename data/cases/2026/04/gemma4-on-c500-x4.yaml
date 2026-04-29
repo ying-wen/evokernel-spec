@@ -23,7 +23,7 @@ bottleneck: memory-bandwidth
 reproduction:
   startup_command: 'vllm serve google/gemma-4-26b --device metax --tp 4 --quantization int8'
   benchmark_tool: 'vllm benchmark_serving.py'
-patterns: [memory-bound-decode-prefer-int8]
+patterns: [memory-bound-decode-prefer-int8, paged-attention, continuous-batching]
 evidence:
   - id: ev-case-gemma4-c500-001
     tier: measured

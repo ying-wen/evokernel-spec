@@ -23,7 +23,7 @@ bottleneck: memory-bandwidth
 reproduction:
   startup_command: 'vllm serve deepseek-ai/DeepSeek-R1 --device neuron --tp 16 --pp 4'
   benchmark_tool: 'vllm benchmark_serving.py'
-patterns: []
+patterns: [paged-attention, continuous-batching, prefix-caching]
 evidence:
   - id: ev-case-dsv3-trn2-001
     tier: measured

@@ -32,7 +32,7 @@ issues_encountered:
   - 'L40S GDDR6 BW is the binding constraint — moving from BF16 to FP8 halved the bytes but only +35% throughput (still BW-bound)'
   - 'PCIe-Gen4 TP=4 collective is bottleneck for batched decode > 16; below 8 it is fine'
   - 'No NVLink in this card class — TP scaling beyond 4 cards not viable'
-patterns: [memory-bound-decode-prefer-int8, fp8-quantize-on-hopper-plus]
+patterns: [memory-bound-decode-prefer-int8, paged-attention, continuous-batching, speculative-decoding]
 evidence:
   - id: ev-case-qwencoder-l40s-001
     tier: measured

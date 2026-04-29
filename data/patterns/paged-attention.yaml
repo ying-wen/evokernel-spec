@@ -1,0 +1,52 @@
+id: paged-attention
+name: PagedAttention (KV cache 分块管理)
+category: kv-cache
+description_md: |
+  ## 动机
+
+  KV cache 用连续显存导致两类浪费:
+  1. **内部碎片**: 为最坏长度预分配, 实际请求短于预期 → 显存空闲
+  2. **外部碎片**: 不同请求的 KV 块大小不一致, 难复用
+
+  PagedAttention 把 KV cache 切成固定大小的 page (通常 16 token),
+  用一张 page table (类似 OS 虚存) 在物理 KV pool 上做映射。
+  这让显存利用率从典型 50-70% 升到 90%+。
+
+  ## 受益场景
+  - 高 concurrency 服务 (数百 ~ 数千并发)
+  - 变长 prompt + 变长 completion
+  - 长文本生成 (长 context 又每条不同)
+
+  ## 实现
+  - vLLM 是首发 (UCSD, 2023)
+  - SGLang RadixAttention 是其超集 (page + 共享 prefix tree)
+  - TensorRT-LLM 0.10+ 加入
+  - LMDeploy TurboMind 内置
+applies_when:
+  - high-concurrency-serving
+  - variable-length-requests
+related_operators: [attention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
+hardware_requires: []
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 1.8
+    multiplier_max: 4.0
+    notes: '高并发场景增益最大; 单请求几乎无收益'
+  - metric: memory-footprint
+    multiplier_min: 0.5
+    multiplier_max: 0.7
+    notes: 'KV 显存占用降到 50-70% (相对于连续分配)'
+trade_offs:
+  - 'Page lookup 引入约 5-15% kernel-level 开销 (高带宽硬件可忽略)'
+  - 'Custom CUDA kernel 必需; ROCm/CANN 端口落后 6-12 月'
+  - '与某些位置编码 (ALiBi 等) 兼容性需 attention kernel 重写'
+references:
+  - title: 'Efficient Memory Management for Large Language Model Serving with PagedAttention'
+    url: https://arxiv.org/abs/2309.06180
+    source_type: paper
+  - title: 'vLLM PagedAttention design'
+    url: https://docs.vllm.ai/en/latest/dev/kernel/paged_attention.html
+    source_type: docs

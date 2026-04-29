@@ -24,7 +24,7 @@ bottleneck: compute
 reproduction:
   startup_command: 'trtllm-serve --tp 4 google/gemma-4-26b --quantization fp8'
   benchmark_tool: 'trtllm-bench + sharegpt'
-patterns: []
+patterns: [memory-bound-decode-prefer-int8, flashattention-v3, paged-attention, continuous-batching, prefix-caching]
 evidence:
   - id: ev-case-gemma4-h100-001
     tier: measured
