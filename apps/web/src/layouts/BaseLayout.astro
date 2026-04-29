@@ -3,6 +3,7 @@ import '~/styles/global.css';
 import Nav from '~/components/ui/Nav.astro';
 import Footer from '~/components/ui/Footer.astro';
 import type { Locale } from '~/lib/i18n';
+import { pathname } from '~/lib/i18n';
 
 interface Props {
   title: string;
@@ -33,9 +34,18 @@ const skipText = locale === 'en' ? 'Skip to main content' : '跳转到主内容'
 const ogLocale = locale === 'en' ? 'en_US' : 'zh_CN';
 const htmlLang = locale === 'en' ? 'en' : 'zh';
 
-// hreflang alternates: every page has zh + en pair
-const altPathZh = path.startsWith('/en/') ? path.replace(/^\/en/, '') || '/' : path === '/en' ? '/' : path;
-const altPathEn = path.startsWith('/en/') || path === '/en' ? path : '/en' + (path === '/' ? '/' : path);
+// hreflang alternates: every page has zh + en pair.
+// Astro.url.pathname includes the deploy base (e.g. /evokernel-spec/), so we
+// strip the base, do the locale-prefix swap on the bare path, then re-prepend
+// the base. Otherwise we'd get malformed /en/evokernel-spec/... URLs.
+const BASE_RAW = import.meta.env.BASE_URL ?? '/';
+const BASE = BASE_RAW === '/' ? '' : BASE_RAW.replace(/\/$/, '');
+const stripBase = (p: string) => (BASE && p.startsWith(BASE) ? p.slice(BASE.length) || '/' : p);
+const bare = stripBase(path); // path without deploy-base prefix
+const barePathZh = bare.startsWith('/en/') ? bare.replace(/^\/en/, '') || '/' : bare === '/en' ? '/' : bare;
+const barePathEn = bare.startsWith('/en/') || bare === '/en' ? bare : '/en' + (bare === '/' ? '/' : bare);
+const altPathZh = BASE + barePathZh;
+const altPathEn = BASE + barePathEn;
 const altUrlZh = new URL(altPathZh, Astro.site ?? 'https://evokernel.dev').toString();
 const altUrlEn = new URL(altPathEn, Astro.site ?? 'https://evokernel.dev').toString();
 ---
@@ -66,7 +76,7 @@ const altUrlEn = new URL(altPathEn, Astro.site ?? 'https://evokernel.dev').toStr
     <meta name="twitter:image" content={ogImageUrl} />
 
     <!-- RSS auto-discovery -->
-    <link rel="alternate" type="application/rss+xml" title="EvoKernel Spec — Cases" href="/cases.xml" />
+    <link rel="alternate" type="application/rss+xml" title="EvoKernel Spec — Cases" href={pathname('/cases.xml')} />
 
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚛%3C/text%3E%3C/svg%3E" type="image/svg+xml" />
 

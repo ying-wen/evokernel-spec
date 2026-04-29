@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 ---
@@ -24,7 +25,7 @@ import SectionHeader from '~/components/ui/SectionHeader.astro';
           <li>算术强度 <strong>小于</strong> ridge → <strong>memory-bound</strong>, 量化或更高带宽更有效</li>
         </ul>
         <p class="mt-4">
-          <a href="/calculator/" class="underline" style="color: var(--color-accent);">在计算器里看实际 Roofline 图 →</a>
+          <a href={pathname("/calculator/")} class="underline" style="color: var(--color-accent);">在计算器里看实际 Roofline 图 →</a>
         </p>
 
         <h2 class="text-xl font-semibold mt-12 mb-3">2. 三档 Evidence Tier</h2>
@@ -47,7 +48,7 @@ import SectionHeader from '~/components/ui/SectionHeader.astro';
           </div>
         </div>
         <p class="mt-4">
-          目标: 让 ✅ 实测验证占比逐年提升。<a href="/quality/" class="underline" style="color: var(--color-accent);">实时分布见 /quality →</a>
+          目标: 让 ✅ 实测验证占比逐年提升。<a href={pathname("/quality/")} class="underline" style="color: var(--color-accent);">实时分布见 /quality →</a>
         </p>
 
         <h2 class="text-xl font-semibold mt-12 mb-3">3. 国产硬件生态 — 从软件兼容看可行性</h2>
@@ -58,7 +59,7 @@ import SectionHeader from '~/components/ui/SectionHeader.astro';
           <li><strong>推理引擎</strong>: 官方版 (MindIE 等) vs 社区移植 (vllm-ascend / vllm-musa / lmdeploy-mlu)</li>
           <li><strong>量化精度</strong>: BF16/FP16 普遍支持, INT8 大多支持, FP8/FP4 大多不支持</li>
         </ol>
-        <p class="mt-3">出口管制后, 性能正在快速演进 — 看 <a href="/china/" class="underline" style="color: var(--color-accent);">/china 的代际谱系</a> 跟踪。</p>
+        <p class="mt-3">出口管制后, 性能正在快速演进 — 看 <a href={pathname("/china/")} class="underline" style="color: var(--color-accent);">/china 的代际谱系</a> 跟踪。</p>
 
         <h2 class="text-xl font-semibold mt-12 mb-3">4. Disaggregated 推理是什么</h2>
         <p>传统部署: 同一组 GPU 既跑 prefill (compute-heavy) 又跑 decode (memory-bw-heavy), 浪费一半资源。</p>
@@ -71,7 +72,7 @@ import SectionHeader from '~/components/ui/SectionHeader.astro';
         <p class="mt-3">代价: 调度复杂度 + 额外的 KV transfer 延迟 (额外 TTFT)。收益: 单 token 成本可降 30-50%。</p>
         <p class="mt-3">已知方案: <strong>Mooncake</strong> (Moonshot), <strong>DistServe</strong> (UCSD), <strong>SGLang disagg</strong>。</p>
         <p class="mt-3">
-          <a href="/cases/case-dsv4flash-disagg-h100-h200-001/" class="underline" style="color: var(--color-accent);">看一个真实 disagg 案例 →</a>
+          <a href={pathname("/cases/case-dsv4flash-disagg-h100-h200-001/")} class="underline" style="color: var(--color-accent);">看一个真实 disagg 案例 →</a>
         </p>
 
         <h2 class="text-xl font-semibold mt-12 mb-3">5. 算子拆解 — Tier 1 Roofline 的输入</h2>
@@ -99,10 +100,10 @@ import SectionHeader from '~/components/ui/SectionHeader.astro';
 
         <h2 class="text-xl font-semibold mt-12 mb-3">7. 怎么用这个站做选型</h2>
         <ol class="list-decimal pl-6 mt-2 space-y-1 text-sm">
-          <li>知道目标模型 → 看 <a href="/models/" class="underline" style="color: var(--color-accent);">模型详情</a>, 看支持哪些硬件</li>
-          <li>选几张候选卡 → 用 <a href="/compare/" class="underline" style="color: var(--color-accent);">对比页</a> 看雷达图 + Roofline 叠加</li>
-          <li>跑一遍 <a href="/calculator/" class="underline" style="color: var(--color-accent);">计算器</a> → 看 Tier 0 (有 case 直接看实测) + Tier 1 (理论上界)</li>
-          <li>看 <a href="/quality/" class="underline" style="color: var(--color-accent);">/quality 数据质量</a> → 评估 evidence 可靠度</li>
+          <li>知道目标模型 → 看 <a href={pathname("/models/")} class="underline" style="color: var(--color-accent);">模型详情</a>, 看支持哪些硬件</li>
+          <li>选几张候选卡 → 用 <a href={pathname("/compare/")} class="underline" style="color: var(--color-accent);">对比页</a> 看雷达图 + Roofline 叠加</li>
+          <li>跑一遍 <a href={pathname("/calculator/")} class="underline" style="color: var(--color-accent);">计算器</a> → 看 Tier 0 (有 case 直接看实测) + Tier 1 (理论上界)</li>
+          <li>看 <a href={pathname("/quality/")} class="underline" style="color: var(--color-accent);">/quality 数据质量</a> → 评估 evidence 可靠度</li>
           <li>需要替代卡? <strong>每张硬件详情页底部都有"替代卡推荐"</strong> (含跨国别替代标记)</li>
         </ol>
 
@@ -112,7 +113,7 @@ import SectionHeader from '~/components/ui/SectionHeader.astro';
           <li><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-pruning/index.html" class="underline" style="color: var(--color-accent);">NVIDIA Deep Learning Performance Guide</a></li>
           <li><a href="https://arxiv.org/abs/2407.00079" class="underline" style="color: var(--color-accent);">Mooncake (disaggregated inference)</a></li>
           <li><a href="https://arxiv.org/abs/2401.09670" class="underline" style="color: var(--color-accent);">DistServe (disaggregated inference)</a></li>
-          <li><a href="/about/" class="underline" style="color: var(--color-accent);">关于 / 数据 schema 文档</a></li>
+          <li><a href={pathname("/about/")} class="underline" style="color: var(--color-accent);">关于 / 数据 schema 文档</a></li>
         </ul>
       </article>
     </section>

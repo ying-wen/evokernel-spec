@@ -7,6 +7,7 @@ import type { Hardware, Model, Case, Engine } from '@evokernel/schemas';
 import { calculate, buildEfficiencyMap } from '~/lib/calculator';
 import type { Precision } from '~/lib/calculator';
 import { tr, type Locale } from '~/lib/i18n/island';
+import { pathname } from '~/lib/i18n';
 
 interface HistoryEntry {
   key: string;
@@ -383,7 +384,7 @@ function ResultPanel({ result, cases, hwCount, selectedHw, locale = 'zh' }: {
             {r.tier0Cases.map((m) => {
               return (
                 <li key={m.caseId}>
-                  <a href={`/cases/${m.caseId}`} className="block p-3 rounded text-sm" style={{ background: 'var(--color-surface-raised)' }}>
+                  <a href={pathname(`/cases/${m.caseId}`)} className="block p-3 rounded text-sm" style={{ background: 'var(--color-surface-raised)' }}>
                     <div className="font-medium">{m.caseTitle}</div>
                     <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                       {m.throughputDecode} tok/s · 相似度 {(m.matchScore * 100).toFixed(0)}%
@@ -492,7 +493,7 @@ function OperatorBreakdownChart({ result }: { result: NonNullable<ReturnType<typ
             {' — '}
             {(d.share * 100).toFixed(0)}% 占比 · {d.isComputeBound ? '计算受限' : '内存带宽受限'}
             {' · '}
-            <a href={`/operators/${d.operator}/`} className="underline" style={{ color: 'var(--color-accent)' }}>详情 →</a>
+            <a href={pathname(`/operators/${d.operator}/`)} className="underline" style={{ color: 'var(--color-accent)' }}>详情 →</a>
           </li>
         ))}
       </ul>
@@ -523,7 +524,7 @@ function DisaggregatedPanel({ disagg }: { disagg: NonNullable<NonNullable<Return
         </div>
       </dl>
       <p className="mt-3 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-        参考方案: <a href="/cases/case-dsv4flash-disagg-h100-h200-001/" className="underline" style={{ color: 'var(--color-accent)' }}>Mooncake disagg 案例</a> · <a href="/patterns/disaggregated-prefill-decode/" className="underline" style={{ color: 'var(--color-accent)' }}>优化模式</a>
+        参考方案: <a href={pathname('/cases/case-dsv4flash-disagg-h100-h200-001/')} className="underline" style={{ color: 'var(--color-accent)' }}>Mooncake disagg 案例</a> · <a href={pathname('/patterns/disaggregated-prefill-decode/')} className="underline" style={{ color: 'var(--color-accent)' }}>优化模式</a>
       </p>
     </div>
   );

@@ -143,10 +143,54 @@ export function t(locale: Locale, key: TKey): string {
   return dict[locale][key] ?? dict.zh[key] ?? key;
 }
 
-/** Build a path by prepending the locale prefix when locale = 'en'. */
+/**
+ * Astro's import.meta.env.BASE_URL is "/" by default and "/evokernel-spec/"
+ * (or whatever astro.config.mjs `base` is) on project-page deploys. We
+ * normalize it to either "" (root) or "/foo" (no trailing slash) for easy
+ * concatenation with leading-slash paths.
+ *
+ * On non-Astro runtimes (e.g. Vitest), import.meta.env may be undefined —
+ * fall back to "" so unit tests don't blow up.
+ */
+const RAW_BASE = (() => {
+  try {
+    // Astro injects this; Vite/Vitest may or may not depending on config.
+    const v = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL;
+    return typeof v === 'string' ? v : '/';
+  } catch {
+    return '/';
+  }
+})();
+const BASE = RAW_BASE === '/' ? '' : RAW_BASE.replace(/\/$/, '');
+
+/**
+ * Build an internal absolute path. Prepends the deploy base (e.g.
+ * "/evokernel-spec" on GitHub Pages) so links don't 404 on subpath deploys.
+ *
+ * For non-locale-aware paths (RSS feeds, /api/*, /cases.xml). For pages
+ * that should respect the user's locale, use `localePath()` instead.
+ *
+ * Always pass a leading-slash path: pathname('/foo') → '/evokernel-spec/foo'.
+ */
+export function pathname(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  if (!path.startsWith('/')) path = '/' + path;
+  return BASE + path;
+}
+
+/**
+ * Build a locale-aware path. EN gets a `/en/` prefix; both forms get
+ * the deploy base prepended.
+ *
+ *   localePath('zh', '/hardware')     → '/hardware'                (custom domain)
+ *   localePath('zh', '/hardware')     → '/evokernel-spec/hardware' (GitHub Pages)
+ *   localePath('en', '/hardware')     → '/evokernel-spec/en/hardware'
+ */
 export function localePath(locale: Locale, path: string): string {
-  if (locale === 'zh') return path;
-  if (path === '/') return '/en/';
-  if (path.startsWith('/en/')) return path;
-  return `/en${path}`;
+  let p = path;
+  if (locale === 'en') {
+    if (p === '/') p = '/en/';
+    else if (!p.startsWith('/en/')) p = '/en' + p;
+  }
+  return pathname(p);
 }

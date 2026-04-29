@@ -1,14 +1,16 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
-import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators } from '~/lib/data';
+import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators, getServers } from '~/lib/data';
 import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
 import Topology from '~/components/hardware/Topology.astro';
 import OperatorFitnessMatrix from '~/components/hardware/OperatorFitnessMatrix.astro';
+import SuperPodAtlas from '~/components/hardware/SuperPodAtlas.astro';
 import OperatorCoverage from '~/components/hardware/OperatorCoverage.astro';
 import Substitutes from '~/components/hardware/Substitutes.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
@@ -68,7 +70,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
     <section class="pt-3 pb-6">
       <header class="flex items-center gap-3 mb-4">
         <VendorBadge vendorId={hw.vendor.id} vendorName={hw.vendor.name} country={hw.vendor.country} size="md" />
-        <a href={`/vendors/${hw.vendor.id}/`} class="text-sm font-medium underline" style={`color: ${isChina ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
+        <a href={pathname(`/vendors/${hw.vendor.id}/`)} class="text-sm font-medium underline" style={`color: ${isChina ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
           {isChina ? (hw.vendor.chinese_names[0] ?? hw.vendor.name) : hw.vendor.name}
         </a>
         {isChina && <Badge variant="china">国产</Badge>}
@@ -210,6 +212,10 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       <Topology hw={hw} />
     </section>
 
+    <section class="pb-8" id="super-pod">
+      <SuperPodAtlas hw={allHardwareRaw.find((x) => x.id === hw.id)!} servers={await getServers()} />
+    </section>
+
     <section class="pb-8" id="models">
       <h3 class="text-lg font-semibold mb-3">能跑哪些模型?</h3>
       <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
@@ -311,7 +317,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
         <ul class="space-y-2">
           {relatedCases.slice(0, 8).map((c) => (
             <li>
-              <a href={`/cases/${c.id}`} class="block p-4 rounded-lg border transition-transform hover:translate-x-1"
+              <a href={pathname(`/cases/${c.id}`)} class="block p-4 rounded-lg border transition-transform hover:translate-x-1"
                  style="background: var(--color-surface-raised); border-color: var(--color-border);">
                 <div class="flex justify-between items-start gap-4">
                   <div>

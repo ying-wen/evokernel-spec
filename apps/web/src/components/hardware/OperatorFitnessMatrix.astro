@@ -16,6 +16,7 @@
  *   5. Color-code the row by domain so scientific/edge stand out
  */
 import type { Hardware, Model } from '@evokernel/schemas';
+import { pathname } from '~/lib/i18n';
 
 interface Props {
   hw: Hardware;
@@ -135,7 +136,7 @@ const bottleneckLabel: Record<Row['bottleneck'], string> = {
       {rows.map((r) => (
         <tr class="border-t" style="border-color: var(--color-border);">
           <td class="px-4 py-2">
-            <a href={`/models/${r.model.id}/`} class="font-medium" style="color: var(--color-text);">{r.model.name}</a>
+            <a href={pathname(`/models/${r.model.id}/`)} class="font-medium" style="color: var(--color-text);">{r.model.name}</a>
           </td>
           <td class="px-3 py-2 text-xs">
             <span style={`color: ${domainColor[r.model.domain ?? 'llm']}; font-weight: 600;`}>
@@ -161,6 +162,6 @@ const bottleneckLabel: Record<Row['bottleneck'], string> = {
     </tbody>
   </table>
   <div class="px-4 py-2 border-t text-xs" style="border-color: var(--color-border); color: var(--color-text-muted);">
-    需要 efficiency 校准 + concurrency 扫描 + TCO 估算 → <a href={`/calculator/?hw=${hw.id}`} class="underline" style="color: var(--color-accent);">在计算器中评估 →</a>
+    需要 efficiency 校准 + concurrency 扫描 + TCO 估算 → <a href={pathname(`/calculator/?hw=${hw.id}`)} class="underline" style="color: var(--color-accent);">在计算器中评估 →</a>
   </div>
 </div>

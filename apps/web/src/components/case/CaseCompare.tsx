@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { pathname } from '~/lib/i18n';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer
 } from 'recharts';
@@ -199,7 +200,7 @@ export default function CaseCompare({ cases }: Props) {
                 <th className="text-left px-3 py-2 font-medium">指标</th>
                 {selectedCases.map((c, i) => (
                   <th key={c.id} className="text-right px-3 py-2 font-medium" style={{ color: PALETTE[i] }}>
-                    <a href={`/cases/${c.id}/`} className="underline">{c.title.slice(0, 24)}</a>
+                    <a href={pathname(`/cases/${c.id}/`)} className="underline">{c.title.slice(0, 24)}</a>
                   </th>
                 ))}
               </tr>

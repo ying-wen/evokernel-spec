@@ -1,6 +1,7 @@
 ---
 import type { Hardware, Operator, Case, Model } from '@evokernel/schemas';
 import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
+import { pathname } from '~/lib/i18n';
 
 interface Props {
   hw: Hardware;
@@ -152,7 +153,7 @@ const categoryLabel: Record<string, string> = {
           {rows.map(({ op, status, reason }) => (
             <div class="p-3 rounded border" style={`border-color: color-mix(in oklch, ${statusColor[status]} 25%, var(--color-border)); background: color-mix(in oklch, ${statusColor[status]} 5%, var(--color-bg));`}>
               <div class="flex items-center justify-between gap-2">
-                <a href={`/operators/${op.id}/`} class="text-sm font-medium underline" style="color: var(--color-text);">{op.name}</a>
+                <a href={pathname(`/operators/${op.id}/`)} class="text-sm font-medium underline" style="color: var(--color-text);">{op.name}</a>
                 <span class="text-xs font-medium" style={`color: ${statusColor[status]};`}>{statusBadge[status]}</span>
               </div>
               {reason && (

@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Leaderboard from '~/components/case/Leaderboard.tsx';
@@ -12,7 +13,7 @@ const cases = await getCases();
     <section class="py-12">
       <div class="flex justify-between items-end mb-4">
         <SectionHeader eyebrow="CASES" title="部署案例 · 排行榜" subtitle={`${cases.length} 条实测部署 recipe · 表格 / 散点图 / 柱状图 · 多维筛选 · CSV 导出`} />
-        <a href="/cases/compare/" class="text-sm px-4 py-2 rounded border" style="border-color: var(--color-accent); color: var(--color-accent); white-space: nowrap;">
+        <a href={pathname("/cases/compare/")} class="text-sm px-4 py-2 rounded border" style="border-color: var(--color-accent); color: var(--color-accent); white-space: nowrap;">
           ⇄ 对比案例
         </a>
       </div>

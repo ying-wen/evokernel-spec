@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -107,12 +108,12 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">⚡ 单卡 Decode 之冠</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/cases/${bestDecodePerCard.c.id}/`} class="hover:underline">{bestDecodePerCard.c.title}</a>
+              <a href={pathname(`/cases/${bestDecodePerCard.c.id}/`)} class="hover:underline">{bestDecodePerCard.c.title}</a>
             </h3>
             <div class="font-mono text-3xl my-2">{Math.round(bestDecodePerCard.perCard).toLocaleString()} <span class="text-sm opacity-60">tok/s/card</span></div>
             <p class="text-sm" style="color: var(--color-text-muted);">
-              <a href={`/hardware/${bestDecodePerCard.c.stack.hardware.id}/`} class="underline">{bestDecodePerCard.c.stack.hardware.id}</a> ×{bestDecodePerCard.c.stack.hardware.count} ·
-              <a href={`/models/${bestDecodePerCard.c.stack.model.id}/`} class="underline">{bestDecodePerCard.c.stack.model.id}</a> · {bestDecodePerCard.c.stack.engine.id} · {bestDecodePerCard.c.stack.quantization}
+              <a href={pathname(`/hardware/${bestDecodePerCard.c.stack.hardware.id}/`)} class="underline">{bestDecodePerCard.c.stack.hardware.id}</a> ×{bestDecodePerCard.c.stack.hardware.count} ·
+              <a href={pathname(`/models/${bestDecodePerCard.c.stack.model.id}/`)} class="underline">{bestDecodePerCard.c.stack.model.id}</a> · {bestDecodePerCard.c.stack.engine.id} · {bestDecodePerCard.c.stack.quantization}
             </p>
           </article>
         )}
@@ -121,7 +122,7 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-tier-measured); background: color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg));">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-tier-measured);">💰 最低 $/M tokens</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/cases/${cheapestTCO.c.id}/`} class="hover:underline">{cheapestTCO.c.title}</a>
+              <a href={pathname(`/cases/${cheapestTCO.c.id}/`)} class="hover:underline">{cheapestTCO.c.title}</a>
             </h3>
             <div class="font-mono text-3xl my-2">${cheapestTCO.tco.toFixed(2)}<span class="text-sm opacity-60"> /M tokens</span></div>
             <p class="text-xs mb-1" style="color: var(--color-text-muted);">
@@ -134,7 +135,7 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">🎯 实测校准最高 (软件栈最成熟)</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/hardware/${efficiencyLeader.h.id}/`} class="hover:underline">{efficiencyLeader.h.name}</a>
+              <a href={pathname(`/hardware/${efficiencyLeader.h.id}/`)} class="hover:underline">{efficiencyLeader.h.name}</a>
             </h3>
             <div class="font-mono text-3xl my-2">{efficiencyLeader.eff.factor.toFixed(2)} <span class="text-sm opacity-60">/ 1.00</span></div>
             <p class="text-sm" style="color: var(--color-text-muted);">
@@ -147,7 +148,7 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-tier-estimated); background: color-mix(in oklch, var(--color-tier-estimated) 5%, var(--color-bg));">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-tier-estimated);">⚠️ 实测校准最低 (软件栈待优化)</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/hardware/${efficiencyLaggard.h.id}/`} class="hover:underline">{efficiencyLaggard.h.name}</a>
+              <a href={pathname(`/hardware/${efficiencyLaggard.h.id}/`)} class="hover:underline">{efficiencyLaggard.h.name}</a>
             </h3>
             <div class="font-mono text-3xl my-2">{efficiencyLaggard.eff.factor.toFixed(2)} <span class="text-sm opacity-60">/ 1.00</span></div>
             <p class="text-sm" style="color: var(--color-text-muted);">
@@ -161,7 +162,7 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">📊 测试最广 (社区贡献最多)</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/hardware/${mostTestedHw.id}/`} class="hover:underline">{mostTestedHw.hw!.name}</a>
+              <a href={pathname(`/hardware/${mostTestedHw.id}/`)} class="hover:underline">{mostTestedHw.hw!.name}</a>
             </h3>
             <div class="font-mono text-3xl my-2">{mostTestedHw.count} <span class="text-sm opacity-60">个 case</span></div>
             <p class="text-sm" style="color: var(--color-text-muted);">
@@ -174,7 +175,7 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-bg));">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-china);">🚀 国产软件栈追赶机会</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/hardware/${cnGap.h.id}/`} class="hover:underline">{cnGap.h.name}</a>
+              <a href={pathname(`/hardware/${cnGap.h.id}/`)} class="hover:underline">{cnGap.h.name}</a>
             </h3>
             <div class="font-mono text-3xl my-2">+{(cnGap.gap * 100).toFixed(0)}<span class="text-sm opacity-60"> 百分点 仍可优化</span></div>
             <p class="text-sm" style="color: var(--color-text-muted);">
@@ -201,7 +202,7 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-accent);">🌍 跨硬件可移植性之冠</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/models/${mostPortableModel.id}/`} class="hover:underline">{mostPortableModel.model!.name}</a>
+              <a href={pathname(`/models/${mostPortableModel.id}/`)} class="hover:underline">{mostPortableModel.model!.name}</a>
             </h3>
             <div class="font-mono text-3xl my-2">{mostPortableModel.count} <span class="text-sm opacity-60">种硬件</span></div>
             <p class="text-sm" style="color: var(--color-text-muted);">
@@ -214,7 +215,7 @@ const superPodLeader = hardwareResolved
           <article class="rounded-lg p-5 border" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-bg));">
             <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color: var(--color-china);">🏗 Scale-up 域王者</div>
             <h3 class="text-lg font-semibold mb-2">
-              <a href={`/hardware/${superPodLeader.id}/`} class="hover:underline">{superPodLeader.name}</a>
+              <a href={pathname(`/hardware/${superPodLeader.id}/`)} class="hover:underline">{superPodLeader.name}</a>
             </h3>
             <div class="font-mono text-3xl my-2">{superPodLeader.scale_up.world_size} <span class="text-sm opacity-60">cards / domain</span></div>
             <p class="text-sm" style="color: var(--color-text-muted);">
@@ -231,8 +232,8 @@ const superPodLeader = hardwareResolved
           所以新增一个 case 后, "最低 $/M tokens" 等数字会自动更新。
         </p>
         <p class="text-sm mt-2" style="color: var(--color-text-muted);">
-          公式见 <a href="/learn/" class="underline" style="color: var(--color-accent);">/learn 学习中心</a>。
-          数据可信度详见 <a href="/quality/" class="underline" style="color: var(--color-accent);">/quality 数据质量</a>。
+          公式见 <a href={pathname("/learn/")} class="underline" style="color: var(--color-accent);">/learn 学习中心</a>。
+          数据可信度详见 <a href={pathname("/quality/")} class="underline" style="color: var(--color-accent);">/quality 数据质量</a>。
         </p>
       </div>
     </section>

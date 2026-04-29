@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -109,7 +110,7 @@ const engineUsage = engines.map((e) => ({
             <ul class="space-y-1 text-sm">
               {hwNoCase.slice(0, 16).map((h) => (
                 <li>
-                  <a href={`/hardware/${h.id}/`} class="block p-2 rounded border transition-transform hover:translate-x-0.5"
+                  <a href={pathname(`/hardware/${h.id}/`)} class="block p-2 rounded border transition-transform hover:translate-x-0.5"
                      style={`border-color: ${h.vendor.country === 'CN' ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
                     <span class="font-medium">{h.name}</span>
                     <span class="text-xs ml-2" style={`color: ${h.vendor.country === 'CN' ? 'var(--color-china)' : 'var(--color-text-muted)'};`}>
@@ -131,7 +132,7 @@ const engineUsage = engines.map((e) => ({
             <ul class="space-y-1 text-sm">
               {modelsNoOpDecomp.slice(0, 8).map((m) => (
                 <li>
-                  <a href={`/models/${m.id}/`} class="block p-2 rounded border" style="border-color: var(--color-tier-estimated); background: var(--color-surface-raised);">
+                  <a href={pathname(`/models/${m.id}/`)} class="block p-2 rounded border" style="border-color: var(--color-tier-estimated); background: var(--color-surface-raised);">
                     {m.name}
                   </a>
                 </li>
@@ -143,7 +144,7 @@ const engineUsage = engines.map((e) => ({
             <ul class="space-y-1 text-sm">
               {modelsNoCase.slice(0, 8).map((m) => (
                 <li class="block p-2 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
-                  <a href={`/models/${m.id}/`} class="font-medium">{m.name}</a>
+                  <a href={pathname(`/models/${m.id}/`)} class="font-medium">{m.name}</a>
                   <span class="text-xs ml-2" style="color: var(--color-text-muted);">{m.lab}</span>
                 </li>
               ))}
@@ -157,7 +158,7 @@ const engineUsage = engines.map((e) => ({
         <p class="text-sm mb-3" style="color: var(--color-text-muted);">建议补充第二条引证 — 第三方实测、MLPerf、HotChips 等。</p>
         <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
           {singleEvidence.slice(0, 24).map((h) => (
-            <a href={`/hardware/${h.id}/`} class="block p-2 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <a href={pathname(`/hardware/${h.id}/`)} class="block p-2 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
               {h.name}
             </a>
           ))}
@@ -178,7 +179,7 @@ const engineUsage = engines.map((e) => ({
             <tbody>
               {engineUsage.sort((a, b) => b.caseCount - a.caseCount).map((u) => (
                 <tr class="border-t" style="border-color: var(--color-border);">
-                  <td class="px-4 py-2"><a href={`/engines/${u.engine.id}/`} class="font-medium underline" style="color: var(--color-accent);">{u.engine.name}</a></td>
+                  <td class="px-4 py-2"><a href={pathname(`/engines/${u.engine.id}/`)} class="font-medium underline" style="color: var(--color-accent);">{u.engine.name}</a></td>
                   <td class="text-right px-4 py-2 font-mono">{u.hwCount}</td>
                   <td class="text-right px-4 py-2 font-mono">{u.caseCount}</td>
                 </tr>
@@ -202,7 +203,7 @@ const engineUsage = engines.map((e) => ({
             <tbody>
               {quantUsage.sort((a, b) => b.caseCount - a.caseCount).map((u) => (
                 <tr class="border-t" style="border-color: var(--color-border);">
-                  <td class="px-4 py-2"><a href={`/quantizations/${u.q.id}/`} class="font-medium underline" style="color: var(--color-accent);">{u.q.name}</a></td>
+                  <td class="px-4 py-2"><a href={pathname(`/quantizations/${u.q.id}/`)} class="font-medium underline" style="color: var(--color-accent);">{u.q.name}</a></td>
                   <td class="text-right px-4 py-2 font-mono">{u.hwCount}</td>
                   <td class="text-right px-4 py-2 font-mono">{u.caseCount}</td>
                 </tr>
@@ -220,7 +221,7 @@ const engineUsage = engines.map((e) => ({
         ) : (
           <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {cnHwGap.map((h) => (
-              <a href={`/hardware/${h.id}/`} class="block p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+              <a href={pathname(`/hardware/${h.id}/`)} class="block p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
                  style="border-color: color-mix(in oklch, var(--color-china) 30%, var(--color-border)); background: var(--color-surface-raised);">
                 <div class="font-medium">{h.name}</div>
                 <div class="text-xs" style="color: var(--color-text-muted);">{h.vendor.chinese_names[0] ?? h.vendor.name}</div>

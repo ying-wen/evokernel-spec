@@ -1,0 +1,211 @@
+---
+/**
+ * SuperPodAtlas — when a hardware is the building block of a known
+ * super-pod (CloudMatrix 384, NVL72, Atlas 900, etc), render the
+ * actual rack-scale layout grounded in data/servers/*.yaml.
+ *
+ * Differentiates from the generic Topology cluster diagram by using
+ * the EXACT card_count / scale_up_domain_size / cooling / interconnect
+ * fields from the server YAML — so users see "this card scales to a
+ * specific 384-card optical fabric system, not a hand-waved cluster".
+ *
+ * Renders:
+ *   - Rack outline with realistic node grouping
+ *     (NVL72: 18 trays × 4 GPUs; CM384: 32 nodes × 12 cards; etc.)
+ *   - Per-rack metadata strip: power, total memory, total PFLOPS,
+ *     cooling type, intra-node + inter-node fabric protocols
+ *   - Evidence footer linking to the vendor source
+ *
+ * Falls back to nothing (component renders empty) when the hardware
+ * isn't part of any known super-pod.
+ */
+import type { Hardware, Server } from '@evokernel/schemas';
+import { pathname } from '~/lib/i18n';
+
+interface Props {
+  hw: Hardware;
+  servers: Server[];
+}
+
+const { hw, servers } = Astro.props as Props;
+
+// Find super-pod entries that use THIS hardware as the building block
+const matches = servers.filter(
+  (s) => s.type === 'super-pod' && s.card === hw.id
+);
+
+// Pick a sensible cards-per-node grouping for the visual.
+// NVL72: 72 cards / 18 trays = 4-per-tray
+// CloudMatrix 384: 384 / 32 nodes = 12-per-node
+// Atlas 900 SuperPoD A2: 256 / 32 nodes = 8-per-node
+// Generic fall-back: 8 cards/node
+function cardsPerNode(s: Server): number {
+  const lower = s.id.toLowerCase();
+  if (lower.includes('nvl72')) return 4;       // GB200 → 4 GPUs per tray
+  if (lower.includes('nvl144')) return 4;
+  if (lower.includes('cloudmatrix-384')) return 12;
+  if (lower.includes('cloudmatrix-768')) return 16;
+  if (lower.includes('atlas-900')) return 8;
+  if (lower.includes('trn2-ultraserver')) return 16; // 4 trays × 4 chips
+  // Default: pick a divisor that yields a nice grid
+  for (const c of [8, 12, 16, 4]) {
+    if (s.card_count % c === 0) return c;
+  }
+  return 8;
+}
+
+const accent = 'var(--color-accent)';
+const china = 'var(--color-china)';
+const muted = 'var(--color-text-muted)';
+const surface = 'var(--color-surface-raised)';
+const border = 'var(--color-border)';
+
+interface AtlasView {
+  s: Server;
+  cardsPerNode: number;
+  nodes: number;
+  // Visual-grid: pick a layout that fits ≤ 32 visible nodes
+  visibleNodes: number;
+  truncated: boolean;
+  gridCols: number;
+  gridRows: number;
+}
+
+const views: AtlasView[] = matches.map((s) => {
+  const cpn = cardsPerNode(s);
+  const nodes = Math.ceil(s.card_count / cpn);
+  // Cap visible at 24 nodes so SVG remains legible; show "+N more" if truncated
+  const visible = Math.min(24, nodes);
+  const truncated = nodes > visible;
+  const cols = visible <= 8 ? visible : Math.ceil(Math.sqrt(visible * 1.3));
+  const rows = Math.ceil(visible / cols);
+  return { s, cardsPerNode: cpn, nodes, visibleNodes: visible, truncated, gridCols: cols, gridRows: rows };
+});
+
+const isCN = typeof hw.vendor === 'string' ? false : (hw.vendor as { country?: string }).country === 'CN';
+const themeColor = isCN ? china : accent;
+---
+{views.length === 0 ? null : (
+  <section class="space-y-4">
+    <div class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-muted);">
+      超节点 / Super-pod atlas · {views.length} known system{views.length > 1 ? 's' : ''}
+    </div>
+
+    {views.map((v) => {
+      const sCard = v.s;
+      const nodeW = 100;
+      const nodeH = 60;
+      const gap = 14;
+      const padX = 20;
+      const padY = 50;
+      const svgW = padX * 2 + v.gridCols * (nodeW + gap) - gap;
+      const svgH = padY + v.gridRows * (nodeH + gap) + 80;
+      const cardW = (nodeW - 16) / Math.min(v.cardsPerNode, 4);
+      const cardRows = Math.ceil(v.cardsPerNode / 4);
+      return (
+        <div class="rounded-lg border p-4" style={`background: ${surface}; border-color: ${border};`}>
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <h4 class="text-sm font-semibold" style={`color: ${themeColor};`}>{sCard.name}</h4>
+              <p class="text-xs mt-0.5" style="color: var(--color-text-muted);">
+                {sCard.chinese_names && sCard.chinese_names.length > 0 && <span>{sCard.chinese_names[0]} · </span>}
+                {sCard.card_count} × {hw.name} · scale-up domain {sCard.scale_up_domain_size}
+              </p>
+            </div>
+            <span class="text-xs font-mono px-2 py-1 rounded" style={`background: color-mix(in oklch, ${themeColor} 12%, var(--color-bg)); color: ${themeColor};`}>
+              {sCard.release_year}
+            </span>
+          </div>
+
+          <svg viewBox={`0 0 ${svgW} ${svgH}`} class="w-full" xmlns="http://www.w3.org/2000/svg" aria-label={`${sCard.name} super-pod layout`}>
+            {/* Spine fabric label */}
+            <text x={svgW / 2} y="22" text-anchor="middle" font-size="11" font-weight="600" fill={themeColor}>
+              {sCard.intra_node_interconnect} fabric
+            </text>
+            <line x1={padX} y1="32" x2={svgW - padX} y2="32" stroke={themeColor} stroke-width="1.5" stroke-opacity="0.5" stroke-dasharray="4 2"/>
+
+            {/* Nodes grid */}
+            {Array.from({ length: v.visibleNodes }).map((_, idx) => {
+              const col = idx % v.gridCols;
+              const row = Math.floor(idx / v.gridCols);
+              const x = padX + col * (nodeW + gap);
+              const y = padY + row * (nodeH + gap);
+              return (
+                <g>
+                  <rect x={x} y={y} width={nodeW} height={nodeH} rx="4"
+                        fill="color-mix(in oklch, var(--color-bg) 92%, var(--color-text))"
+                        stroke={themeColor} stroke-width="1" stroke-opacity="0.6"/>
+                  <text x={x + 4} y={y + 12} font-size="8" font-weight="600" fill={themeColor}>
+                    Node {idx + 1}
+                  </text>
+                  {/* Cards within node */}
+                  {Array.from({ length: v.cardsPerNode }).map((__, c) => {
+                    const cCol = c % 4;
+                    const cRow = Math.floor(c / 4);
+                    const cx = x + 8 + cCol * (cardW + 2);
+                    const cy = y + 18 + cRow * 18;
+                    return (
+                      <rect x={cx} y={cy} width={cardW} height={14} rx="1.5"
+                            fill={`color-mix(in oklch, ${themeColor} 38%, var(--color-bg))`}/>
+                    );
+                  })}
+                  {/* Spine link */}
+                  <line x1={x + nodeW / 2} y1={y} x2={x + nodeW / 2} y2="34"
+                        stroke={themeColor} stroke-width="0.6" stroke-opacity="0.35"/>
+                </g>
+              );
+            })}
+
+            {/* Truncation hint */}
+            {v.truncated && (
+              <text x={svgW / 2} y={padY + v.gridRows * (nodeH + gap) + 14}
+                    text-anchor="middle" font-size="9" fill={muted}>
+                ... showing {v.visibleNodes} of {v.nodes} nodes ({v.cardsPerNode}× cards each)
+              </text>
+            )}
+
+            {/* Bottom metadata strip */}
+            <text x={svgW / 2} y={svgH - 24} text-anchor="middle" font-size="9" fill={muted}>
+              {(sCard.total_compute_pflops_bf16 ?? 0).toFixed(0)} PFLOPS BF16 ·
+              {sCard.total_memory_gb ? ` ${(sCard.total_memory_gb / 1024).toFixed(1)} TB total memory ·` : ''}
+              {sCard.rack_power_kw ? ` ${sCard.rack_power_kw} kW rack ·` : ''}
+              {sCard.cooling} cooling
+            </text>
+            <text x={svgW / 2} y={svgH - 10} text-anchor="middle" font-size="8" fill={muted}>
+              scale-out: {sCard.inter_node_interconnect}
+            </text>
+          </svg>
+
+          {/* Footer: spec rail + link to server detail */}
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-xs" style="color: var(--color-text-muted);">
+            <div>
+              <div class="font-mono text-base" style={`color: ${themeColor};`}>{sCard.card_count}</div>
+              <div>cards</div>
+            </div>
+            <div>
+              <div class="font-mono text-base" style={`color: ${themeColor};`}>
+                {sCard.total_compute_pflops_bf16 ? sCard.total_compute_pflops_bf16.toFixed(0) : '—'}
+              </div>
+              <div>PFLOPS BF16</div>
+            </div>
+            <div>
+              <div class="font-mono text-base" style={`color: ${themeColor};`}>
+                {sCard.total_memory_gb ? (sCard.total_memory_gb / 1024).toFixed(1) : '—'}
+              </div>
+              <div>TB memory</div>
+            </div>
+            <div>
+              <div class="font-mono text-base" style={`color: ${themeColor};`}>
+                {sCard.rack_power_kw ?? '—'}
+              </div>
+              <div>kW / rack</div>
+            </div>
+          </div>
+          <div class="mt-3 text-xs" style="color: var(--color-text-muted);">
+            <a href={pathname(`/servers/${sCard.id}/`)} class="underline" style={`color: ${themeColor};`}>详情 / details →</a>
+          </div>
+        </div>
+      );
+    })}
+  </section>
+)}

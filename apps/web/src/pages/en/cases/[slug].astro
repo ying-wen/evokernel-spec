@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
@@ -56,10 +57,10 @@ const ldCrumbs = breadcrumbLD([
     <section class="pb-8">
       <h3 class="text-lg font-semibold mb-3">Stack</h3>
       <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
-        <SpecRow label="Hardware"><a href={`/en/hardware/${c.stack.hardware.id}/`} class="underline" style="color: var(--color-accent);">{c.stack.hardware.id}</a> × {c.stack.hardware.count} ({c.stack.hardware.topology})</SpecRow>
+        <SpecRow label="Hardware"><a href={pathname(`/en/hardware/${c.stack.hardware.id}/`)} class="underline" style="color: var(--color-accent);">{c.stack.hardware.id}</a> × {c.stack.hardware.count} ({c.stack.hardware.topology})</SpecRow>
         <SpecRow label="Server">{c.stack.server?.id ?? '—'}</SpecRow>
         <SpecRow label="Interconnect">intra: {c.stack.interconnect.intra_node} · inter: {c.stack.interconnect.inter_node}</SpecRow>
-        <SpecRow label="Model"><a href={`/en/models/${c.stack.model.id}/`} class="underline" style="color: var(--color-accent);">{c.stack.model.id}</a> ({c.stack.model.weight_format})</SpecRow>
+        <SpecRow label="Model"><a href={pathname(`/en/models/${c.stack.model.id}/`)} class="underline" style="color: var(--color-accent);">{c.stack.model.id}</a> ({c.stack.model.weight_format})</SpecRow>
         <SpecRow label="Engine">{c.stack.engine.id} {c.stack.engine.version}</SpecRow>
         <SpecRow label="Quantization">{c.stack.quantization}</SpecRow>
         <SpecRow label="Parallel">TP={c.stack.parallel.tp} · PP={c.stack.parallel.pp} · EP={c.stack.parallel.ep} · SP={c.stack.parallel.sp}{c.stack.parallel.disaggregated ? ' · disaggregated' : ''}</SpecRow>
@@ -133,7 +134,7 @@ const ldCrumbs = breadcrumbLD([
         <h3 class="text-lg font-semibold mb-3">Optimization patterns</h3>
         <div class="flex gap-2 flex-wrap">
           {c.patterns.map((p) => (
-            <a href={`/en/patterns/${p}/`} class="text-sm px-3 py-1 rounded border" style="border-color: var(--color-accent); color: var(--color-accent);">
+            <a href={pathname(`/en/patterns/${p}/`)} class="text-sm px-3 py-1 rounded border" style="border-color: var(--color-accent); color: var(--color-accent);">
               {p}
             </a>
           ))}

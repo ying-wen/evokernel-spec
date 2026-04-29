@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 ---
 <BaseLayout title="Learn" locale="en">
@@ -23,7 +24,7 @@ import Container from '~/components/ui/Container.astro';
           <li>Arithmetic intensity (FLOPs/byte) <strong>above</strong> ridge → <strong>compute-bound</strong>, more FLOPS helps</li>
           <li>Below ridge → <strong>memory-bound</strong>, quantization or higher BW helps more</li>
         </ul>
-        <p class="mt-4"><a href="/en/calculator/" class="underline" style="color: var(--color-accent);">See real Roofline chart in calculator →</a></p>
+        <p class="mt-4"><a href={pathname("/en/calculator/")} class="underline" style="color: var(--color-accent);">See real Roofline chart in calculator →</a></p>
 
         <h2 class="text-xl font-semibold mt-12 mb-3">2. Three-tier evidence model</h2>
         <p>Every number carries an evidence tier. We do <strong>not</strong> conflate vendor-claimed with measured:</p>
@@ -44,7 +45,7 @@ import Container from '~/components/ui/Container.astro';
             <p class="text-xs mt-2" style="color: var(--color-text-muted);">Used only for filling key gaps</p>
           </div>
         </div>
-        <p class="mt-4"><a href="/en/quality/" class="underline" style="color: var(--color-accent);">Live distribution at /quality →</a></p>
+        <p class="mt-4"><a href={pathname("/en/quality/")} class="underline" style="color: var(--color-accent);">Live distribution at /quality →</a></p>
 
         <h2 class="text-xl font-semibold mt-12 mb-3">3. Chinese hardware ecosystem</h2>
         <p>Whether a Chinese accelerator can run a given model depends on:</p>
@@ -54,7 +55,7 @@ import Container from '~/components/ui/Container.astro';
           <li><strong>Inference engine</strong>: vendor-official (MindIE) vs community ports (vllm-ascend / vllm-musa / lmdeploy-mlu)</li>
           <li><strong>Quantization</strong>: BF16/FP16 widely supported, INT8 mostly, FP8/FP4 rarely</li>
         </ol>
-        <p class="mt-3">Performance is improving rapidly post-export-control — track via <a href="/en/china/" class="underline" style="color: var(--color-accent);">/china genealogy</a>.</p>
+        <p class="mt-3">Performance is improving rapidly post-export-control — track via <a href={pathname("/en/china/")} class="underline" style="color: var(--color-accent);">/china genealogy</a>.</p>
 
         <h2 class="text-xl font-semibold mt-12 mb-3">4. Disaggregated inference</h2>
         <p>Traditional: same GPU pool runs both prefill (compute-heavy) and decode (memory-bw-heavy), wasting half the resources.</p>
@@ -75,10 +76,10 @@ import Container from '~/components/ui/Container.astro';
 
         <h2 class="text-xl font-semibold mt-12 mb-3">6. How to use this site for selection</h2>
         <ol class="list-decimal pl-6 mt-2 space-y-1 text-sm">
-          <li>Know your target model → check <a href="/en/models/" class="underline" style="color: var(--color-accent);">model details</a></li>
-          <li>Pick candidate cards → use <a href="/en/compare/" class="underline" style="color: var(--color-accent);">compare</a> for radar + Roofline overlay</li>
-          <li>Run <a href="/en/calculator/" class="underline" style="color: var(--color-accent);">calculator</a> → Tier 0 (real cases) + Tier 1 (theoretical ceiling)</li>
-          <li>Check <a href="/en/quality/" class="underline" style="color: var(--color-accent);">/quality</a> for evidence reliability</li>
+          <li>Know your target model → check <a href={pathname("/en/models/")} class="underline" style="color: var(--color-accent);">model details</a></li>
+          <li>Pick candidate cards → use <a href={pathname("/en/compare/")} class="underline" style="color: var(--color-accent);">compare</a> for radar + Roofline overlay</li>
+          <li>Run <a href={pathname("/en/calculator/")} class="underline" style="color: var(--color-accent);">calculator</a> → Tier 0 (real cases) + Tier 1 (theoretical ceiling)</li>
+          <li>Check <a href={pathname("/en/quality/")} class="underline" style="color: var(--color-accent);">/quality</a> for evidence reliability</li>
           <li>Need a substitute? Every hardware page has a "closest substitute" widget (incl. cross-border markers)</li>
         </ol>
 
@@ -88,7 +89,7 @@ import Container from '~/components/ui/Container.astro';
           <li><a href="https://docs.nvidia.com/deeplearning/performance/" class="underline" style="color: var(--color-accent);">NVIDIA Deep Learning Performance Guide</a></li>
           <li><a href="https://arxiv.org/abs/2407.00079" class="underline" style="color: var(--color-accent);">Mooncake (disaggregated inference)</a></li>
           <li><a href="https://arxiv.org/abs/2401.09670" class="underline" style="color: var(--color-accent);">DistServe (disaggregated inference)</a></li>
-          <li><a href="/en/about/" class="underline" style="color: var(--color-accent);">About / data schema</a></li>
+          <li><a href={pathname("/en/about/")} class="underline" style="color: var(--color-accent);">About / data schema</a></li>
         </ul>
       </article>
     </section>

@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -13,7 +14,7 @@ const engines = (await getEngines()).sort((a, b) => a.id.localeCompare(b.id));
       <SectionHeader eyebrow="ENGINES" title="推理引擎目录" subtitle={`${engines.length} 个推理引擎 · 硬件兼容 · 维护方信息`} />
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
         {engines.map((e) => (
-          <a href={`/engines/${e.id}/`} class="block">
+          <a href={pathname(`/engines/${e.id}/`)} class="block">
             <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
                      style="background: var(--color-surface-raised); border-color: var(--color-border);">
               <h3 class="text-base font-semibold">{e.name}</h3>

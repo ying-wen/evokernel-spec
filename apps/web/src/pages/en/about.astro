@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 ---
 <BaseLayout title="About" locale="en">
@@ -45,12 +46,12 @@ import Container from '~/components/ui/Container.astro';
       <h2 class="text-xl font-semibold mt-12 mb-3">Open Data API</h2>
       <p>All data exposed via static JSON endpoints (CC-BY-SA 4.0):</p>
       <ul class="space-y-2 mt-3 list-disc pl-6 text-sm">
-        <li><a href="/api/index.json" class="underline" style="color: var(--color-accent);">/api/index.json</a> — API descriptor + entity counts</li>
-        <li><a href="/api/hardware.json" class="underline" style="color: var(--color-accent);">/api/hardware.json</a> — all hardware (vendor inlined)</li>
-        <li><a href="/api/models.json" class="underline" style="color: var(--color-accent);">/api/models.json</a> — all models</li>
-        <li><a href="/api/cases.json" class="underline" style="color: var(--color-accent);">/api/cases.json</a> — all cases (resolved stack)</li>
-        <li><a href="/api/openapi.json" class="underline" style="color: var(--color-accent);">/api/openapi.json</a> — OpenAPI 3.1 spec</li>
-        <li><a href="/cases.xml" class="underline" style="color: var(--color-accent);">/cases.xml</a> — RSS feed of newest cases</li>
+        <li><a href={pathname("/api/index.json")} class="underline" style="color: var(--color-accent);">/api/index.json</a> — API descriptor + entity counts</li>
+        <li><a href={pathname("/api/hardware.json")} class="underline" style="color: var(--color-accent);">/api/hardware.json</a> — all hardware (vendor inlined)</li>
+        <li><a href={pathname("/api/models.json")} class="underline" style="color: var(--color-accent);">/api/models.json</a> — all models</li>
+        <li><a href={pathname("/api/cases.json")} class="underline" style="color: var(--color-accent);">/api/cases.json</a> — all cases (resolved stack)</li>
+        <li><a href={pathname("/api/openapi.json")} class="underline" style="color: var(--color-accent);">/api/openapi.json</a> — OpenAPI 3.1 spec</li>
+        <li><a href={pathname("/cases.xml")} class="underline" style="color: var(--color-accent);">/cases.xml</a> — RSS feed of newest cases</li>
       </ul>
 
       <h2 class="text-xl font-semibold mt-12 mb-3">Acknowledgements</h2>

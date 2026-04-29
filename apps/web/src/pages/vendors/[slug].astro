@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -21,7 +22,7 @@ const isCN = vendor.country === 'CN';
 <BaseLayout title={vendor.name}>
   <Container>
     <section class="pt-12 pb-6">
-      <a href="/vendors/" class="text-sm" style="color: var(--color-text-muted);">← 厂商目录</a>
+      <a href={pathname("/vendors/")} class="text-sm" style="color: var(--color-text-muted);">← 厂商目录</a>
       <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">
         {vendor.name}
       </h1>
@@ -47,7 +48,7 @@ const isCN = vendor.country === 'CN';
         <h3 class="text-lg font-semibold mb-3">加速卡 ({hardware.length})</h3>
         <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {hardware.map((h) => (
-            <a href={`/hardware/${h.id}/`} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
+            <a href={pathname(`/hardware/${h.id}/`)} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
                style={`border-color: ${isCN ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
               <div class="font-medium">{h.name}</div>
               <dl class="grid grid-cols-3 gap-2 mt-2 text-xs">
@@ -66,7 +67,7 @@ const isCN = vendor.country === 'CN';
         <h3 class="text-lg font-semibold mb-3">服务器与超节点 ({servers.length})</h3>
         <div class="grid sm:grid-cols-2 gap-3">
           {servers.map((s) => (
-            <a href={`/servers/${s.id}/`} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
+            <a href={pathname(`/servers/${s.id}/`)} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
                style="border-color: var(--color-border); background: var(--color-surface-raised);">
               <div class="font-medium">{s.name}</div>
               <div class="text-xs mt-1" style="color: var(--color-text-muted);">{s.type} · {s.card_count} cards · scale-up {s.scale_up_domain_size}</div>
@@ -81,7 +82,7 @@ const isCN = vendor.country === 'CN';
         <h3 class="text-lg font-semibold mb-3">模型 ({models.length})</h3>
         <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {models.map((m) => (
-            <a href={`/models/${m.id}/`} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
+            <a href={pathname(`/models/${m.id}/`)} class="block p-4 rounded border transition-transform hover:-translate-y-0.5"
                style="border-color: var(--color-border); background: var(--color-surface-raised);">
               <div class="font-medium">{m.name}</div>
               <div class="text-xs mt-1" style="color: var(--color-text-muted);">{m.architecture.total_params_b}B {m.architecture.family.toUpperCase()} · {m.release_date}</div>
@@ -99,7 +100,7 @@ const isCN = vendor.country === 'CN';
         <ul class="space-y-2 text-sm">
           {cases.slice(0, 12).map((c) => (
             <li>
-              <a href={`/cases/${c.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <a href={pathname(`/cases/${c.id}/`)} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
                 <div class="font-medium">{c.title}</div>
                 <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
                   {c.stack.hardware.id} ×{c.stack.hardware.count} · {c.stack.model.id} · {c.results.throughput_tokens_per_sec.decode} tok/s

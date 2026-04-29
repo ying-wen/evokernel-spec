@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -28,7 +29,7 @@ const nodes = servers.filter((s) => s.type === 'integrated-server');
                 <h4 class="text-base font-semibold">{s.name}</h4>
                 {s.chinese_names[0] && <div class="text-xs mt-1" style="color: var(--color-china);">{s.chinese_names[0]}</div>}
                 <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
-                  <div><dt style="color: var(--color-text-muted);">卡型</dt><dd><a href={`/hardware/${s.card}/`} class="font-mono underline" style="color: var(--color-accent);">{s.card}</a></dd></div>
+                  <div><dt style="color: var(--color-text-muted);">卡型</dt><dd><a href={pathname(`/hardware/${s.card}/`)} class="font-mono underline" style="color: var(--color-accent);">{s.card}</a></dd></div>
                   <div><dt style="color: var(--color-text-muted);">卡数</dt><dd class="font-mono">{s.card_count}</dd></div>
                   <div><dt style="color: var(--color-text-muted);">Scale-up 域</dt><dd class="font-mono">{s.scale_up_domain_size}</dd></div>
                   <div><dt style="color: var(--color-text-muted);">机柜功耗</dt><dd class="font-mono">{s.rack_power_kw ?? '—'} kW</dd></div>

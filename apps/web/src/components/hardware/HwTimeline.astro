@@ -1,5 +1,6 @@
 ---
 import type { Hardware, Vendor } from '@evokernel/schemas';
+import { pathname } from '~/lib/i18n';
 
 type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Vendor };
 
@@ -50,7 +51,7 @@ const vendorColor = (country: string) => country === 'CN' ? 'var(--color-china)'
     {placed.map((p) => {
       const yPx = `calc(${p.y * 1.8}rem + 0.5rem)`;
       return (
-        <a href={`/hardware/${p.id}/`}
+        <a href={pathname(`/hardware/${p.id}/`)}
            class="absolute group transition-transform hover:scale-105"
            style={`left: ${p.x * 100}%; top: ${yPx}; transform: translateX(-50%);`}>
           <div class="flex items-center gap-1">

@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -48,7 +49,7 @@ const fitnessRows = intensity > 0
 <BaseLayout title={`${op.name} 算子`}>
   <Container width="narrow">
     <section class="pt-12 pb-8">
-      <a href="/operators/" class="text-sm" style="color: var(--color-text-muted);">← 算子目录</a>
+      <a href={pathname("/operators/")} class="text-sm" style="color: var(--color-text-muted);">← 算子目录</a>
       <h1 style="font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem); margin-top: 1rem; font-weight: 600;">{op.name}</h1>
       <div class="flex gap-2 mt-3 flex-wrap">
         <Badge variant="accent">{op.category}</Badge>
@@ -69,7 +70,7 @@ const fitnessRows = intensity > 0
       <section class="pb-12">
         <h3 class="text-lg font-semibold mb-2">硬件适配性 / Hardware fitness for this operator</h3>
         <p class="text-xs mb-4 px-3 py-2 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">
-          基于代表模型 <a href={`/models/${repModel.id}/`} class="underline" style="color: var(--color-accent);">{repModel.name}</a> 的此算子参数 (FLOPs/token = {repDecomp.flops_per_token.toExponential(2)}, Bytes/token = {repDecomp.bytes_per_token.toExponential(2)}, 算术强度 = <strong>{(repDecomp.flops_per_token / repDecomp.bytes_per_token).toFixed(1)} FLOP/byte</strong>)。
+          基于代表模型 <a href={pathname(`/models/${repModel.id}/`)} class="underline" style="color: var(--color-accent);">{repModel.name}</a> 的此算子参数 (FLOPs/token = {repDecomp.flops_per_token.toExponential(2)}, Bytes/token = {repDecomp.bytes_per_token.toExponential(2)}, 算术强度 = <strong>{(repDecomp.flops_per_token / repDecomp.bytes_per_token).toFixed(1)} FLOP/byte</strong>)。
           每行展示该硬件在 BF16 精度下的 ridge point、瓶颈类型、以及该算子可达吞吐 (TFLOP/s)。
         </p>
         <div class="overflow-x-auto rounded-lg border" style="border-color: var(--color-border);">
@@ -90,7 +91,7 @@ const fitnessRows = intensity > 0
                 return (
                   <tr class="border-t" style="border-color: var(--color-border);">
                     <td class="px-3 py-2">
-                      <a href={`/hardware/${r.hw.id}/`} style="color: var(--color-text);" class="font-medium">{r.hw.name}</a>
+                      <a href={pathname(`/hardware/${r.hw.id}/`)} style="color: var(--color-text);" class="font-medium">{r.hw.name}</a>
                       {isCN && <span class="text-xs ml-1" style="color: var(--color-china);">🇨🇳</span>}
                       <div class="text-xs" style="color: var(--color-text-muted);">peak BF16 {r.peakBf16Tflops.toFixed(0)} TF · BW {(r.hw.memory.bandwidth_gbps?.value ?? 0) / 1000} TB/s</div>
                     </td>
@@ -126,7 +127,7 @@ const fitnessRows = intensity > 0
             const decomp = m.operator_decomposition.find((d) => d.operator === op.id)!;
             return (
               <li>
-                <a href={`/models/${m.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <a href={pathname(`/models/${m.id}/`)} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
                   <div class="font-medium">{m.name}</div>
                   <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
                     FLOPs/token: {decomp.flops_per_token.toExponential(2)} · Bytes/token: {decomp.bytes_per_token.toExponential(2)}

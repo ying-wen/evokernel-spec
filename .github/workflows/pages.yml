@@ -1,0 +1,114 @@
+# Build and deploy the static site to GitHub Pages.
+#
+# Triggered by:
+#   - Push to main (auto-deploy of latest tip)
+#   - Manual workflow_dispatch (re-deploy without a new commit)
+#
+# This is a separate workflow from ci.yml so a deploy failure doesn't block
+# the regular CI signal, and so we can deploy even when Lighthouse / E2E are
+# transient-failing in ci.yml. CI gates the merge; pages deploys what landed.
+name: github-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# GitHub Pages requires these specific permissions on the deploy job.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment runs at a time; new pushes cancel in-flight runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Build-meta uses git log for "last verified" timestamps; need full history.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate data
+        run: pnpm validate
+
+      - name: Build (PUBLIC_DEPLOY=github-pages)
+        env:
+          PUBLIC_DEPLOY: github-pages
+        run: pnpm build
+
+      - name: Add a 404 page (Pages SPA fallback compatibility)
+        # Astro already emits 404.html → public 404 served at /evokernel-spec/404.
+        # GitHub Pages serves 404.html when no path matches; this is automatic.
+        run: ls -la apps/web/dist/404.html
+
+      - name: Add .nojekyll (avoid GitHub trying to Jekyll-process the bundle)
+        # Without this, files starting with `_` (like Astro's _astro/) get
+        # filtered out by Jekyll's default behavior. Inserting an empty
+        # .nojekyll disables Jekyll on Pages entirely.
+        run: touch apps/web/dist/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke-check critical routes on the live site
+        # Reuses the same critical-routes.ts list driven by E2E. If a route
+        # 404s on production, this fails the workflow even though the
+        # build+deploy succeeded — fast detection of base-path drift.
+        run: |
+          set -euo pipefail
+          BASE="https://ying-wen.github.io/evokernel-spec"
+          ROUTES=(/ /en/ /hardware/ /models/ /cases/ /calculator/ /pricing/ /china/ /showcase/ /quality/ /contribute/ /api/healthz /api/index.json)
+          fail=0
+          for r in "${ROUTES[@]}"; do
+            url="${BASE}${r}"
+            code=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "$url")
+            if [ "$code" = "200" ]; then
+              echo "  ✓ $r → 200"
+            else
+              echo "  ✗ $r → $code"
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            echo "::error::one or more critical routes failed on $BASE"
+            exit 1
+          fi

@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -18,7 +19,7 @@ function supportingCount(pid: string) {
       <ul class="space-y-3 mt-8">
         {patterns.map((p) => (
           <li>
-            <a href={`/patterns/${p.id}/`} class="block p-5 rounded-lg border transition-transform hover:-translate-y-0.5"
+            <a href={pathname(`/patterns/${p.id}/`)} class="block p-5 rounded-lg border transition-transform hover:-translate-y-0.5"
                style="background: var(--color-surface-raised); border-color: var(--color-border);">
               <div class="flex justify-between items-start gap-3">
                 <h3 class="text-base font-semibold">{p.name}</h3>

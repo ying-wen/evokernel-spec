@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
@@ -22,7 +23,7 @@ const isChina = card ? card.vendor.country === 'CN' : false;
 <BaseLayout title={server.name}>
   <Container>
     <section class="pt-12 pb-6">
-      <a href="/servers/" class="text-sm" style="color: var(--color-text-muted);">← 服务器目录</a>
+      <a href={pathname("/servers/")} class="text-sm" style="color: var(--color-text-muted);">← 服务器目录</a>
       <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); margin-top: 1rem; font-weight: 600;">{server.name}</h1>
       {server.chinese_names[0] && <div class="text-base mt-2" style="color: var(--color-china);">{server.chinese_names[0]}</div>}
       <div class="flex gap-2 mt-3 flex-wrap">
@@ -47,7 +48,7 @@ const isChina = card ? card.vendor.country === 'CN' : false;
       <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
         <SpecRow label="加速卡">
           {card ? (
-            <a href={`/hardware/${card.id}/`} class="underline" style="color: var(--color-accent);">{card.name}</a>
+            <a href={pathname(`/hardware/${card.id}/`)} class="underline" style="color: var(--color-accent);">{card.name}</a>
           ) : server.card}
           × {server.card_count}
         </SpecRow>
@@ -66,7 +67,7 @@ const isChina = card ? card.vendor.country === 'CN' : false;
         <ul class="space-y-2 text-sm">
           {cases.map((c) => (
             <li>
-              <a href={`/cases/${c.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <a href={pathname(`/cases/${c.id}/`)} class="block p-3 rounded border transition-transform hover:translate-x-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
                 <div class="font-medium">{c.title}</div>
                 <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">
                   {c.stack.model.id} · {c.stack.engine.id} · {c.stack.quantization} · decode {c.results.throughput_tokens_per_sec.decode} tok/s

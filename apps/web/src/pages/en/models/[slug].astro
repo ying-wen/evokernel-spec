@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
@@ -101,7 +102,7 @@ const labelMap = { measured: '🟢 measured', claimed: '🟡 claimed', unknown: 
             <tbody>
               {model.operator_decomposition.map((op) => (
                 <tr class="border-t" style="border-color: var(--color-border);">
-                  <td class="px-4 py-2 font-medium"><a href={`/en/operators/${op.operator}/`} class="underline" style="color: var(--color-accent);">{op.operator}</a></td>
+                  <td class="px-4 py-2 font-medium"><a href={pathname(`/en/operators/${op.operator}/`)} class="underline" style="color: var(--color-accent);">{op.operator}</a></td>
                   <td class="px-4 py-2 text-right font-mono">{op.flops_per_token.toExponential(2)}</td>
                   <td class="px-4 py-2 text-right font-mono">{op.bytes_per_token.toExponential(2)}</td>
                 </tr>
@@ -118,7 +119,7 @@ const labelMap = { measured: '🟢 measured', claimed: '🟡 claimed', unknown: 
         {hardware.map((h) => {
           const s = statusOnHw(h.id);
           return (
-            <a href={`/en/hardware/${h.id}/`} class="flex items-center gap-2 p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
+            <a href={pathname(`/en/hardware/${h.id}/`)} class="flex items-center gap-2 p-3 rounded border text-sm transition-transform hover:translate-x-0.5"
                style="border-color: var(--color-border); background: var(--color-surface-raised);">
               <span class="text-xs" style={`color: ${colorMap[s]};`}>{labelMap[s]}</span>
               <span>{h.name}</span>
@@ -130,22 +131,22 @@ const labelMap = { measured: '🟢 measured', claimed: '🟡 claimed', unknown: 
 
     <section class="pb-12">
       <div class="flex flex-wrap gap-3">
-        <a href={`/en/calculator/?model=${model.id}`}
+        <a href={pathname(`/en/calculator/?model=${model.id}`)}
            class="inline-block px-5 py-2 rounded-md font-medium"
            style="background: var(--color-accent); color: white;">
           Open in calculator →
         </a>
-        <a href={`/en/calculator/?model=${model.id}&hw=h100-sxm5`}
+        <a href={pathname(`/en/calculator/?model=${model.id}&hw=h100-sxm5`)}
            class="inline-block px-5 py-2 rounded-md font-medium border"
            style="border-color: var(--color-border); color: var(--color-text);">
           Preset 8× H100
         </a>
-        <a href={`/en/calculator/?model=${model.id}&hw=ascend-910c`}
+        <a href={pathname(`/en/calculator/?model=${model.id}&hw=ascend-910c`)}
            class="inline-block px-5 py-2 rounded-md font-medium border"
            style="border-color: var(--color-china); color: var(--color-china);">
           Preset 8× Ascend 910C
         </a>
-        <a href={`/en/calculator/?model=${model.id}&hw=mi355x&prec=fp4`}
+        <a href={pathname(`/en/calculator/?model=${model.id}&hw=mi355x&prec=fp4`)}
            class="inline-block px-5 py-2 rounded-md font-medium border"
            style="border-color: var(--color-border); color: var(--color-text);">
           Preset 8× MI355X (FP4)

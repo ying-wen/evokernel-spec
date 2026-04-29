@@ -1,5 +1,6 @@
 ---
 import type { Hardware, Vendor } from '@evokernel/schemas';
+import { pathname } from '~/lib/i18n';
 type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Vendor };
 
 interface Props { hw: ResolvedHw; allHardware: ResolvedHw[]; }
@@ -51,7 +52,7 @@ const isCN = hw.vendor.country === 'CN';
       const crossBorder = otherIsCN !== isCN;
       const similarity = Math.max(0, 1 - c.d) * 100;
       return (
-        <a href={`/hardware/${c.h.id}/`} class="block p-3 rounded border transition-transform hover:translate-x-0.5"
+        <a href={pathname(`/hardware/${c.h.id}/`)} class="block p-3 rounded border transition-transform hover:translate-x-0.5"
            style={`border-color: ${otherIsCN ? 'color-mix(in oklch, var(--color-china) 25%, var(--color-border))' : 'var(--color-border)'}; background: var(--color-bg);`}>
           <div class="flex justify-between items-start gap-2 mb-2">
             <div>

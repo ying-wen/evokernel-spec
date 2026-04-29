@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
@@ -19,7 +20,7 @@ const models = (await getModels()).sort((a, b) => b.release_date.localeCompare(a
 
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
         {models.map((m) => (
-          <a href={`/models/${m.id}`} class="block">
+          <a href={pathname(`/models/${m.id}`)} class="block">
             <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
                      style="background: var(--color-surface-raised); border-color: var(--color-border);">
               <div class="text-xs font-medium mb-1" style="color: var(--color-text-muted);">{m.lab}</div>
