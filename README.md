@@ -2,11 +2,15 @@
 
 > AI 推理硬件 × 模型 × 部署的开源知识库 — 国产芯片覆盖最全 / 可信度可引证 / 计算器透明
 
+**🌐 在线访问 / Live site: [yingwen.io/evokernel-spec](https://yingwen.io/evokernel-spec/)** · [📖 /contribute 贡献入口](https://yingwen.io/evokernel-spec/contribute/) · [📊 /pricing TCO 排名](https://yingwen.io/evokernel-spec/pricing/)
+
+[![Live](https://img.shields.io/badge/live-yingwen.io%2Fevokernel--spec-success)](https://yingwen.io/evokernel-spec/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![Tests](https://img.shields.io/badge/tests-167_passing-success)](#)
-[![Pages](https://img.shields.io/badge/pages-254-blue)](#)
+[![Tests](https://img.shields.io/badge/tests-170_passing-success)](#)
+[![Pages](https://img.shields.io/badge/pages-265-blue)](#)
 [![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
+[![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
 [![Release](https://img.shields.io/badge/release-v1.1.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ![Home](docs/screenshots/home.png)
