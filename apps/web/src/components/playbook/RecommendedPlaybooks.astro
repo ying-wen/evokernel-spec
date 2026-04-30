@@ -1,0 +1,65 @@
+---
+/**
+ * Recommended Playbooks widget — surfaces deployment playbooks matching
+ * a given model or hardware. Symmetric: works from either pivot.
+ *
+ * Match function is deterministic (archetype/class equality from inferred
+ * fields), not scored — see ~/lib/playbook-match.ts.
+ */
+import type { Playbook } from '@evokernel/schemas';
+import { pathname } from '~/lib/i18n';
+
+interface Props {
+  playbooks: Playbook[];
+  /** What this is recommending FOR — "model" or "hardware". Used in label. */
+  pivot: 'model' | 'hardware';
+  /** Inferred archetype/class label for the pivot, shown in header. */
+  inferredLabel: string;
+}
+
+const { playbooks, pivot, inferredLabel } = Astro.props as Props;
+
+if (playbooks.length === 0) return null;
+
+const pivotLabel = pivot === 'model' ? '此模型' : '此硬件';
+---
+<section class="my-8 border rounded-lg p-5"
+         style="border-color: var(--color-border); background: color-mix(in oklch, var(--color-accent) 4%, var(--color-bg));">
+  <div class="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+    <h2 class="text-lg font-semibold flex items-center gap-2">
+      <span style="font-size: 1.1rem;">📘</span>
+      推荐部署 Playbook
+      <span class="text-sm font-normal" style="color: var(--color-text-muted);">({playbooks.length})</span>
+    </h2>
+    <div class="text-xs" style="color: var(--color-text-muted);">
+      {pivotLabel}属于 <code class="px-1.5 py-0.5 rounded font-mono"
+        style="background: var(--color-surface); color: var(--color-accent);">{inferredLabel}</code>
+    </div>
+  </div>
+  <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+    匹配 (model_archetype × hardware_class) 的 actionable 部署配方 — TP/EP 配比, 量化, 引擎,
+    kernel stack, 预期吞吐.
+  </p>
+  <ul class="grid sm:grid-cols-2 gap-3">
+    {playbooks.map((pb) => (
+      <li>
+        <a href={pathname(`/playbooks/${pb.id}/`)}
+           class="block h-full p-3 rounded border transition-transform hover:-translate-y-0.5"
+           style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="font-medium text-sm" style="color: var(--color-text);">{pb.name}</div>
+          <div class="text-xs mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5" style="color: var(--color-text-muted);">
+            <span>{pb.recipe.engine_primary}</span>
+            <span>·</span>
+            <span>{pb.recipe.quantization}</span>
+            {pb.recipe.expected_perf.decode_tok_s_per_gpu_min && pb.recipe.expected_perf.decode_tok_s_per_gpu_max && (
+              <>
+                <span>·</span>
+                <span>{pb.recipe.expected_perf.decode_tok_s_per_gpu_min}-{pb.recipe.expected_perf.decode_tok_s_per_gpu_max} tok/s/GPU</span>
+              </>
+            )}
+          </div>
+        </a>
+      </li>
+    ))}
+  </ul>
+</section>

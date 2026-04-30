@@ -17,6 +17,24 @@ architecture:
   process_node_nm: { value: 4, evidence_ref: ev-sohu-arch }
   pcie_gen: { value: 5, evidence_ref: ev-sohu-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-sohu-001 }
+  memory_hierarchy:
+    - name: 'Per-Tile SRAM (transformer-specialized)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-sohu-arch }
+      notes: '144 specialized Tile × 256 KB ≈ 36 MB on-die SRAM. 与通用 GPU 不同, 这些 Tile 只为 transformer attention + MLP 优化, 不通用.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-sohu-arch }
+      notes: '估算 96 MB L2 — 介于 H100 (50 MB) 和 GB200 (100 MB) 之间. 大 L2 是 transformer-only ASIC 关键设计 — KV cache 大块复用.'
+    - name: 'HBM3e'
+      scope: global
+      size_mb: { value: 147456, evidence_ref: ev-sohu-001 }
+      bandwidth_tbs: { value: 5.76, evidence_ref: ev-sohu-001 }
+      notes: '144 GB / 5.76 TB/s — 与 H200 同 HBM3e 配置但更激进容量 (vs H200 141 GB).'
+  on_chip_interconnect:
+    name: 'Transformer-specific NoC (asymmetric)'
+    bandwidth_tbs: { value: 8.0, evidence_ref: ev-sohu-arch }
+    notes: 'Sohu NoC 为 attention 专门优化 — 不像通用 GPU 的全对称 NoC. 144 个 Tile 之间走 transformer-flow-aware mesh, 估算 8 TB/s.'
 memory:
   capacity_gb: { value: 144, evidence_ref: ev-sohu-001 }
   bandwidth_gbps: { value: 5760, evidence_ref: ev-sohu-001 }

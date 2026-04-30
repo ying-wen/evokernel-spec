@@ -1,0 +1,94 @@
+id: moe-llm-large-on-cdna3-cluster
+name: MoE 超大模型在 AMD CDNA-3 集群部署 (DeepSeek V3 / Mixtral 8x22B / Qwen 3.5 on MI300X / MI325X)
+model_archetype: moe-llm-large
+hardware_class: cdna3-cluster
+workload_profile: [high-throughput-batch, agent-multi-turn, cost-optimized]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: MoE 超大模型 (DeepSeek V3 671B, Mixtral 8x22B, Qwen 3.5 397B) 部署到 AMD MI300X /
+  MI325X 集群 (8-128 卡). AMD 的 ROCm 软件栈跟 NVIDIA 差异较大 — 但 vLLM ROCm 路径已成熟,
+  HBM 容量优势在 MoE 上明显 (MI300X 192 GB vs H100 80 GB, 让单卡装更多 active expert).
+
+  **不适合**: NVIDIA-only 工具链团队 (ROCm ramp-up 1-2 个月)、低延迟 SLA < 100ms (MI300X
+  fabric 比 NVL8 慢约 30%)、Blackwell-class FP4 工作负载.
+
+  ## 核心配方与 NVIDIA Hopper 的差异
+
+  1. **TP=8, EP=8-128**: AMD MI300X 8-OAM 节点用 Infinity Fabric 全连接 mesh (不是 NVSwitch),
+     拓扑性能 ~75% NVL8. EP 走 ROCm RCCL.
+  2. **FP8 (OCP) 或 BF16**: MI300X / MI325X 支持 OCP FP8, 但 ecosystem 还不如 NVIDIA NVFP8 成熟.
+     很多生产部署仍用 BF16 + INT8 KV (HBM 192 GB 让 BF16 装得下).
+  3. **vLLM ROCm**: 主栈, 与 CUDA 版差异小. SGLang ROCm 实验性. TensorRT-LLM 不支持 AMD.
+  4. **Triton-MLIR**: AMD 的 Triton 后端走 MLIR + ROCm, 与 NVIDIA Triton 共代码. 自定义
+     kernel 移植成本低 (10-30%).
+  5. **Pattern stack**: 与 Hopper 类似, 但 MTP fused kernel 可用性较低 (主要在 NVIDIA stack).
+
+recipe:
+  parallelism:
+    tp: '8 (intra-node Infinity Fabric mesh)'
+    ep: '8-128 (跨节点 RoCE-400G)'
+    pp: '1'
+    sp: '0-8'
+    notes: 'IF mesh 比 NVSwitch 慢 ~30%, all-reduce 跨节点收益更大 (zero-bubble TP/SP); 但配置复杂'
+    disaggregated: false
+  quantization: fp8-e4m3
+  engine_primary: vllm
+  engine_alternates: [sglang]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-rmsnorm-residual
+  patterns:
+    - flashattention-v3
+    - prefix-radix-cache
+    - kv-cache-int8
+    - moe-expert-routing-on-domestic
+    - paged-attention
+  expected_perf:
+    decode_tok_s_per_gpu_min: 2000
+    decode_tok_s_per_gpu_max: 3800
+    prefill_throughput_min: 22000
+    prefill_throughput_max: 42000
+    ttft_ms_p50_min: 240
+    ttft_ms_p50_max: 480
+    cost_per_million_tokens_usd_min: 0.30
+    cost_per_million_tokens_usd_max: 0.85
+    notes: 'MI300X $/token 比 H100 低 20-40% (HBM 容量优势 — 192 GB 装更多 active session); $/token vs H200 取决于具体工作负载'
+
+decision_points:
+  - scale: '8 GPU MI300X (1 OAM 节点)'
+    guidance: 'TP=8 + EP=8 (单节点全 expert). 192 GB × 8 = 1.5 TB HBM 让 671B BF16 都装下.'
+  - scale: '16-32 GPU MI325X (2-4 nodes)'
+    guidance: 'MI325X HBM3e 升至 256 GB/卡, EP=16/32 跨节点. 比 MI300X 总 HBM +33%.'
+  - scale: '64-128 GPU MI300X cluster'
+    guidance: 'EP=64/128 启用; AMD UALink (planned 2026) 替代当前 RoCE 时跨节点性能将提升.'
+
+not_for:
+  - 'NVIDIA-only 工具链 (TensorRT-LLM, Triton optimization scripts 等都不可移植)'
+  - 'FP4 native (CDNA-3 还没 native FP4; Blackwell-class 改用 nvidia/blackwell-superpod playbook)'
+  - 'Disaggregated prefill/decode (AMD vLLM disagg 路径未成熟; 走单节点 + 高 batch)'
+  - '低延迟严苛 (NVSwitch 拓扑天然比 IF mesh 快 30%)'
+
+related_cases:
+  - case-llama4scout-on-mi300x-vllm-001
+  - case-qwen3-on-mi325x-sglang-001
+  - case-qwen35-397b-on-mi355x-x8-001
+
+affects_stages: [acquire, quantize, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-cdna3-001
+    tier: estimated
+    source_type: vendor-product-page
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi300x.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from AMD MI300X / MI325X / MI355X launch + vLLM ROCm benchmarks + community deploy reports (Lambda, MosaicML).'
+
+disclaimers:
+  - 'AMD ROCm 软件栈成熟度 ~NVIDIA CUDA 的 80% — 大部分主流模型可跑, 长尾模型可能需要适配 PR'
+  - 'HBM 容量优势 (MI300X 192 GB vs H100 80 GB) 是 MoE 部署的真实卖点; dense 70B 部署优势不显著'
+  - 'AMD UALink 计划 2026 替代 RoCE 跨节点; 当前部署的跨节点性能在未来会提升'

@@ -575,6 +575,80 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.12: 4 more playbooks + bidirectional rec widget + 4 more cards (~95%)', () => {
+  test('Playbooks index now shows 9 recipes', async ({ page }) => {
+    await page.goto('/playbooks/');
+    await expect(page.getByText(/Reasoning LLM 在 Hopper|DeepSeek R1/i).first()).toBeVisible();
+    await expect(page.getByText(/多模态 LLM|Llama 4 Scout/i).first()).toBeVisible();
+    await expect(page.getByText(/TPU Pod|Gemini class/i).first()).toBeVisible();
+    await expect(page.getByText(/AMD CDNA-3|MI300X/i).first()).toBeVisible();
+  });
+
+  test('Reasoning playbook detail shows P:D=1:5 disagg + MTP', async ({ page }) => {
+    await page.goto('/playbooks/reasoning-llm-on-hopper-cluster/');
+    await expect(page.getByText(/P:D = 1:5|reasoning|chain-of-thought/i).first()).toBeVisible();
+    await expect(page.getByText(/MTP|spec decode/i).first()).toBeVisible();
+  });
+
+  test('Multi-modal playbook shows mixed-TP for vision encoder', async ({ page }) => {
+    await page.goto('/playbooks/multi-modal-on-hopper-single-node/');
+    await expect(page.getByText(/mixed-TP|vision encoder/i).first()).toBeVisible();
+    await expect(page.getByText(/Llama 4 Scout|Pixtral|Qwen.*VL/i).first()).toBeVisible();
+  });
+
+  test('TPU pod playbook shows JAX/MaxText + GSPMD context', async ({ page }) => {
+    await page.goto('/playbooks/dense-llm-large-on-tpu-pod/');
+    await expect(page.getByText(/JAX|MaxText|GSPMD/i).first()).toBeVisible();
+    await expect(page.getByText(/v5p|Trillium|TPU/i).first()).toBeVisible();
+  });
+
+  test('CDNA-3 cluster playbook shows ROCm + Infinity Fabric mesh', async ({ page }) => {
+    await page.goto('/playbooks/moe-llm-large-on-cdna3-cluster/');
+    await expect(page.getByText(/ROCm|RCCL/i).first()).toBeVisible();
+    await expect(page.getByText(/Infinity Fabric|MI300X/i).first()).toBeVisible();
+  });
+
+  test('Model detail page surfaces playbook recommendation (DeepSeek R1)', async ({ page }) => {
+    await page.goto('/models/deepseek-r1/');
+    await expect(page.getByText(/推荐部署 Playbook/i).first()).toBeVisible();
+    await expect(page.getByText(/reasoning-llm/i).first()).toBeVisible();
+  });
+
+  test('Model detail page surfaces playbook (multi-modal Llama 4)', async ({ page }) => {
+    await page.goto('/models/llama-4-scout/');
+    await expect(page.getByText(/推荐部署 Playbook/i).first()).toBeVisible();
+    await expect(page.getByText(/multi-modal/i).first()).toBeVisible();
+  });
+
+  test('Hardware detail page surfaces playbook recommendation (H100)', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    await expect(page.getByText(/推荐部署 Playbook/i).first()).toBeVisible();
+    await expect(page.getByText(/hopper-single-node|hopper-cluster/i).first()).toBeVisible();
+  });
+
+  test('Hardware detail page surfaces playbook (MI300X CDNA-3)', async ({ page }) => {
+    await page.goto('/hardware/mi300x/');
+    await expect(page.getByText(/推荐部署 Playbook/i).first()).toBeVisible();
+    await expect(page.getByText(/cdna3/i).first()).toBeVisible();
+  });
+
+  test('GB300 NVL72 shows 288 GB HBM3e + NV-HBI', async ({ page }) => {
+    await page.goto('/hardware/gb300-nvl72/');
+    await expect(page.getByText(/288 GB|36 GB/i).first()).toBeVisible();
+    await expect(page.getByText(/NV-HBI|dual-die/i).first()).toBeVisible();
+  });
+
+  test('Etched Sohu shows transformer-only ASIC + 144 specialized Tile', async ({ page }) => {
+    await page.goto('/hardware/sohu/');
+    await expect(page.getByText(/transformer|specialized Tile/i).first()).toBeVisible();
+  });
+
+  test('R200 (Rubin) shows HBM4 + NVLink-6', async ({ page }) => {
+    await page.goto('/hardware/r200-sxm/');
+    await expect(page.getByText(/HBM4|NVLink-6/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.11: deployment playbooks (gap 3) + 3 more cards memory_hierarchy', () => {
   test('Playbooks index lists 5 (model x hardware) recipes', async ({ page }) => {
     await page.goto('/playbooks/');
@@ -780,8 +854,9 @@ test.describe('v1.8: 6 more cards memory_hierarchy + 4 more super-pods cluster i
   test('/quality coverage now shows ≥60% hardware + ≥85% super-pod', async ({ page }) => {
     await page.goto('/quality/');
     await expect(page.getByRole('heading', { name: /Schema 数据填充度.*Schema richness coverage/i }).first()).toBeVisible();
-    // Hardware memory_hierarchy or tensor_core_specs row should now show 60%+
-    await expect(page.locator('text=/6[0-9]% 完成|7[0-9]% 完成|8[0-9]% 完成/').first()).toBeVisible();
+    // Hardware memory_hierarchy or tensor_core_specs row should show ≥60%
+    // (lower-bound assertion; coverage grows over time)
+    await expect(page.locator('text=/[6-9][0-9]% 完成|100% 完成/').first()).toBeVisible();
   });
 
   test('Cerebras WSE-3 wafer-scale architecture (44 GB on-die SRAM)', async ({ page }) => {

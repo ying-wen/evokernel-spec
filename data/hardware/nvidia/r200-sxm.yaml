@@ -21,6 +21,28 @@ architecture:
   process_node_nm: { value: 3, evidence_ref: ev-r200-arch }
   pcie_gen: { value: 6, evidence_ref: ev-r200-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-r200-001 }
+  memory_hierarchy:
+    - name: 'Register File (per SM)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-r200-arch }
+      notes: 'Rubin RF 256 KB/SM × 200 SMs = 50 MB total. RF size 与 Hopper/Blackwell 一致, 主要靠 SMs 多.'
+    - name: 'Shared Memory / L1 (per SM)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-r200-arch }
+      notes: 'Rubin SMEM 估算扩到 256 KB/SM (从 Hopper/Blackwell 228 KB 升级). 200 SMs × 256 KB ≈ 50 MB total scratchpad.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 128, evidence_ref: ev-r200-arch }
+      notes: '128 MB L2 — 比 GB300 (100 MB) +28%. 大 L2 配合 HBM4 大带宽是 Rubin 的内存层级关键设计.'
+    - name: 'HBM4'
+      scope: global
+      size_mb: { value: 294912, evidence_ref: ev-r200-001 }
+      bandwidth_tbs: { value: 13.0, evidence_ref: ev-r200-001 }
+      notes: '288 GB / 13 TB/s — HBM4 首发, 比 GB300 HBM3e (8 TB/s) 带宽 +63%. Rubin 主要差异化在 HBM4 + 更宽 NVLink-6.'
+  on_chip_interconnect:
+    name: 'NV-HBI v2 (Rubin dual-die)'
+    bandwidth_tbs: { value: 15.0, evidence_ref: ev-r200-arch }
+    notes: 'NV-HBI v2 估算 15 TB/s (vs Blackwell 10 TB/s). 配合 NVLink-6 跨 GPU (3.6 TB/s) 让 Rubin scale-up 域到 144 卡.'
 memory:
   capacity_gb: { value: 288, evidence_ref: ev-r200-001 }
   bandwidth_gbps: { value: 13000, evidence_ref: ev-r200-001 }

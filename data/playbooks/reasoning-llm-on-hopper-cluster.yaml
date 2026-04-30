@@ -1,0 +1,92 @@
+id: reasoning-llm-on-hopper-cluster
+name: Reasoning LLM 在 Hopper 集群部署 (DeepSeek R1 / OpenAI o1-class / QwQ)
+model_archetype: reasoning-llm
+hardware_class: hopper-cluster
+workload_profile: [reasoning-tot, low-latency-chat, agent-multi-turn]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: Reasoning LLM (DeepSeek R1 671B-A37B, OpenAI o1-class, Qwen QwQ 32B-72B,
+  GLM-Reasoner) 部署到 8-128 张 H100/H200 集群. 与普通 chat LLM 的关键差异:
+  **decode 是绝对主导** (chain-of-thought 输出 5K-50K token/请求), prefill 占比 < 10%.
+
+  **不适合**: 短输出 chat (走 dense-llm-medium playbook)、工具调用为主的 agent (走
+  agent playbook)、超低成本场景 (reasoning 推理成本天然高).
+
+  ## 核心配方与 chat LLM 的差异
+
+  1. **Disaggregated 必启**: Reasoning 输出长 → decode 时 KV cache 巨大. P:D = 1:5 (而非 chat 的 1:2)
+  2. **MTP / Spec decode 收益最大**: 长输出场景接受率 70-85%, 实测 2.5-3.5× decode 加速
+  3. **KV cache CPU offload**: 多 session 长 reasoning 累积 KV, 单 GPU HBM 装不下 → CPU offload
+  4. **FP8 优先**: BF16 留太多余量, FP8 让单卡装更多 active session
+  5. **prefix-radix-cache**: reasoning prompt 通常包含长 system prompt + few-shot CoT 示例, 命中率 60-80%
+
+recipe:
+  parallelism:
+    tp: '8 (intra-node NVLink-4)'
+    ep: '32-128 (DeepSeek R1 671B 等 MoE reasoning)'
+    pp: '1'
+    sp: '0-8'
+    notes: 'Disagg P:D=1:5 — prefill 24 卡, decode 96 卡 (vs chat 1:2). 长 decode 是 reasoning 唯一性能维度.'
+    disaggregated: true
+  quantization: fp8-e4m3
+  engine_primary: vllm
+  engine_alternates: [sglang, tensorrt-llm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-mtp-head
+    - fused-spec-decode
+    - fused-radix-attention
+  patterns:
+    - flashattention-v3
+    - mtp-multi-token-prediction
+    - prefix-radix-cache
+    - kv-cache-cpu-offload
+    - disaggregated-prefill-decode
+    - kv-cache-int8
+  expected_perf:
+    decode_tok_s_per_gpu_min: 3500
+    decode_tok_s_per_gpu_max: 6500
+    prefill_throughput_min: 25000
+    prefill_throughput_max: 45000
+    ttft_ms_p50_min: 200
+    ttft_ms_p50_max: 400
+    cost_per_million_tokens_usd_min: 1.5
+    cost_per_million_tokens_usd_max: 4.0
+    notes: 'Reasoning $/M token 比 chat 高 3-5x (输出长 5-20x). DeepSeek R1 H100x32 disagg + MTP 实测 4500 tok/s/GPU decode.'
+
+decision_points:
+  - scale: '8 GPU H100 (1 NVL8)'
+    guidance: 'TP=8 + EP=8, no disagg (规模太小 disagg 收益反而变小). 只能跑 < 200B reasoning 模型.'
+  - scale: '32-64 GPU H100 (4-8 nodes)'
+    guidance: 'Disagg P:D=1:3, EP=16/32 + MTP 启用. DeepSeek R1 671B 入门规模.'
+  - scale: '128 GPU H200 (16 nodes)'
+    guidance: 'Disagg P:D=1:5, EP=128 + KV CPU offload. 千 QPS reasoning 服务 production 配置.'
+
+not_for:
+  - 'Chat 短输出 (decode token < 200, disagg overhead 占比过大)'
+  - 'Agent 工具调用 (走 agent-multi-turn playbook + spec decode 调参不同)'
+  - '低成本场景 (reasoning 天然高成本; 选小模型或 spec decode 单卡部署)'
+  - 'Ampere / A100 (MTP fused kernel 主要在 Hopper+; A100 收益小)'
+
+related_cases:
+  - case-dsr1-on-ascend-910b-x16-mindie-001
+  - case-dsv4-flash-h100x8-vllm-fp8-001
+
+affects_stages: [quantize, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-reasoning-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://api-docs.deepseek.com/
+    accessed: '2026-04-30'
+    citation: 'Synthesized from DeepSeek R1 deployment notes + o1 disclosure + community vLLM benchmarks. Reasoning workload 性能数据公开较少.'
+
+disclaimers:
+  - 'Reasoning workload 长尾性强 — 平均 token/请求 5K-50K 差 10x, 实际部署需先做 traffic profiling'
+  - 'MTP 对 reasoning 接受率高于 chat (CoT 模式可预测性强), 但 chain-of-thought 风格变化大时跌'

@@ -1,0 +1,88 @@
+id: multi-modal-on-hopper-single-node
+name: 多模态 LLM 在 Hopper 单节点部署 (Llama 4 Scout / Qwen2-VL / Pixtral / Gemini Flash class)
+model_archetype: multi-modal
+hardware_class: hopper-single-node
+workload_profile: [low-latency-chat, streaming-decode, agent-multi-turn]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 多模态 (vision + text) 模型部署到 8 张 H100/H200 SXM 单节点. Vision encoder
+  (CLIP-style ViT 或 SigLIP) + LLM backbone 的标准两阶段架构. Llama 4 Scout 109B,
+  Qwen 2.5-VL 72B, Pixtral 124B, Gemma 3 27B-MM 都属于此类.
+
+  **不适合**: 纯文本 LLM (overcompute on vision path)、视频 long-context (走 long-context
+  playbook)、超大 multi-modal MoE (走 moe-llm-large playbook + 多节点).
+
+  ## 核心配方与 dense-llm 的差异
+
+  1. **Vision encoder 不 share TP=8**: ViT 部分参数小 (300M-1B), TP=8 反而通信开销 > compute
+     → vision 走 TP=1 或 TP=2, LLM 部分走 TP=8. 引擎需支持 mixed-TP per-module.
+  2. **Image embedding cache**: 同 image 多轮 chat 时 vision encoder 输出可缓存到 HBM, 第二轮命中
+  3. **Prefill 重 vision**: vision token 数远多于 prompt text token (Llama 4 Scout 1 image = 1024 tokens).
+     Prefill compute 80% 在 vision encoder + LLM input projection.
+  4. **Streaming decode**: text 输出走标准 LLM decode path, 与 dense LLM 一致
+
+recipe:
+  parallelism:
+    tp: '8 (LLM backbone) + TP=1-2 (vision encoder) — mixed-module'
+    ep: '0 (假设 dense backbone; MoE 多模态走 moe playbook)'
+    pp: '1'
+    sp: '0'
+    notes: 'Vision encoder TP=1 是关键调优点; vLLM 0.7+ 支持 mixed-TP, 老版本统一 TP=8 会浪费'
+    disaggregated: false
+  quantization: fp8-e4m3
+  engine_primary: vllm
+  engine_alternates: [sglang, tensorrt-llm, lmdeploy]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - flashattention-v3
+    - prefix-caching
+    - paged-attention
+    - continuous-batching
+  expected_perf:
+    decode_tok_s_per_gpu_min: 3500
+    decode_tok_s_per_gpu_max: 6000
+    prefill_throughput_min: 15000
+    prefill_throughput_max: 30000
+    ttft_ms_p50_min: 350
+    ttft_ms_p50_max: 800
+    cost_per_million_tokens_usd_min: 0.4
+    cost_per_million_tokens_usd_max: 1.2
+    notes: 'TTFT 比纯文本高 2-3x (vision encoder 不可省). Prefill 数字按 text-equivalent token; 单 image ≈ 1024 vision token.'
+
+decision_points:
+  - scale: '8 GPU H100 (1 node, < 100B model)'
+    guidance: 'TP=8 LLM + TP=1 vision. Llama 4 Scout 109B 紧但能跑; Qwen2.5-VL 72B 余量大.'
+  - scale: '8 GPU H200 (1 node, < 150B model)'
+    guidance: 'HBM 1.13 TB 让 multi-modal 长 vision context (多张图) 可装.'
+  - scale: '4 GPU H100 (1/2 node)'
+    guidance: 'TP=4 + INT4-AWQ for < 30B 多模态 (Gemma 3 MM, Qwen2-VL 7B). 性价比起步配置.'
+
+not_for:
+  - 'Video / long-context multi-modal (vision token 数 5-50K, 走 long-context playbook)'
+  - 'MoE multi-modal (Llama 4 Maverick MoE, 走 moe-llm-large playbook)'
+  - '纯文本 LLM (本 playbook 配 mixed-TP 浪费; 走 dense-llm-medium)'
+
+related_cases:
+  - case-llama4-scout-h100x8-vllm-bf16-001
+  - case-llama4-mvk-on-trillium-001
+
+affects_stages: [acquire, convert, quantize, compile, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-mm-hopper-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://docs.vllm.ai/en/latest/models/supported_models.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from Llama 4 Scout / Qwen 2.5-VL / Pixtral / Gemma 3 MM launch reports + vLLM multi-modal docs.'
+
+disclaimers:
+  - 'Multi-modal perf 高度依赖 image resolution + image-per-request — token 数据按 1 image = 1024 tokens'
+  - 'Mixed-TP 是 vLLM 0.7+ 特性, 旧版本 (0.6 及更老) 不支持, 退化到 uniform TP=8'

@@ -6,10 +6,12 @@ import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
-import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators, getServers } from '~/lib/data';
+import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators, getServers, getPlaybooks } from '~/lib/data';
 import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
 import Topology from '~/components/hardware/Topology.astro';
 import RecommendedModels from '~/components/hardware/RecommendedModels.astro';
+import RecommendedPlaybooks from '~/components/playbook/RecommendedPlaybooks.astro';
+import { findPlaybooksForHardware, inferHardwareClass } from '~/lib/playbook-match';
 import MemoryHierarchy from '~/components/hardware/MemoryHierarchy.astro';
 import OperatorFitnessMatrix from '~/components/hardware/OperatorFitnessMatrix.astro';
 import SuperPodAtlas from '~/components/hardware/SuperPodAtlas.astro';
@@ -52,6 +54,9 @@ const allHardwareRaw = await getHardware();
 const allModels = await getModels();
 const efficiencyMap = buildEfficiencyMap(allCases, allHardwareRaw, allModels);
 const efficiency = getEfficiency(hw.id, efficiencyMap);
+const allPlaybooks = await getPlaybooks();
+const matchingPlaybooks = findPlaybooksForHardware(hw, allPlaybooks);
+const hardwareClass = inferHardwareClass(hw);
 // Source yaml path (vendored under <vendor-id>/<hw-id>.yaml)
 const sourcePath = `data/hardware/${hw.vendor.id}/${hw.id}.yaml`;
 const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
@@ -231,6 +236,10 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
         cases={allCases}
         locale="zh"
       />
+    </section>
+
+    <section class="pb-4" id="playbooks">
+      <RecommendedPlaybooks playbooks={matchingPlaybooks} pivot="hardware" inferredLabel={hardwareClass} />
     </section>
 
     <section class="pb-8" id="models">

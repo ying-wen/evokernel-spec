@@ -11,6 +11,36 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.12.0] — 2026-05-01
+
+**Playbook discoverability (gap 3 follow-up).** v1.11 introduced the playbook entity but they were isolated at /playbooks/. v1.12 expands to 9 playbooks and **surfaces them from the natural entry points** — every model page and hardware page now shows recommended playbooks for that pivot.
+
+### Added
+
+**4 more deployment playbooks** (5 → 9 total):
+- **reasoning-llm × hopper-cluster**: DeepSeek R1 / o1-class / QwQ. Disagg P:D=1:5 (vs chat 1:2 — long CoT decode), MTP fused kernel, prefix-radix-cache, KV CPU offload. Decode 3500-6500 tok/s/GPU, $1.5-4/M tokens (3-5x chat cost).
+- **multi-modal × hopper-single-node**: Llama 4 Scout / Qwen 2.5-VL / Pixtral / Gemma 3 MM. **Mixed-TP** key innovation — vision encoder TP=1, LLM backbone TP=8. TTFT 350-800ms (2-3x dense due to vision encoder).
+- **dense-llm-large × tpu-pod**: Gemini-class / Gemma 3 / PaLM-derivative on TPU v5p / Trillium. **JAX/MaxText primary**, vLLM fallback (-30%). GSPMD mesh sharding (no separate TP/EP). $0.20-0.55/M tokens at 1024+ chip scale.
+- **moe-llm-large × cdna3-cluster**: DeepSeek V3 / Mixtral / Qwen 3.5 on AMD MI300X / MI325X. ROCm + RCCL, Infinity Fabric mesh (vs NVSwitch — 30% slower fabric, 2x HBM capacity advantage). $0.30-0.85/M tokens.
+
+**Bidirectional playbook recommendation widget** (NEW UX):
+- New `~/lib/playbook-match.ts` — deterministic matcher inferring `ModelArchetype` from model.architecture (family + size + name patterns: reasoning, multi-modal, ssm-mamba) and `HardwareClass` from hardware.generation + form_factor + vendor.
+- `RecommendedPlaybooks.astro` widget surfaced on `/models/<id>/` and `/hardware/<id>/` pages — match function shows direct + soft-expansion fallback (e.g. H100 detail shows both hopper-single-node AND hopper-cluster playbooks).
+- Closes the discoverability gap: users no longer need to know /playbooks/ exists; deployment recipes are surfaced **at the natural decision points**.
+
+**Memory hierarchy on 4 more cards** (31 → 35 deep-filled, **~90% catalog coverage**):
+- **Etched Sohu** (transformer-only ASIC outlier): 144 specialized Tile × 256 KB SRAM ≈ 36 MB, 96 MB L2, **transformer-flow-aware NoC** 8 TB/s. Cannot run non-transformer workloads — domain restriction is the entire bet.
+- **NVIDIA GB300 NVL72**: 168 SMs (vs B200 160), 100 MB L2, **288 GB HBM3e (36 GB stacks)** — +50% capacity vs GB200, same NV-HBI 10 TB/s.
+- **NVIDIA R200 SXM (Vera Rubin)**: 200 SMs, 256 KB SMEM (up from 228 KB), 128 MB L2, **288 GB HBM4 / 13 TB/s** (+63% bandwidth vs HBM3e). NV-HBI v2 15 TB/s, NVLink-6.0 3.6 TB/s/GPU enabling 144-card scale-up domain.
+- **Enflame 云燧 T21**: 80 cluster × 192 KB ≈ 15 MB scratchpad, 24 MB L2, HBM2e 64 GB / 1.6 TB/s. 国产 GPGPU 云端推理路线 (与 Hygon DCU / MetaX C500 同代).
+
+### Stats
+- **200/200** site E2E pass (+12 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 22, operator: 13, fused-kernel: 15, pattern: 15, **playbook: 9** (was 5)
+- Build: 314 pages
+
+---
+
 ## [1.11.0] — 2026-05-01
 
 **Major: deployment optimization chain (gap 3) — Playbook entity introduced.**

@@ -18,6 +18,28 @@ architecture:
   l2_cache_mb: { value: 100, evidence_ref: ev-gb300-arch-001 }
   hbm_stacks: { value: 8, evidence_ref: ev-gb300-arch-001 }
   process_node_nm: { value: 4, evidence_ref: ev-gb300-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File (per SM)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-gb300-arch-001 }
+      notes: 'B300 RF 256 KB/SM × 168 SMs = 42 MB total RF (比 B200 多 5%, SMs 多 8 个).'
+    - name: 'Shared Memory / L1 (per SM)'
+      scope: per-cu
+      size_kb: { value: 228, evidence_ref: ev-gb300-arch-001 }
+      notes: '228 KB/SM × 168 SMs ≈ 38 MB total scratchpad. 与 B200 同 SMEM 设计, 更多 SMs.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 100, evidence_ref: ev-gb300-arch-001 }
+      notes: '100 MB L2 — 与 B200 相同, dual-die 50 MB/die × 2.'
+    - name: 'HBM3e (36 GB stacks)'
+      scope: global
+      size_mb: { value: 294912, evidence_ref: ev-gb300-001 }
+      bandwidth_tbs: { value: 8.0, evidence_ref: ev-gb300-001 }
+      notes: '8 × 36 GB ⇒ 288 GB / 8 TB/s — 比 B200 (192 GB / 8 TB/s) 容量 +50%, 带宽相同. HBM 容量是 B300 vs B200 的核心差异化.'
+  on_chip_interconnect:
+    name: 'NV-HBI (Blackwell dual-die bridge, 2nd gen)'
+    bandwidth_tbs: { value: 10.0, evidence_ref: ev-gb300-arch-001 }
+    notes: 'NV-HBI 同 B200 (10 TB/s); B300 vs B200 主要差异在 HBM 容量 + SM count, 不在 die-to-die fabric.'
 memory:
   capacity_gb: { value: 288, evidence_ref: ev-gb300-001 }
   bandwidth_gbps: { value: 8000, evidence_ref: ev-gb300-001 }

@@ -16,6 +16,24 @@ architecture:
   compute_unit_label: Cluster
   hbm_stacks: { value: 4, evidence_ref: ev-t21-arch-001 }
   process_node_nm: { value: 7, evidence_ref: ev-t21-arch-001 }
+  memory_hierarchy:
+    - name: 'Cluster Local SRAM (per cluster)'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-t21-arch-001 }
+      notes: '80 cluster × 192 KB ≈ 15 MB total scratchpad. T21 GCU 架构每 cluster 独立 SRAM, 与 NVIDIA SM 类似设计.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 24, evidence_ref: ev-t21-arch-001 }
+      notes: '估算 24 MB L2 — 7nm 单 die 设计, 比 NVIDIA A100 (40 MB) 小, 适合云燧的中等规模推理定位.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-t21-001 }
+      bandwidth_tbs: { value: 1.6, evidence_ref: ev-t21-001 }
+      notes: '4 stacks × 16 GB ⇒ 64 GB / 1.6 TB/s. 燧原走云端推理路线 — 功耗 400W 比训练卡 (700-1000W) 友好.'
+  on_chip_interconnect:
+    name: 'GCU on-die NoC'
+    bandwidth_tbs: { value: 0.6, evidence_ref: ev-t21-arch-001 }
+    notes: '单 die NoC 估算 0.6 TB/s. 燧原 GCU3.0 架构, 国产 GPGPU 主流路线之一 (与 Hygon DCU / MetaX C500 同代).'
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-t21-001 }
   bandwidth_gbps: { value: 1600, evidence_ref: ev-t21-001 }

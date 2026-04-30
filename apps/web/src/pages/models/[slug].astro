@@ -5,10 +5,12 @@ import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getModels, getResolvedHardware, getHardware, getCases } from '~/lib/data';
+import { getModels, getResolvedHardware, getHardware, getCases, getPlaybooks } from '~/lib/data';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import { modelLD, breadcrumbLD } from '~/lib/jsonld';
 import RecommendedHardware from '~/components/model/RecommendedHardware.astro';
+import RecommendedPlaybooks from '~/components/playbook/RecommendedPlaybooks.astro';
+import { findPlaybooksForModel, inferModelArchetype } from '~/lib/playbook-match';
 
 export async function getStaticPaths() {
   const models = await getModels();
@@ -27,6 +29,9 @@ const ldCrumbs = breadcrumbLD([
 const hardware = await getResolvedHardware();
 const hardwareRaw = await getHardware();
 const cases = await getCases();
+const allPlaybooks = await getPlaybooks();
+const matchingPlaybooks = findPlaybooksForModel(model, allPlaybooks);
+const modelArchetype = inferModelArchetype(model);
 
 function statusOnHw(hwId: string): 'measured' | 'claimed' | 'unknown' {
   const has = cases.some((c) => c.stack.hardware.id === hwId && c.stack.model.id === model.id);
@@ -116,6 +121,8 @@ const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '�
     {model.operator_decomposition.length > 0 && (
       <RecommendedHardware model={model} hardware={hardwareRaw} cases={cases} locale="zh" />
     )}
+
+    <RecommendedPlaybooks playbooks={matchingPlaybooks} pivot="model" inferredLabel={modelArchetype} />
 
     <section class="pb-8">
       <h3 class="text-lg font-semibold mb-3">兼容硬件</h3>
