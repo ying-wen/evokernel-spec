@@ -179,3 +179,126 @@ export function calculatorDeepLink(
   });
   return `${base}/calculator/?${params.toString()}`;
 }
+
+/* --------------------------------------------------------------------------
+ * Reverse direction: given a hardware card, recommend models that run well.
+ *
+ * Same algorithm and data dependencies as recommendHardwareForModel(), just
+ * iterated over the orthogonal axis. Output rows are keyed by Model rather
+ * than Hardware so consumer UIs can render the inverse leaderboard.
+ * --------------------------------------------------------------------------*/
+
+export interface ReverseRecommendationRow {
+  model: Model;
+  precision: Precision;
+  decodeTokPerSecPerCard: number;
+  feasible: boolean;
+  reason?: string;
+  bottleneck: 'compute' | 'memory' | 'n/a';
+  hasMeasuredCase: boolean;
+  isCalibrated: boolean;
+  measuredDecodeTokPerSecPerCard?: number;
+  costPerMTokens: number;
+  scenario: { hwCount: number; precision: Precision; tp: number };
+}
+
+/**
+ * Score every model against one hardware card. Same Roofline math, calibration
+ * map, and TCO formula as recommendHardwareForModel — just transposed.
+ */
+export function recommendModelsForHardware(input: {
+  hardware: Hardware;
+  models: Model[];
+  cases: Case[];
+  engineId?: string;
+  /** All hardware in the corpus — needed so the calibration map sees the
+   *  full case list. Falls back to [hardware] if omitted. */
+  allHardware?: Hardware[];
+}): ReverseRecommendationRow[] {
+  const { hardware: hw, models, cases, engineId = 'vllm', allHardware } = input;
+  const efficiencyMap = buildEfficiencyMap(cases, allHardware ?? [hw], models);
+
+  const precision = pickPrecision(hw);
+  const tp = Math.min(8, hw.scale_up.world_size);
+  const hwCount = tp;
+  const isCalibrated = getEfficiency(hw.id, efficiencyMap).isCalibrated;
+
+  return models.map((model): ReverseRecommendationRow => {
+    if (model.operator_decomposition.length === 0) {
+      // Can't score without operator FLOPs/bytes — return an explicit row so
+      // the UI can show "no decomposition data, contribute it →"
+      return {
+        model, precision, decodeTokPerSecPerCard: 0, feasible: false,
+        reason: 'no operator_decomposition data for this model',
+        bottleneck: 'n/a', hasMeasuredCase: false, isCalibrated,
+        costPerMTokens: Infinity, scenario: { hwCount, precision, tp }
+      };
+    }
+
+    const result = calculate({
+      calc: {
+        modelId: model.id,
+        hardware: { id: hw.id, count: hwCount },
+        scenario: { prefillSeqLen: 1024, decodeSeqLen: 256, batchSize: 16, concurrency: 64 },
+        precision,
+        parallel: { tp, pp: 1, ep: 1, sp: 1 },
+        engineId,
+        disaggregated: { enabled: false }
+      },
+      hardware: hw, model, cases, efficiencyMap
+    });
+
+    const decodeTokPerSecPerCard = result.tier1Roofline.decodeThroughputUpperBound;
+    const feasible = result.configCheck.feasible;
+    const bottleneck = feasible
+      ? (result.tier1Roofline.isComputeBound ? 'compute' : 'memory')
+      : 'n/a';
+
+    const directCase = cases.find((c) =>
+      c.stack.hardware.id === hw.id && c.stack.model.id === model.id
+    );
+    const hasMeasuredCase = !!directCase;
+    const measuredDecodeTokPerSecPerCard = directCase
+      ? directCase.results.throughput_tokens_per_sec.decode / Math.max(directCase.stack.hardware.count, 1)
+      : undefined;
+
+    const throughputForCost = measuredDecodeTokPerSecPerCard ?? decodeTokPerSecPerCard;
+    const costPerMTokens = feasible ? computeCost(hw, throughputForCost) : Infinity;
+
+    return {
+      model, precision, decodeTokPerSecPerCard, feasible,
+      reason: feasible ? undefined : (result.configCheck.warnings[0] ?? 'configuration infeasible'),
+      bottleneck, hasMeasuredCase, isCalibrated,
+      measuredDecodeTokPerSecPerCard, costPerMTokens,
+      scenario: { hwCount, precision, tp }
+    };
+  });
+}
+
+export function topModelsByThroughput(rows: ReverseRecommendationRow[], n = 5): ReverseRecommendationRow[] {
+  return rows.filter((r) => r.feasible)
+    .sort((a, b) => b.decodeTokPerSecPerCard - a.decodeTokPerSecPerCard).slice(0, n);
+}
+export function topModelsByCost(rows: ReverseRecommendationRow[], n = 5): ReverseRecommendationRow[] {
+  return rows.filter((r) => r.feasible && Number.isFinite(r.costPerMTokens))
+    .sort((a, b) => a.costPerMTokens - b.costPerMTokens).slice(0, n);
+}
+export function modelsVerifiedByMeasuredCase(rows: ReverseRecommendationRow[]): ReverseRecommendationRow[] {
+  return rows.filter((r) => r.hasMeasuredCase)
+    .sort((a, b) => (b.measuredDecodeTokPerSecPerCard ?? 0) - (a.measuredDecodeTokPerSecPerCard ?? 0));
+}
+
+/** Symmetric deep link, but model-keyed. */
+export function calculatorDeepLinkForModel(
+  hwId: string,
+  row: ReverseRecommendationRow,
+  base: string = ''
+): string {
+  const params = new URLSearchParams({
+    model: row.model.id, hw: hwId,
+    hwCount: String(row.scenario.hwCount),
+    prec: row.scenario.precision,
+    tp: String(row.scenario.tp)
+  });
+  return `${base}/calculator/?${params.toString()}`;
+}

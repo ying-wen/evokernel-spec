@@ -5,7 +5,12 @@ import {
   topByThroughput,
   topByCost,
   verifiedByMeasuredCase,
-  calculatorDeepLink
+  calculatorDeepLink,
+  recommendModelsForHardware,
+  topModelsByThroughput,
+  topModelsByCost,
+  modelsVerifiedByMeasuredCase,
+  calculatorDeepLinkForModel
 } from './recommendations';
 
 // Tiny fixtures that exercise the algorithm without pulling the full corpus.
@@ -198,5 +203,112 @@ describe('recommendations', () => {
     expect(url).toContain('hw=fast-card');
     expect(url).toContain('prec=fp4');
     expect(url).toContain('tp=8');
+  });
+});
+
+// ---- Reverse direction (hardware → models) ----
+describe('recommendations: reverse direction', () => {
+  // Two models: tiny + medium
+  const mediumModel: Model = {
+    ...tinyModel,
+    id: 'medium',
+    name: 'Medium Test Model',
+    architecture: { ...tinyModel.architecture, total_params_b: 70, active_params_b: 70 },
+    operator_decomposition: [
+      { operator: 'matmul', flops_per_token: 2.5e11, bytes_per_token: 1.4e11 },
+      { operator: 'attention', flops_per_token: 5e10, bytes_per_token: 3e9 }
+    ]
+  };
+
+  it('produces one row per model', () => {
+    const rows = recommendModelsForHardware({
+      hardware: fastCard,
+      models: [tinyModel, mediumModel],
+      cases: []
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.model.id)).toBe(true);
+  });
+
+  it('feasibility flag tracks model size — tiny fits, medium may not', () => {
+    const rows = recommendModelsForHardware({
+      hardware: fastCard,
+      models: [tinyModel, mediumModel],
+      cases: []
+    });
+    const tinyRow = rows.find((r) => r.model.id === 'tiny');
+    expect(tinyRow?.feasible).toBe(true);
+  });
+
+  it('models without operator_decomposition are flagged with reason', () => {
+    const noDecomp: Model = {
+      ...tinyModel,
+      id: 'no-decomp',
+      operator_decomposition: []
+    };
+    const rows = recommendModelsForHardware({
+      hardware: fastCard,
+      models: [noDecomp],
+      cases: []
+    });
+    expect(rows[0]?.feasible).toBe(false);
+    expect(rows[0]?.reason).toContain('operator_decomposition');
+  });
+
+  it('topModelsByThroughput sorts feasible rows by decode tok/s descending', () => {
+    const rows = recommendModelsForHardware({
+      hardware: fastCard,
+      models: [tinyModel, mediumModel],
+      cases: []
+    });
+    const top = topModelsByThroughput(rows);
+    if (top.length >= 2) {
+      expect(top[0]!.decodeTokPerSecPerCard).toBeGreaterThanOrEqual(top[1]!.decodeTokPerSecPerCard);
+    }
+  });
+
+  it('modelsVerifiedByMeasuredCase only includes models with a real case on this hw', () => {
+    const fakeCase = ({
+      id: 'case-fixture-002', title: 'Tiny on Fast — fixture',
+      submitted_at: '2026-04-01',
+      stack: {
+        hardware: { id: 'fast-card', count: 8 },
+        model: { id: 'tiny' },
+        engine: { id: 'vllm', version: '0.6' },
+        quantization: 'bf16',
+        parallel: { tp: 8, pp: 1, ep: 1, sp: 1 }
+      },
+      scenario: { prefill_seq_len: 1024, decode_seq_len: 256, batch_size: 16, concurrency: 64 },
+      results: {
+        throughput_tokens_per_sec: { prefill: 12000, decode: 8000 },
+        latency_ms: { ttft_p50: 50, ttft_p95: 100, tbt_p50: 12, tbt_p95: 25 }
+      },
+      evidence: [{
+        id: 'ev-fixture-2', tier: 'measured', source_type: 'community-benchmark',
+        url: 'https://example.com', accessed: '2026-04-30', citation: 'fixture'
+      }],
+      disclaimers: []
+    } as unknown) as Case;
+
+    const rows = recommendModelsForHardware({
+      hardware: fastCard,
+      models: [tinyModel, mediumModel],
+      cases: [fakeCase]
+    });
+    const verified = modelsVerifiedByMeasuredCase(rows);
+    expect(verified).toHaveLength(1);
+    expect(verified[0]?.model.id).toBe('tiny');
+  });
+
+  it('calculatorDeepLinkForModel preserves model + hardware + scenario', () => {
+    const rows = recommendModelsForHardware({
+      hardware: fastCard,
+      models: [tinyModel],
+      cases: []
+    });
+    const url = calculatorDeepLinkForModel('fast-card', rows[0]!);
+    expect(url).toContain('model=tiny');
+    expect(url).toContain('hw=fast-card');
+    expect(url).toContain('prec=fp4');
   });
 });
