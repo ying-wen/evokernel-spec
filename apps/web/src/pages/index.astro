@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
-import { getResolvedHardware, getModels, getCases, getVendors } from '~/lib/data';
+import { getResolvedHardware, getModels, getCases, getVendors, getPlaybooks } from '~/lib/data';
 import { pathname } from '~/lib/i18n';
 
 const hardware = await getResolvedHardware();
@@ -9,12 +9,14 @@ const cnHardware = hardware.filter((h) => h.vendor.country === 'CN');
 const models = await getModels();
 const cases = await getCases();
 const vendors = await getVendors();
+const playbooks = await getPlaybooks();
 const latestCases = [...cases].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at)).slice(0, 5);
 
 const entries = [
   { href: '/hardware', title: '硬件目录', desc: `${hardware.length} 张加速卡, 含 ${cnHardware.length} 张国产` },
   { href: '/models', title: '模型目录', desc: `${models.length} 个 frontier 开源模型` },
   { href: '/cases', title: '部署案例', desc: `${cases.length} 条 + 排行榜 + 散点图` },
+  { href: '/playbooks', title: '部署 Playbook', desc: `${playbooks.length} 条 (model × hardware) 配方`, accent: true },
   { href: '/calculator', title: '计算器', desc: 'Tier 0 实测 + Tier 1 校准上界' },
   { href: '/showcase', title: '精选发现', desc: '从数据自动计算的洞察', emphasize: true },
   { href: '/china', title: '国产芯片专题', desc: '热力图 · 谱系 · 生态对照', accent: true }

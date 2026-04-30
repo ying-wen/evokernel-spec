@@ -18,6 +18,28 @@ architecture:
   l2_cache_mb: { value: 100, evidence_ref: ev-gb200-arch-001 }
   hbm_stacks: { value: 8, evidence_ref: ev-gb200-arch-001 }
   process_node_nm: { value: 4, evidence_ref: ev-gb200-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File (per SM)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-gb200-arch-001 }
+      notes: 'Blackwell SM 寄存器文件 256 KB/SM × 160 SMs = 40 MB. 与 Hopper H100 同 RF size.'
+    - name: 'Shared Memory / L1 (per SM)'
+      scope: per-cu
+      size_kb: { value: 228, evidence_ref: ev-gb200-arch-001 }
+      notes: 'Blackwell SMEM 228 KB/SM (与 Hopper 相同). 160 SM × 228 KB ≈ 36 MB total scratchpad.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 100, evidence_ref: ev-gb200-arch-001 }
+      notes: '100 MB L2 — 比 H100 (50 MB) 翻倍, 但 GB200 是 dual-die 设计, 实际 50 MB/die × 2.'
+    - name: 'HBM3e'
+      scope: global
+      size_mb: { value: 196608, evidence_ref: ev-gb200-001 }
+      bandwidth_tbs: { value: 8.0, evidence_ref: ev-gb200-001 }
+      notes: '8 stacks × 24 GB ⇒ 192 GB / 8 TB/s — 比 H200 (141 GB / 4.8 TB/s) HBM 容量+36%, 带宽+67%.'
+  on_chip_interconnect:
+    name: 'NV-HBI (Blackwell dual-die bridge)'
+    bandwidth_tbs: { value: 10.0, evidence_ref: ev-gb200-arch-001 }
+    notes: 'NV-HBI (NVIDIA High-Bandwidth Interconnect) 把两个 B200 die 缝合成单一 GPU. 10 TB/s 让两 die 之间通信几乎免费, 软件视角是单 GPU.'
 memory:
   capacity_gb: { value: 192, evidence_ref: ev-gb200-001 }
   bandwidth_gbps: { value: 8000, evidence_ref: ev-gb200-001 }

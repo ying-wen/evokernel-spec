@@ -1,0 +1,88 @@
+id: dense-llm-small-on-edge-card
+name: Dense 小模型在端侧 / 单卡部署 (Llama 3 8B / Qwen 2.5 7B / Gemma 3 4B / Phi 4)
+model_archetype: dense-llm-small
+hardware_class: edge-single-card
+workload_profile: [low-latency-chat, streaming-decode, cost-optimized]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 1B-13B dense LLM 部署到 RTX 4090 / RTX 5090 / L40s / Jetson Orin / Mac M-series /
+  Intel Arc 等单卡 (不论数据中心 GPU 还是消费级). 端侧 chatbot, 本地 RAG, 边缘 agent.
+
+  **不适合**: 70B+ dense (走 dense-llm-medium playbook)、MoE (单卡装不下 active experts)、
+  latency 不敏感的批量推理 (走 cloud GPU 更便宜).
+
+  ## 核心配方
+
+  1. **TP=1, no parallelism**: 单卡部署, 没有 collective overhead
+  2. **INT4-AWQ 或 GGUF Q4_K_M**: 4-bit 量化是端侧标配, MMLU 跌 1-3 pt 但 13B 在 8GB 显存能跑
+  3. **llama.cpp / vLLM / SGLang / Ollama**: llama.cpp 端侧最强 (CPU + GPU + Apple Silicon),
+     vLLM/SGLang 在数据中心单卡更优, Ollama 是 llama.cpp 的桌面 UX 包装
+  4. **Kernel stack**: FlashAttn-2 (Ampere 兼容), FusedMLP-SiLU. 端侧不一定需要 v3 fancy 路径.
+  5. **Pattern stack**: prefix-caching (chatbot 场景), continuous-batching (本地多并发)
+
+recipe:
+  parallelism:
+    tp: '1 (single card)'
+    ep: '0'
+    pp: '1'
+    sp: '0'
+    notes: '不分布; 单卡是 playbook 的整个意义'
+    disaggregated: false
+  quantization: int4-awq
+  engine_primary: llama-cpp
+  engine_alternates: [vllm, sglang, ollama, lmdeploy]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - prefix-caching
+    - continuous-batching
+    - paged-attention
+  expected_perf:
+    decode_tok_s_per_gpu_min: 35
+    decode_tok_s_per_gpu_max: 180
+    prefill_throughput_min: 800
+    prefill_throughput_max: 5000
+    ttft_ms_p50_min: 60
+    ttft_ms_p50_max: 400
+    cost_per_million_tokens_usd_min: 0.05
+    cost_per_million_tokens_usd_max: 0.30
+    notes: 'Llama 3 8B Q4_K_M on RTX 4090 ~120 tok/s; on M3 Max ~80 tok/s; on Jetson Orin ~35 tok/s'
+
+decision_points:
+  - scale: 'Consumer GPU (RTX 4090 / 5090, 24-32 GB)'
+    guidance: '13B Q4 可以装下 + 4-8K context KV. vLLM / Ollama 是首选 — vLLM 数据中心移植, Ollama 桌面 UX.'
+  - scale: 'Apple Silicon (M3/M4 Pro/Max, unified memory 36-128 GB)'
+    guidance: 'llama.cpp Metal backend; 13B Q4 ~80 tok/s; M-series 优势在能效 (40-100W 比 GPU 300W+ 划算).'
+  - scale: 'Edge / Jetson Orin (8-64 GB unified memory)'
+    guidance: 'Q4 量化 + llama.cpp + power-aware scheduling. Jetson Orin AGX 64 GB 能跑 13B; Nano 8 GB 限 7B.'
+
+not_for:
+  - '70B+ 模型 (单卡装不下 — 改用 dense-llm-medium playbook)'
+  - 'MoE 模型 (active experts 分布需要多卡 EP)'
+  - '生产环境高吞吐 (batch=1 单卡 throughput 远低于 8卡数据中心 GPU per-dollar)'
+  - '严格延迟 SLA (端侧硬件可调度抖动大)'
+
+related_cases:
+  - case-qwen-coder-on-l40s-x4-001
+  - case-gemma4-on-h100-fp8-001
+
+affects_stages: [acquire, convert, quantize, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-dense-edge-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://github.com/ggerganov/llama.cpp
+    accessed: '2026-04-30'
+    citation: 'Synthesized from llama.cpp benchmarks + Ollama performance dashboard + community Reddit reports.'
+
+disclaimers:
+  - '端侧 perf 高度依赖 GPU 显存大小 + memory bandwidth — 同代不同型号 (4080 vs 4090) 差 1.5-2x'
+  - 'Apple Silicon unified memory bandwidth 是 LLM 端侧的 sleeper 优势 — 比同档次 GPU 显存更大但带宽适中'
+  - 'Q4_K_M quality 跌 1-3 pt 在 7B-13B 范围 acceptable; 1B-3B 模型 Q4 跌 5-10 pt, 建议 Q5 or Q6'

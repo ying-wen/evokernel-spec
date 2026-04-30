@@ -1,0 +1,198 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Badge from '~/components/ui/Badge.astro';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import { getPlaybooks, getCases, getPatterns, getFusedKernels, getPipelineStages } from '~/lib/data';
+import { pathname } from '~/lib/i18n';
+import { marked } from 'marked';
+
+export async function getStaticPaths() {
+  const playbooks = await getPlaybooks();
+  return playbooks.map((pb) => ({ params: { slug: pb.id }, props: { pb } }));
+}
+const { pb } = Astro.props;
+
+const [allCases, allPatterns, allKernels, allStages] = await Promise.all([
+  getCases(), getPatterns(), getFusedKernels(), getPipelineStages()
+]);
+
+const relatedCases = allCases.filter((c) => pb.related_cases.includes(c.id));
+const referencedPatterns = allPatterns.filter((p) => pb.recipe.patterns.includes(p.id));
+const referencedKernels = allKernels.filter((k) => pb.recipe.kernels.includes(k.id));
+const affectedStages = allStages.filter((s) => pb.affects_stages.includes(s.id));
+
+const summaryHtml = await marked.parse(pb.summary_md);
+---
+<BaseLayout title={pb.name}>
+  <Container width="wide">
+    <Breadcrumbs items={[
+      { label: 'Playbooks', href: pathname('/playbooks/') },
+      { label: pb.name }
+    ]} />
+
+    <header class="pt-6 pb-6 border-b" style="border-color: var(--color-border);">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        DEPLOYMENT PLAYBOOK
+      </div>
+      <h1 class="text-3xl md:text-4xl font-semibold mb-3" style="line-height: 1.15;">{pb.name}</h1>
+      <div class="flex flex-wrap gap-2 mt-4">
+        <span class="px-2.5 py-1 text-xs rounded font-medium" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">
+          {pb.model_archetype}
+        </span>
+        <span class="px-2.5 py-1 text-xs rounded font-medium" style="background: color-mix(in oklch, var(--color-tier-measured) 12%, transparent); color: var(--color-tier-measured);">
+          {pb.hardware_class}
+        </span>
+        {pb.workload_profile.map((w) => <Badge>{w}</Badge>)}
+        {pb.status !== 'stable' && <Badge>{pb.status}</Badge>}
+      </div>
+    </header>
+
+    <div class="grid lg:grid-cols-[2fr_1fr] gap-10 py-8">
+      <article class="prose-content">
+        <section class="mb-8">
+          <h2 class="text-xl font-semibold mb-3">概述 / Summary</h2>
+          <div class="markdown-body" set:html={summaryHtml} />
+        </section>
+
+        <section class="mb-8">
+          <h2 class="text-xl font-semibold mb-3">配方 / Recipe</h2>
+          <div class="rounded-lg border p-5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <div class="grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
+              <div>
+                <div class="text-xs uppercase mb-1" style="color: var(--color-text-muted);">Quantization</div>
+                <div class="font-mono">{pb.recipe.quantization}</div>
+              </div>
+              <div>
+                <div class="text-xs uppercase mb-1" style="color: var(--color-text-muted);">Engine (primary)</div>
+                <div class="font-mono">{pb.recipe.engine_primary}</div>
+              </div>
+              <div class="col-span-2">
+                <div class="text-xs uppercase mb-1" style="color: var(--color-text-muted);">Parallelism</div>
+                <div class="space-y-1 font-mono text-sm">
+                  <div>TP: {pb.recipe.parallelism.tp}</div>
+                  {pb.recipe.parallelism.ep && <div>EP: {pb.recipe.parallelism.ep}</div>}
+                  {pb.recipe.parallelism.pp && <div>PP: {pb.recipe.parallelism.pp}</div>}
+                  {pb.recipe.parallelism.sp && <div>SP: {pb.recipe.parallelism.sp}</div>}
+                  {pb.recipe.parallelism.disaggregated && <div>Disaggregated: <strong>yes</strong></div>}
+                </div>
+                {pb.recipe.parallelism.notes && (
+                  <div class="text-xs mt-2" style="color: var(--color-text-muted);">{pb.recipe.parallelism.notes}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="mb-8">
+          <h2 class="text-xl font-semibold mb-3">规模决策 / Decision points</h2>
+          <ul class="space-y-3">
+            {pb.decision_points.map((dp) => (
+              <li class="rounded-lg border p-4" style="border-color: var(--color-border);">
+                <div class="font-mono text-sm font-semibold mb-1" style="color: var(--color-accent);">{dp.scale}</div>
+                <div class="text-sm" style="color: var(--color-text);">{dp.guidance}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {pb.not_for.length > 0 && (
+          <section class="mb-8">
+            <h2 class="text-xl font-semibold mb-3">不适用 / Not for</h2>
+            <ul class="text-sm space-y-1.5 list-disc list-inside" style="color: var(--color-text-muted);">
+              {pb.not_for.map((n) => <li>{n}</li>)}
+            </ul>
+          </section>
+        )}
+
+        <section class="mb-8">
+          <h2 class="text-xl font-semibold mb-3">预期性能 / Expected performance</h2>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+            {pb.recipe.expected_perf.decode_tok_s_per_gpu_min && (
+              <div class="rounded p-3" style="background: var(--color-surface-raised);">
+                <div class="text-xs" style="color: var(--color-text-muted);">Decode tok/s/GPU</div>
+                <div class="font-mono font-semibold">{pb.recipe.expected_perf.decode_tok_s_per_gpu_min}-{pb.recipe.expected_perf.decode_tok_s_per_gpu_max}</div>
+              </div>
+            )}
+            {pb.recipe.expected_perf.prefill_throughput_min && (
+              <div class="rounded p-3" style="background: var(--color-surface-raised);">
+                <div class="text-xs" style="color: var(--color-text-muted);">Prefill tok/s</div>
+                <div class="font-mono font-semibold">{pb.recipe.expected_perf.prefill_throughput_min}-{pb.recipe.expected_perf.prefill_throughput_max}</div>
+              </div>
+            )}
+            {pb.recipe.expected_perf.ttft_ms_p50_min && (
+              <div class="rounded p-3" style="background: var(--color-surface-raised);">
+                <div class="text-xs" style="color: var(--color-text-muted);">TTFT P50 (ms)</div>
+                <div class="font-mono font-semibold">{pb.recipe.expected_perf.ttft_ms_p50_min}-{pb.recipe.expected_perf.ttft_ms_p50_max}</div>
+              </div>
+            )}
+            {pb.recipe.expected_perf.cost_per_million_tokens_usd_min && (
+              <div class="rounded p-3" style="background: var(--color-surface-raised);">
+                <div class="text-xs" style="color: var(--color-text-muted);">$/M tokens</div>
+                <div class="font-mono font-semibold">${pb.recipe.expected_perf.cost_per_million_tokens_usd_min}-${pb.recipe.expected_perf.cost_per_million_tokens_usd_max}</div>
+              </div>
+            )}
+          </div>
+          {pb.recipe.expected_perf.notes && (
+            <div class="text-xs mt-3" style="color: var(--color-text-muted);">{pb.recipe.expected_perf.notes}</div>
+          )}
+        </section>
+      </article>
+
+      <aside class="space-y-6">
+        {referencedKernels.length > 0 && (
+          <section class="rounded-lg border p-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <h3 class="text-sm uppercase tracking-wide mb-3" style="color: var(--color-text-muted);">融合 Kernel ({referencedKernels.length})</h3>
+            <ul class="space-y-1.5 text-sm">
+              {referencedKernels.map((k) => (
+                <li><a class="hover:underline" style="color: var(--color-accent);" href={pathname(`/fused-kernels/${k.id}/`)}>⚡ {k.name}</a></li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {referencedPatterns.length > 0 && (
+          <section class="rounded-lg border p-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <h3 class="text-sm uppercase tracking-wide mb-3" style="color: var(--color-text-muted);">优化 Pattern ({referencedPatterns.length})</h3>
+            <ul class="space-y-1.5 text-sm">
+              {referencedPatterns.map((p) => (
+                <li><a class="hover:underline" style="color: var(--color-accent);" href={pathname(`/patterns/${p.id}/`)}>📐 {p.name}</a></li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {relatedCases.length > 0 && (
+          <section class="rounded-lg border p-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <h3 class="text-sm uppercase tracking-wide mb-3" style="color: var(--color-text-muted);">支撑案例 ({relatedCases.length})</h3>
+            <ul class="space-y-1.5 text-sm">
+              {relatedCases.map((c) => (
+                <li><a class="hover:underline" style="color: var(--color-accent);" href={pathname(`/cases/${c.id}/`)}>🔬 {c.title}</a></li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {affectedStages.length > 0 && (
+          <section class="rounded-lg border p-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <h3 class="text-sm uppercase tracking-wide mb-3" style="color: var(--color-text-muted);">影响阶段</h3>
+            <ul class="space-y-1.5 text-sm">
+              {affectedStages.map((s) => (
+                <li><a class="hover:underline" style="color: var(--color-accent);" href={pathname(`/pipeline/${s.id}/`)}>{s.order}. {s.name_zh}</a></li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {pb.disclaimers.length > 0 && (
+          <section class="rounded-lg border p-4 text-xs" style="border-color: var(--color-border); color: var(--color-text-muted);">
+            <h3 class="uppercase tracking-wide mb-2">Disclaimers</h3>
+            <ul class="space-y-1 list-disc list-inside">
+              {pb.disclaimers.map((d) => <li>{d}</li>)}
+            </ul>
+          </section>
+        )}
+      </aside>
+    </div>
+  </Container>
+</BaseLayout>

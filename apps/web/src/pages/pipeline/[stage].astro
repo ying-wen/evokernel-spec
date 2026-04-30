@@ -4,7 +4,7 @@ import Container from '~/components/ui/Container.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { pathname } from '~/lib/i18n';
-import { getPipelineStages, getPatterns, getOperators, getEngines } from '~/lib/data';
+import { getPipelineStages, getPatterns, getOperators, getEngines, getPlaybooks } from '~/lib/data';
 import { marked } from 'marked';
 
 export async function getStaticPaths() {
@@ -13,14 +13,16 @@ export async function getStaticPaths() {
 }
 const { s } = Astro.props;
 
-const [allStages, allPatterns, allOperators, allEngines] = await Promise.all([
-  getPipelineStages(), getPatterns(), getOperators(), getEngines()
+const [allStages, allPatterns, allOperators, allEngines, allPlaybooks] = await Promise.all([
+  getPipelineStages(), getPatterns(), getOperators(), getEngines(), getPlaybooks()
 ]);
 const desc = await marked.parse(s.description_md);
 
 const relatedPatterns = allPatterns.filter((p) => s.related_patterns.includes(p.id));
 const relatedOperators = allOperators.filter((o) => s.related_operators.includes(o.id));
 const primaryEngines = allEngines.filter((e) => s.primary_engines.includes(e.id));
+// Playbooks that affect this stage — surface them so the deployment chain is navigable
+const relatedPlaybooks = allPlaybooks.filter((pb) => pb.affects_stages.includes(s.id));
 
 const prevStage = allStages.find((x) => x.order === s.order - 1);
 const nextStage = allStages.find((x) => x.order === s.order + 1);
@@ -136,6 +138,26 @@ const downstreamStages = allStages.filter((x) => s.invalidates_downstream.includ
     )}
 
     <!-- Related patterns -->
+    {relatedPlaybooks.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-3">📘 部署 Playbook ({relatedPlaybooks.length})</h3>
+        <p class="text-xs mb-3" style="color: var(--color-text-muted);">在此阶段做出关键决策的 (model × hardware) 组合 playbook — 直接给配方而非散点知识.</p>
+        <div class="grid sm:grid-cols-2 gap-2">
+          {relatedPlaybooks.map((pb) => (
+            <a href={pathname(`/playbooks/${pb.id}/`)} class="block rounded p-3 text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{pb.name}</div>
+              <div class="text-xs mt-1 flex gap-2 flex-wrap" style="color: var(--color-text-muted);">
+                <span>{pb.model_archetype}</span>
+                <span>·</span>
+                <span>{pb.hardware_class}</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
     {relatedPatterns.length > 0 && (
       <section class="pb-10">
         <h3 class="text-xl font-semibold mb-3">⚡ 应用 pattern ({relatedPatterns.length})</h3>

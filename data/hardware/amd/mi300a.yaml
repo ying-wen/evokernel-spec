@@ -21,6 +21,32 @@ architecture:
   transistor_count_b: { value: 146, evidence_ref: ev-mi300a-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-mi300a-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-mi300a-001 }
+  memory_hierarchy:
+    - name: 'LDS (per CU)'
+      scope: per-cu
+      size_kb: { value: 64, evidence_ref: ev-mi300a-arch-001 }
+      notes: 'CDNA-3 LDS (Local Data Share) 64 KB/CU — 与 MI300X 同设计. 228 CU × 64 KB ≈ 14 MB total.'
+    - name: 'L1 Cache'
+      scope: per-cu
+      size_kb: { value: 32, evidence_ref: ev-mi300a-arch-001 }
+      notes: 'Per-CU L1 32 KB.'
+    - name: 'L2 Cache (per XCD)'
+      scope: global
+      size_mb: { value: 32, evidence_ref: ev-mi300a-arch-001 }
+      notes: 'CDNA-3 chiplet 设计 — 6× XCD die × 32 MB L2 = 192 MB total L2 (估算).'
+    - name: 'Infinity Cache'
+      scope: global
+      size_mb: { value: 256, evidence_ref: ev-mi300a-arch-001 }
+      notes: '256 MB Infinity Cache — 与 MI300X 同, 唯一 GPU/APU 类配 256 MB on-package SRAM.'
+    - name: 'Unified HBM3 (CPU+GPU 共享)'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-mi300a-001 }
+      bandwidth_tbs: { value: 5.3, evidence_ref: ev-mi300a-001 }
+      notes: 'APU 关键差异: 128 GB HBM3 被 24x Zen-4 CPU + 228 CDNA-3 GPU **统一寻址** — 没有 PCIe transfer 开销. El Capitan 超算的核心.'
+  on_chip_interconnect:
+    name: 'Infinity Fabric (chiplet bridge)'
+    bandwidth_tbs: { value: 17.0, evidence_ref: ev-mi300a-arch-001 }
+    notes: 'CDNA-3 chiplet 设计 6 XCD + 4 IOD die 通过 on-package Infinity Fabric 互联, 总带宽估算 17 TB/s. APU 统一内存的核心 enabler.'
 memory:
   capacity_gb: { value: 128, evidence_ref: ev-mi300a-001 }
   bandwidth_gbps: { value: 5300, evidence_ref: ev-mi300a-001 }

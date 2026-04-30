@@ -1,0 +1,89 @@
+id: moe-llm-large-on-ascend-cluster
+name: MoE 超大模型在昇腾集群部署 (CloudMatrix 384 / Atlas 900 + 910C/910D)
+model_archetype: moe-llm-large
+hardware_class: ascend-cluster
+workload_profile: [high-throughput-batch, agent-multi-turn, cost-optimized]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 400B+ MoE 模型 (DeepSeek V3, Qwen 3.5, Kimi K2, GLM 5.1) 在国产昇腾 910C / 910D
+  集群部署. 政策、合规、成本、自主可控四重驱动 — 不是 NVIDIA 替代, 是独立技术栈.
+
+  **不适合**: 模型未做 NPU 适配 (大部分海外开源 MoE 都需要 vllm-ascend / MindIE 适配 PR)、
+  追求 NVIDIA 同 perf 数 (期望 60-80% NVIDIA H100 perf 是合理目标).
+
+  ## 核心配方
+
+  1. **TP=8, EP=32-128**: 节点内 HCCS-v2/v3 (类似 NVLink), 跨节点 RoCE v2 200G
+  2. **FP16 + INT8 KV cache**: 910C 还没 native FP8; 910D 开始 FP8. INT8 KV 是关键省 HBM.
+  3. **MindIE 2.0 + CANN 9.0** (官方栈) 或 **vLLM-Ascend fork** (社区栈). MindIE 优势在国央企信任.
+  4. **Kernel stack**: AscendC FlashAttn (类似 v3), FusedMLP-SiLU, FusedMoE (CANN 内置)
+  5. **Pattern stack**: kv-cache-int8 (HBM 紧 — 910C 64 GB), continuous-batching, prefix-caching
+
+recipe:
+  parallelism:
+    tp: '8 (intra-node HCCS-v2; 910C scale-up 域)'
+    ep: '32-128 (跨节点 RoCE; 等于 active_experts × shard)'
+    pp: '1-2 (910C HBM 64 GB 紧时 PP 减 activation memory)'
+    sp: '0-4'
+    notes: 'TP=8 是 910C 节点配置; 跨节点必须 RoCE — 不要尝试跨节点 TP'
+    disaggregated: false
+  quantization: int8
+  engine_primary: mindie
+  engine_alternates: [vllm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-rmsnorm-residual
+  patterns:
+    - kv-cache-int8
+    - continuous-batching
+    - prefix-caching
+    - moe-expert-routing-on-domestic
+    - paged-attention
+  expected_perf:
+    decode_tok_s_per_gpu_min: 1500
+    decode_tok_s_per_gpu_max: 2800
+    prefill_throughput_min: 18000
+    prefill_throughput_max: 32000
+    ttft_ms_p50_min: 220
+    ttft_ms_p50_max: 450
+    cost_per_million_tokens_usd_min: 0.30
+    cost_per_million_tokens_usd_max: 0.80
+    notes: '910C 期望 H100 60-70% perf, 910D 上探到 70-85%. CloudMatrix 384 (384× 910C) 可以匹配 NVL72 ~80% 总吞吐'
+
+decision_points:
+  - scale: '8 GPU 910C (1 节点 Atlas 800T A2)'
+    guidance: 'TP=8 + EP=8, 单节点 baseline. 671B 模型紧, 推荐 < 400B MoE.'
+  - scale: '256 GPU CloudMatrix (Atlas 900 SuperPoD A2 × N)'
+    guidance: '8-cabinet 256 卡, TP=8 + EP=32, 跨 cabinet HCCS-v2. DeepSeek V3 部署起步规模.'
+  - scale: '384 GPU CloudMatrix 384 (super-pod)'
+    guidance: '完整 super-pod, scale-up 域 384 卡, TP × EP 全部内部走 HCCS — 与 NVL72 概念一致. 国产推理旗舰配置.'
+
+not_for:
+  - '海外模型未适配 NPU (需要先做 vllm-ascend PR 或者 MindIE conversion)'
+  - 'Blackwell-class FP4 工作负载 (910C 还没 FP4; 等 950)'
+  - '低延迟要求 (HCCS-v2 vs NVLink-5 fabric 延迟约 1.5-2x)'
+  - '研究/实验性工作 (MindIE 软件栈成熟度低于 vLLM, debug 工具链弱)'
+
+related_cases:
+  - case-dsr1-on-ascend-910b-x16-mindie-001
+  - case-dsv4-pro-on-cloudmatrix-384-mindie-001
+
+affects_stages: [acquire, convert, quantize, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-moe-ascend-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://e.huawei.com/cn/products/computing/ascend
+    accessed: '2026-04-30'
+    citation: 'Synthesized from Huawei Atlas 900 / CloudMatrix 384 deployment reports + DeepSeek V3 NPU port. 国产替代场景估算.'
+
+disclaimers:
+  - '910C 性能基线 ~H100 60-70%; 910D 上调至 70-85%; Ascend 950 (2026 Q4 GA) 计划匹配 H200'
+  - '海外开源模型移植到 NPU 需要工程团队投入 — 不是开箱即用'
+  - '软件栈成熟度 vLLM > vllm-ascend > MindIE (但 MindIE 在国央企合规优势)'

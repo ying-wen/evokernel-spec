@@ -16,6 +16,24 @@ architecture:
   compute_unit_count: { value: 16, evidence_ref: ev-m4-001 }
   compute_unit_label: NeuralEngine
   process_node_nm: { value: 3, evidence_ref: ev-m4-001 }
+  memory_hierarchy:
+    - name: 'ANE Local Cache (per core)'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-m4-001 }
+      notes: 'Per-Neural-Engine 核心 ~128 KB 私有 SRAM (估算). 16 核 × 128 KB ≈ 2 MB total ANE-local cache.'
+    - name: 'System Level Cache (SLC)'
+      scope: global
+      size_mb: { value: 32, evidence_ref: ev-m4-001 }
+      notes: 'M4 Max SoC SLC ~32 MB — 与 CPU/GPU/ANE 共享, Apple SoC 关键设计.'
+    - name: 'LPDDR5X (unified, CPU+GPU+ANE 共享)'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-m4-001 }
+      bandwidth_tbs: { value: 0.546, evidence_ref: ev-m4-001 }
+      notes: '128 GB unified memory — UMA 架构让 CPU/GPU/ANE 共用同一物理内存, 无 PCIe transfer. M4 Max LLM 推理的 sleeper 优势 (端侧大模型可装下).'
+  on_chip_interconnect:
+    name: 'AMX/SLC/ANE fabric (unified)'
+    bandwidth_tbs: { value: 0.55, evidence_ref: ev-m4-001 }
+    notes: 'Apple Silicon UMA 让 ANE 直接读 unified memory — 没有独立 GPU 那种 HBM/PCIe 不对称设计. 对推理影响: KV cache 可以用全部 unified memory.'
 memory:
   capacity_gb: { value: 128, evidence_ref: ev-m4-001 }
   bandwidth_gbps: { value: 546, evidence_ref: ev-m4-001 }

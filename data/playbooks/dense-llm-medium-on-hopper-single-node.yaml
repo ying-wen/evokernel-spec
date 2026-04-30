@@ -1,0 +1,89 @@
+id: dense-llm-medium-on-hopper-single-node
+name: Dense 70B/72B 模型在 Hopper 单节点部署 (Llama 3.3 70B / Qwen 2.5 72B / Mixtral 8x22B)
+model_archetype: dense-llm-medium
+hardware_class: hopper-single-node
+workload_profile: [low-latency-chat, streaming-decode, cost-optimized]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 30B-90B dense LLM 单节点 (8 张 H100/H200 SXM) 部署. 这是企业 chatbot 最常见的
+  规模 — 模型大到需要 8 卡 TP, 但还不到非 disagg 不可的程度.
+
+  **不适合**: 7B-13B 端侧 (走 dense-llm-small playbook)、MoE (走 moe-llm-large playbook)、
+  千亿级 (走 moe-llm-large 或 disaggregated playbook).
+
+  ## 核心配方
+
+  1. **TP=8, no PP/EP**: 节点内 NVLink-4 / NVSwitch Gen-3 全连接, dense 模型用满 TP 即可
+  2. **FP8-E4M3 quant**: H100 native, decode 1.8x BF16; H200 因为 HBM 大可以选 BF16 留余地
+  3. **vLLM**: 70B dense 是 vLLM 最优场景, 集成 stack 最成熟; SGLang 在 multi-turn chat 略优
+  4. **Kernel stack**: FlashAttn-3, FusedMLP-SiLU, FusedRMSNorm-Residual
+  5. **Pattern stack**: prefix-radix-cache (chat 场景), kv-cache-int8 (HBM 紧时)
+
+recipe:
+  parallelism:
+    tp: '8 (NVL8 node 标准)'
+    ep: '0 (dense, no expert parallel)'
+    pp: '1'
+    sp: '0 (除非 long context)'
+    notes: 'TP=8 在 NVLink-4 上几乎免费; 不要拆 TP < 8 (浪费节点)'
+    disaggregated: false
+  quantization: fp8-e4m3
+  engine_primary: vllm
+  engine_alternates: [sglang, tensorrt-llm, lmdeploy]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - flashattention-v3
+    - prefix-radix-cache
+    - paged-attention
+    - continuous-batching
+    - kv-cache-int8
+  expected_perf:
+    decode_tok_s_per_gpu_min: 4500
+    decode_tok_s_per_gpu_max: 8500
+    prefill_throughput_min: 35000
+    prefill_throughput_max: 65000
+    ttft_ms_p50_min: 80
+    ttft_ms_p50_max: 200
+    cost_per_million_tokens_usd_min: 0.15
+    cost_per_million_tokens_usd_max: 0.40
+    notes: 'Llama 3.3 70B FP8 on H100x8 ~5500 tok/s; H200x8 ~7000 tok/s; H200 优势主要来自 HBM 容量 + 带宽'
+
+decision_points:
+  - scale: '8 GPU H100 SXM5 (1 node)'
+    guidance: 'TP=8 FP8 是 baseline. Llama 3.3 70B / Qwen 2.5 72B 都能装下 + 留 KV cache 余量.'
+  - scale: '8 GPU H200 SXM5 (1 node)'
+    guidance: '同 TP=8, 但 HBM 141 GB × 8 让 BF16 + 长 KV 都装得下 — 选 BF16 避免 FP8 calibration.'
+  - scale: '4 GPU (half node)'
+    guidance: 'TP=4 + INT4-AWQ 或 FP8 — 单卡需要 80 GB HBM3+; 不推荐, 浪费节点资源.'
+
+not_for:
+  - 'MoE 模型 (DeepSeek V3 / Mixtral / Qwen 3 — 需要 EP)'
+  - '低延迟超严 (TTFT P99 < 80ms 用 disaggregated + spec decode)'
+  - 'A100 / Ampere (FP8 emulation 收益跌一半; 改用 BF16 + INT8 KV)'
+  - '> 100B dense (从未见过 dense-only 100B+; 100B 都是 MoE)'
+
+related_cases:
+  - case-llama33-on-a100x8-vllm-001
+  - case-qwen3-on-mi325x-sglang-001
+  - case-glm51-on-h200x8-vllm-bf16-001
+
+affects_stages: [quantize, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-dense-hopper-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://docs.vllm.ai/en/latest/serving/distributed_serving.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from vLLM benchmark + Llama 3.3 / Qwen 2.5 / Mistral launch reports.'
+
+disclaimers:
+  - 'Recipe applies to ~30B-90B dense range; outside this MoE or single-card playbooks fit better'
+  - 'Expected perf ranges assume mixed prefill/decode workload, ±30% variance per concrete deploy'

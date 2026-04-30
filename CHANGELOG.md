@@ -11,6 +11,42 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.11.0] — 2026-05-01
+
+**Major: deployment optimization chain (gap 3) — Playbook entity introduced.**
+
+After v1.7-v1.10 closed gaps 1 (hardware/cluster ~80%/100%) and 2 (operators/fusion: 13 ops + 15 patterns + 15 fused-kernels), gap 3 (deployment optimization chain) was the remaining frontier — pipeline pages existed but per-(model × hardware) recipe layer was missing. v1.11 introduces **Deployment Playbooks** as that bridge.
+
+### Added
+
+**Playbook entity (NEW)** — actionable per-(model_archetype × hardware_class × workload_profile) recipes:
+- Schema: `schemas/playbook.ts` with parametric recipe (TP/EP/PP/SP, quant, engine, kernels, patterns, expected perf range, decision points across deploy scale, "not for" exclusions)
+- Sits between **cases** (point-measurements) and **patterns** (cross-cutting signals) — answers "I have model X, hardware Y, what now?"
+- 5 playbooks shipped:
+  - **moe-llm-large × hopper-cluster**: DeepSeek V3 / Llama 4 Maverick / Qwen 3.5 on H100/H200 cluster (TP=8, EP=32-128, FP8, vLLM/SGLang, 2500-4500 tok/s/GPU)
+  - **dense-llm-medium × hopper-single-node**: Llama 3.3 70B / Qwen 2.5 72B on 8x H100/H200 (TP=8, FP8 or BF16, 4500-8500 tok/s/GPU)
+  - **moe-llm-large × blackwell-superpod**: NVL72 GB200 / NVL36 GB300 (TP=8, EP=72, FP4 native, disagg P:D=1:2)
+  - **moe-llm-large × ascend-cluster**: 国产 Atlas 900 / CloudMatrix 384 + 910C/910D (TP=8, EP=32-128, INT8, MindIE 2.0)
+  - **dense-llm-small × edge-single-card**: Llama 3 8B / Qwen 2.5 7B / Phi 4 on RTX 4090 / M3 Max / Jetson (INT4-AWQ, llama.cpp, 35-180 tok/s)
+
+**UI for Playbooks**:
+- `/playbooks/` index — 5 cards grouped by archetype + hardware-class with expected perf chips
+- `/playbooks/[slug]/` detail — full recipe + decision points + cross-references to cases / patterns / fused-kernels / pipeline-stages
+- **Pipeline stage pages** now cross-link to playbooks affecting that stage — makes the deployment chain navigable as a knowledge graph
+- **Home page** surfaces Playbook entry as primary navigation card
+
+**Memory hierarchy on 3 more cards** (28 → 31 → 34 deep-filled, **~87% coverage**):
+- **AMD MI300A APU**: 64 KB LDS × 228 CU = 14 MB scratchpad, 192 MB L2 (6-XCD chiplet), **256 MB Infinity Cache**, 128 GB **unified HBM3** shared with Zen-4 CPU. Used in El Capitan exascale.
+- **NVIDIA GB200 NVL72**: 256 KB RF + 228 KB SMEM × 160 SMs, 100 MB L2, 192 GB HBM3e / 8 TB/s, **NV-HBI dual-die bridge 10 TB/s** (Blackwell's defining feature)
+- **Apple M4 Max ANE**: ~128 KB local cache × 16 NE cores, 32 MB SLC (shared SoC-wide), 128 GB **UMA LPDDR5X** — sleeper LLM platform (no GPU/HBM separation, unified address space)
+
+### Stats
+- **188/188** site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 22, operator: 13, fused-kernel: 15, pattern: 15, **playbook: 5** (new)
+- Build: 310 pages
+
+---
+
 ## [1.10.0] — 2026-05-01
 
 Operator-level depth push (gap 2). Added 4 foundational operators + 3 fused-kernels covering MTP / SWA / RadixAttention. Hardware coverage now 80%.

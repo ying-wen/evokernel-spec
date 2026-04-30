@@ -1,0 +1,128 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getPlaybooks } from '~/lib/data';
+import { pathname } from '~/lib/i18n';
+import type { HardwareClass, ModelArchetype } from '@evokernel/schemas';
+
+const playbooks = (await getPlaybooks()).sort((a, b) => a.name.localeCompare(b.name));
+
+const archLabel: Record<ModelArchetype, string> = {
+  'dense-llm-small': 'Dense 小模型 (1-13B)',
+  'dense-llm-medium': 'Dense 中等 (30-90B)',
+  'dense-llm-large': 'Dense 超大 (100B+)',
+  'moe-llm-medium': 'MoE 中等',
+  'moe-llm-large': 'MoE 超大',
+  'reasoning-llm': 'Reasoning LLM',
+  'multi-modal': '多模态',
+  'long-context': '长 context',
+  'diffusion': 'Diffusion',
+  'ssm-mamba': 'SSM / Mamba',
+  'speculative-target': 'Spec 目标模型'
+};
+
+const hwLabel: Record<HardwareClass, string> = {
+  'blackwell-cluster': 'Blackwell 集群',
+  'blackwell-superpod': 'Blackwell Super-Pod',
+  'hopper-single-node': 'Hopper 单节点',
+  'hopper-cluster': 'Hopper 集群',
+  'ampere-single-node': 'Ampere 单节点',
+  'ada-single-node': 'Ada 单节点',
+  'cdna3-single-node': 'AMD CDNA-3 单节点',
+  'cdna3-cluster': 'AMD CDNA-3 集群',
+  'ascend-cluster': '昇腾集群',
+  'cambricon-cluster': '寒武纪集群',
+  'gaudi-cluster': 'Gaudi 集群',
+  'tpu-pod': 'TPU Pod',
+  'trainium-instance': 'Trainium Instance',
+  'edge-single-card': '端侧 / 单卡',
+  'wafer-scale': '晶圆级 (Cerebras)',
+  'on-die-sram-only': '纯 on-die SRAM (Groq)'
+};
+---
+<BaseLayout title="部署 Playbook / Deployment Playbooks">
+  <Container width="wide">
+    <section class="pt-16 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        PLAYBOOKS
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        部署 Playbook · 任意模型 → 任意硬件
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        每个 playbook 把 <strong style="color: var(--color-accent);">模型类型 × 硬件类</strong> 映射到 actionable recipe：
+        TP/EP/PP 配比、量化路径、引擎选择、kernel stack、pattern stack、预期吞吐 / 成本范围。
+        从 <a href={pathname('/cases/')} class="underline" style="color: var(--color-accent);">实测案例</a> 沉淀,
+        通过 <a href={pathname('/patterns/')} class="underline" style="color: var(--color-accent);">优化模式</a> 引用。
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div>
+          <span style="color: var(--color-text-muted);">Playbooks: </span>
+          <strong>{playbooks.length}</strong>
+        </div>
+        <div>
+          <span style="color: var(--color-text-muted);">覆盖模型类: </span>
+          <strong>{new Set(playbooks.map((p) => p.model_archetype)).size}</strong>
+        </div>
+        <div>
+          <span style="color: var(--color-text-muted);">覆盖硬件类: </span>
+          <strong>{new Set(playbooks.map((p) => p.hardware_class)).size}</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-4 border-t" style="border-color: var(--color-border);">
+      <ul class="grid md:grid-cols-2 gap-4 mt-4">
+        {playbooks.map((pb) => (
+          <li>
+            <a href={pathname(`/playbooks/${pb.id}/`)} class="block h-full p-5 rounded-lg border transition-transform hover:-translate-y-0.5"
+               style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex justify-between items-start gap-3 mb-2">
+                <h3 class="text-base font-semibold flex-1" style="color: var(--color-text);">{pb.name}</h3>
+                {pb.status !== 'stable' && <Badge>{pb.status}</Badge>}
+              </div>
+              <div class="flex gap-2 flex-wrap mb-3 text-xs">
+                <span class="px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">
+                  {archLabel[pb.model_archetype]}
+                </span>
+                <span class="px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-tier-measured) 12%, transparent); color: var(--color-tier-measured);">
+                  {hwLabel[pb.hardware_class]}
+                </span>
+              </div>
+              <div class="text-xs grid grid-cols-2 gap-x-4 gap-y-1" style="color: var(--color-text-muted);">
+                <div><span style="color: var(--color-text);">Quant:</span> {pb.recipe.quantization}</div>
+                <div><span style="color: var(--color-text);">Engine:</span> {pb.recipe.engine_primary}</div>
+                <div><span style="color: var(--color-text);">Kernels:</span> {pb.recipe.kernels.length}</div>
+                <div><span style="color: var(--color-text);">Patterns:</span> {pb.recipe.patterns.length}</div>
+                {pb.recipe.expected_perf.decode_tok_s_per_gpu_min && pb.recipe.expected_perf.decode_tok_s_per_gpu_max && (
+                  <div class="col-span-2"><span style="color: var(--color-text);">Decode:</span> {pb.recipe.expected_perf.decode_tok_s_per_gpu_min}-{pb.recipe.expected_perf.decode_tok_s_per_gpu_max} tok/s/GPU</div>
+                )}
+              </div>
+              <div class="mt-3 flex gap-1 flex-wrap">
+                {pb.workload_profile.slice(0, 3).map((w) => <Badge>{w}</Badge>)}
+              </div>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">缺一个 (model × hardware) 组合的 playbook?</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          PR 增加 <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">data/playbooks/&lt;slug&gt;.yaml</code> 即可。
+          每个 playbook 必须 reference ≥1 case (实测) + ≥1 pattern (机制).
+          schema 见 <a href="https://github.com/ying-wen/evokernel-spec/blob/main/schemas/playbook.ts" target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">schemas/playbook.ts</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/contribute/')} class="text-sm px-4 py-2 rounded-md font-medium"
+             style="background: var(--color-accent); color: white;">
+            ⚡ 提交 playbook →
+          </a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

@@ -1,0 +1,90 @@
+id: moe-llm-large-on-hopper-cluster
+name: MoE 超大模型在 Hopper 集群部署 (DeepSeek V3 / Llama 4 Maverick / Qwen 3.5)
+model_archetype: moe-llm-large
+hardware_class: hopper-cluster
+workload_profile: [high-throughput-batch, agent-multi-turn, long-context-rag]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 400B+ 总参数 MoE 模型 (DeepSeek V3 671B-A37B, Llama 4 Maverick 400B-A17B,
+  Qwen 3.5 397B-A40B), 部署到 8-128 张 H100/H200 SXM 集群, 优先吞吐而非超低延迟.
+
+  **不适合**: 端侧/单卡 (走 dense-llm-small playbook)、超低延迟首字节 (TTFT P50 < 100ms 走
+  disaggregated playbook)、训练 (走训练专门 stack).
+
+  ## 核心配方
+
+  1. **TP=8, EP=32-128**: 节点内 NVLink-4 走 TP, 跨节点 IB/RoCE 走 EP. EP 数等于 active expert 数 × shard
+  2. **FP8-E4M3 quant**: H100 native FP8 path, decode 2x BF16, 质量损失 ~0.5pt MMLU
+  3. **vLLM 0.6+ or SGLang 0.4+**: 两者都支持 MTP / FP8 / RadixAttention
+  4. **Kernel stack**: FlashAttn-3, FusedMLP-SiLU, FusedMoE-DeepEP, FusedMTP-Head (V3+)
+  5. **Pattern stack**: prefix-radix-cache (chat 场景), MTP (DeepSeek V3+), kv-cache-int8 (HBM 紧)
+
+recipe:
+  parallelism:
+    tp: '8 (intra-node NVLink-4 mandatory)'
+    ep: '32-128 (跨节点 IB/RoCE; 等于 active_experts × shard)'
+    pp: '1 (避免 pipeline bubble; MoE 已通过 EP 分布)'
+    sp: '0-8 (long-context 启用 SP 减 activation memory)'
+    notes: 'TP > 8 性能崩 (NVLink 域只到 8); EP 是主 scale-out 维度'
+    disaggregated: false
+  quantization: fp8-e4m3
+  engine_primary: vllm
+  engine_alternates: [sglang, tensorrt-llm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-rmsnorm-residual
+    - fused-mtp-head
+    - fused-radix-attention
+  patterns:
+    - flashattention-v3
+    - prefix-radix-cache
+    - mtp-multi-token-prediction
+    - kv-cache-int8
+    - moe-expert-routing-on-domestic
+  expected_perf:
+    decode_tok_s_per_gpu_min: 2500
+    decode_tok_s_per_gpu_max: 4500
+    prefill_throughput_min: 28000
+    prefill_throughput_max: 50000
+    ttft_ms_p50_min: 180
+    ttft_ms_p50_max: 350
+    cost_per_million_tokens_usd_min: 0.4
+    cost_per_million_tokens_usd_max: 1.2
+    notes: 'H100 SXM5 8-card baseline ~3000 tok/s; H200 ~3800 tok/s; 跨 64 卡 EP scale-out 后 per-GPU 略降'
+
+decision_points:
+  - scale: '8 GPU (single NVL8 node)'
+    guidance: 'TP=8, EP=8 (每张卡跑全部 active experts). 适合 671B 模型 BF16 装不下、需要 FP8 的最小配置.'
+  - scale: '16-32 GPU (2-4 nodes)'
+    guidance: 'TP=8 + EP=16/32, 跨节点 IB-NDR 200G. 16 节点是 DeepSeek V3 推荐入门规模.'
+  - scale: '64-128 GPU (8-16 nodes)'
+    guidance: 'TP=8 + EP=64/128. 此规模考虑 disaggregated prefill/decode (P:D = 1:3 典型) 提升吞吐 1.5-2x.'
+
+not_for:
+  - '端侧 / 单卡部署 (改用 dense-llm-small playbook)'
+  - '低延迟首字节 SLO < 100ms (改用 disaggregated playbook + spec decode)'
+  - '训练 / fine-tuning (本 playbook 仅推理)'
+  - 'Ampere/A100 (FP8 走 emulation 收益大跌; 改用 BF16 + INT8 KV)'
+
+related_cases:
+  - case-dsv4-flash-h100x8-vllm-fp8-001
+  - case-llama4-scout-h100x8-vllm-bf16-001
+
+affects_stages: [quantize, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-moe-hopper-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://github.com/vllm-project/vllm
+    accessed: '2026-04-30'
+    citation: 'Synthesized from DeepSeek V3 / Llama 4 / Qwen 3.5 launch reports + vLLM benchmark dashboard. Numbers indicative; specific deploys may differ ±30%.'
+
+disclaimers:
+  - 'Recipe parameters are class-level guidance — concrete tuning for specific model + workload may vary ±30%'
+  - 'Expected perf assumes typical 50% prefill / 50% decode mix; pure prefill or pure decode shifts numbers'

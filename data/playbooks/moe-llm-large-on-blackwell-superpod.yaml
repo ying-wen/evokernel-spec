@@ -1,0 +1,90 @@
+id: moe-llm-large-on-blackwell-superpod
+name: MoE 超大模型在 Blackwell 超节点部署 (NVL72 GB200 / NVL36 GB300)
+model_archetype: moe-llm-large
+hardware_class: blackwell-superpod
+workload_profile: [high-throughput-batch, low-latency-chat, agent-multi-turn]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 400B+ MoE 模型部署到 GB200 NVL72 / GB300 NVL36 superpod. 与 Hopper cluster
+  的关键差异: NVLink-5 全互联到 72/36 卡, scale-up 域 9-10x 大于 NVL8, 让 TP × EP 配置
+  跨整个 super-pod 走 NVLink, **跨节点通信延迟降一个数量级**.
+
+  **不适合**: < 70 卡部署 (super-pod 浪费, 走 hopper-cluster playbook)、训练 (本 playbook 只推理).
+
+  ## 核心配方
+
+  1. **TP=8, EP=72 (NVL72) or EP=36 (NVL36)**: 整个 super-pod 走 NVLink-5
+  2. **FP4 (NVFP4) quant**: Blackwell native FP4 path, decode 2.5x BF16, HBM 占用降 4x
+  3. **vLLM 0.7+ or TensorRT-LLM**: 两者都已支持 FP4 + Blackwell. SGLang 跟进中.
+  4. **Disaggregated prefill/decode**: NVL72 启用 disagg 收益最大 — prefill 用 24 卡 NVL24, decode 用 48 卡 NVL48
+  5. **Kernel stack**: FlashAttn-3, FusedMLP-SiLU, FusedMoE-DeepEP, FusedMTP-Head, FP4 GEMM
+
+recipe:
+  parallelism:
+    tp: '8 (intra-NVL8 within super-pod)'
+    ep: '72 (NVL72) or 36 (NVL36) — 整个 super-pod 一个 EP 域'
+    pp: '1'
+    sp: '0-8'
+    notes: 'NVL72 让 TP × EP 全部走 NVLink-5 (1.8 TB/s/GPU); 跨 super-pod 才走 IB'
+    disaggregated: true
+  quantization: fp4
+  engine_primary: vllm
+  engine_alternates: [tensorrt-llm, sglang]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-mtp-head
+    - fused-radix-attention
+    - fused-allreduce-residual
+  patterns:
+    - flashattention-v3
+    - fp4-weight-only-quant
+    - mtp-multi-token-prediction
+    - prefix-radix-cache
+    - disaggregated-prefill-decode
+  expected_perf:
+    decode_tok_s_per_gpu_min: 4500
+    decode_tok_s_per_gpu_max: 7500
+    prefill_throughput_min: 50000
+    prefill_throughput_max: 90000
+    ttft_ms_p50_min: 60
+    ttft_ms_p50_max: 150
+    cost_per_million_tokens_usd_min: 0.25
+    cost_per_million_tokens_usd_max: 0.70
+    notes: 'GB200 NVL72 在 DeepSeek V3 上实测 5200 tok/s/GPU FP4; 全 disagg 模式 TTFT P50 80ms'
+
+decision_points:
+  - scale: 'NVL36 (36-card GB300)'
+    guidance: 'TP=8 + EP=36, 单一 super-pod. 适合 405B MoE FP4 (~100 GB), 不上 disagg 即可吞吐高.'
+  - scale: 'NVL72 (72-card GB200)'
+    guidance: 'TP=8 + EP=72, 启用 disagg (P:D = 1:2). 671B MoE 推荐配置.'
+  - scale: '2x NVL72 (144 卡)'
+    guidance: '跨 super-pod 走 IB-NDR; 此规模考虑 multi-tenant 多模型分时.'
+
+not_for:
+  - 'Hopper / 早期硬件 (FP4 走 emulation 收益大跌)'
+  - '< 70 卡部署 (super-pod 投资浪费, 改用 hopper-cluster playbook)'
+  - 'Dense 模型 < 100B (NVL72 用满浪费; 建议租用而非自购)'
+  - '训练 (本 playbook 仅推理, 训练 stack 完全不同)'
+
+related_cases:
+  - case-dsv4-pro-on-cloudmatrix-384-mindie-001
+
+affects_stages: [quantize, compile, shard, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-moe-blackwell-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
+    accessed: '2026-04-30'
+    citation: 'Synthesized from GB200/GB300 launch + early customer benchmarks (NVIDIA, CoreWeave, Lambda).'
+
+disclaimers:
+  - 'Status: experimental — Blackwell + FP4 path is < 1 year mature; numbers will tighten as production deploys mature'
+  - 'Status assumes 2025-2026 software stack; expect 30-50% perf gain over next 12 months as kernels mature'
+  - 'NVL72 1-of-N: only NVIDIA reference design. AMD MI355X / Huawei Atlas 900 等他厂超节点架构不同, 走另外 playbook'

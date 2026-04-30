@@ -575,6 +575,77 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.11: deployment playbooks (gap 3) + 3 more cards memory_hierarchy', () => {
+  test('Playbooks index lists 5 (model x hardware) recipes', async ({ page }) => {
+    await page.goto('/playbooks/');
+    await expect(page.getByRole('heading', { name: /部署 Playbook|任意模型/i }).first()).toBeVisible();
+    // 5 playbook cards rendered
+    await expect(page.getByText(/MoE 超大模型在 Hopper 集群/i).first()).toBeVisible();
+    await expect(page.getByText(/Dense 70B\/72B|Hopper 单节点/i).first()).toBeVisible();
+    await expect(page.getByText(/Blackwell 超节点|NVL72 GB200/i).first()).toBeVisible();
+    await expect(page.getByText(/昇腾集群|CloudMatrix 384/i).first()).toBeVisible();
+    await expect(page.getByText(/端侧.*单卡|Llama 3 8B/i).first()).toBeVisible();
+  });
+
+  test('MoE Hopper-cluster playbook detail shows full recipe', async ({ page }) => {
+    await page.goto('/playbooks/moe-llm-large-on-hopper-cluster/');
+    await expect(page.getByText(/TP=8/).first()).toBeVisible();
+    await expect(page.getByText(/EP=32-128/).first()).toBeVisible();
+    await expect(page.getByText(/FP8-E4M3|fp8-e4m3/i).first()).toBeVisible();
+    await expect(page.getByText(/Decision points|规模决策/i).first()).toBeVisible();
+    // Cross-references rendered
+    await expect(page.getByText(/融合 Kernel|fused-kernel/i).first()).toBeVisible();
+    await expect(page.getByText(/优化 Pattern|pattern/i).first()).toBeVisible();
+  });
+
+  test('Blackwell super-pod playbook shows FP4 + NVL72', async ({ page }) => {
+    await page.goto('/playbooks/moe-llm-large-on-blackwell-superpod/');
+    await expect(page.getByText(/FP4|fp4/i).first()).toBeVisible();
+    await expect(page.getByText(/NVL72|NVL36/i).first()).toBeVisible();
+    await expect(page.getByText(/disagg|Disagg/i).first()).toBeVisible();
+  });
+
+  test('Ascend cluster playbook shows MindIE + 国产替代 context', async ({ page }) => {
+    await page.goto('/playbooks/moe-llm-large-on-ascend-cluster/');
+    await expect(page.getByText(/MindIE|CANN/i).first()).toBeVisible();
+    await expect(page.getByText(/国产|CloudMatrix|HCCS-v2/i).first()).toBeVisible();
+  });
+
+  test('Edge single-card playbook shows llama.cpp + 端侧 quant', async ({ page }) => {
+    await page.goto('/playbooks/dense-llm-small-on-edge-card/');
+    await expect(page.getByText(/llama.cpp|llama-cpp/i).first()).toBeVisible();
+    await expect(page.getByText(/INT4-AWQ|Q4_K_M|端侧/i).first()).toBeVisible();
+  });
+
+  test('Pipeline stage page now cross-links to relevant playbooks', async ({ page }) => {
+    await page.goto('/pipeline/quantize/');
+    await expect(page.getByText(/部署 Playbook/i).first()).toBeVisible();
+  });
+
+  test('Home page lists Playbook as a navigation entry', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText(/部署 Playbook|model × hardware/i).first()).toBeVisible();
+  });
+
+  test('MI300A APU shows unified HBM3 + 256 MB Infinity Cache', async ({ page }) => {
+    await page.goto('/hardware/mi300a/');
+    await expect(page.getByText(/Unified HBM3|统一寻址/i).first()).toBeVisible();
+    await expect(page.getByText(/Infinity Cache|256 MB/i).first()).toBeVisible();
+  });
+
+  test('GB200 NVL72 shows NV-HBI dual-die bridge', async ({ page }) => {
+    await page.goto('/hardware/gb200-nvl72/');
+    await expect(page.getByText(/NV-HBI/i).first()).toBeVisible();
+    await expect(page.getByText(/dual-die|两个 B200|HBM3e/i).first()).toBeVisible();
+  });
+
+  test('Apple M4 Max ANE shows UMA + 128 GB unified', async ({ page }) => {
+    await page.goto('/hardware/apple-m4-max-npu/');
+    await expect(page.getByText(/UMA|unified memory|统一/i).first()).toBeVisible();
+    await expect(page.getByText(/LPDDR5X|128 GB/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.10: 4 new operators + 3 new fused-kernels + 3 more cards (80%)', () => {
   test('Operators hub now lists 13 operators incl. new ones', async ({ page }) => {
     await page.goto('/operators/');
