@@ -575,6 +575,31 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.5: model → recommended hardware (3 leaderboards)', () => {
+  test('zh /models/<slug> shows 3 recommendation leaderboards with deep links', async ({ page }) => {
+    await page.goto('/models/llama-4-scout/');
+    await expect(page.getByRole('heading', { name: /推荐硬件.*Recommended hardware/i }).first()).toBeVisible();
+    await expect(page.getByText(/最高 decode 吞吐/).first()).toBeVisible();
+    await expect(page.getByText(/最低 \$\/M tokens/).first()).toBeVisible();
+    await expect(page.getByText(/实测案例验证/).first()).toBeVisible();
+    await expect(page.locator('text=/tok\\/s\\/card/').first()).toBeVisible();
+    // Calculator deep link present (with model preset)
+    await expect(page.locator('a[href*="/calculator/?model=llama-4-scout"]').first()).toBeVisible();
+  });
+
+  test('en /en/models/<slug> shows English headings', async ({ page }) => {
+    await page.goto('/en/models/llama-4-scout/');
+    await expect(page.getByText(/Highest decode throughput/i).first()).toBeVisible();
+    await expect(page.getByText(/Lowest \$\/M tokens/i).first()).toBeVisible();
+    await expect(page.getByText(/Verified by measured cases/i).first()).toBeVisible();
+  });
+
+  test('recommendations methodology footnote present', async ({ page }) => {
+    await page.goto('/models/llama-4-scout/');
+    await expect(page.locator('text=/方法论.*Roofline.*calibrated/').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.4: more fused kernels + 3 cards memory hierarchy + switch fabric SVG', () => {
   test('/fused-kernels/ catalog now shows 8 entries', async ({ page }) => {
     await page.goto('/fused-kernels/');

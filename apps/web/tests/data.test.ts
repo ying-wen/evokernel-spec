@@ -30,8 +30,9 @@ describe('data layer', () => {
     expect((await getCases()).length).toBeGreaterThanOrEqual(20);
   });
 
-  it('loads 3 patterns', async () => {
-    expect((await getPatterns()).length).toBe(3);
+  it('loads at least 3 patterns', async () => {
+    // Lower-bound assertion — corpus grows with each release.
+    expect((await getPatterns()).length).toBeGreaterThanOrEqual(3);
   });
 
   it('resolves hardware vendor refs', async () => {

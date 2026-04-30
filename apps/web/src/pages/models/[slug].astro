@@ -5,9 +5,10 @@ import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getModels, getResolvedHardware, getCases } from '~/lib/data';
+import { getModels, getResolvedHardware, getHardware, getCases } from '~/lib/data';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import { modelLD, breadcrumbLD } from '~/lib/jsonld';
+import RecommendedHardware from '~/components/model/RecommendedHardware.astro';
 
 export async function getStaticPaths() {
   const models = await getModels();
@@ -24,6 +25,7 @@ const ldCrumbs = breadcrumbLD([
   { name: model.name, url: canonicalUrl }
 ]);
 const hardware = await getResolvedHardware();
+const hardwareRaw = await getHardware();
 const cases = await getCases();
 
 function statusOnHw(hwId: string): 'measured' | 'claimed' | 'unknown' {
@@ -109,6 +111,10 @@ const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '�
           </table>
         </div>
       </section>
+    )}
+
+    {model.operator_decomposition.length > 0 && (
+      <RecommendedHardware model={model} hardware={hardwareRaw} cases={cases} locale="zh" />
     )}
 
     <section class="pb-8">
