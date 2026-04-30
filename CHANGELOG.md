@@ -7,18 +7,102 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 ## [Unreleased]
 
 ### Added
-- `CHANGELOG.md` (this file) — curated release notes companion to the auto-generated GitHub Release notes.
-- `tsc --noEmit` step in CI's type-check job (catches issues `astro check` doesn't).
-
-### Changed
-- (none yet)
-
-### Fixed
-- (none yet)
+- (none yet — next iteration TBD with user confirmation)
 
 ---
 
-## [1.1.0] — 2026-04-28 (planned)
+## [1.5.1] — 2026-04-30
+
+### Fixed
+- **🔥 P0 base-path bug on GitHub Pages deploy** — clicking a hardware card on the live site (`https://yingwen.io/evokernel-spec/hardware/`) navigated to `/hardware/<id>/` (404) instead of `/evokernel-spec/hardware/<id>/`. Same class affected 4 more spots:
+  - `HardwareGrid.tsx` (React island) — `detailHref` hardcoded paths now go through `pathname()`
+  - `CompareTool.tsx` — table-view hardware links wrapped in `pathname()`
+  - `Leaderboard.tsx` — case-detail links wrapped in `pathname()`
+  - `Search.tsx` — Pagefind script bootstrap reads `import.meta.env.BASE_URL` (was silently failing because `.catch()` swallowed the rejection)
+  - `Nav.astro` (locale switcher) — used same strip-base/swap-locale/re-prepend-base pattern as BaseLayout's hreflang alternates (was producing `/en/evokernel-spec/...` instead of `/evokernel-spec/en/...`)
+
+### Added
+- `apps/web/e2e/manual/basepath-island.spec.ts` — 5-test regression probe simulating GitHub Pages locally with python http.server. Run via `pnpm test:e2e:basepath`. `playwright.config.ts` excludes `e2e/manual/*` from regular runs (testIgnore).
+
+### Why this didn't get caught earlier
+Local `pnpm dev` and `pnpm preview` both use the default base `"/"`, so `pathname()` is a no-op and all 5 broken paths returned correct strings. Only GitHub Pages production exercises the prefix branch. The new manual probe closes this gap.
+
+---
+
+## [1.5.0] — 2026-04-30
+
+### Added
+- **🎯 Model → Recommended Hardware** widget on every `/models/<slug>/` page (zh + en):
+  - Three leaderboards: 🚀 highest decode throughput · 💰 lowest $/M tokens · ✅ verified by measured cases
+  - Each row deep-links to `/calculator/?model=...&hw=...&prec=...&tp=...` for further tuning
+  - Algorithm reuses Roofline math + calibration map + TCO formula — same data as `/calculator` and `/pricing`
+- `apps/web/src/lib/recommendations.ts` — pure orchestration helpers
+  - `recommendHardwareForModel({ model, hardware, cases })` → `RecommendationRow[]`
+  - `topByThroughput`, `topByCost`, `verifiedByMeasuredCase` rankers
+  - `calculatorDeepLink(modelId, row)` query-string builder
+- `apps/web/src/lib/recommendations.test.ts` — 6 fixture-based unit tests
+- (Infra) `recommendModelsForHardware()` reverse helper added but not yet wired (planned for next iteration)
+
+### Why
+The user-facing question every visitor lands with is "I want to deploy X, what hardware should I pick?" This converges 5 axes built across v1.1–v1.4 (operators × fusions × pipeline × hardware-internal × cluster-internal) into a direct, ranked answer with no calculator-input ceremony.
+
+### Stats
+- 137/137 site E2E pass (+3 new) · 36/36 web unit pass (+6 new in recommendations.test.ts; +1 fix to brittle pattern-count assertion) · 287 pages built
+
+---
+
+## [1.4.0] — 2026-04-30
+
+### Added
+- **4 more fused kernels** (catalog 4 → 8):
+  - Fused RMSNorm + Residual Add (vLLM `fused_add_rms_norm`)
+  - Mooncake KV Disaggregation (Moonshot/Kimi production architecture, applies at `serve` stage)
+  - DeepEP Fused MoE All-to-All (DeepSeek expert-parallel comm library)
+  - Fused AllReduce + Residual (NVIDIA NVLS / AMD RCCL fused / HCCL fused)
+- **Memory hierarchy populated for 3 more cards** (4 → 7 deep-filled): H200, MI300X, Ascend 910B
+- **`SwitchFabric.astro` SVG topology renderer** on `/servers/<super-pod>/`. Top row = switch chip boxes; bottom row = compute nodes; fan-out lines proportional to per-port bandwidth share. Bisection bandwidth + oversubscription multiplier shown in caption.
+
+### Stats
+- 134/134 E2E pass (+5 new) · 287 pages built
+
+---
+
+## [1.3.0] — 2026-04-29
+
+### Added
+- **Schema: `Hardware.architecture.memory_hierarchy`** — ordered list of memory levels (RF → L1/SMEM → L2 → L3/Infinity Cache → HBM) with size, bandwidth, scope, notes. Per-field optional so partial data renders.
+- **Schema: `architecture.tensor_core_specs`** — per-precision per-cycle peak ops + sparsity multiplier
+- **Schema: `architecture.{base,boost}_clock_mhz`** + `on_chip_interconnect`
+- **Schema: `Server.switch_chips[]`** — chip name, count, radix, bandwidth_gbps_per_port, URL
+- **Schema: `Server.{oversubscription_ratio, scale_out_nics_per_node, scale_out_bandwidth_gbps_per_nic, bisection_bandwidth_tbs, power_distribution, cabinet_layout_md}`**
+- **4 cards populated** with deep memory hierarchy: H100, B200, MI355X, Ascend 910C
+- **2 super-pods populated** with cluster internals: NVL72 (18× NVSwitch Gen-4 + 72× ConnectX-8 + N+N PSUs + 100kW sustained), CloudMatrix 384 (32× Lingqu optical switches + 16-cabinet layout + 480kW sustained)
+- **`MemoryHierarchy.astro`** component: log10-scaled horizontal bars (so 256 KB RF and 80 GB HBM fit on the same chart), color-graded cool→warm closest-to-compute first; tensor core specs grid; on-chip interconnect footer.
+- **`/servers/<slug>` cluster-internals section** — switch fabric panel + power+scale-out+oversubscription panel + cabinet markdown rendered through marked.
+
+### Stats
+- 129/129 E2E (+4 new) · 283 pages built
+
+---
+
+## [1.2.x bundle] — 2026-04-28~29
+
+### Added (highlights across v1.2.0–v1.2.4)
+- **7-stage deployment pipeline** (`/pipeline/`): ACQUIRE → CONVERT → QUANTIZE → COMPILE → SHARD → SERVE → OBSERVE. Per-stage rich data: ~5 decisions, ~5 tools, ~3 failure modes; cross-links to patterns/operators/engines; `invalidates_downstream` change-propagation map.
+- **`OperatorSchema` extended** to 14 fields: arithmetic_intensity_typical, fusion_targets, participates_in_fused_kernels, engine_implementations[] with hardware-arch tags, precision_support, related_patterns, references[]
+- **`FusedKernelSchema` first-class entity**: 10 fields including speedup[] × baseline arrays, implementations[] across engines, hardware_requires, enables_patterns, applies_at_stage, trade_offs
+- **Initial 4 fused kernels**: FlashAttention-3, FusedMLP-SiLU, FusedRoPE-QKV, PagedAttention-Decode
+- **9 optimization patterns** with cross-cutting matrix
+- **`/operators/<slug>/` rich detail**: AI-bound classification badge (🟦 mem-bw / 🟧 compute / 🟨 mixed), forward+reverse fusion graph, engine-implementation grid, references
+- **`/operators/` index** regrouped by category with AI badges + per-card icon counts
+- **`/fused-kernels/` catalog page** with engine coverage matrix
+- **`/contribute/`** — 3 contributor tracks (vendor / community / measured), 3 GitHub Issue templates, `docs/DATA-TIERING.md` canonical tier policy
+- **GitHub Pages deploy live at https://yingwen.io/evokernel-spec/** with `pages.yml` workflow
+- **Schema-driven base-path** in `astro.config.mjs` via `PUBLIC_DEPLOY={github-pages|custom-domain}` env var
+
+---
+
+## [1.1.0] — 2026-04-28
 
 The "production-ready, releasable" milestone. The site has been
 deployable since 1.0; this release closes the gap to "ship it as a

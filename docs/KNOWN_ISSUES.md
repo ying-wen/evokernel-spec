@@ -2,6 +2,8 @@
 
 > Honest inventory of where the project is rough or constrained. Updated
 > per release. Open issues for fixes via PR.
+>
+> **Last reviewed:** 2026-04-30 against v1.5.1 (post-base-path-hotfix)
 
 ## Severity legend
 
@@ -10,6 +12,14 @@
 - 🟡 **Workaround exists** — known issue; documented mitigation; on
   roadmap to fix.
 - 🟢 **Minor / cosmetic** — known small papercut; low priority.
+
+---
+
+## Recently fixed
+
+### ✅ React island links missing /evokernel-spec base path on GH Pages (v1.5.1)
+
+Previously: clicking a hardware card on `https://yingwen.io/evokernel-spec/hardware/` 404'd because the React island built `href="/hardware/<id>/"` directly (without going through `pathname()` helper). 4 islands + Nav locale switcher + Pagefind bootstrap all affected. Local `pnpm dev` and `pnpm preview` both ran with default base="/" so the bug was invisible until production. **Fixed in v1.5.1.** A regression probe (`pnpm test:e2e:basepath`) now simulates GH Pages locally to catch the same class going forward.
 
 ---
 
@@ -107,6 +117,24 @@ estimated` precision in calculator.
 
 **Fix path:** Wait for vendor to publish official datasheets, OR get a
 third-party measurement (Tier 0 case).
+
+### 🟡 Memory hierarchy populated for only 7 of 39 cards
+
+**What:** `architecture.memory_hierarchy` is the richest data structure on Hardware (RF → SMEM → L2 → L3 → HBM with bandwidths and notes). Currently filled for: H100, H200, B200, MI300X, MI355X, Ascend 910B, Ascend 910C. The other 32 cards have flat headline numbers but no layered hierarchy.
+
+**Workaround:** Cards without hierarchy still render the legacy spec block; the new `MemoryHierarchy.astro` component is conditional. Recommendation engine still works (uses bandwidth + capacity from headline fields).
+
+**Fix path:** Backfill data — open candidates: B300, Trainium 2, Cambricon MLU590, Hygon DCU Z100, Moore Threads MTT S5000, etc. Each card takes ~30 min from vendor whitepaper to YAML. PRs welcome.
+
+### 🟡 SwitchFabric SVG only on 2 of 14 super-pods
+
+**What:** Cluster-internals (switch_chips, oversubscription, power, cabinet_layout) currently filled only for NVL72 + CloudMatrix-384. Other super-pods (HGX-H100, HGX-H200, GB300-NVL72, MI300A supercomputer, Atlas 800/900, MLU590-pod, Kuae, Trainium2 ultraserver, X8-server) still have only basic spec headers.
+
+**Fix path:** Same as above — vendor docs / whitepaper → YAML.
+
+### 🟢 Reverse recommendations (hardware → models) helper exists but not wired
+
+**What:** `recommendModelsForHardware()` was added in v1.5.0 as infrastructure but doesn't yet render anywhere. The forward direction (model → hardware) IS live on every `/models/<slug>/`. Symmetric `/hardware/<slug>/` widget will land in next iteration.
 
 ### 🟢 Some vendors have no products yet
 

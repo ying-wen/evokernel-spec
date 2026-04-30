@@ -7,28 +7,40 @@
 [![Live](https://img.shields.io/badge/live-yingwen.io%2Fevokernel--spec-success)](https://yingwen.io/evokernel-spec/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![Tests](https://img.shields.io/badge/tests-170_passing-success)](#)
-[![Pages](https://img.shields.io/badge/pages-265-blue)](#)
+[![E2E](https://img.shields.io/badge/e2e-137_passing-success)](#)
+[![Unit](https://img.shields.io/badge/unit-36_passing-success)](#)
+[![Pages](https://img.shields.io/badge/pages-287-blue)](#)
 [![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
 [![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
-[![Release](https://img.shields.io/badge/release-v1.1.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.5.1-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ![Home](docs/screenshots/home.png)
 
 ## Highlights
 
-- **36 加速卡** 跨 17 家厂商: NVIDIA / AMD / Intel / AWS / Google / Cerebras / Groq / Tenstorrent + **9 家国产** (昇腾 · 寒武纪 · 海光 · 摩尔线程 · 燧原 · 壁仞 · 沐曦 · 天数智芯 · 平头哥)
-- **覆盖各种形态**: 数据中心 SXM/OAM/PCIe + **wafer-scale (Cerebras WSE-3)** + **on-die SRAM (Groq LPU)** + **reconfigurable RDU (SambaNova)** + 国产超节点 (CloudMatrix 384/768)
-- **17+2 frontier 模型**: 大语言 (DeepSeek V4 Pro / Kimi K2.6 / Qwen 3.6 / Llama 4 / GLM-5 etc.) + **scientific (AlphaFold 3 蛋白折叠 · GraphCast 全球天气)** + 算子 FLOP/byte 拆解
-- **22 部署案例**: 含 CloudMatrix 384 超节点、disaggregated 部署、所有 9 家国产卡
-- **Tier 0 实测查表 + Tier 1 透明 Roofline 计算器**: 含 per-operator breakdown / concurrency sweep / TCO ($/M tokens) / disaggregated mode
+**📦 12 类实体 / 176 数据条目**:
+- **39 加速卡** 跨 28 家厂商 — 含 7 张深填 memory hierarchy（H100/H200/B200/MI300X/MI355X/Ascend910B/910C 都有 RF→SMEM→L2→Infinity-Cache→HBM 完整层级）
+- **14 服务器/超节点** — NVL72 + CloudMatrix-384 含 switch-chip 详情 + 持续/峰值功耗 + cabinet 布局 markdown + **SwitchFabric SVG 拓扑可视化**
+- **19 frontier 模型**: LLM (DeepSeek V4 Pro / Kimi K2.6 / Qwen 3.6 / Llama 4 / GLM-5) + **scientific (AlphaFold 3 / GraphCast)** + 算子 FLOP/byte 拆解
+- **22 部署案例**: 含 CloudMatrix 384 超节点 / disaggregated 部署 / 9 家国产卡
+- **9 算子 + 8 fused kernels**: rich operator schema (arith intensity 分类 / fusion graph / engine impls) · FlashAttention-3 / FusedMLP / FusedRoPE / PagedAttention / Mooncake KV-disagg / DeepEP MoE / FusedAllReduce
+- **9 patterns + 7-stage deployment pipeline**: acquire→convert→quantize→compile→shard→serve→observe (26 decisions / 32 tools / 21 failure modes 文档化)
+
+**🧠 计算闭环 / Computable knowledge**:
+- **Tier 0 实测查表 + Tier 1 透明 Roofline 计算器**: per-operator breakdown / concurrency sweep / TCO ($/M tokens) / disaggregated mode
+- **🎯 模型 → 推荐硬件 三轴排行榜** (v1.5): 每个 /models/<slug>/ 页面自动生成 throughput / cost / verified 三个 leaderboard，深链 calculator 预设 (用 operator decomposition × memory hierarchy × cases × pricing 多源数据计算)
 - **/pricing TCO 排行榜**: 公式公开 · 18 张卡 best/median/worst $/M tokens
+- **/showcase 自动洞察**: 8 个从全语料库自动计算的 insight (每次 build 刷新)
+
+**🌍 国产 + 可信度**:
 - **国产芯片专题**: 矩阵热力图 + 代际谱系 + 软件生态对照
 - **数据可信度三档**: 📄 官方声称 · ✅ 实测验证 · ⚠️ 社区估算
+
+**🔌 外部接口 + 部署**:
 - **6 个 JSON API**: `/api/{index,hardware,models,cases,openapi}.json` + `/api/health.json`+`/api/healthz` (CC-BY-SA 4.0)
-- **生产级本地部署**: `./launch.sh` 一键 build+health-poll+12 路由 smoke / `pack:dist` 离线 tar.gz + sha256 sidecar
-- **WCAG 2 AA 兼容**, 中文+英文, 支持深色主题
-- **完整 CI 6 jobs**: validate · type-check · unit · build · e2e (151 测试, axe a11y, Lighthouse) · deployment-smoke (launch.sh + 健康探针 + 离线 tarball artifact) · 周度 evidence 链接健康检查
+- **生产级本地部署**: `./launch.sh` 一键 build+health-poll+17 路由 smoke / `pack:dist` 离线 tar.gz + sha256 sidecar
+- **WCAG 2 AA 兼容**, 中文+英文双语, 支持深色主题
+- **完整 CI 6 jobs**: validate · type-check · unit · build · e2e (137 测试, axe a11y, Lighthouse) · deployment-smoke · 周度 evidence 链接健康检查
 
 ## 截图
 
