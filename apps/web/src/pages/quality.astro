@@ -58,6 +58,17 @@ const engineUsage = engines.map((e) => ({
   hwCount: hardware.filter((h) => h.software_support.engines.some((se) => se.id === e.id)).length,
   caseCount: cases.filter((c) => c.stack.engine.id === e.id).length
 }));
+
+// === Schema richness coverage (v1.7) ===
+// Surface long-tail data gaps so contributors can pick them up.
+const hwWithMemHierarchy = hardware.filter((h) => (h.architecture?.memory_hierarchy?.length ?? 0) > 0);
+const hwNoMemHierarchy = hardware.filter((h) => (h.architecture?.memory_hierarchy?.length ?? 0) === 0);
+const hwWithTensorSpecs = hardware.filter((h) => (h.architecture?.tensor_core_specs?.length ?? 0) > 0);
+const serversWithSwitchChips = servers.filter((s) => (s.switch_chips?.length ?? 0) > 0);
+const serversNoClusterInternals = servers.filter((s) => (s.switch_chips?.length ?? 0) === 0);
+const memHierarchyPct = Math.round((hwWithMemHierarchy.length / hardware.length) * 100);
+const switchChipsPct = Math.round((serversWithSwitchChips.length / servers.length) * 100);
+const tensorSpecsPct = Math.round((hwWithTensorSpecs.length / hardware.length) * 100);
 ---
 <BaseLayout title="数据质量">
   <Container>
@@ -211,6 +222,80 @@ const engineUsage = engines.map((e) => ({
             </tbody>
           </table>
         </div>
+      </section>
+
+      <!-- v1.7: Schema-richness coverage dashboard -->
+      <section class="mt-12">
+        <h3 class="text-xl font-semibold mb-2">Schema 数据填充度 / Schema richness coverage</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          长尾数据贡献机会一览。每条 progress bar 显示对应 schema 字段在多少 entity 上已填充。
+          点击未填充列表中的 entity 链接进 detail 页, 然后开 PR 补数据。
+        </p>
+
+        <div class="grid lg:grid-cols-3 gap-4">
+          <!-- memory_hierarchy on Hardware -->
+          <article class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="flex justify-between items-baseline mb-2">
+              <h4 class="text-sm font-semibold">硬件 memory_hierarchy</h4>
+              <span class="font-mono text-sm font-bold" style="color: var(--color-accent);">{hwWithMemHierarchy.length}/{hardware.length}</span>
+            </div>
+            <div class="rounded-sm h-2 mb-3" style="background: var(--color-surface);">
+              <div class="h-full rounded-sm" style={`width: ${memHierarchyPct}%; background: var(--color-accent);`}></div>
+            </div>
+            <div class="text-xs mb-2" style="color: var(--color-text-muted);">{memHierarchyPct}% 完成 — RF/SMEM/L2/HBM 完整内存层级</div>
+            <details class="text-xs">
+              <summary class="cursor-pointer" style="color: var(--color-accent);">{hwNoMemHierarchy.length} 张缺口 →</summary>
+              <ul class="mt-2 grid grid-cols-2 gap-x-2 gap-y-1">
+                {hwNoMemHierarchy.slice(0, 16).map((h) => (
+                  <li><a href={pathname(`/hardware/${h.id}/`)} class="underline" style="color: var(--color-text-muted);">{h.id}</a></li>
+                ))}
+              </ul>
+              {hwNoMemHierarchy.length > 16 && (
+                <p class="mt-2" style="color: var(--color-text-muted);">… and {hwNoMemHierarchy.length - 16} more</p>
+              )}
+            </details>
+          </article>
+
+          <!-- tensor_core_specs on Hardware -->
+          <article class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="flex justify-between items-baseline mb-2">
+              <h4 class="text-sm font-semibold">硬件 tensor_core_specs</h4>
+              <span class="font-mono text-sm font-bold" style="color: var(--color-accent);">{hwWithTensorSpecs.length}/{hardware.length}</span>
+            </div>
+            <div class="rounded-sm h-2 mb-3" style="background: var(--color-surface);">
+              <div class="h-full rounded-sm" style={`width: ${tensorSpecsPct}%; background: var(--color-accent);`}></div>
+            </div>
+            <div class="text-xs mb-2" style="color: var(--color-text-muted);">{tensorSpecsPct}% 完成 — per-precision per-cycle peak ops</div>
+          </article>
+
+          <!-- switch_chips on Server -->
+          <article class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="flex justify-between items-baseline mb-2">
+              <h4 class="text-sm font-semibold">超节点 switch_chips</h4>
+              <span class="font-mono text-sm font-bold" style="color: var(--color-china);">{serversWithSwitchChips.length}/{servers.length}</span>
+            </div>
+            <div class="rounded-sm h-2 mb-3" style="background: var(--color-surface);">
+              <div class="h-full rounded-sm" style={`width: ${switchChipsPct}%; background: var(--color-china);`}></div>
+            </div>
+            <div class="text-xs mb-2" style="color: var(--color-text-muted);">{switchChipsPct}% 完成 — radix × bandwidth × count fabric 拓扑</div>
+            <details class="text-xs">
+              <summary class="cursor-pointer" style="color: var(--color-china);">{serversNoClusterInternals.length} 个缺口 →</summary>
+              <ul class="mt-2 grid grid-cols-1 gap-y-1">
+                {serversNoClusterInternals.map((s) => (
+                  <li><a href={pathname(`/servers/${s.id}/`)} class="underline" style="color: var(--color-text-muted);">{s.id}</a></li>
+                ))}
+              </ul>
+            </details>
+          </article>
+        </div>
+
+        <p class="text-xs mt-4 px-3 py-2 rounded" style="background: color-mix(in oklch, var(--color-accent) 6%, var(--color-bg)); color: var(--color-text-muted);">
+          想贡献数据? 见
+          <a href={pathname('/contribute/')} class="underline" style="color: var(--color-accent);">/contribute</a>
+          (3 条贡献者赛道) +
+          <a href="https://github.com/ying-wen/evokernel-spec/blob/main/docs/DEVELOPMENT.md" class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">DEVELOPMENT.md</a>
+          (开发指南).
+        </p>
       </section>
 
       <section class="mt-12 p-5 rounded-lg border" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-bg));">

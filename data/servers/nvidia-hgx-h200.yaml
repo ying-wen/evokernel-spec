@@ -12,6 +12,42 @@ rack_power_kw: 10.2
 total_memory_gb: 1128
 total_compute_pflops_bf16: 7.9
 release_year: 2024
+
+# v1.7: cluster internals — same chassis as HGX H100 (NVSwitch Gen-3 fabric);
+# H200 just swaps card with bigger HBM3e (141 GB vs 80 GB on H100). Total
+# rack memory bumps to 1.13 TB.
+switch_chips:
+  - name: 'NVSwitch Gen-3'
+    count: 4
+    radix: 64
+    bandwidth_gbps_per_port: 50
+    url: https://www.nvidia.com/en-us/data-center/hgx/
+  - name: 'ConnectX-7 NIC'
+    count: 8
+    radix: 1
+    bandwidth_gbps_per_port: 50
+    url: https://www.nvidia.com/en-us/networking/connectx-7/
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 8
+scale_out_bandwidth_gbps_per_nic: 50
+bisection_bandwidth_tbs:
+  value: 7.2
+  evidence_ref: ev-hgxh200-001
+power_distribution:
+  psu_count: 6
+  redundancy: N+1
+  sustained_kw: 8.5
+  peak_kw: 10.2
+  voltage: '240V'
+cabinet_layout_md: |
+  ## HGX H200 8-GPU 机箱布局 / Chassis layout
+
+  - **8× H200 SXM** 在同 HGX baseboard 上, 4 NVSwitch Gen-3 互联 (与 HGX H100 同形)
+  - **关键差异 vs HGX H100**: H200 用 HBM3e 6 stacks × 24 GB = 141 GB (vs H100 80 GB), 总显存 1.13 TB. Compute peak 不变, 长 context decode 收益大.
+  - **4× NVSwitch Gen-3**: radix 64, 端口 50 GB/s. Bisection 7.2 TB/s 不变.
+  - **8× ConnectX-7**: scale-out 总带宽 400 GB/s 至 IB-NDR fabric.
+  - **风冷**: 8.5 kW 持续 / 10.2 kW 峰值. TDP 与 HGX H100 一致 (H200 单卡 TDP 也是 700 W).
+
 evidence:
   - id: ev-hgxh200-001
     tier: official

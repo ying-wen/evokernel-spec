@@ -12,6 +12,43 @@ rack_power_kw: 100
 total_memory_gb: 6144
 total_compute_pflops_bf16: 41.6
 release_year: 2024
+
+# v1.7: cluster internals — Trn2 UltraServer = 4× Trn2 instances (16 chips
+# each) connected via inter-instance NeuronLink-v3 = 64-chip scale-up domain.
+# AWS-only architecture with no public switch-chip details (cited from
+# re:Invent 2024 keynote).
+switch_chips:
+  - name: 'NeuronLink-v3 fabric (intra-instance)'
+    count: 4
+    radix: 16
+    bandwidth_gbps_per_port: 80
+    url: https://aws.amazon.com/blogs/aws/aws-trainium2-instances-ec2-trn2/
+  - name: 'NeuronLink-v3 fabric (inter-instance)'
+    count: 1
+    radix: 4
+    bandwidth_gbps_per_port: 320
+    url: https://aws.amazon.com/blogs/aws/aws-trainium2-instances-ec2-trn2/
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 16
+scale_out_bandwidth_gbps_per_nic: 50
+bisection_bandwidth_tbs:
+  value: 5.12
+  evidence_ref: ev-trn2us-001
+power_distribution:
+  psu_count: 8
+  redundancy: N+N
+  sustained_kw: 80
+  peak_kw: 100
+  voltage: '208V'
+cabinet_layout_md: |
+  ## Trn2 UltraServer 布局 / Layout
+
+  - **64× Trainium 2** = 4 个 Trn2 instance (每 16 chip) 通过 inter-instance NeuronLink-v3 联接成单 scale-up 域
+  - **AWS-specific**: 不卖芯片, 只通过 EC2 Trn2 instance 提供. UltraServer 是单机柜整租 SKU, 比单 Trn2 instance (16 chip) scale-up 大 4×.
+  - **NeuronLink-v3 fabric**: 4 个 intra-instance switch (radix 16, 80 GB/s/port) + 1 个 inter-instance switch (radix 4, 320 GB/s/port). Bisection 约 5.12 TB/s.
+  - **vs NVL72**: Trn2 UltraServer 是 64 chip / 100 kW; NVL72 是 72 GPU / 120 kW. 单卡算力 NVL72 (B200 2.25 PFLOPS BF16) 强于 Trn2 (650 TFLOPS BF16), 但 Trn2 主打成本 + AWS 集成深度.
+  - **liquid cooling**: AWS 自研冷却, 未公开冷却液技术.
+
 evidence:
   - id: ev-trn2us-001
     tier: official

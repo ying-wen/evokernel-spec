@@ -7,7 +7,42 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 ## [Unreleased]
 
 ### Added
-- (none yet — next iteration TBD with user confirmation)
+- (next iteration TBD)
+
+---
+
+## [1.7.0] — 2026-04-30
+
+Continuing the data-density push. Coverage dashboard makes the long tail visible to contributors.
+
+### Added
+
+**Memory hierarchy on 6 more cards** (12 → 18 deep-filled, **46% catalog coverage** up from 31%):
+- **NVIDIA A100 SXM4**: 256 KB RF/SM × 108 SMs, 192 KB SMEM (vs Hopper 228), 40 MB L2 single-partition, 5× HBM2e 16 GB stacks (80 GB, 2.04 TB/s — main reason A100 lags H100 on decode)
+- **Google TPU v5p**: 32 MB VMEM × 4 TensorCores = 128 MB on-chip SRAM, 192 MB CMEM, 4× HBM2e 24 GB stacks (95 GiB), ICI fabric 4.8 TB/s scaling to 8960-chip pods
+- **Google Trillium (v6e)**: 16 MB VMEM single-core, 64 MB CMEM, 2× HBM2e 16 GB stacks (32 GB), ICI fabric 3.2 TB/s
+- **Intel Gaudi 3**: 192 KB scratchpad per cluster × 64 = 12 MB, 96 MB cache hierarchy, 8× HBM2e 16 GB stacks (128 GB). Open-fabric 24× 200 GbE RoCE (vs NVLink lock-in)
+- **AMD MI325X**: same CDNA 3 architecture as MI300X but HBM3e upgrade — 8× 32 GB stacks (256 GB, 6.0 TB/s); compute peak unchanged
+- **NVIDIA L40s**: 256 KB RF, 128 KB SMEM (Ada Lovelace gaming-derived), 96 MB L2 (largest L2 in NV inference catalog), 12× GDDR6 48 GB
+
+**Cluster internals on 3 more super-pods** (5 → 8 with SwitchFabric SVG, **57% coverage**):
+- **NVIDIA HGX H200 8-GPU**: same NVSwitch Gen-3 fabric as HGX H100; H200 upgrade is HBM3e raising total rack memory to 1.13 TB
+- **Huawei Atlas 900 SuperPoD A2**: 256-card 8-cabinet design. 16× HCCS-v2 switches (radix 32, 100 GB/s/port) + 32× 400 GbE NICs. Bisection 12.8 TB/s (between NVL72 64.8 and Atlas 800T 0.4)
+- **AWS Trn2 UltraServer**: 64-chip = 4× Trn2 instances joined via inter-instance NeuronLink-v3. AWS-specific architecture only via EC2
+
+**Schema-richness coverage dashboard on `/quality/`** (NEW visual section):
+- 3 progress cards (memory_hierarchy / tensor_core_specs / switch_chips) with live %
+- Expandable list of unfilled entities — clickable for direct contribution path
+- CTA links to /contribute and DEVELOPMENT.md
+- Surfaces the long tail visually so PRs are 1-click discoverable from `/quality`
+
+### Stats
+- 151/151 site E2E pass (+6 new) · 36/36 unit pass
+- 291 pages built (no new pages — all enhancements to existing pages)
+- 12 entity types · 18 deep-filled cards (was 12) · 8 super-pods with full cluster internals (was 5)
+
+### Why this iteration
+The user repeatedly flagged hardware/cluster/operator info as "not detailed enough". v1.7 keeps deepening the long tail (cards 31% → 46%, super-pods 36% → 57%) AND makes the gap visible to contributors via the new coverage dashboard — closing the loop from "data is sparse" to "here's a clickable list of what to fill, pick one".
 
 ---
 

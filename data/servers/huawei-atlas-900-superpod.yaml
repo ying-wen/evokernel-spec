@@ -12,6 +12,42 @@ rack_power_kw: 200
 total_memory_gb: 32768
 total_compute_pflops_bf16: 204.8
 release_year: 2024
+
+# v1.7: cluster internals — Atlas 900 SuperPoD A2 是 256-card scale-up 域,
+# 介于 Atlas 800 (8 cards single chassis) 和 CloudMatrix 384 (384 cards
+# multi-cabinet) 之间. 8 个机柜联合, HCCS-v2 + RoCE 400G 跨机柜.
+switch_chips:
+  - name: 'HCCS-v2 Switch'
+    count: 16
+    radix: 32
+    bandwidth_gbps_per_port: 100
+    url: https://e.huawei.com/en/products/computing/ascend
+  - name: '400 GbE NIC (cluster fabric)'
+    count: 32
+    radix: 4
+    bandwidth_gbps_per_port: 50
+    url: https://e.huawei.com/en/products/computing/ascend
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 4
+scale_out_bandwidth_gbps_per_nic: 50
+bisection_bandwidth_tbs:
+  value: 12.8
+  evidence_ref: ev-atlas900-001
+power_distribution:
+  psu_count: 16
+  redundancy: N+N
+  sustained_kw: 160
+  peak_kw: 200
+  voltage: '380V 3-phase'
+cabinet_layout_md: |
+  ## Atlas 900 SuperPoD A2 机柜布局 / 8-cabinet layout
+
+  - **8 个机柜联合**: 256× Ascend 910C, 32 卡/机柜, HCCS-v2 跨柜光纤
+  - **16× HCCS-v2 switch**: radix 32, 端口 100 GB/s. 整 SuperPoD bisection ~12.8 TB/s.
+  - **vs CloudMatrix 384**: Atlas 900 是 8 机柜 × 32 卡 (256 总), 用 copper HCCS + 部分光纤; CloudMatrix 384 是 16 机柜 × 24 卡 (384 总), 全光纤 Lingqu fabric. CM384 scale-up 大 50%, fabric 复杂度也高.
+  - **vs NVL72**: Atlas 900 比 NVL72 (72 卡) scale-up 大 3.5×, 但 bisection 较低 (12.8 TB/s vs 64.8 TB/s) — fabric 拓扑设计 trade-off.
+  - **冷却**: 160 kW 持续 / 200 kW 峰值; 全部液冷直触.
+
 chinese_names: ['Atlas 900 SuperPoD A2', '华为超节点']
 evidence:
   - id: ev-atlas900-001

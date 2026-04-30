@@ -575,6 +575,51 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.7: schema-richness coverage dashboard + 6 more cards + 3 more super-pods', () => {
+  test('/quality has Schema-richness coverage section with progress bars', async ({ page }) => {
+    await page.goto('/quality/');
+    await expect(page.getByRole('heading', { name: /Schema 数据填充度.*Schema richness coverage/i }).first()).toBeVisible();
+    await expect(page.getByText(/硬件 memory_hierarchy/i).first()).toBeVisible();
+    await expect(page.getByText(/硬件 tensor_core_specs/i).first()).toBeVisible();
+    await expect(page.getByText(/超节点 switch_chips/i).first()).toBeVisible();
+    // Coverage % visible (4_% somewhere)
+    await expect(page.locator('text=/4[0-9]% 完成|5[0-9]% 完成/').first()).toBeVisible();
+    // Contribute CTA from this section
+    await expect(page.locator('a[href*="/contribute"]').first()).toBeVisible();
+  });
+
+  test('A100 SXM4 has new memory hierarchy with HBM2e', async ({ page }) => {
+    await page.goto('/hardware/a100-sxm4/');
+    await expect(page.getByText(/Memory Hierarchy/i).first()).toBeVisible();
+    await expect(page.getByText(/HBM2e/i).first()).toBeVisible();
+    await expect(page.getByText(/NVLink-3\.0/i).first()).toBeVisible();
+  });
+
+  test('TPU v5p shows Google-specific VMEM + CMEM', async ({ page }) => {
+    await page.goto('/hardware/tpu-v5p/');
+    await expect(page.getByText(/VMEM/i).first()).toBeVisible();
+    await expect(page.getByText(/CMEM/i).first()).toBeVisible();
+  });
+
+  test('HGX H200 has SwitchFabric SVG topology', async ({ page }) => {
+    await page.goto('/servers/nvidia-hgx-h200/');
+    await expect(page.getByText(/Switch Fabric Topology/i).first()).toBeVisible();
+    await expect(page.getByText(/NVSwitch Gen-3/i).first()).toBeVisible();
+  });
+
+  test('Atlas 900 super-pod shows 8-cabinet HCCS-v2 design', async ({ page }) => {
+    await page.goto('/servers/huawei-atlas-900-superpod/');
+    await expect(page.getByText(/HCCS-v2/i).first()).toBeVisible();
+    await expect(page.getByText(/8 个机柜联合|8-cabinet/i).first()).toBeVisible();
+  });
+
+  test('Trn2 UltraServer shows NeuronLink-v3 fabric', async ({ page }) => {
+    await page.goto('/servers/aws-trn2-ultraserver/');
+    await expect(page.getByText(/NeuronLink-v3/i).first()).toBeVisible();
+    await expect(page.getByText(/UltraServer/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.6: hardware → recommended models (reverse rec) + data density', () => {
   test('zh /hardware/<slug>/ shows 3 reverse-rec leaderboards', async ({ page }) => {
     await page.goto('/hardware/h100-sxm5/');

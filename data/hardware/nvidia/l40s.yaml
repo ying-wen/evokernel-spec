@@ -21,6 +21,36 @@ architecture:
   transistor_count_b: { value: 76, evidence_ref: ev-l40s-arch-001 }
   pcie_gen: { value: 4, evidence_ref: ev-l40s-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-l40s-001 }
+  base_clock_mhz: { value: 1110, evidence_ref: ev-l40s-arch-001 }
+  boost_clock_mhz: { value: 2520, evidence_ref: ev-l40s-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-l40s-arch-001 }
+      notes: 'Ada Lovelace SMs (gaming-derived AD102 die); same 256 KB RF/SM as Ampere/Hopper. 142 SMs × 256 KB ≈ 35 MB total.'
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-l40s-arch-001 }
+      notes: 'Configurable up to 100 KB SMEM (vs Hopper 228 KB) — Ada Lovelace was scoped for graphics, didn''t need Hopper''s SMEM expansion.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-l40s-arch-001 }
+      notes: 'AD102 die L2 — bigger than Hopper (50 MB) because Ada was designed for cache-friendly raster/compute workloads. L40s benefits at small batch sizes.'
+    - name: 'GDDR6'
+      scope: global
+      size_mb: { value: 49152, evidence_ref: ev-l40s-001 }
+      bandwidth_tbs: { value: 0.864, evidence_ref: ev-l40s-001 }
+      notes: '12× GDDR6 (no HBM). Bandwidth ~25% of H100 HBM3 — the main reason L40s decode throughput is much lower than H100 despite similar SM count. Cost trade-off: L40s ~1/3 the price of H100.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 1024, evidence_ref: ev-l40s-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 512, evidence_ref: ev-l40s-arch-001 }
+      sparsity_multiplier: 1
+  on_chip_interconnect:
+    name: 'AD102 SM ↔ L2 crossbar'
+    notes: 'Ada Lovelace generation crossbar; not the NVLink-C2C of Hopper.'
 memory:
   capacity_gb: { value: 48, evidence_ref: ev-l40s-001 }
   bandwidth_gbps: { value: 864, evidence_ref: ev-l40s-001 }

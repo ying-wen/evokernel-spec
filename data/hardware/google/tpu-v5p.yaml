@@ -16,6 +16,24 @@ architecture:
   compute_unit_label: XPU
   hbm_stacks: { value: 4, evidence_ref: ev-tpuv5p-arch-001 }
   process_node_nm: { value: 5, evidence_ref: ev-tpuv5p-arch-001 }
+  memory_hierarchy:
+    - name: 'TensorCore VMEM (vector memory)'
+      scope: per-cu
+      size_mb: { value: 32, evidence_ref: ev-tpuv5p-arch-001 }
+      notes: '32 MB Vector Memory per TensorCore × 4 = 128 MB total per chip — Google-specific systolic-array scratchpad. Programmed via XLA HLO; not directly user-visible.'
+    - name: 'CMEM (common memory)'
+      scope: global
+      size_mb: { value: 192, evidence_ref: ev-tpuv5p-arch-001 }
+      notes: 'Common Memory shared across TensorCores; staging area for HBM ↔ VMEM data movement. Roughly equivalent to L2 on GPUs.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 97280, evidence_ref: ev-tpuv5p-001 }
+      bandwidth_tbs: { value: 2.765, evidence_ref: ev-tpuv5p-001 }
+      notes: '4 stacks × 24 GB ⇒ 95 GiB. HBM2e bandwidth between A100 and H100. ICI fabric (4.8 TB/s) lets v5p scale to 8960-chip pods — much larger than NVL72.'
+  on_chip_interconnect:
+    name: 'On-chip NoC + ICI router'
+    bandwidth_tbs: { value: 4.8, evidence_ref: ev-tpuv5p-001 }
+    notes: 'Connects 4 TensorCores intra-chip + ICI router for inter-chip 3D torus scale-up.'
 memory:
   capacity_gb: { value: 95, evidence_ref: ev-tpuv5p-001 }
   bandwidth_gbps: { value: 2765, evidence_ref: ev-tpuv5p-001 }

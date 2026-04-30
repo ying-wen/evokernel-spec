@@ -21,6 +21,40 @@ architecture:
   transistor_count_b: { value: 153, evidence_ref: ev-mi325x-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-mi325x-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-mi325x-001 }
+  memory_hierarchy:
+    - name: 'LDS (Local Data Share)'
+      scope: per-cu
+      size_kb: { value: 64, evidence_ref: ev-mi325x-arch-001 }
+      notes: 'Inherited from CDNA 3 architecture (same as MI300X). 64 KB per CU × 304 CUs ≈ 19 MB. CDNA 4 (MI355X) bumps this to 160 KB.'
+    - name: 'L1 vector cache'
+      scope: per-cu
+      size_kb: { value: 32, evidence_ref: ev-mi325x-arch-001 }
+      notes: 'per-CU L1; ~10 MB total across 304 CUs.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 4, evidence_ref: ev-mi325x-arch-001 }
+      notes: 'Per-XCD L2; 8 XCDs × 4 MB = 32 MB total. Same as MI300X (CDNA 3 generation).'
+    - name: 'Infinity Cache (L3)'
+      scope: global
+      size_mb: { value: 256, evidence_ref: ev-mi325x-arch-001 }
+      bandwidth_tbs: { value: 17.0, evidence_ref: ev-mi325x-arch-001 }
+      notes: 'AMD-distinguishing L3 layer (same as MI300X). Smooths HBM bandwidth pressure for locality-friendly workloads.'
+    - name: 'HBM3e'
+      scope: global
+      size_mb: { value: 262144, evidence_ref: ev-mi325x-001 }
+      bandwidth_tbs: { value: 6.0, evidence_ref: ev-mi325x-001 }
+      notes: '8 stacks × 32 GB ⇒ 256 GB. MI325X is the HBM-upgrade refresh of MI300X (192 → 256 GB, 5.3 → 6.0 TB/s); compute peak unchanged. Sits between MI300X and MI355X chronologically.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 1024, evidence_ref: ev-mi325x-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 512, evidence_ref: ev-mi325x-arch-001 }
+      sparsity_multiplier: 1
+  on_chip_interconnect:
+    name: 'Infinity Fabric (CDNA 3 chiplet)'
+    bandwidth_tbs: { value: 5.3, evidence_ref: ev-mi325x-arch-001 }
+    notes: 'Inherits MI300X die + IOD layout; HBM3e is the only physical change. 8 XCDs + 4 IODs.'
 memory:
   capacity_gb: { value: 256, evidence_ref: ev-mi325x-001 }
   bandwidth_gbps: { value: 6000, evidence_ref: ev-mi325x-001 }

@@ -18,6 +18,23 @@ architecture:
   process_node_nm: { value: 5, evidence_ref: ev-gaudi3-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-gaudi3-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-gaudi3-001 }
+  memory_hierarchy:
+    - name: 'MME / TPC scratchpad'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-gaudi3-arch-001 }
+      notes: 'Per-cluster scratchpad on Habana Gaudi 3. 64 clusters × 192 KB ≈ 12 MB total. Habana Synapse compiler manages this directly.'
+    - name: 'Cache hierarchy'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-gaudi3-arch-001 }
+      notes: 'Multi-level cache split across MME (matrix engines) and TPC (tensor processor cores). Detailed split not publicly disclosed.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-gaudi3-001 }
+      bandwidth_tbs: { value: 3.7, evidence_ref: ev-gaudi3-001 }
+      notes: '8 stacks × 16 GB. HBM2e (not HBM3); bandwidth competitive with H100 (3.35 TB/s). Native scale-up via 200 GbE RoCE (no proprietary NVLink-equivalent).'
+  on_chip_interconnect:
+    name: 'On-chip mesh + integrated RoCE NIC'
+    notes: 'Connects 64 clusters + 24 integrated 200 GbE NIC ports for scale-up via Ethernet. Open-fabric approach contrasts with NVIDIA NVLink lock-in.'
 memory:
   capacity_gb: { value: 128, evidence_ref: ev-gaudi3-001 }
   bandwidth_gbps: { value: 3700, evidence_ref: ev-gaudi3-001 }

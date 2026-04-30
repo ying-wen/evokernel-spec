@@ -16,6 +16,24 @@ architecture:
   compute_unit_label: XPU
   hbm_stacks: { value: 2, evidence_ref: ev-trillium-arch-001 }
   process_node_nm: { value: 5, evidence_ref: ev-trillium-arch-001 }
+  memory_hierarchy:
+    - name: 'TensorCore VMEM (vector memory)'
+      scope: per-cu
+      size_mb: { value: 16, evidence_ref: ev-trillium-arch-001 }
+      notes: '16 MB Vector Memory per TensorCore on Trillium (v6e) — single-core chip vs v5p quad-core.'
+    - name: 'CMEM (common memory)'
+      scope: global
+      size_mb: { value: 64, evidence_ref: ev-trillium-arch-001 }
+      notes: 'Common Memory; staging area between HBM and VMEM. Smaller than v5p (192 MB).'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 32768, evidence_ref: ev-trillium-001 }
+      bandwidth_tbs: { value: 1.640, evidence_ref: ev-trillium-001 }
+      notes: '2 stacks × 16 GB. Trillium (v6e) trades HBM size/bandwidth for cost — designed for inference workloads where v5p sits in training territory.'
+  on_chip_interconnect:
+    name: 'ICI router (intra-pod)'
+    bandwidth_tbs: { value: 3.2, evidence_ref: ev-trillium-001 }
+    notes: 'Lower than v5p (4.8 TB/s) — Trillium pods top out at 256 chips vs v5p 8960.'
 memory:
   capacity_gb: { value: 32, evidence_ref: ev-trillium-001 }
   bandwidth_gbps: { value: 1640, evidence_ref: ev-trillium-001 }

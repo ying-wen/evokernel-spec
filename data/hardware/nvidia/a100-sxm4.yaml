@@ -22,6 +22,40 @@ architecture:
   transistor_count_b: { value: 54, evidence_ref: ev-a100-arch-001 }
   pcie_gen: { value: 4, evidence_ref: ev-a100-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-a100-001 }
+  base_clock_mhz: { value: 1095, evidence_ref: ev-a100-arch-001 }
+  boost_clock_mhz: { value: 1410, evidence_ref: ev-a100-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-a100-arch-001 }
+      notes: '256 KB per SM × 108 SMs ≈ 27 MB total RF. Same RF size as Hopper but fewer SMs.'
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-a100-arch-001 }
+      notes: 'Configurable up to 164 KB SMEM (vs Hopper 228 KB). 108 SMs × 192 KB ≈ 20 MB total. SMEM size is the main attention-tile-size limit on Ampere vs Hopper.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 40, evidence_ref: ev-a100-arch-001 }
+      notes: 'Single-partition L2 (Hopper split it into 2× 25 MB). Smaller than Hopper L2 (40 vs 50 MB).'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 81920, evidence_ref: ev-a100-001 }
+      bandwidth_tbs: { value: 2.039, evidence_ref: ev-a100-001 }
+      notes: '5 stacks × 16 GB. HBM2e bandwidth ~60% of H100 (3.35 TB/s) — main reason A100 is much slower at decode despite same 80 GB capacity.'
+  tensor_core_specs:
+    - precision: bf16
+      ops_per_cycle: { value: 256, evidence_ref: ev-a100-arch-001 }
+      sparsity_multiplier: 2
+    - precision: fp16
+      ops_per_cycle: { value: 256, evidence_ref: ev-a100-arch-001 }
+      sparsity_multiplier: 2
+    - precision: tf32
+      ops_per_cycle: { value: 128, evidence_ref: ev-a100-arch-001 }
+      sparsity_multiplier: 2
+  on_chip_interconnect:
+    name: 'NVLink-3.0 SM ↔ L2 crossbar'
+    bandwidth_tbs: { value: 4.5, evidence_ref: ev-a100-arch-001 }
+    notes: 'Pre-Hopper crossbar; lower bandwidth than Hopper NVLink-C2C (7 TB/s on H100).'
 memory:
   capacity_gb: { value: 80, evidence_ref: ev-a100-001 }
   bandwidth_gbps: { value: 2039, evidence_ref: ev-a100-001 }

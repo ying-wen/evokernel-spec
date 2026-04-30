@@ -7,20 +7,20 @@
 [![Live](https://img.shields.io/badge/live-yingwen.io%2Fevokernel--spec-success)](https://yingwen.io/evokernel-spec/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![E2E](https://img.shields.io/badge/e2e-145_passing-success)](#)
+[![E2E](https://img.shields.io/badge/e2e-151_passing-success)](#)
 [![Unit](https://img.shields.io/badge/unit-36_passing-success)](#)
 [![Pages](https://img.shields.io/badge/pages-291-blue)](#)
 [![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
 [![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
-[![Release](https://img.shields.io/badge/release-v1.6.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.7.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ![Home](docs/screenshots/home.png)
 
 ## Highlights
 
 **📦 12 类实体 / ~185 数据条目**:
-- **39 加速卡** 跨 28 家厂商 — 含 **12 张深填 memory hierarchy** (NVIDIA H100/H200/B200/B300, AMD MI300X/MI355X, AWS Trainium 2, Cambricon MLU590, Hygon DCU Z100, MTT S4000, Ascend 910B/910C 都有 RF→SMEM→L2→Infinity-Cache→HBM 完整层级)
-- **14 服务器/超节点** — **5 个完整 cluster internals** (NVL72, GB300 NVL72, HGX H100, CloudMatrix 384, Atlas 800T A3) 含 switch-chip 详情 + 持续/峰值功耗 + cabinet 布局 markdown + **SwitchFabric SVG 拓扑可视化**
+- **39 加速卡** 跨 28 家厂商 — 含 **18 张深填 memory hierarchy (46% coverage)** (NVIDIA A100/H100/H200/B200/B300/L40s, AMD MI300X/MI325X/MI355X, Intel Gaudi 3, AWS Trainium 2, Google TPU v5p/Trillium, Cambricon MLU590, Hygon DCU Z100, MTT S4000, Ascend 910B/910C 都有 RF→SMEM→L2→Infinity-Cache→HBM 完整层级)
+- **14 服务器/超节点** — **8 个完整 cluster internals (57% coverage)** (NVL72, GB300 NVL72, HGX H100, HGX H200, CloudMatrix 384, Atlas 900 SuperPoD A2, Atlas 800T A3, Trn2 UltraServer) 含 switch-chip 详情 + 持续/峰值功耗 + cabinet 布局 markdown + **SwitchFabric SVG 拓扑可视化**
 - **19 frontier 模型**: LLM (DeepSeek V4 Pro / Kimi K2.6 / Qwen 3.6 / Llama 4 / GLM-5) + **scientific (AlphaFold 3 / GraphCast)** + 算子 FLOP/byte 拆解
 - **22 部署案例**: 含 CloudMatrix 384 超节点 / disaggregated 部署 / 9 家国产卡
 - **9 算子 + 12 fused kernels**: rich operator schema (arith intensity 分类 / fusion graph / engine impls) · FlashAttention-3 / FusedMLP / FusedRoPE / PagedAttention / Mooncake KV-disagg / DeepEP MoE / FusedAllReduce / **FusedSelectiveScan (Mamba) / FusedSpecDecode (Medusa+EAGLE) / FusedQuantizedAttention (Blackwell+ FP4) / FusedKVQuant**
