@@ -16,6 +16,20 @@ architecture:
   compute_unit_label: XPU
   hbm_stacks: { value: 2, evidence_ref: ev-inf2-arch-001 }
   process_node_nm: { value: 7, evidence_ref: ev-inf2-arch-001 }
+  memory_hierarchy:
+    - name: 'NeuronCore-v2 SBUF (per-core)'
+      scope: per-cu
+      size_mb: { value: 12, evidence_ref: ev-inf2-arch-001 }
+      notes: '12 MB SBUF per NeuronCore-v2 × 2 = 24 MB on-chip SRAM (smaller than Trainium 2''s 192 MB; Inferentia 2 is inference-only, lighter compute density).'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 32768, evidence_ref: ev-inf2-001 }
+      bandwidth_tbs: { value: 0.820, evidence_ref: ev-inf2-001 }
+      notes: '2 stacks × 16 GB. Lower bandwidth than Trainium 2 (2.9 TB/s) — Inferentia is positioned for cost-efficient batch inference, not training.'
+  on_chip_interconnect:
+    name: 'NeuronLink + intra-chip mesh'
+    bandwidth_tbs: { value: 0.384, evidence_ref: ev-inf2-001 }
+    notes: 'Connects 2 NeuronCore-v2 + extends to 12-chip Inf2 instance scale-up via inter-chip NeuronLink.'
 memory:
   capacity_gb: { value: 32, evidence_ref: ev-inf2-001 }
   bandwidth_gbps: { value: 820, evidence_ref: ev-inf2-001 }

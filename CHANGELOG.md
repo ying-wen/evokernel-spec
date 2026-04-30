@@ -11,6 +11,33 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.8.0] — 2026-05-01
+
+Continuing the data-density push. Wafer-scale and on-die-SRAM architectures now first-class in the schema.
+
+### Added
+
+**Memory hierarchy on 6 more cards** (18 → 24 deep-filled, **62% catalog coverage** up from 46%):
+- **Hygon DCU K100**: domestic CDNA-style chip. LDS 96 KB/CU (vs Z100 64 KB), L1 32 KB, L2 24 MB (6× Z100), HBM3 96 GB / 2.4 TB/s, Hygon-Link on-package
+- **AWS Inferentia 2**: NeuronCore-v2 dual SBUF — 12 MB × 2 = 24 MB on-chip SRAM (no traditional L1/L2), HBM2e 32 GB / 0.820 TB/s, NeuronLink intra-chip mesh 0.384 TB/s
+- **Intel Gaudi 2**: MME/TPC scratchpad 128 KB per cluster (smaller than Gaudi 3's 192 KB), 48 MB cache hierarchy, HBM2e 96 GB / 2.45 TB/s, 21× 100 GbE RoCE (vs Gaudi 3's 24× 200 GbE)
+- **Cerebras WSE-3** (architectural outlier): 48 KB SRAM × 900K tiles ≈ 44 GB on-wafer SRAM, **21 PB/s aggregate bandwidth (1000× HBM3)**. 2D-mesh fabric 1.5 PB/s, 30 ns/hop. "Memory IS compute" paradigm — no external HBM, no DRAM
+- **Groq LPU** (architectural outlier): 230 MB on-die SRAM / 80 TB/s, **no HBM, no DRAM**. TSP (Tensor Streaming Processor) on-chip mesh, 5120 PEs deterministic execution
+- **Huawei Ascend 950**: Da Vinci 4.0 — L0 384 KB (50% bigger than 910C's 256 KB), UB 768 KB (50% bigger), L2 256 MB (vs 910C's 192 MB), HBM3e 256 GB / 6.4 TB/s (2× 910C), HCCS-C2C v2 3.0 TB/s
+
+**Cluster internals on 4 more super-pods** (8 → 12 with SwitchFabric SVG, **86% coverage**):
+- **NVIDIA DGX A100 8-GPU**: 6× NVSwitch Gen-2 (radix 36, 25 GB/s/port — vs Gen-3 64/50), 8× ConnectX-6 (200 Gb/s IB-HDR), bisection 4.8 TB/s (vs HGX H100 7.2 TB/s — 50% slower fabric). Ampere-era reference platform
+- **HPE Cray EX255a (MI300A APU)**: 4× MI300A APUs per blade with HPE Slingshot 11 (radix 64, 25 GB/s/port), bisection 1.6 TB/s, 24/30 kW liquid-cooled. **El Capitan supercomputer** (~11000 blades, ~44000 MI300A — world's largest AMD scale-out, > 2 ExaFLOPS at LLNL)
+- **AMD MI325X Platform 8-OAM**: Infinity Fabric P2P **fully-connected mesh** (no central switch — every GPU directly connected to other 7), UBB 2.0 OAM standard. Topology contrast with NVL/HGX NVSwitch crossbar. RoCE v2 400G scale-out
+- **Cambricon 思元 590 集群 (16-node pod)**: 16 × 8-card = 128 MLU590. MLU-Link-v2 switch × 16 (radix 8, 50 GB/s/port intra-node), 200 GbE RoCE inter-node 2:1 oversubscribed (typical enterprise budget tradeoff)
+
+### Stats
+- 158/158 site E2E pass (+7 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 22, fused-kernel: 12
+- Build: 291 pages
+
+---
+
 ## [1.7.0] — 2026-04-30
 
 Continuing the data-density push. Coverage dashboard makes the long tail visible to contributors.

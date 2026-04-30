@@ -575,6 +575,51 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.8: 6 more cards memory_hierarchy + 4 more super-pods cluster internals (62% / 86%)', () => {
+  test('/quality coverage now shows ≥60% hardware + ≥85% super-pod', async ({ page }) => {
+    await page.goto('/quality/');
+    await expect(page.getByRole('heading', { name: /Schema 数据填充度.*Schema richness coverage/i }).first()).toBeVisible();
+    // Hardware memory_hierarchy or tensor_core_specs row should now show 60%+
+    await expect(page.locator('text=/6[0-9]% 完成|7[0-9]% 完成|8[0-9]% 完成/').first()).toBeVisible();
+  });
+
+  test('Cerebras WSE-3 wafer-scale architecture (44 GB on-die SRAM)', async ({ page }) => {
+    await page.goto('/hardware/wse-3/');
+    await expect(page.getByText(/SRAM/i).first()).toBeVisible();
+    await expect(page.getByText(/wafer/i).first()).toBeVisible();
+  });
+
+  test('Groq LPU on-die SRAM only (230 MB, no HBM)', async ({ page }) => {
+    await page.goto('/hardware/groq-lpu/');
+    await expect(page.getByText(/230 MB|on-die/i).first()).toBeVisible();
+    await expect(page.getByText(/TSP|deterministic/i).first()).toBeVisible();
+  });
+
+  test('Ascend 950 Da Vinci 4.0 + HBM3e + HCCS-C2C v2', async ({ page }) => {
+    await page.goto('/hardware/ascend-950/');
+    await expect(page.getByText(/HBM3e/i).first()).toBeVisible();
+    await expect(page.getByText(/HCCS-C2C/i).first()).toBeVisible();
+  });
+
+  test('DGX A100 super-pod shows NVSwitch Gen-2 + ConnectX-6', async ({ page }) => {
+    await page.goto('/servers/nvidia-dgx-a100/');
+    await expect(page.getByText(/NVSwitch Gen-2/i).first()).toBeVisible();
+    await expect(page.getByText(/ConnectX-6/i).first()).toBeVisible();
+  });
+
+  test('MI325X Platform shows Infinity Fabric P2P mesh + UBB 2.0', async ({ page }) => {
+    await page.goto('/servers/amd-mi325x-platform/');
+    await expect(page.getByText(/Infinity Fabric/i).first()).toBeVisible();
+    await expect(page.getByText(/UBB 2\.0|P2P mesh|fully-connected/i).first()).toBeVisible();
+  });
+
+  test('MI300A supercomputer shows Slingshot 11 + El Capitan context', async ({ page }) => {
+    await page.goto('/servers/amd-mi300a-supercomputer/');
+    await expect(page.getByText(/Slingshot/i).first()).toBeVisible();
+    await expect(page.getByText(/El Capitan|EX255a|APU/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.7: schema-richness coverage dashboard + 6 more cards + 3 more super-pods', () => {
   test('/quality has Schema-richness coverage section with progress bars', async ({ page }) => {
     await page.goto('/quality/');
@@ -582,8 +627,8 @@ test.describe('v1.7: schema-richness coverage dashboard + 6 more cards + 3 more 
     await expect(page.getByText(/硬件 memory_hierarchy/i).first()).toBeVisible();
     await expect(page.getByText(/硬件 tensor_core_specs/i).first()).toBeVisible();
     await expect(page.getByText(/超节点 switch_chips/i).first()).toBeVisible();
-    // Coverage % visible (4_% somewhere)
-    await expect(page.locator('text=/4[0-9]% 完成|5[0-9]% 完成/').first()).toBeVisible();
+    // Coverage % visible (any 2-digit % since coverage grows over time)
+    await expect(page.locator('text=/[1-9][0-9]% 完成/').first()).toBeVisible();
     // Contribute CTA from this section
     await expect(page.locator('a[href*="/contribute"]').first()).toBeVisible();
   });

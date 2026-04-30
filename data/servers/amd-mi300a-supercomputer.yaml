@@ -12,6 +12,37 @@ rack_power_kw: 30
 total_memory_gb: 512
 total_compute_pflops_bf16: 3.92
 release_year: 2024
+
+# v1.8: cluster internals — HPE Cray EX255a blade with 4× MI300A APUs.
+# El Capitan 超算的 building block; 与传统 HGX/NVL 不同, MI300A 是
+# CPU+GPU coherent APU, scale-up 通过 Slingshot 而非 NVLink.
+switch_chips:
+  - name: 'HPE Slingshot 11 Switch'
+    count: 1
+    radix: 64
+    bandwidth_gbps_per_port: 25
+    url: https://www.hpe.com/us/en/compute/hpc/slingshot-interconnect.html
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 4
+scale_out_bandwidth_gbps_per_nic: 25
+bisection_bandwidth_tbs:
+  value: 1.6
+  evidence_ref: ev-mi300a-srv-001
+power_distribution:
+  psu_count: 8
+  redundancy: N+N
+  sustained_kw: 24
+  peak_kw: 30
+  voltage: '480V 3-phase'
+cabinet_layout_md: |
+  ## HPE Cray EX255a 节点布局 / Blade layout
+
+  - **4× MI300A APU** (each: 24 Zen-4 CPU cores + 228 CDNA 3 CUs + unified 128 GB HBM3) per blade
+  - **MI300A 的特殊之处**: APU 设计意味着 CPU 和 GPU 共享 HBM3, 没有 PCIe transfer 开销; 4 个 APU 通过 Infinity Fabric coherent 互联. 与 HGX H100 (8 GPU + 独立 host CPU) 是完全不同范式.
+  - **Slingshot 11 互联**: 25 GB/s/port, radix 64. 单 blade bisection 约 1.6 TB/s. 用于 El Capitan 超算 (LLNL, > 2 ExaFLOPS).
+  - **液冷**: 24 kW 持续 / 30 kW 峰值. 高 TDP (760 W/APU × 4 = 3 kW compute + Zen-4 CPUs).
+  - **El Capitan 系统规模**: ~11000 个 EX255a blade, ~44000 个 MI300A — 当前世界最大 AMD scale-out 部署.
+
 evidence:
   - id: ev-mi300a-srv-001
     tier: official

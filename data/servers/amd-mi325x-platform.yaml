@@ -12,6 +12,37 @@ rack_power_kw: 13
 total_memory_gb: 2048
 total_compute_pflops_bf16: 10.5
 release_year: 2024
+
+# v1.8: cluster internals — AMD MI325X Platform 是 Universal Baseboard
+# (UBB 2.0 OAM) 8-card reference design. Infinity Fabric 全连接 P2P 拓扑
+# (无中心 switch chip — 每 GPU 直连其他 7 张). 与 NVL/HGX 集中 NVSwitch 拓扑相反.
+switch_chips:
+  - name: 'Infinity Fabric P2P mesh (no central switch)'
+    count: 1
+    radix: 7
+    bandwidth_gbps_per_port: 128
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi325x.html
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 8
+scale_out_bandwidth_gbps_per_nic: 50
+bisection_bandwidth_tbs:
+  value: 7.2
+  evidence_ref: ev-mi325plat-001
+power_distribution:
+  psu_count: 6
+  redundancy: N+1
+  sustained_kw: 11
+  peak_kw: 13
+  voltage: '240V'
+cabinet_layout_md: |
+  ## AMD MI325X 8-OAM Platform 布局 / Baseboard layout
+
+  - **8× MI325X OAM** 在 UBB 2.0 (Open Compute Project Universal Baseboard) 上
+  - **AMD 与 NVIDIA 拓扑差异**: NVL/HGX 用 NVSwitch 集中式拓扑 (8 GPU all-to-all 走 NVSwitch); MI325X Platform 用 Infinity Fabric **fully-connected mesh** (每 GPU 直连其他 7 张), 无中心 switch chip. 部署更简单, fabric 故障域更小, 但单卡-到-单卡 bandwidth (128 GB/s) 比 NVL5 (1800 GB/s/cards-pair) 低.
+  - **vs MI300X Platform**: 同 8-OAM 设计, 单卡 HBM 升 192 → 256 GB. 总显存 2 TB.
+  - **8× 400 GbE NIC**: scale-out 走 RoCE v2 (Open Fabric, 与 Gaudi 类似 — AMD 也避开 NVLink lock-in).
+  - **风冷**: 11 kW 持续 / 13 kW 峰值. UBB 2.0 标准 4U 机箱.
+
 evidence:
   - id: ev-mi325plat-001
     tier: official

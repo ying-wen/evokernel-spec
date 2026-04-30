@@ -18,6 +18,27 @@ architecture:
   process_node_nm: { value: 6, evidence_ref: ev-dcuk100-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-dcuk100-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-dcuk100-001 }
+  memory_hierarchy:
+    - name: 'LDS (Local Data Share)'
+      scope: per-cu
+      size_kb: { value: 96, evidence_ref: ev-dcuk100-arch-001 }
+      notes: '深算二号 (K100) bumps LDS to 96 KB per CU vs 64 KB on Z100. 96 CUs ⇒ ~9 MB total. Closer parity with NV/AMD than Z100.'
+    - name: 'L1 vector cache'
+      scope: per-cu
+      size_kb: { value: 32, evidence_ref: ev-dcuk100-arch-001 }
+      notes: 'per-CU L1; ~3 MB total.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 24, evidence_ref: ev-dcuk100-arch-001 }
+      notes: 'Bumped from 4 MB on Z100 to 24 MB; closer to AMD CDNA 3 L2 design.'
+    - name: 'HBM3'
+      scope: global
+      size_mb: { value: 98304, evidence_ref: ev-dcuk100-001 }
+      bandwidth_tbs: { value: 2.4, evidence_ref: ev-dcuk100-001 }
+      notes: '6 stacks × 16 GB. SMIC 6nm-class fabrication. Major upgrade from Z100 (HBM2e 1.024 TB/s) — 2.3× bandwidth.'
+  on_chip_interconnect:
+    name: 'Hygon-Link on-chip mesh'
+    notes: 'Connects 96 CUs to L2; partial vendor disclosure.'
 memory:
   capacity_gb: { value: 96, evidence_ref: ev-dcuk100-001 }
   bandwidth_gbps: { value: 2400, evidence_ref: ev-dcuk100-001 }

@@ -12,6 +12,38 @@ rack_power_kw: 60
 total_memory_gb: 8192
 total_compute_pflops_bf16: 32.768
 release_year: 2024
+
+# v1.8: cluster internals — 思元 590 production cluster blueprint.
+# 16 节点 × 8 卡 = 128 MLU590; 节点内 MLU-Link-v2, 跨节点 RoCE v2 200G.
+# 大部分参数从 product brief 估算 (Cambricon 较少公开 fabric 细节).
+switch_chips:
+  - name: 'MLU-Link-v2 Switch (intra-node)'
+    count: 16
+    radix: 8
+    bandwidth_gbps_per_port: 50
+    url: https://www.cambricon.com/
+  - name: '200 GbE RoCE NIC (inter-node)'
+    count: 64
+    radix: 4
+    bandwidth_gbps_per_port: 25
+oversubscription_ratio: 2.0
+scale_out_nics_per_node: 4
+scale_out_bandwidth_gbps_per_nic: 25
+power_distribution:
+  psu_count: 12
+  redundancy: N+1
+  sustained_kw: 48
+  peak_kw: 60
+  voltage: '380V 3-phase'
+cabinet_layout_md: |
+  ## 思元 590 集群布局 / 16-node pod layout
+
+  - **16 节点 × 8 卡 = 128× MLU590**, 跨多机柜部署
+  - **节点内 MLU-Link-v2**: 16× switch (radix 8, 50 GB/s/port). scale-up 域只到 8 卡 — 跨节点必须走 RoCE.
+  - **节点间 RoCE v2 200G**: 64× 200 GbE NIC (4/节点). 2:1 oversubscribed (典型 enterprise 部署预算 trade-off).
+  - **vs CloudMatrix 384**: 思元 590 集群是 enterprise multi-node 设计 (scale-up 域 8 卡, 跨节点 RoCE); CloudMatrix 384 是 hyperscale super-pod (scale-up 域 384 卡, 全光纤 fabric). 设计哲学不同.
+  - **冷却**: 48 kW 持续 / 60 kW 峰值, 全部液冷.
+
 chinese_names: ['思元590集群']
 evidence:
   - id: ev-mlu590pod-001

@@ -19,6 +19,15 @@ architecture:
   pcie_gen: { value: 4, evidence_ref: ev-groq-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-groq-001 }
   deterministic_latency: true
+  memory_hierarchy:
+    - name: 'On-die SRAM (chip-wide)'
+      scope: global
+      size_mb: { value: 230, evidence_ref: ev-groq-001 }
+      bandwidth_tbs: { value: 80, evidence_ref: ev-groq-001 }
+      notes: 'The entire 230 MB on-die SRAM IS the memory — no HBM, no external DRAM. 80 TB/s aggregate bandwidth. 5120 PEs each access SRAM at ~16 GB/s peer.'
+  on_chip_interconnect:
+    name: 'TSP (Tensor Streaming Processor) on-chip mesh'
+    notes: '5120 PEs in a streaming dataflow architecture; deterministic execution (no cache misses, no scheduling) means latency is fully predictable — main differentiator vs GPUs.'
 memory:
   capacity_gb: { value: 0.23, evidence_ref: ev-groq-001 }
   bandwidth_gbps: { value: 80000, evidence_ref: ev-groq-001 }

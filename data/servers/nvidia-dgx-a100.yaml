@@ -12,6 +12,41 @@ rack_power_kw: 6.5
 total_memory_gb: 640
 total_compute_pflops_bf16: 2.5
 release_year: 2020
+
+# v1.8: cluster internals — DGX A100 是 Ampere 时代的 reference platform.
+# NVSwitch Gen-2 + ConnectX-6 NICs (200 Gb/s).
+switch_chips:
+  - name: 'NVSwitch Gen-2'
+    count: 6
+    radix: 36
+    bandwidth_gbps_per_port: 25
+    url: https://www.nvidia.com/en-us/data-center/dgx-a100/
+  - name: 'ConnectX-6 NIC'
+    count: 8
+    radix: 1
+    bandwidth_gbps_per_port: 25
+    url: https://www.nvidia.com/en-us/networking/ethernet-adapters/
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 8
+scale_out_bandwidth_gbps_per_nic: 25
+bisection_bandwidth_tbs:
+  value: 4.8
+  evidence_ref: ev-dgxa100-001
+power_distribution:
+  psu_count: 6
+  redundancy: N+1
+  sustained_kw: 5.5
+  peak_kw: 6.5
+  voltage: '208V'
+cabinet_layout_md: |
+  ## DGX A100 8-GPU 机箱布局 / Chassis layout
+
+  - **8× A100 SXM4** baseboard, 6× NVSwitch Gen-2 互联
+  - **NVSwitch Gen-2 vs Gen-3**: radix 36 (vs Gen-3 64), 端口 25 GB/s (vs 50). DGX A100 bisection 4.8 TB/s (vs HGX H100 7.2 TB/s — 50% slower fabric).
+  - **8× ConnectX-6**: scale-out 走 IB-HDR (200 Gb/s, 25 GB/s/NIC); 总 200 GB/s 至 cluster fabric.
+  - **风冷**: 5.5 kW 持续 / 6.5 kW 峰值. 典型 4U 机箱.
+  - **历史地位**: Ampere 时代标杆系统, 配合 NGC software stack 大规模部署. 现已被 HGX H100/H200/B200/GB200 superseded.
+
 evidence:
   - id: ev-dgxa100-001
     tier: official

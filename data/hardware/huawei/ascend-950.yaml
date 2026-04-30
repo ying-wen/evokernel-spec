@@ -18,6 +18,28 @@ architecture:
   l2_cache_mb: { value: 256, evidence_ref: ev-asc950-arch }
   hbm_stacks: { value: 8, evidence_ref: ev-asc950-arch }
   process_node_nm: { value: 5, evidence_ref: ev-asc950-arch }
+  memory_hierarchy:
+    - name: 'L0 Buffer (per AI Core)'
+      scope: per-cu
+      size_kb: { value: 384, evidence_ref: ev-asc950-arch }
+      notes: 'Da Vinci 4.0 cube unit-local L0 (50% bigger than 910C''s 256 KB). 96 AI Cores × 384 KB ≈ 36 MB total.'
+    - name: 'L1 Buffer (UB / Unified Buffer)'
+      scope: per-cu
+      size_kb: { value: 768, evidence_ref: ev-asc950-arch }
+      notes: 'Per-AI-Core unified buffer (50% bigger than 910C''s 512 KB). Larger UB lets Ascend 950 fit bigger attention tiles in scratchpad.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 256, evidence_ref: ev-asc950-arch }
+      notes: 'Chip-wide L2 — much bigger than 910C''s 192 MB. Brings cache hierarchy closer to AMD Infinity Cache scale (256 MB on MI300X).'
+    - name: 'HBM3e'
+      scope: global
+      size_mb: { value: 262144, evidence_ref: ev-asc950-001 }
+      bandwidth_tbs: { value: 6.4, evidence_ref: ev-asc950-001 }
+      notes: '8 stacks × 32 GB ⇒ 256 GB. 2× capacity and bandwidth of 910C (128 GB / 3.2 TB/s). Closer to NVIDIA H200 (141 GB / 4.8 TB/s) and AMD MI355X (288 GB / 8 TB/s).'
+  on_chip_interconnect:
+    name: 'HCCS-C2C v2 (intra-package)'
+    bandwidth_tbs: { value: 3.0, evidence_ref: ev-asc950-arch }
+    notes: 'Dual-die package HCCS-C2C bandwidth doubled from 910C''s 1.5 TB/s. Critical for keeping single-package latency low at 96-core count.'
 memory:
   capacity_gb: { value: 256, evidence_ref: ev-asc950-001 }
   bandwidth_gbps: { value: 6400, evidence_ref: ev-asc950-001 }
