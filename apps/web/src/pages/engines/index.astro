@@ -4,9 +4,27 @@ import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getEngines } from '~/lib/data';
+import { getEngines, getVendors, getResolvedHardware } from '~/lib/data';
 
 const engines = (await getEngines()).sort((a, b) => a.id.localeCompare(b.id));
+const vendors = await getVendors();
+const hardware = await getResolvedHardware();
+
+// Build engine × vendor compatibility matrix — answers the cross-cutting
+// question: "which engine supports which hardware family?"
+const vendorOrder = [
+  'nvidia', 'amd', 'huawei', 'google', 'aws', 'intel',
+  'cambricon', 'hygon', 'moore-threads', 'biren', 'metax', 'iluvatar',
+  'enflame', 'tenstorrent', 'cerebras', 'groq', 'sambanova',
+  'apple', 'etched', 'pingtouge'
+].filter((v) => vendors.some((vd) => vd.id === v));
+
+const vendorLabel = new Map(vendors.map((v) => [v.id, v.name]));
+const cardsByVendor = new Map<string, number>();
+for (const hw of hardware) {
+  const vid = hw.vendor.id;
+  cardsByVendor.set(vid, (cardsByVendor.get(vid) ?? 0) + 1);
+}
 ---
 <BaseLayout title="推理引擎">
   <Container>
@@ -28,6 +46,54 @@ const engines = (await getEngines()).sort((a, b) => a.id.localeCompare(b.id));
           </a>
         ))}
       </div>
+    </section>
+
+    {/* v1.15: Engine × Vendor compatibility matrix — cross-cutting view */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🔌 引擎 × 硬件厂商兼容矩阵</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        每行一个引擎, 每列一个硬件厂商. ✓ = 引擎官方支持该厂商硬件; 数字 = 该厂商在 corpus 中的卡数. 这是
+        "我有 hardware X, 哪些引擎能用?" 的最快查表入口.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 120px;">引擎 ↓ × 厂商 →</th>
+              {vendorOrder.map((v) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 60px;">
+                  <div style="font-size: 0.7rem; color: var(--color-text);">{vendorLabel.get(v)?.split(' ')[0] ?? v}</div>
+                  <div style="font-size: 0.65rem; color: var(--color-text-muted);">{cardsByVendor.get(v) ?? 0} 卡</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {engines.map((e) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                  <a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-accent); font-weight: 500;">{e.name}</a>
+                </td>
+                {vendorOrder.map((v) => {
+                  const supported = e.supported_hardware_vendors.includes(v);
+                  return (
+                    <td class="p-2 text-center" style="vertical-align: middle;">
+                      {supported ? (
+                        <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; background: var(--color-accent); color: white; border-radius: 4px; font-weight: 600;">✓</span>
+                      ) : (
+                        <span style="color: color-mix(in oklch, var(--color-text-muted) 50%, transparent);">·</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+        Note: 兼容并不等于 perf 同等 — vLLM 在 NVIDIA 上 100% feature parity, 在 AMD/Intel 上 ~80%, 在 NPU 上 community fork. 详细看 engine 详情.
+      </p>
     </section>
   </Container>
 </BaseLayout>

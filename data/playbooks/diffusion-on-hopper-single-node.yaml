@@ -1,0 +1,85 @@
+id: diffusion-on-hopper-single-node
+name: Diffusion 模型在 Hopper 单节点部署 (FLUX.1 / SD3.5 / SDXL on H100/H200 SXM)
+model_archetype: diffusion
+hardware_class: hopper-single-node
+workload_profile: [low-latency-chat, streaming-decode]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: Diffusion 图像生成模型 (FLUX.1 12B, Stable Diffusion 3.5 / 3.5-Large 8B,
+  SDXL, Lumina, PixArt) 部署到 H100/H200 SXM 单节点 (1-8 卡). Diffusion 与 LLM
+  完全不同的部署轮廓 — 没有 KV cache, 但 multi-step iterative denoising 是关键路径.
+
+  **不适合**: 视频 diffusion (走 long-context-vision playbook); 训练 (本 playbook 只推理);
+  端侧 (走 dense-llm-small × edge playbook + diffusion-specific 量化).
+
+  ## 核心配方与 LLM 的差异
+
+  1. **TP=1 单卡 / TP=2-4 多卡**: 单 image 生成不像 LLM 那样需要 EP/PP. 多卡主要为 batch.
+  2. **FP8 / FP16 mixed-precision**: 常见 weight FP8 + activation FP16 + sampler FP32 (sampler
+     精度敏感). FLUX FP8 对 quality 影响比 SD 1.5 大, 需 task eval.
+  3. **Step caching / FlashAttn-3**: Diffusion attention map 在 step 间相似 → step caching 收益 30-50%
+  4. **TensorRT-LLM 不适用**: TRT-LLM 是 LLM-specific, diffusion 走 ComfyUI / Diffusers / TensorRT diffusion plugin
+  5. **Compile graph capture**: torch.compile 对 diffusion latency 收益巨大 — UNet/DiT graph 静态化, 1.5-2x
+
+recipe:
+  parallelism:
+    tp: '1 (单卡 batch=1) or 2-4 (多卡 batch>1)'
+    ep: '0'
+    pp: '1'
+    sp: '0'
+    notes: 'Diffusion 单 image 不分布; 多卡 = batch parallelism. ComfyUI 路径默认单 GPU per worker.'
+    disaggregated: false
+  quantization: fp8-e4m3
+  engine_primary: diffusers
+  engine_alternates: [comfyui, tensorrt-diffusion, sgm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+  patterns:
+    - flashattention-v3
+    - prefix-caching
+  expected_perf:
+    decode_tok_s_per_gpu_min: 0
+    decode_tok_s_per_gpu_max: 0
+    prefill_throughput_min: 0
+    prefill_throughput_max: 0
+    ttft_ms_p50_min: 1500
+    ttft_ms_p50_max: 8000
+    cost_per_million_tokens_usd_min: 0.0
+    cost_per_million_tokens_usd_max: 0.0
+    notes: 'Diffusion 不用 token/s 指标 — TTFT 是 image 生成总耗时. FLUX.1 dev 28-step 1024x1024 on H100 ~3.5s; H200 ~2.8s; B200 ~1.5s. Cost 按 image-sec 计费 ($0.001-0.01/image typical).'
+
+decision_points:
+  - scale: '1 GPU H100 (单卡 1024x1024 image)'
+    guidance: 'TP=1 + FP8. FLUX.1 dev 12B FP8 ~3.5s/image (28 step). 适合 < 10 QPS 服务.'
+  - scale: '4 GPU H100 (batch parallelism)'
+    guidance: 'TP=1 per worker × 4 workers, ComfyUI router. 40 QPS image generation. SDXL 路径同.'
+  - scale: '8 GPU H200 (高吞吐 image batch)'
+    guidance: 'TP=1 × 8 workers. HBM 141 GB/卡让 high-resolution (2048x2048) 装得下. 100+ QPS production.'
+
+not_for:
+  - 'Video diffusion (Sora-class / Mochi / CogVideo — 走 long-context-vision playbook)'
+  - 'LLM (本 playbook 不适用; 走 dense-llm-medium playbook)'
+  - 'Edge / 端侧 (FLUX.1 12B 在 RTX 4090 走 INT4-AWQ; 走 dense-llm-small × edge playbook 类似)'
+  - '训练 fine-tune (本 playbook 仅推理; LoRA 训练完全不同 stack)'
+
+related_cases: []
+
+affects_stages: [acquire, quantize, compile, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-diffusion-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://huggingface.co/docs/diffusers/v0.31.0/optimization/fp16
+    accessed: '2026-04-30'
+    citation: 'Synthesized from FLUX.1 / SD 3.5 / SDXL launch reports + Diffusers benchmark dashboard + community ComfyUI benchmarks.'
+
+disclaimers:
+  - 'Diffusion 不用 token/s — image-sec 是主要指标. cost_per_million_tokens fields 留 0.0 不适用.'
+  - 'FP8 on diffusion 对 quality 影响比 LLM 大; 部署前 task-specific eval 必做'
+  - 'Step count (10/20/28/50) 是 latency vs quality trade-off — production 通常 28 step'

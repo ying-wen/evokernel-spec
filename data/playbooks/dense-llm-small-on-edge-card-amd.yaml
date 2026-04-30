@@ -1,0 +1,86 @@
+id: dense-llm-small-on-cdna3-single-node
+name: Dense 小模型在 AMD CDNA-3 单节点部署 (Llama 3 8B / Qwen 2.5 7B / Phi 4 on MI300X / MI325X 单卡 / 半节点)
+model_archetype: dense-llm-small
+hardware_class: cdna3-single-node
+workload_profile: [low-latency-chat, cost-optimized, streaming-decode]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 1B-13B dense 小模型部署到单张 AMD MI300X 或 1/2 节点 (4 卡). 单卡 192 GB HBM
+  让 13B BF16 + 长 context KV 都装下, 完全不需要 quant. 与 H100 80 GB 形成鲜明对比 —
+  AMD HBM 容量优势在小模型上同样适用 (虽然不是关键卖点).
+
+  **不适合**: 极致成本敏感 (RTX 4090 / Apple Silicon 走 edge-single-card playbook 更便宜);
+  生产高吞吐 (单卡 throughput 不如 8 卡 H100/MI300X bull deployment); 无 ROCm 工程能力的团队.
+
+  ## 核心配方
+
+  1. **TP=1 单卡**: 192 GB HBM × 1 让 7B-13B BF16 + 32K KV 余量足
+  2. **BF16 优先**: HBM 充裕避开 FP8 calibration; INT8 KV 仅在长 context 必要
+  3. **vLLM ROCm**: 与 NVIDIA stack 体验差异约 80% feature parity, 主流功能可用
+  4. **MI325X 升级 256 GB HBM3e**: 让 30B+ dense 也能装下单卡
+  5. **PCIe Gen 5 host**: MI300X PCIe5 让单卡 throughput 不被 host I/O 限制
+
+recipe:
+  parallelism:
+    tp: '1 (单卡) or 4 (1/2 节点 13B+)'
+    ep: '0 (dense)'
+    pp: '1'
+    sp: '0'
+    notes: '单卡 7B-13B 是 sweet spot; 30B+ 走 TP=4 半节点'
+    disaggregated: false
+  quantization: bf16
+  engine_primary: vllm
+  engine_alternates: [sglang, lmdeploy]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - flashattention-v3
+    - prefix-caching
+    - paged-attention
+    - continuous-batching
+  expected_perf:
+    decode_tok_s_per_gpu_min: 380
+    decode_tok_s_per_gpu_max: 950
+    prefill_throughput_min: 4500
+    prefill_throughput_max: 14000
+    ttft_ms_p50_min: 50
+    ttft_ms_p50_max: 200
+    cost_per_million_tokens_usd_min: 0.10
+    cost_per_million_tokens_usd_max: 0.30
+    notes: 'Llama 3 8B BF16 on 1× MI300X ~520 tok/s; Qwen 2.5 7B ~580. 单卡 $/token 比 H100 单卡低 20-30%.'
+
+decision_points:
+  - scale: '1 GPU MI300X (单卡 7B-13B)'
+    guidance: 'TP=1 + BF16. 192 GB HBM 让 13B + 长 KV 都装下, 不需要 quant. 部署门槛最低.'
+  - scale: '1 GPU MI325X (256 GB HBM3e, 30B 余量大)'
+    guidance: 'TP=1 + BF16. 30B 模型在 MI325X 单卡可行 (vs MI300X 紧).'
+  - scale: '4 GPU MI300X (1/2 节点, 30B 高吞吐)'
+    guidance: 'TP=4 + BF16: 30B-40B 模型. 比 1 卡多 4x throughput, 但 8 OAM 系统拆 4 卡可能不经济.'
+
+not_for:
+  - 'NVIDIA-only 工具链 (TensorRT-LLM 不可用)'
+  - '极致 cost-effective (走 edge-single-card 走 RTX 4090 / Apple Silicon)'
+  - 'Production 高吞吐生产 (走 dense-llm-medium × cdna3-single-node 8 OAM)'
+  - 'MoE 模型 (走 moe-llm-medium 路径)'
+
+related_cases: []
+
+affects_stages: [acquire, quantize, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-dense-cdna3-small-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://docs.vllm.ai/en/latest/getting_started/amd-installation.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from AMD MI300X benchmarks + vLLM ROCm docs for 7B-13B model deployment. AMD edge / single-card deployment uncommon vs NVIDIA but possible.'
+
+disclaimers:
+  - 'AMD MI300X 单卡部署小模型不是 cost-optimal — H100 单卡 + INT4 / 消费级 GPU 可能更划算'
+  - 'ROCm 软件栈在 7B-13B 范围 feature parity 高; 长尾问题 < 30B 模型上较少'

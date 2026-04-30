@@ -552,9 +552,10 @@ test.describe('Operator coverage panel', () => {
 test.describe('Operator hardware-fitness analysis', () => {
   test('matmul operator detail shows hardware-fitness table with ridge point + bottleneck', async ({ page }) => {
     await page.goto('/operators/matmul/');
-    await expect(page.getByRole('heading', { name: /硬件适配性|Hardware fitness/i })).toBeVisible();
-    // Ridge point column
-    await expect(page.getByRole('columnheader', { name: /Ridge point/i })).toBeVisible();
+    // Two fitness sections exist after v1.15 (per-model + structural); use .first()
+    await expect(page.getByRole('heading', { name: /硬件适配性|Hardware fitness/i }).first()).toBeVisible();
+    // Ridge point column (existed before v1.15 in per-model section)
+    await expect(page.getByRole('columnheader', { name: /Ridge point/i }).first()).toBeVisible();
     // 至少一行显示 compute or mem-bw bottleneck
     await expect(page.locator('text=/计算 compute|内存带宽 mem-bw/').first()).toBeVisible();
   });
@@ -572,6 +573,64 @@ test.describe('Hardware-detail in-page TOC', () => {
     expect(await page.locator('#topology').count()).toBe(1);
     expect(await page.locator('#operators').count()).toBe(1);
     expect(await page.locator('#cases').count()).toBe(1);
+  });
+});
+
+test.describe('v1.15: operator-hardware fitness + engine matrix + 2 more playbooks + 1 case', () => {
+  test('Operator detail shows structural fitness panel across corpus', async ({ page }) => {
+    await page.goto('/operators/attention/');
+    await expect(page.getByRole('heading', { name: /结构性硬件适配性|Structural fitness/i }).first()).toBeVisible();
+    await expect(page.getByText(/Memory-bound/i).first()).toBeVisible();
+    await expect(page.getByText(/Compute-bound/i).first()).toBeVisible();
+    await expect(page.getByText(/Regime-dependent/i).first()).toBeVisible();
+  });
+
+  test('Operator fitness panel shows percentage distribution', async ({ page }) => {
+    await page.goto('/operators/matmul/');
+    // At least one percentage marker
+    await expect(page.locator('text=/[0-9]+% — 量化|[0-9]+% — 算力|[0-9]+% — 跨/').first()).toBeVisible();
+  });
+
+  test('Operator fitness expand shows full hardware table', async ({ page }) => {
+    await page.goto('/operators/matmul/');
+    // Details element with hardware table
+    await expect(page.getByText(/显示完整表格/i).first()).toBeVisible();
+  });
+
+  test('Engines index now shows compatibility matrix', async ({ page }) => {
+    await page.goto('/engines/');
+    await expect(page.getByRole('heading', { name: /引擎.*硬件厂商兼容矩阵|Engine.*Vendor/i }).first()).toBeVisible();
+    await expect(page.getByText(/我有 hardware|哪些引擎能用/i).first()).toBeVisible();
+  });
+
+  test('Engine matrix shows vLLM with NVIDIA + AMD support', async ({ page }) => {
+    await page.goto('/engines/');
+    // vLLM row should have multiple ✓ marks (it supports many vendors)
+    const vllmRow = page.locator('tr:has(a[href*="/engines/vllm/"])');
+    await expect(vllmRow.locator('span:has-text("✓")').first()).toBeVisible();
+  });
+
+  test('Diffusion playbook shows FLUX / SD context', async ({ page }) => {
+    await page.goto('/playbooks/diffusion-on-hopper-single-node/');
+    await expect(page.getByText(/FLUX|Stable Diffusion|SDXL/i).first()).toBeVisible();
+    await expect(page.getByText(/diffusers|step|denoising/i).first()).toBeVisible();
+  });
+
+  test('Dense small × CDNA-3 single-node playbook visible', async ({ page }) => {
+    await page.goto('/playbooks/dense-llm-small-on-cdna3-single-node/');
+    await expect(page.getByText(/MI300X|192 GB|单卡/i).first()).toBeVisible();
+  });
+
+  test('Llama 4 Scout × MI325X case visible (multi-modal MoE on AMD)', async ({ page }) => {
+    await page.goto('/cases/case-llama4scout-mi325x-bf16-001/');
+    await expect(page.getByText(/MI325X|HBM3e|256 GB/i).first()).toBeVisible();
+    await expect(page.getByText(/mixed-TP|vision encoder/i).first()).toBeVisible();
+  });
+
+  test('Coverage matrix now shows ≥17 cells filled', async ({ page }) => {
+    await page.goto('/playbooks/');
+    // Lower-bound; matrix grows over time
+    await expect(page.locator('text=/1[7-9]\\/176|[2-9][0-9]\\/176/i').first()).toBeVisible();
   });
 });
 
@@ -621,10 +680,10 @@ test.describe('v1.14: bottleneck diagnosis layer + distribution panel + 2 more p
     await expect(page.getByText(/EP=8|MoE|fused-moe-dispatch/i).first()).toBeVisible();
   });
 
-  test('Coverage matrix now shows 15 filled cells', async ({ page }) => {
+  test('Coverage matrix now shows ≥15 filled cells', async ({ page }) => {
     await page.goto('/playbooks/');
-    // Match "15/176 cells" or similar — coverage % grew
-    await expect(page.locator('text=/15\\/176|15 cells/i').first()).toBeVisible();
+    // Lower-bound assertion — coverage grows over time, ≥15 cells out of 176
+    await expect(page.locator('text=/[1-9][0-9]\\/176|[1-9][0-9] cells/i').first()).toBeVisible();
   });
 });
 

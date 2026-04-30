@@ -11,6 +11,38 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.15.0] — 2026-05-01
+
+**Operator-hardware fitness layer + engine compatibility matrix.** Cross-cutting structural views — answering questions that previously required browsing N pages.
+
+### Added
+
+**Structural fitness panel on operator detail pages**:
+- New `~/lib/operator-hw-fitness.ts` — roofline-based classification of (operator × hardware × precision) at "natural" precision per hardware (highest-supported precision = real deploy choice)
+- Each operator detail page now shows: 🟦 memory-bound count, 🟧 compute-bound count, 🟨 regime-dependent count across all 39 hardware cards
+- Expandable full table with ridge points + classification per card
+- Closes the "given operator X, where does it run efficiently?" question — e.g. attention is memory-bound on 35/39 cards, only compute-bound on Cerebras WSE-3 (memory-IS-compute paradigm)
+
+**Engine × Vendor compatibility matrix on /engines/ index**:
+- 7 engines × 14 hardware vendors compatibility grid with card-count chips
+- Answers "I have hardware X, which engines support it?" without clicking through 14 vendor pages
+- Cross-cutting view that surfaces engine ecosystem maturity (vLLM widest, MindIE narrow, etc.)
+
+**2 more playbooks** (15 → 17):
+- **diffusion × hopper-single-node**: FLUX.1 / SD 3.5 / SDXL on H100/H200. Diffusers / ComfyUI primary stack (vs LLM's vLLM/SGLang); image-sec metric (not token/s); FP8 + step-caching key. Different deployment paradigm vs LLM.
+- **dense-llm-small × cdna3-single-node**: 1B-13B dense on single MI300X / MI325X. AMD HBM 192-256 GB advantage on small models too — BF16 装 13B + 长 KV 不需 quant.
+
+**1 more case study** (23 → 24):
+- Llama 4 Scout 109B (multi-modal) on 8×MI325X with vLLM ROCm 0.7+ — concrete proof for multi-modal × cdna3-single-node playbook. Mixed-TP (vision encoder TP=1, LLM TP=8) + 256 GB HBM3e advantage for high-res multi-image prompts.
+
+### Stats
+- **226/226** site E2E pass (+9 new + 2 brittle-test fixes) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 24** (+1), operator: 13, fused-kernel: 15, pattern: 15, **playbook: 17** (was 15)
+- Build: 326 pages
+- Coverage matrix: 17/176 cells (10%)
+
+---
+
 ## [1.14.0] — 2026-05-01
 
 **Bottleneck diagnosis layer** — closes the micro-level loop between concrete case measurements and the optimization knowledge graph. The user's persistent "后续部署优化链路也不清楚" gap addressed at the per-case level.

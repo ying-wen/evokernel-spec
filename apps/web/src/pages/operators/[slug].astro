@@ -5,6 +5,7 @@ import Container from '~/components/ui/Container.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { getOperators, getModels, getResolvedHardware, getEngines, getPatterns } from '~/lib/data';
+import { buildOperatorFitnessTable, summarizeFitness } from '~/lib/operator-hw-fitness';
 
 export async function getStaticPaths() {
   const operators = await getOperators();
@@ -47,6 +48,12 @@ const repDecomp = repModel?.operator_decomposition.find((d) => d.operator === op
 const intensity = repDecomp && repDecomp.bytes_per_token > 0
   ? repDecomp.flops_per_token / repDecomp.bytes_per_token
   : 0;
+
+// v1.15: structural fitness across full hardware corpus at natural precision per card.
+// Complements per-model intensity row above by answering the cross-cutting question:
+// "where does this operator run efficiently across ALL hardware in the corpus?"
+const structuralFitnessCells = buildOperatorFitnessTable(op, allHw);
+const fitnessSummary = summarizeFitness(structuralFitnessCells);
 
 const fitnessRows = intensity > 0
   ? allHw
@@ -270,6 +277,68 @@ const fitnessRows = intensity > 0
         {fitnessRows.length > 12 && (
           <p class="text-xs mt-2" style="color: var(--color-text-muted);">显示前 12 张 (按可达 TFLOP/s 降序) · 共 {fitnessRows.length} 张可比较</p>
         )}
+      </section>
+    )}
+
+    {/* v1.15: structural fitness — answers "where does this op run efficiently?" across ALL hardware */}
+    {structuralFitnessCells.length > 0 && (
+      <section class="pb-12">
+        <h3 class="text-lg font-semibold mb-3">🏛 结构性硬件适配性 / Structural fitness across corpus</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          对全部 {fitnessSummary.total} 张可比较的硬件 (按 highest-precision 计算 ridge point), 此算子的瓶颈分布:
+        </p>
+        <div class="grid sm:grid-cols-3 gap-3 mb-4">
+          <div class="rounded-lg border p-4" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+            <div class="text-xs uppercase tracking-wide mb-1" style="color: var(--color-accent);">🟦 Memory-bound</div>
+            <div class="font-mono text-2xl font-bold">{fitnessSummary.memoryBound}</div>
+            <div class="text-xs" style="color: var(--color-text-muted);">{Math.round((fitnessSummary.memoryBound / fitnessSummary.total) * 100)}% — 量化 / 带宽优化最有效</div>
+          </div>
+          <div class="rounded-lg border p-4" style="border-color: var(--color-tier-measured); background: color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg));">
+            <div class="text-xs uppercase tracking-wide mb-1" style="color: var(--color-tier-measured);">🟧 Compute-bound</div>
+            <div class="font-mono text-2xl font-bold">{fitnessSummary.computeBound}</div>
+            <div class="text-xs" style="color: var(--color-text-muted);">{Math.round((fitnessSummary.computeBound / fitnessSummary.total) * 100)}% — 算力升级 / 更激进 quant 才能改善</div>
+          </div>
+          <div class="rounded-lg border p-4" style="border-color: var(--color-tier-estimated); background: color-mix(in oklch, var(--color-tier-estimated) 5%, var(--color-bg));">
+            <div class="text-xs uppercase tracking-wide mb-1" style="color: var(--color-tier-estimated);">🟨 Regime-dependent</div>
+            <div class="font-mono text-2xl font-bold">{fitnessSummary.regimeDependent}</div>
+            <div class="text-xs" style="color: var(--color-text-muted);">{Math.round((fitnessSummary.regimeDependent / fitnessSummary.total) * 100)}% — 跨 ridge, 实际 batch 决定</div>
+          </div>
+        </div>
+        <details class="mt-3">
+          <summary class="text-sm cursor-pointer" style="color: var(--color-text-muted);">显示完整表格 ({structuralFitnessCells.length} 张硬件)</summary>
+          <table class="w-full text-xs mt-3" style="border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <th class="text-left p-2">Hardware</th>
+                <th class="text-right p-2">Precision</th>
+                <th class="text-right p-2">Ridge (FLOP/byte)</th>
+                <th class="text-right p-2">Class</th>
+              </tr>
+            </thead>
+            <tbody>
+              {structuralFitnessCells.sort((a, b) => a.ridgePoint - b.ridgePoint).map((c) => (
+                <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                  <td class="p-2">
+                    <a href={pathname(`/hardware/${c.hardware.id}/`)} class="hover:underline" style="color: var(--color-accent);">{c.hardware.name}</a>
+                  </td>
+                  <td class="text-right p-2 font-mono">{c.precision}</td>
+                  <td class="text-right p-2 font-mono">{c.ridgePoint.toFixed(1)}</td>
+                  <td class="text-right p-2">
+                    <span style={`color: ${
+                      c.fitnessClass === 'memory-bound' ? 'var(--color-accent)' :
+                      c.fitnessClass === 'compute-bound' ? 'var(--color-tier-measured)' :
+                      'var(--color-tier-estimated)'
+                    };`}>
+                      {c.fitnessClass === 'memory-bound' ? '🟦 mem' :
+                       c.fitnessClass === 'compute-bound' ? '🟧 compute' :
+                       '🟨 regime'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
       </section>
     )}
 
