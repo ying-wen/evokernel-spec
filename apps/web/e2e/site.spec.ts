@@ -162,7 +162,9 @@ test.describe('SEO and feeds', () => {
 test.describe('Entity detail pages', () => {
   test('server detail (CloudMatrix 384) shows scale-up domain', async ({ page }) => {
     await page.goto('/servers/huawei-cloudmatrix-384/');
-    await expect(page.getByRole('heading', { name: /CloudMatrix 384/i })).toBeVisible();
+    // Constrain to h1 since cabinet_layout_md now has an h2 also containing
+    // the name (multi-cabinet layout heading).
+    await expect(page.getByRole('heading', { level: 1, name: /CloudMatrix 384/i })).toBeVisible();
     await expect(page.getByText(/Scale-up 域/i).first()).toBeVisible();
     await expect(page.getByText('384').first()).toBeVisible();
   });
@@ -570,6 +572,47 @@ test.describe('Hardware-detail in-page TOC', () => {
     expect(await page.locator('#topology').count()).toBe(1);
     expect(await page.locator('#operators').count()).toBe(1);
     expect(await page.locator('#cases').count()).toBe(1);
+  });
+});
+
+test.describe('Hardware memory hierarchy + cluster-internals', () => {
+  test('H100 detail surfaces memory hierarchy with all 4 levels', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    await expect(page.getByText(/Memory Hierarchy/i).first()).toBeVisible();
+    // 4 layered storage levels
+    await expect(page.getByText(/Register File/).first()).toBeVisible();
+    await expect(page.getByText(/L1 \/ Shared Memory/i).first()).toBeVisible();
+    await expect(page.getByText(/L2 Cache/i).first()).toBeVisible();
+    await expect(page.getByText(/HBM3/i).first()).toBeVisible();
+    // Tensor core specs panel
+    await expect(page.getByText(/Tensor core 峰值/i).first()).toBeVisible();
+    // On-chip interconnect (NVLink-C2C)
+    await expect(page.getByText(/NVLink-C2C/i).first()).toBeVisible();
+  });
+
+  test('B200 detail shows NV-HBI die-to-die interconnect', async ({ page }) => {
+    await page.goto('/hardware/b200-sxm/');
+    await expect(page.getByText(/NV-HBI/i).first()).toBeVisible();
+    // Boost clock visible
+    await expect(page.getByText(/2400 MHz|Boost clock/i).first()).toBeVisible();
+  });
+
+  test('NVL72 super-pod page shows switch fabric + power + cabinet layout', async ({ page }) => {
+    await page.goto('/servers/nvidia-gb200-nvl72/');
+    await expect(page.getByText(/集群内部/i).first()).toBeVisible();
+    await expect(page.getByText(/NVSwitch Gen-4/i).first()).toBeVisible();
+    await expect(page.getByText(/Scale-out 过订比/i).first()).toBeVisible();
+    await expect(page.getByText(/机柜布局/i).first()).toBeVisible();
+    // bisection bandwidth
+    await expect(page.locator('text=/64\\.8 TB\\/s/').first()).toBeVisible();
+  });
+
+  test('CloudMatrix 384 shows Lingqu optical switch + multi-cabinet layout', async ({ page }) => {
+    await page.goto('/servers/huawei-cloudmatrix-384/');
+    await expect(page.getByText(/灵衢/).first()).toBeVisible();
+    await expect(page.getByText(/光纤/).first()).toBeVisible();
+    // 16-cabinet design indicator
+    await expect(page.getByText(/16.*机柜|16 cabinets/i).first()).toBeVisible();
   });
 });
 

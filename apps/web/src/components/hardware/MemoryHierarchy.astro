@@ -1,0 +1,136 @@
+---
+import type { Hardware } from '@evokernel/schemas';
+
+// Accept either the raw Hardware or a ResolvedHardware (where vendor is a
+// Vendor object instead of slug). Only architecture is read here, so we
+// only need that branch of the shape.
+interface Props { hw: Pick<Hardware, 'architecture'> & { id?: string; name?: string }; }
+const { hw } = Astro.props;
+
+const arch = hw.architecture;
+const levels = arch?.memory_hierarchy ?? [];
+const tensorSpecs = arch?.tensor_core_specs ?? [];
+
+// Visual sizing: log10-scaled bar widths so RF (256 KB) and HBM (80 GB) both
+// fit on the same chart. Map size in KB to a 0-100 width percent.
+function sizeKb(level: typeof levels[number]): number {
+  if (level.size_kb?.value) return level.size_kb.value;
+  if (level.size_mb?.value) return level.size_mb.value * 1024;
+  return 0;
+}
+const sizes = levels.map(sizeKb);
+const maxLog = Math.max(...sizes.map((s) => s > 0 ? Math.log10(s) : 0), 1);
+function widthPct(s: number): number {
+  if (s <= 0) return 0;
+  return Math.max(8, (Math.log10(s) / maxLog) * 100);
+}
+
+// Format size for display: KB → MB → GB as appropriate
+function fmtSize(level: typeof levels[number]): string {
+  if (level.size_kb?.value) return `${level.size_kb.value} KB`;
+  if (level.size_mb?.value) {
+    const mb = level.size_mb.value;
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${mb} MB`;
+  }
+  return '—';
+}
+
+// Color hue progresses cool (closest to compute) → warm (HBM/farthest)
+const palette = [
+  'oklch(60% 0.18 250)',  // RF — bright blue (closest)
+  'oklch(60% 0.18 200)',  // L1/SMEM — teal
+  'oklch(60% 0.18 145)',  // L2 — green
+  'oklch(60% 0.18 80)',   // L3/Infinity — yellow-green
+  'oklch(60% 0.20 25)',   // HBM — orange-red (farthest)
+];
+---
+{levels.length > 0 && (
+  <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised); overflow: hidden;">
+    <div class="px-4 py-3 border-b" style="border-color: var(--color-border);">
+      <h4 class="text-sm font-semibold">内存层级 / Memory Hierarchy</h4>
+      <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+        从 register file (closest to compute) 到 HBM/DDR (slowest, largest). 横向条宽按 log10(size) 缩放, 跨 6 数量级也能直观对比.
+      </p>
+    </div>
+    <div class="p-4 space-y-3">
+      {levels.map((level, i) => {
+        const color = palette[Math.min(i, palette.length - 1)];
+        const w = widthPct(sizeKb(level));
+        return (
+          <div>
+            <div class="flex items-baseline justify-between gap-3 mb-1.5">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-sm font-semibold" style="color: var(--color-text);">{level.name}</span>
+                {level.scope === 'per-cu' && (
+                  <span class="text-xs px-1.5 py-0.5 rounded" style="background: var(--color-surface); color: var(--color-text-muted);" title="Per compute unit">per-{arch?.compute_unit_label ?? 'CU'}</span>
+                )}
+              </div>
+              <div class="text-xs font-mono whitespace-nowrap" style="color: var(--color-text-muted);">
+                <strong style="color: var(--color-text);">{fmtSize(level)}</strong>
+                {level.bandwidth_tbs?.value && (
+                  <span class="ml-2">· <strong style="color: var(--color-accent);">{level.bandwidth_tbs.value} TB/s</strong></span>
+                )}
+              </div>
+            </div>
+            <div class="rounded-sm relative" style={`background: color-mix(in oklch, ${color} 12%, var(--color-bg)); height: 1.5rem;`}>
+              <div class="absolute top-0 left-0 h-full rounded-sm" style={`width: ${w}%; background: ${color};`}></div>
+            </div>
+            {level.notes && (
+              <p class="text-xs mt-1.5" style="color: var(--color-text-muted);">{level.notes}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+
+    {(arch?.base_clock_mhz?.value || arch?.boost_clock_mhz?.value || arch?.on_chip_interconnect) && (
+      <div class="px-4 py-3 border-t grid sm:grid-cols-3 gap-3 text-xs" style="border-color: var(--color-border); background: var(--color-surface);">
+        {arch?.base_clock_mhz?.value && (
+          <div>
+            <div style="color: var(--color-text-muted);">Base clock</div>
+            <div class="font-mono font-semibold">{arch.base_clock_mhz.value} MHz</div>
+          </div>
+        )}
+        {arch?.boost_clock_mhz?.value && (
+          <div>
+            <div style="color: var(--color-text-muted);">Boost clock</div>
+            <div class="font-mono font-semibold">{arch.boost_clock_mhz.value} MHz</div>
+          </div>
+        )}
+        {arch?.on_chip_interconnect && (
+          <div>
+            <div style="color: var(--color-text-muted);">{arch.on_chip_interconnect.name}</div>
+            <div class="font-mono font-semibold">
+              {arch.on_chip_interconnect.bandwidth_tbs?.value
+                ? `${arch.on_chip_interconnect.bandwidth_tbs.value} TB/s`
+                : '—'}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {tensorSpecs.length > 0 && (
+      <div class="px-4 py-3 border-t" style="border-color: var(--color-border); background: var(--color-surface);">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-text);">
+          Tensor core 峰值 (per tensor-core, per cycle)
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          {tensorSpecs.map((spec) => (
+            <div class="rounded p-2 border" style="border-color: var(--color-border); background: var(--color-bg);">
+              <div class="text-xs uppercase font-mono" style="color: var(--color-accent);">{spec.precision}</div>
+              <div class="font-mono text-sm font-semibold">
+                {spec.ops_per_cycle?.value ?? '—'}
+                {spec.ops_per_cycle?.value && <span class="text-xs ml-1" style="color: var(--color-text-muted);">ops/cyc</span>}
+              </div>
+              {spec.sparsity_multiplier > 1 && (
+                <div class="text-xs" style="color: var(--color-text-muted);">{spec.sparsity_multiplier}× w/ sparsity</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+)}

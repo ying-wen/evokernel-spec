@@ -17,6 +17,28 @@ architecture:
   l2_cache_mb: { value: 192, evidence_ref: ev-asc910c-arch-001 }
   hbm_stacks: { value: 4, evidence_ref: ev-asc910c-arch-001 }
   process_node_nm: { value: 7, evidence_ref: ev-asc910c-arch-001 }
+  memory_hierarchy:
+    - name: 'L0 Buffer (per AI Core)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-asc910c-arch-001 }
+      notes: 'Da Vinci 3.0 cube unit-local L0 buffer; ~16 MB total across 64 AI cores. Cube + Vector unit shared.'
+    - name: 'L1 Buffer (UB / Unified Buffer)'
+      scope: per-cu
+      size_kb: { value: 512, evidence_ref: ev-asc910c-arch-001 }
+      notes: 'Per-AI-Core unified buffer. Acts as user-managed scratchpad for matrix tile reuse.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 192, evidence_ref: ev-asc910c-arch-001 }
+      notes: 'Chip-wide L2 shared across all AI Cores; partial-yield SKUs may have less.'
+    - name: 'HBM3'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-asc910c-001 }
+      bandwidth_tbs: { value: 3.2, evidence_ref: ev-asc910c-001 }
+      notes: '4 stacks × 32 GB. Dual-die package; HBM physically split between two dies.'
+  on_chip_interconnect:
+    name: 'HCCS-C2C (intra-package)'
+    bandwidth_tbs: { value: 1.5, evidence_ref: ev-asc910c-arch-001 }
+    notes: 'Dual-die Ascend 910C uses HCCS-C2C to connect the two compute dies in-package. Spec partially public from CloudMatrix announcement.'
 memory:
   capacity_gb: { value: 128, evidence_ref: ev-asc910c-001 }
   bandwidth_gbps: { value: 3200, evidence_ref: ev-asc910c-001 }

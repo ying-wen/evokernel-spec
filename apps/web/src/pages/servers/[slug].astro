@@ -7,6 +7,7 @@ import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
 import { getServers, getResolvedHardware, getCases } from '~/lib/data';
+import { marked } from 'marked';
 
 export async function getStaticPaths() {
   const servers = await getServers();
@@ -19,6 +20,13 @@ const card = allHardware.find((h) => h.id === server.card);
 const allCases = await getCases();
 const cases = allCases.filter((c) => c.stack.server?.id === server.id || (c.stack.hardware.id === server.card && c.stack.hardware.count === server.card_count));
 const isChina = card ? card.vendor.country === 'CN' : false;
+// Render cabinet_layout_md once at build time. Falsy when not populated.
+const cabinetMd = server.cabinet_layout_md ? await marked.parse(server.cabinet_layout_md) : '';
+const hasClusterDetail = (server.switch_chips?.length ?? 0) > 0
+  || server.power_distribution
+  || server.oversubscription_ratio !== undefined
+  || server.bisection_bandwidth_tbs
+  || cabinetMd;
 ---
 <BaseLayout title={server.name}>
   <Container>
@@ -59,6 +67,91 @@ const isChina = card ? card.vendor.country === 'CN' : false;
       </div>
     </section>
 
+    {hasClusterDetail && (
+      <section class="pb-10" id="cluster-internal">
+        <h3 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          <span>集群内部 / Cluster internals</span>
+          <span class="text-xs px-1.5 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 14%, var(--color-bg)); color: var(--color-accent); font-weight: 600;">
+            switch fabric · power · cabinet
+          </span>
+        </h3>
+
+        <div class="grid lg:grid-cols-2 gap-4">
+          {(server.switch_chips?.length ?? 0) > 0 && (
+            <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="px-4 py-3 border-b" style="border-color: var(--color-border);">
+                <h4 class="text-sm font-semibold">Scale-up 交换 fabric</h4>
+                <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  switch chip × radix × per-port BW = 总 fabric 容量
+                </p>
+              </div>
+              <div class="p-4 space-y-3">
+                {(server.switch_chips ?? []).map((s) => {
+                  const totalGBps = s.count * s.radix * s.bandwidth_gbps_per_port;
+                  return (
+                    <div class="rounded p-3 border" style="border-color: var(--color-border); background: var(--color-bg);">
+                      <div class="flex justify-between items-baseline gap-2">
+                        <span class="font-mono text-sm font-semibold" style="color: var(--color-text);">{s.name}</span>
+                        <span class="text-xs font-mono" style="color: var(--color-text-muted);">×{s.count}</span>
+                      </div>
+                      <div class="grid grid-cols-3 gap-2 mt-2 text-xs">
+                        <div>
+                          <div style="color: var(--color-text-muted);">radix</div>
+                          <div class="font-mono font-semibold">{s.radix}</div>
+                        </div>
+                        <div>
+                          <div style="color: var(--color-text-muted);">per-port</div>
+                          <div class="font-mono font-semibold">{s.bandwidth_gbps_per_port} GB/s</div>
+                        </div>
+                        <div>
+                          <div style="color: var(--color-text-muted);">aggregate</div>
+                          <div class="font-mono font-semibold" style="color: var(--color-accent);">{(totalGBps / 1000).toFixed(1)} TB/s</div>
+                        </div>
+                      </div>
+                      {s.url && (
+                        <a href={s.url} target="_blank" rel="noopener" class="text-xs underline mt-2 inline-block" style="color: var(--color-accent);">datasheet →</a>
+                      )}
+                    </div>
+                  );
+                })}
+                {server.bisection_bandwidth_tbs?.value && (
+                  <div class="text-xs px-3 py-2 rounded" style="background: color-mix(in oklch, var(--color-tier-measured) 8%, var(--color-bg)); color: var(--color-tier-measured);">
+                    🟢 <strong>Scale-up bisection: {server.bisection_bandwidth_tbs.value} TB/s</strong> (full bandwidth between any pair within the scale-up domain)
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(server.power_distribution || server.scale_out_nics_per_node || server.oversubscription_ratio !== undefined) && (
+            <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="px-4 py-3 border-b" style="border-color: var(--color-border);">
+                <h4 class="text-sm font-semibold">电力 + Scale-out 出口</h4>
+                <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  PSU 配置、过订比、机柜外端口
+                </p>
+              </div>
+              <div>
+                {server.power_distribution?.psu_count && <SpecRow label="PSU 数量">{server.power_distribution.psu_count} ({server.power_distribution.redundancy ?? 'N'})</SpecRow>}
+                {server.power_distribution?.sustained_kw && <SpecRow label="持续功耗">{server.power_distribution.sustained_kw} kW</SpecRow>}
+                {server.power_distribution?.peak_kw && <SpecRow label="峰值功耗">{server.power_distribution.peak_kw} kW</SpecRow>}
+                {server.power_distribution?.voltage && <SpecRow label="供电电压">{server.power_distribution.voltage}</SpecRow>}
+                {server.scale_out_nics_per_node && <SpecRow label="Scale-out NIC / 节点">{server.scale_out_nics_per_node}</SpecRow>}
+                {server.scale_out_bandwidth_gbps_per_nic && <SpecRow label="Per-NIC 带宽">{server.scale_out_bandwidth_gbps_per_nic} GB/s</SpecRow>}
+                {server.oversubscription_ratio !== undefined && <SpecRow label="Scale-out 过订比">{server.oversubscription_ratio.toFixed(1)}× {server.oversubscription_ratio === 1 ? '(full bisection)' : `(${server.oversubscription_ratio}:1)`}</SpecRow>}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {cabinetMd && (
+          <div class="mt-4 rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <article class="cabinet-md" style="color: var(--color-text); line-height: 1.7;" set:html={cabinetMd}></article>
+          </div>
+        )}
+      </section>
+    )}
+
     <section class="pb-12">
       <h3 class="text-lg font-semibold mb-3">部署案例 ({cases.length})</h3>
       {cases.length === 0 ? (
@@ -93,3 +186,13 @@ const isChina = card ? card.vendor.country === 'CN' : false;
     </section>
   </Container>
 </BaseLayout>
+
+<style>
+  .cabinet-md :global(h2) { font-size: 1.05rem; font-weight: 600; margin-top: 0; margin-bottom: 0.5rem; }
+  .cabinet-md :global(h3) { font-size: 0.95rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+  .cabinet-md :global(p) { margin-bottom: 0.5rem; }
+  .cabinet-md :global(ul) { margin-left: 1.25rem; list-style: disc; margin-bottom: 0.5rem; }
+  .cabinet-md :global(li) { margin-bottom: 0.2rem; }
+  .cabinet-md :global(strong) { color: var(--color-text); font-weight: 600; }
+  .cabinet-md :global(code) { background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.875em; font-family: var(--font-mono); }
+</style>

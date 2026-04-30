@@ -22,6 +22,41 @@ architecture:
   transistor_count_b: { value: 80, evidence_ref: ev-h100-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-h100-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-h100-001 }
+  base_clock_mhz: { value: 1095, evidence_ref: ev-h100-arch-001 }
+  boost_clock_mhz: { value: 1980, evidence_ref: ev-h100-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-h100-arch-001 }
+      notes: '256 KB per SM (65536 × 32-bit registers); 33 MB total chip-wide.'
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-h100-arch-001 }
+      notes: 'Configurable: up to 228 KB SMEM + 28 KB L1, or vice-versa. ~33 MB total across 132 SMs.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 50, evidence_ref: ev-h100-arch-001 }
+      bandwidth_tbs: { value: 5.5, evidence_ref: ev-h100-arch-001 }
+      notes: 'Split into 2 partitions of 25 MB each on the GH100 die.'
+    - name: 'HBM3'
+      scope: global
+      size_mb: { value: 81920, evidence_ref: ev-h100-002 }
+      bandwidth_tbs: { value: 3.35, evidence_ref: ev-h100-002 }
+      notes: '5 stacks × 16 GB; 5th stack disabled on partial-yield SKUs.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 1024, evidence_ref: ev-h100-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 512, evidence_ref: ev-h100-arch-001 }
+      sparsity_multiplier: 1
+    - precision: fp16
+      ops_per_cycle: { value: 512, evidence_ref: ev-h100-arch-001 }
+      sparsity_multiplier: 1
+  on_chip_interconnect:
+    name: 'NVLink-C2C (intra-die crossbar)'
+    bandwidth_tbs: { value: 7.0, evidence_ref: ev-h100-arch-001 }
+    notes: 'Connects 132 SMs to L2 partitions; effectively the SM↔L2 crossbar bandwidth.'
 memory:
   capacity_gb: { value: 80, evidence_ref: ev-h100-002 }
   bandwidth_gbps: { value: 3350, evidence_ref: ev-h100-002 }

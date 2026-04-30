@@ -12,10 +12,47 @@ rack_power_kw: 120
 total_memory_gb: 13824
 total_compute_pflops_bf16: 162
 release_year: 2024
+
+# v1.3: deep cluster-internal detail
+switch_chips:
+  - name: 'NVSwitch Gen-4 (NVL5 backplane)'
+    count: 18
+    radix: 144
+    bandwidth_gbps_per_port: 200
+    url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
+  - name: 'ConnectX-8 SuperNIC'
+    count: 72
+    radix: 8
+    bandwidth_gbps_per_port: 100
+    url: https://www.nvidia.com/en-us/networking/connectx-8/
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 1
+scale_out_bandwidth_gbps_per_nic: 800
+bisection_bandwidth_tbs:
+  value: 64.8
+  evidence_ref: ev-nvl72-001
+power_distribution:
+  psu_count: 8
+  redundancy: N+N
+  sustained_kw: 100
+  peak_kw: 132
+  voltage: '415V 3-phase'
+cabinet_layout_md: |
+  ## NVL72 机柜布局 / Cabinet layout
+
+  - **18 个 compute trays**: 每 tray 2 个 GB200 superchip × 2 GPUs = 4 GPUs/tray, 72 GPUs/rack.
+  - **9 个 NVSwitch trays**: 横亘 rack 中部, 18 颗 NVSwitch Gen-4 芯片提供完整 1.0×
+    bisection (no oversubscription within scale-up domain).
+  - **顶部 8 个 PSU**: 双冗余 N+N, 415V 三相输入. 持续 100 kW, 峰值 132 kW (turbo + 冷启动).
+  - **液冷**: cold plate 直接覆盖每个 GPU 与 NVSwitch chip; 单 rack ~1 GPM (gallon/min) 冷却液
+    流量, ΔT 约 8°C.
+  - **scale-out**: 每 GPU 配 1 张 ConnectX-8 800 Gbps SuperNIC, 单 rack 总 scale-out
+    带宽 72 × 100 GB/s = 7.2 TB/s 至 cluster fabric.
+
 evidence:
   - id: ev-nvl72-001
     tier: official
     source_type: vendor-product-page
     url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
     accessed: '2026-04-28'
-    citation: 'NVIDIA GB200 NVL72 product page'
+    citation: 'NVIDIA GB200 NVL72 product page (72 GPUs, 18 NVSwitch chips, 130 TB/s aggregate NVL bandwidth)'

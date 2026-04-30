@@ -9,6 +9,7 @@ import TierChip from '~/components/ui/TierChip.astro';
 import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators, getServers } from '~/lib/data';
 import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
 import Topology from '~/components/hardware/Topology.astro';
+import MemoryHierarchy from '~/components/hardware/MemoryHierarchy.astro';
 import OperatorFitnessMatrix from '~/components/hardware/OperatorFitnessMatrix.astro';
 import SuperPodAtlas from '~/components/hardware/SuperPodAtlas.astro';
 import OperatorCoverage from '~/components/hardware/OperatorCoverage.astro';
@@ -180,6 +181,11 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
               {hw.architecture.pcie_gen && <SpecRow label="PCIe">Gen {hw.architecture.pcie_gen.value} ×{hw.architecture.pcie_lanes?.value ?? 16}</SpecRow>}
             </div>
           </div>
+          {(hw.architecture.memory_hierarchy?.length ?? 0) > 0 && (
+            <div class="mt-4">
+              <MemoryHierarchy hw={hw} />
+            </div>
+          )}
         </div>
       )}
     </section>

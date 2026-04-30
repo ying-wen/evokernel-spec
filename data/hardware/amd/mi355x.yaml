@@ -19,6 +19,39 @@ architecture:
   process_node_nm: { value: 3, evidence_ref: ev-mi355x-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-mi355x-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-mi355x-001 }
+  memory_hierarchy:
+    - name: 'LDS (Local Data Share)'
+      scope: per-cu
+      size_kb: { value: 160, evidence_ref: ev-mi355x-arch-001 }
+      notes: '160 KB LDS per CU on CDNA 4 (vs 64 KB on CDNA 3); enables larger tile dimensions for FlashAttention.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 16, evidence_ref: ev-mi355x-arch-001 }
+      notes: 'Per-XCD L2; 4 XCDs × 4 MB = 16 MB total L2 (smaller than NV but compensated by Infinity Cache).'
+    - name: 'Infinity Cache (L3)'
+      scope: global
+      size_mb: { value: 256, evidence_ref: ev-mi355x-arch-001 }
+      bandwidth_tbs: { value: 17.0, evidence_ref: ev-mi355x-arch-001 }
+      notes: 'AMD-only L3 layer, dramatically smooths HBM bandwidth pressure for workloads with locality.'
+    - name: 'HBM3e'
+      scope: global
+      size_mb: { value: 294912, evidence_ref: ev-mi355x-001 }
+      bandwidth_tbs: { value: 8.0, evidence_ref: ev-mi355x-001 }
+      notes: '8 stacks × 36 GB across 4 XCDs and 2 IODs. Disaggregated XCD design.'
+  tensor_core_specs:
+    - precision: fp4
+      ops_per_cycle: { value: 4096, evidence_ref: ev-mi355x-arch-001 }
+      sparsity_multiplier: 1
+    - precision: fp8
+      ops_per_cycle: { value: 2048, evidence_ref: ev-mi355x-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 1024, evidence_ref: ev-mi355x-arch-001 }
+      sparsity_multiplier: 1
+  on_chip_interconnect:
+    name: 'Infinity Fabric (chiplet die-to-die)'
+    bandwidth_tbs: { value: 5.5, evidence_ref: ev-mi355x-arch-001 }
+    notes: 'CDNA 4 chiplet design: 4 XCDs (compute) + 2 IODs (I/O + cache) interconnected via Infinity Fabric. Per-XCD-to-IOD bandwidth ~5.5 TB/s aggregate.'
 memory:
   capacity_gb: { value: 288, evidence_ref: ev-mi355x-001 }
   bandwidth_gbps: { value: 8000, evidence_ref: ev-mi355x-001 }

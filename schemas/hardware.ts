@@ -46,6 +46,37 @@ const MemorySchema = z.object({
   type: MemoryTypeSchema
 });
 
+// Per-level memory entry: a slab of on-chip storage (register file, L1/SMEM,
+// L2 cache, on-package SRAM). Each slab carries size and (often) bandwidth.
+// All sub-fields are optional because vendor disclosure varies — Hopper
+// publishes everything; Ascend/Hygon publish only headline numbers.
+const MemoryLevelSchema = z.object({
+  /** What this slab is called in vendor literature ("Shared Memory", "L1", "Register File"). */
+  name: z.string().min(1),
+  /** Per-CU when scope='per-cu'; total chip-wide when scope='global'. */
+  scope: z.enum(['per-cu', 'global']).default('global'),
+  size_kb: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  size_mb: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  /** Steady-state bandwidth (TB/s for L2/HBM, GB/s typical for SMEM/RF). */
+  bandwidth_tbs: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  /** Latency in cycles when published (rare). */
+  latency_cycles: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  /** Free-form notes (e.g. "configurable as L1 or SMEM" on Hopper). */
+  notes: z.string().optional()
+});
+
+// Per-precision peak compute entry. The top-level ComputeSchema gives
+// chip-wide TFLOPS; this gives "per-tensor-core per-cycle" for engineers
+// reasoning about kernel scheduling. Optional because most vendors only
+// publish chip-level peaks.
+const TensorCoreSpecSchema = z.object({
+  precision: z.enum(['fp4', 'fp8', 'bf16', 'fp16', 'fp32', 'tf32', 'int8', 'int4']),
+  /** Per-tensor-core, per-cycle peak ops (matmul-equivalent). */
+  ops_per_cycle: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  /** Sparsity multiplier applied (1× = dense, 2× = 2:4 structured sparse). */
+  sparsity_multiplier: z.number().positive().default(1)
+});
+
 // Optional inner-architecture detail. When present, Topology renders a
 // floorplan grounded in vendor data; when absent, Topology falls back to a
 // bucketed inferred die diagram. Top-cited cards (H100, B200, MI355X,
@@ -75,7 +106,28 @@ const ArchitectureSchema = z.object({
   // v1.2: behavioral flags that change calculator semantics
   reconfigurable: z.boolean().optional(),         // SambaNova RDU
   deterministic_latency: z.boolean().optional(),  // Groq LPU
-  wafer_scale: z.boolean().optional()             // Cerebras
+  wafer_scale: z.boolean().optional(),            // Cerebras
+
+  // v1.3: rich memory hierarchy — register file → L1/SMEM → L2 → HBM/SRAM
+  // Ordered list (closest to compute first). Lets the detail page render
+  // the layered storage stack engineers actually care about for kernel
+  // scheduling decisions.
+  memory_hierarchy: z.array(MemoryLevelSchema).default([]),
+
+  // v1.3: per-precision tensor-core peak per cycle (rare disclosure).
+  tensor_core_specs: z.array(TensorCoreSpecSchema).default([]),
+
+  // v1.3: clock domains
+  base_clock_mhz: ValueWithEvidenceSchema(z.number().positive()).optional(),
+  boost_clock_mhz: ValueWithEvidenceSchema(z.number().positive()).optional(),
+
+  // v1.3: on-chip / on-package interconnect (NoC). Important for chiplet
+  // designs (B200's NV-HBI, MI300X's Infinity Fabric, Ascend's HCCS-C2C).
+  on_chip_interconnect: z.object({
+    name: z.string().min(1),
+    bandwidth_tbs: ValueWithEvidenceSchema(z.number().positive()).optional(),
+    notes: z.string().optional()
+  }).optional()
 });
 
 const ScaleUpSchema = z.object({

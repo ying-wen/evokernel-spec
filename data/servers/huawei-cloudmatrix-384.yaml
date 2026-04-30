@@ -12,6 +12,38 @@ rack_power_kw: 600
 total_memory_gb: 49152
 total_compute_pflops_bf16: 307.2
 release_year: 2025
+
+# v1.3: deep cluster-internal detail
+# Huawei publishes less than NVIDIA, so several fields are estimated
+# (tier=estimated) from CloudMatrix 384 launch slides + system-level totals.
+switch_chips:
+  - name: '灵衢 (Lingqu) Optical Switch'
+    count: 32
+    radix: 128
+    bandwidth_gbps_per_port: 400
+    url: https://e.huawei.com/en/products/computing/ascend
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 8
+scale_out_bandwidth_gbps_per_nic: 50
+power_distribution:
+  psu_count: 24
+  redundancy: N+N
+  sustained_kw: 480
+  peak_kw: 600
+  voltage: '380V 3-phase + 48V DC bus'
+cabinet_layout_md: |
+  ## CloudMatrix 384 多机柜布局 / Multi-cabinet layout
+
+  - **16 个机柜联合**: 384 张 Ascend 910C 跨 16 个机柜 (24 张/机柜) 通过光纤 fabric 连接.
+    与 NVL72 的"单机柜 72 GPU"思路相反, 华为以**机柜数量**换 scale-up 域大小.
+  - **灵衢 (Lingqu) 光交换**: 32 颗光交换芯片, radix 128, 提供 384 × 384 全连接 scale-up,
+    总 bisection ~6.6 TB/s. 不依赖 NVLink 私有协议.
+  - **每机柜 24 张卡**: 每机柜 ~30 kW, 全部液冷; 16 机柜 ≈ 480 kW 持续, 600 kW 峰值.
+  - **scale-out**: 每节点 8 张 200 GbE ConnectX-equiv NIC, RoCE v2 over Ethernet.
+  - **关键差异 vs NVL72**:
+    - NVL72: 72 GPU/cabinet, 单机柜物理紧凑, copper NVLink
+    - CM384: 384 GPU/16 cabinets, 光纤连接, scale-up 域大 5×
+
 chinese_names: ['昇腾超节点 CloudMatrix 384', '华为云矩阵384']
 aliases: ['CloudMatrix 384', 'CM384']
 evidence:
