@@ -18,6 +18,24 @@ architecture:
   transistor_count_b: { value: 17, evidence_ref: ev-hg800-arch-001 }
   pcie_gen: { value: 4, evidence_ref: ev-hg800-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-hg800-001 }
+  memory_hierarchy:
+    - name: 'Cluster Local Buffer (per cluster)'
+      scope: per-cu
+      size_kb: { value: 2048, evidence_ref: ev-hg800-arch-001 }
+      notes: '4 cluster × 2 MB ≈ 8 MB total on-die SRAM. INT8 推理优化设计 — 大 cluster buffer 减少 LPDDR5 trip.'
+    - name: 'On-chip cache'
+      scope: global
+      size_mb: { value: 16, evidence_ref: ev-hg800-arch-001 }
+      notes: '估算 16 MB chip-wide cache. 含光 800 主打 INT8 inference, 不需要 GPU 那种大 L2.'
+    - name: 'LPDDR5 (off-package)'
+      scope: global
+      size_mb: { value: 16384, evidence_ref: ev-hg800-001 }
+      bandwidth_tbs: { value: 0.256, evidence_ref: ev-hg800-001 }
+      notes: '16 GB LPDDR5 / 256 GB/s — 不用 HBM, 走 LPDDR5 是 inference-only 设计的 cost trade-off (vs HBM 价格 5-10x). 限制: 大模型装不下, 主要跑 < 10B INT8.'
+  on_chip_interconnect:
+    name: 'Cluster mesh (NPU)'
+    bandwidth_tbs: { value: 0.5, evidence_ref: ev-hg800-arch-001 }
+    notes: '4 cluster mesh, 估算 0.5 TB/s. 平头哥 NPU 是阿里巴巴自研路线 — 与 GPU 完全不同的路径 (CNN/Transformer inference 为主, 不通用).'
 memory:
   capacity_gb: { value: 16, evidence_ref: ev-hg800-001 }
   bandwidth_gbps: { value: 256, evidence_ref: ev-hg800-001 }

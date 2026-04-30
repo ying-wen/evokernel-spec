@@ -8,6 +8,28 @@ import type { HardwareClass, ModelArchetype } from '@evokernel/schemas';
 
 const playbooks = (await getPlaybooks()).sort((a, b) => a.name.localeCompare(b.name));
 
+// Coverage matrix: build (archetype × hardware-class) cells. Each cell is
+// either a playbook id or 'missing'. This is the forcing-function view —
+// empty cells become contribution targets.
+const archetypes: ModelArchetype[] = [
+  'dense-llm-small', 'dense-llm-medium', 'dense-llm-large',
+  'moe-llm-medium', 'moe-llm-large', 'reasoning-llm', 'multi-modal',
+  'long-context', 'ssm-mamba', 'diffusion', 'speculative-target'
+];
+const hwClasses: HardwareClass[] = [
+  'hopper-single-node', 'hopper-cluster', 'blackwell-cluster', 'blackwell-superpod',
+  'cdna3-single-node', 'cdna3-cluster', 'ada-single-node', 'ampere-single-node',
+  'ascend-cluster', 'cambricon-cluster', 'gaudi-cluster', 'tpu-pod',
+  'trainium-instance', 'edge-single-card', 'wafer-scale', 'on-die-sram-only'
+];
+const matrix = new Map<string, typeof playbooks[number]>();
+for (const pb of playbooks) {
+  matrix.set(`${pb.model_archetype}::${pb.hardware_class}`, pb);
+}
+const totalCells = archetypes.length * hwClasses.length;
+const filledCells = playbooks.length;
+const coveragePct = Math.round((filledCells / totalCells) * 100);
+
 const archLabel: Record<ModelArchetype, string> = {
   'dense-llm-small': 'Dense 小模型 (1-13B)',
   'dense-llm-medium': 'Dense 中等 (30-90B)',
@@ -72,7 +94,71 @@ const hwLabel: Record<HardwareClass, string> = {
       </div>
     </section>
 
+    <!-- Coverage matrix — visualizes (archetype × hardware-class) grid; empty cells = contribution targets -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <div class="flex items-baseline justify-between flex-wrap gap-2 mb-4">
+        <h2 class="text-2xl font-semibold flex items-center gap-2">
+          🗺 Coverage Matrix
+        </h2>
+        <div class="text-sm" style="color: var(--color-text-muted);">
+          <strong style="color: var(--color-accent);">{filledCells}</strong>/{totalCells} cells (<strong>{coveragePct}%</strong>)
+          · 空白 cell 是 PR 贡献目标
+        </div>
+      </div>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        每个 cell 表示一个 (model_archetype × hardware_class) 部署组合。绿色 = 已有 playbook (点击进入),
+        浅色 = 待补充 (PR 贡献目标). 这是 "any model × any hardware" 知识图谱的可视化全景.
+      </p>
+      <div class="overflow-x-auto" style="max-width: 100%;">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-1.5 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 120px;">model ↓ × hw →</th>
+              {hwClasses.map((hw) => (
+                <th class="p-1.5 text-center" style="border-bottom: 1px solid var(--color-border); writing-mode: vertical-rl; transform: rotate(180deg); min-width: 28px; max-width: 28px; vertical-align: bottom;">
+                  <span style="color: var(--color-text-muted); font-size: 0.65rem; white-space: nowrap;">{hwLabel[hw]}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {archetypes.map((arch) => (
+              <tr>
+                <td class="p-1.5 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent); white-space: nowrap;">
+                  <span style="color: var(--color-text); font-size: 0.7rem;">{archLabel[arch]}</span>
+                </td>
+                {hwClasses.map((hw) => {
+                  const pb = matrix.get(`${arch}::${hw}`);
+                  if (pb) {
+                    return (
+                      <td class="text-center" style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent); padding: 0;">
+                        <a href={pathname(`/playbooks/${pb.id}/`)} title={pb.name}
+                           class="inline-block w-6 h-6 leading-6"
+                           style={`background: var(--color-accent); color: white; font-weight: 600;`}>
+                          ✓
+                        </a>
+                      </td>
+                    );
+                  }
+                  return (
+                    <td class="text-center" title={`Missing: ${archLabel[arch]} × ${hwLabel[hw]}`}
+                        style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent); color: var(--color-text-muted); padding: 0;">
+                      <span class="inline-block w-6 h-6 leading-6" style="background: color-mix(in oklch, var(--color-text-muted) 8%, transparent);">·</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+        Hover 空白 cell 看缺失组合; <a href="https://github.com/ying-wen/evokernel-spec/blob/main/schemas/playbook.ts" target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">schemas/playbook.ts</a> 是贡献入口.
+      </p>
+    </section>
+
     <section class="py-4 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-4">📘 已有 Playbook 列表</h2>
       <ul class="grid md:grid-cols-2 gap-4 mt-4">
         {playbooks.map((pb) => (
           <li>

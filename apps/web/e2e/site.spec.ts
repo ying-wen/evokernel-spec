@@ -575,6 +575,63 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.13: 4 more playbooks + Coverage Matrix view + memory_hierarchy 100%', () => {
+  test('Playbooks index now shows Coverage Matrix view', async ({ page }) => {
+    await page.goto('/playbooks/');
+    await expect(page.getByRole('heading', { name: /Coverage Matrix/i }).first()).toBeVisible();
+    await expect(page.getByText(/cells.*PR 贡献目标|model_archetype × hardware_class/i).first()).toBeVisible();
+  });
+
+  test('Coverage matrix shows filled cells linking to playbooks', async ({ page }) => {
+    await page.goto('/playbooks/');
+    // At least one ✓ cell linked to a playbook detail page
+    const filledCells = page.locator('a[href*="/playbooks/"][title]:has-text("✓")');
+    await expect(filledCells.first()).toBeVisible();
+  });
+
+  test('Long-context Hopper-cluster playbook shows ring-attention + sliding-window', async ({ page }) => {
+    await page.goto('/playbooks/long-context-on-hopper-cluster/');
+    await expect(page.getByText(/Ring Attention|ring-attention/i).first()).toBeVisible();
+    await expect(page.getByText(/1M.*context|Sliding Window|Llama 4 Behemoth/i).first()).toBeVisible();
+  });
+
+  test('Mixtral / Qwen 3 30B-A3B playbook shows EP=8 intra-node', async ({ page }) => {
+    await page.goto('/playbooks/moe-llm-medium-on-hopper-single-node/');
+    await expect(page.getByText(/EP=8/i).first()).toBeVisible();
+    await expect(page.getByText(/Mixtral|Qwen 3 30B/i).first()).toBeVisible();
+  });
+
+  test('Dense small × Ascend playbook shows MindIE + 国产替代', async ({ page }) => {
+    await page.goto('/playbooks/dense-llm-small-on-ascend-cluster/');
+    await expect(page.getByText(/MindIE|910C/i).first()).toBeVisible();
+    await expect(page.getByText(/国产|国央企|合规/i).first()).toBeVisible();
+  });
+
+  test('SSM/Mamba × Ada playbook shows selective-scan + linear memory', async ({ page }) => {
+    await page.goto('/playbooks/ssm-mamba-on-ada-single-node/');
+    await expect(page.getByText(/Mamba|Jamba|selective-scan|SSM/i).first()).toBeVisible();
+    await expect(page.getByText(/线性内存|linear|stateful/i).first()).toBeVisible();
+  });
+
+  test('PingTouge HanGuang 800 (last card) now shows memory hierarchy', async ({ page }) => {
+    await page.goto('/hardware/pingtouge-hanguang-800/');
+    await expect(page.getByText(/Cluster Local Buffer|LPDDR5|含光/i).first()).toBeVisible();
+  });
+
+  test('/quality coverage now shows 100% for memory_hierarchy', async ({ page }) => {
+    await page.goto('/quality/');
+    // At least one row at 100% (memory_hierarchy or switch_chips)
+    await expect(page.locator('text=/100% 完成/').first()).toBeVisible();
+  });
+
+  test('DeepSeek R1 model page rec widget surfaces reasoning playbook', async ({ page }) => {
+    await page.goto('/models/deepseek-r1/');
+    await expect(page.getByText(/推荐部署 Playbook/i).first()).toBeVisible();
+    // Should show reasoning playbook link
+    await expect(page.locator('a[href*="reasoning-llm-on-hopper-cluster"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.12: 4 more playbooks + bidirectional rec widget + 4 more cards (~95%)', () => {
   test('Playbooks index now shows 9 recipes', async ({ page }) => {
     await page.goto('/playbooks/');

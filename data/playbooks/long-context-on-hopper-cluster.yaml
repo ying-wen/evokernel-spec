@@ -1,0 +1,90 @@
+id: long-context-on-hopper-cluster
+name: 1M+ context 长上下文模型在 Hopper 集群部署 (Llama 4 Behemoth / Gemini 1.5 / GLM-4-Long-1M / Qwen3-LongRunner)
+model_archetype: long-context
+hardware_class: hopper-cluster
+workload_profile: [long-context-rag, agent-multi-turn, high-throughput-batch]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 1M+ context 模型 (Llama 4 Behemoth 10M context, Gemini 1.5 Pro 2M,
+  GLM-4-Long 1M, Qwen 3 LongRunner, MiniMax-Text-01) 部署到 H100/H200 集群.
+  关键差异: KV cache 占内存巨大 (1M context × 70B BF16 ≈ 350 GB), 必须 sequence-parallel
+  分摊到多卡; sliding-window 或 ring-attention 是核心模式.
+
+  **不适合**: 短 context chat (走 dense-llm-medium playbook)、reasoning long output (走
+  reasoning playbook, 优化方向不同 — 长 input vs 长 output 的 trade-off 完全不同).
+
+  ## 核心配方 — long context 的特殊机制
+
+  1. **Ring Attention 必启**: 1M+ context 单卡 KV 装不下 → sequence-parallel ring 分摊
+  2. **Sliding Window 候选**: Mistral / Gemma 2 SWA 路线让 KV 只占 W (4K), 但牺牲 quality
+  3. **Hybrid hierarchical attention**: Llama 4 Behemoth, GLM-4-Long 用层间混合 (5:1 SWA:global)
+  4. **prefix-radix-cache 极重要**: 长 context 通常是 RAG (相同 retrieved chunks) → 命中率 60-90%
+  5. **TP + Ring 组合调参**: 不同 (L, head_dim, N) 组合最优 TP/Ring 比例不同, 需 profiling
+
+recipe:
+  parallelism:
+    tp: '8 (intra-node NVLink-4)'
+    ep: '0 (假设 dense; MoE long-context 走 hybrid playbook)'
+    pp: '1'
+    sp: '8-16 (sequence-parallel — long context 关键)'
+    notes: 'TP=8 + SP=8 让 1M context 在 16 卡上分摊; SP 是 long context 的核心维度而非 EP'
+    disaggregated: false
+  quantization: fp8-e4m3
+  engine_primary: sglang
+  engine_alternates: [vllm, tensorrt-llm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-attn-sliding-window
+    - fused-rmsnorm-residual
+  patterns:
+    - flashattention-v3
+    - ring-attention-long-context
+    - sliding-window-attention
+    - prefix-radix-cache
+    - kv-cache-int8
+    - paged-attention
+  expected_perf:
+    decode_tok_s_per_gpu_min: 2200
+    decode_tok_s_per_gpu_max: 4500
+    prefill_throughput_min: 8000
+    prefill_throughput_max: 18000
+    ttft_ms_p50_min: 1500
+    ttft_ms_p50_max: 6000
+    cost_per_million_tokens_usd_min: 1.0
+    cost_per_million_tokens_usd_max: 3.5
+    notes: 'TTFT 主要受 long prefill 限制 (1M context BF16 ≈ 8-12s); RAG cache 命中后 TTFT 降至 < 500ms.'
+
+decision_points:
+  - scale: '8 GPU H100 (1 NVL8, ≤ 200K context)'
+    guidance: 'TP=8, FlashAttn-3 + Sliding Window. 200K context 70B 模型紧但能跑.'
+  - scale: '16-32 GPU H200 (2-4 nodes, ≤ 1M context)'
+    guidance: 'TP=8 + SP=2-4 ring, 启用 prefix-radix-cache. Llama 4 Behemoth 5M-10M context 入门规模.'
+  - scale: '64+ GPU H200 (8+ nodes, 全 1M-10M context)'
+    guidance: 'TP=8 + SP=8-16 ring, 启用 KV CPU offload for idle long sessions. 1M+ context production 配置.'
+
+not_for:
+  - 'Reasoning models (output 长但 input 短, 走 reasoning playbook)'
+  - 'Dense 短 context (走 dense-llm-medium, ring-attention overhead 浪费)'
+  - 'Single-card / edge (1M context 不可能在单卡上跑, 改用 sliding-window-only path)'
+  - 'A100 / Ampere (Ring attention 需要高 NVLink 带宽; A100 NVLink-3 收益不足)'
+
+related_cases: []
+
+affects_stages: [acquire, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-longctx-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://docs.sglang.ai/backend/long_context.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from Llama 4 Behemoth / Gemini 1.5 / GLM-4-Long-1M / MiniMax-Text-01 launch reports + SGLang ring-attention docs.'
+
+disclaimers:
+  - 'Long context 性能高度非线性 — context 翻倍 prefill 时间约翻 4x (O(L²) attention 即使有 ring)'
+  - 'RAG 场景 prefix-radix-cache 命中率是真实 perf 的最大变量; 命中率 < 30% 时 long-context playbook 不划算'
+  - 'Sliding-window vs full-attention 的 quality 损失高度任务依赖, 部署前必须做 task-specific eval'

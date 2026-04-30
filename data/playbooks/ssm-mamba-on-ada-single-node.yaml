@@ -1,0 +1,90 @@
+id: ssm-mamba-on-ada-single-node
+name: SSM / Mamba 模型在 Ada / Lovelace 单节点部署 (Mamba-2 / Jamba 1.5 / Falcon-H1 / Hyena Hierarchy)
+model_archetype: ssm-mamba
+hardware_class: ada-single-node
+workload_profile: [streaming-decode, low-latency-chat, cost-optimized]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: SSM / Mamba 类非-attention 模型 (Mamba-2 7B-13B, Jamba 1.5 hybrid 52B,
+  Falcon-H1 SSM 7B, Hyena Hierarchy) 部署到 RTX 4090 / 5090 / L40s 单 Ada 节点.
+  SSM 的 **线性内存** 是 Ada (HBM 紧) 单节点的杀手特性 — 1M context 不爆 HBM.
+
+  **不适合**: 长程依赖关键任务 (代码全局符号查找, 复杂数学推理 — SSM quality 仍弱于
+  attention)、超大 SSM (> 50B 仍需多卡, 走 cdna3-cluster)、reasoning long output
+  (SSM 在 long output CoT 上 quality 不如 transformer).
+
+  ## 核心配方 — SSM 与 transformer 的关键差异
+
+  1. **TP=1 / TP=2**: SSM 在小规模 (< 30B) 单卡部署最优; selective-scan op 不像 attention
+     那样需要大量 head split, TP 收益小.
+  2. **fused-selective-scan kernel**: SSM 推理性能瓶颈 — vLLM 0.6 / SGLang / mamba-ssm
+     都内置. 缺这个 kernel 的引擎 perf 跌 5-10x.
+  3. **Hybrid SSM-attention 模型 (Jamba)**: 5 层 SSM + 1 层 attention 比例 — 需要 engine
+     支持 mixed-layer scheduling; vLLM 0.6+ 支持.
+  4. **量化更宽松**: SSM 比 transformer 更 quantization-friendly — INT4 / FP8 quality 损失
+     比同规模 transformer 小 50%.
+  5. **KV cache 不存在**: SSM 是 stateful (h_t state) 而非 KV cache; 内存占用 O(D) 而非 O(L*D)
+
+recipe:
+  parallelism:
+    tp: '1 (单卡 7B-13B SSM) or 2 (Jamba 52B hybrid)'
+    ep: '0'
+    pp: '1'
+    sp: '0'
+    notes: 'SSM 单卡部署是常态; TP > 2 几乎没用 (selective-scan op 不易 split)'
+    disaggregated: false
+  quantization: int4-awq
+  engine_primary: vllm
+  engine_alternates: [sglang, lmdeploy, llama-cpp, mamba-ssm]
+  kernels:
+    - fused-selective-scan
+    - fused-mlp-silu
+    - flash-attention-v3
+    - fused-rmsnorm-residual
+  patterns:
+    - prefix-caching
+    - continuous-batching
+  expected_perf:
+    decode_tok_s_per_gpu_min: 120
+    decode_tok_s_per_gpu_max: 450
+    prefill_throughput_min: 2000
+    prefill_throughput_max: 12000
+    ttft_ms_p50_min: 40
+    ttft_ms_p50_max: 200
+    cost_per_million_tokens_usd_min: 0.05
+    cost_per_million_tokens_usd_max: 0.20
+    notes: 'Mamba-2 7B INT4 on RTX 4090 ~280 tok/s; Jamba 1.5 52B hybrid Q4 on 2× RTX 5090 ~150 tok/s. SSM tok/s 高于同规模 transformer 1.5-2x (no KV cache 内存压力).'
+
+decision_points:
+  - scale: 'RTX 4090 / 5090 (24-32 GB consumer)'
+    guidance: 'Mamba-2 7B-13B INT4 单卡; long context (200K+) 是 SSM 最大卖点. 4090 跑 Q4 7B ~280 tok/s.'
+  - scale: 'L40s 48 GB (data center single-card)'
+    guidance: 'Mamba-2 13B BF16 余量 + Jamba 1.5 52B Q4 紧装. data center 部署起点.'
+  - scale: '2x L40s 或 1× H100 (多卡 hybrid 模型)'
+    guidance: 'Jamba 1.5 52B BF16, Falcon-H1 大 size. SSM scale-up 不超过 30B 走单卡.'
+
+not_for:
+  - 'Pure transformer LLM (走 dense-llm-small playbook; SSM 优势用不上)'
+  - '长程依赖关键 (代码 / 数学 / 复杂 reasoning — SSM quality 仍弱)'
+  - 'Reasoning long output (CoT 在 SSM 还未充分验证)'
+  - '> 50B SSM (走多卡 ssm playbook, 但 SSM 大模型生态尚小)'
+
+related_cases: []
+
+affects_stages: [acquire, quantize, compile, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-ssm-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://github.com/state-spaces/mamba
+    accessed: '2026-04-30'
+    citation: 'Synthesized from Mamba-2 / Jamba 1.5 / Falcon-H1 release reports + vLLM Mamba2 backend benchmarks.'
+
+disclaimers:
+  - 'SSM 生态成熟度 ~transformer 30-40% — 长尾模型可能没有 vLLM 适配, 需要 mamba-ssm reference impl'
+  - 'SSM long context 优势真实, 但 long-context quality 是另一个问题 — 实际部署前必须做 task-specific eval'
+  - 'Hybrid SSM-attention (Jamba) 是 SSM 实际部署主流, 纯 SSM 仍少见'

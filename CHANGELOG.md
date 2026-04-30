@@ -11,6 +11,39 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.13.0] — 2026-05-01
+
+**Coverage matrix + memory_hierarchy 100%.** Playbook coverage gap now visualized as a 2D grid; long-tail hardware data work concluded.
+
+### Added
+
+**4 more deployment playbooks** (9 → 13 total) targeting common missing combos:
+- **long-context × hopper-cluster**: Llama 4 Behemoth 10M / Gemini 1.5 / GLM-4-Long-1M / MiniMax-Text-01. Ring-Attention + Sliding-Window + prefix-radix-cache for 1M-10M context. TP=8 + SP=8-16.
+- **moe-llm-medium × hopper-single-node**: Mixtral 8x7B / 8x22B, Qwen 3 30B-A3B, GLM-4 MoE. **EP=8 intra-node only** (no DeepEP cross-node) — sweet spot for 50-200B MoE.
+- **dense-llm-small × ascend-cluster**: Llama 3 8B / Qwen 2.5 7B / GLM-4-Flash on 国产 910C/910D 单卡. INT8 + MindIE 主栈, 国央企合规起步配置.
+- **ssm-mamba × ada-single-node**: Mamba-2 / Jamba 1.5 / Falcon-H1 on RTX 4090/5090/L40s. Linear-memory advantage for long context. fused-selective-scan + INT4 quant.
+
+**Coverage Matrix view** (NEW UX on /playbooks/):
+- 2D grid of (11 model archetypes × 16 hardware classes) = 176 cells with filled/empty visualization
+- Filled cells (✓) link to playbook detail, empty cells show missing combo on hover — making contribution targets visually obvious
+- Coverage stats: 13/176 cells = ~7% — intentionally sparse; matrix is forcing-function for contribution growth
+- Forcing-function pattern same as /quality dashboard from v1.7
+
+**Memory hierarchy: 100% (39/39 cards)**:
+- **PingTouge 平头哥 含光 800** (last unfilled): 4 cluster × 2 MB = 8 MB scratchpad, 16 MB on-chip cache, **16 GB LPDDR5** (no HBM — inference-only design tradeoff). 阿里巴巴 NPU 路线, 不通用但 INT8 推理高效率.
+
+### Stats
+- **209/209** site E2E pass (+9 new) · 36/36 unit pass
+- vendor: 28, hardware: 39 (**100% memory_hierarchy filled**), server: 14 (100% switch_chips), model: 19, case: 22, operator: 13, fused-kernel: 15, pattern: 15, **playbook: 13** (was 9)
+- Build: 318 pages
+
+### Coverage saturation milestones
+- ✅ super-pod cluster_internals: 100% (achieved v1.9)
+- ✅ memory_hierarchy: 100% (achieved v1.13 — this release)
+- 📈 playbook matrix: 7% — intentionally sparse, growth target for community
+
+---
+
 ## [1.12.0] — 2026-05-01
 
 **Playbook discoverability (gap 3 follow-up).** v1.11 introduced the playbook entity but they were isolated at /playbooks/. v1.12 expands to 9 playbooks and **surfaces them from the natural entry points** — every model page and hardware page now shows recommended playbooks for that pivot.

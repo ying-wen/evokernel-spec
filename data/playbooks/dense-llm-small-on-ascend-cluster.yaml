@@ -1,0 +1,89 @@
+id: dense-llm-small-on-ascend-cluster
+name: Dense 小模型在国产昇腾集群部署 (Llama 3 8B / Qwen 2.5 7B / GLM-4-Flash on 910C / 910D)
+model_archetype: dense-llm-small
+hardware_class: ascend-cluster
+workload_profile: [low-latency-chat, cost-optimized, agent-multi-turn]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 1B-13B dense 小模型部署到国产昇腾 910C / 910D 单卡或小集群 (1-8 卡).
+  国央企 / 政务 / 金融等强合规场景 — 部署小模型 on 国产硬件是性价比起步配置 +
+  自主可控基线. 与 NVIDIA H100 路线相比成本低 30-50%, 但软件栈成熟度差距可见.
+
+  **不适合**: 不需要国产合规要求的场景 (走 dense-llm-small × edge-single-card 优先);
+  > 30B 模型 (走 dense-llm-medium × ascend-cluster); reasoning long output (走
+  reasoning playbook 但需 NPU 适配验证).
+
+  ## 核心配方与 NVIDIA edge playbook 的差异
+
+  1. **TP=1 单卡 / TP=4-8 集群**: 910C 64 GB HBM 让 7B BF16 单卡装下; 13B 模型走 TP=2-4.
+  2. **INT8 quant 主力**: 910C native FP8 路径未成熟, INT8 是国产卡甜点 (硬件加速 + 质量损失小)
+  3. **MindIE 2.0 主栈**: 国央企部署首选, vllm-ascend fork 是社区路径; 海外开源模型可能需要适配 PR
+  4. **HCCS 不需要**: 单卡或 8 卡内, 节点内 HCCS-v2 全连接, 不涉及跨节点 RoCE
+  5. **Pattern stack 简化**: prefix-caching + continuous-batching, MTP / FP4 等 NVIDIA-specific 路径不可用
+
+recipe:
+  parallelism:
+    tp: '1 (单卡 7B-13B) or 2-8 (集群 13B+)'
+    ep: '0 (dense)'
+    pp: '1'
+    sp: '0'
+    notes: '910C 64 GB HBM 让 7B/13B BF16 单卡装下; 30B+ 才需要 TP > 1'
+    disaggregated: false
+  quantization: int8
+  engine_primary: mindie
+  engine_alternates: [vllm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - prefix-caching
+    - continuous-batching
+    - paged-attention
+    - kv-cache-int8
+  expected_perf:
+    decode_tok_s_per_gpu_min: 80
+    decode_tok_s_per_gpu_max: 380
+    prefill_throughput_min: 1200
+    prefill_throughput_max: 8000
+    ttft_ms_p50_min: 100
+    ttft_ms_p50_max: 500
+    cost_per_million_tokens_usd_min: 0.08
+    cost_per_million_tokens_usd_max: 0.30
+    notes: '910C 7B BF16 单卡 ~150 tok/s; 910D 上探到 200 tok/s. 国产卡 7B 部署 $/token 低于 H100x1 因为单卡价格 30-40% NVIDIA'
+
+decision_points:
+  - scale: '1 GPU 910C (单卡 7B-13B)'
+    guidance: 'TP=1 + INT8 quant. 7B 余量大, 13B 紧 (INT8 才装下). 单卡部署门槛最低.'
+  - scale: '8 GPU 910C (1 节点 Atlas 800T A2, 13B-30B)'
+    guidance: 'TP=2-8 inside 节点 HCCS. 13B 高吞吐或 30B 高质量两种用法.'
+  - scale: '1 GPU 910D (新代次, 7B 高 perf)'
+    guidance: '910D HBM3 + FP8 native (vs 910C HBM2e + INT8) — 如可获取首选; 7B 单卡 perf 比 910C +30-40%.'
+
+not_for:
+  - '海外开源模型未做 NPU 适配 (Llama / Mistral 等需要 vllm-ascend / MindIE conversion 的 PR)'
+  - 'reasoning long output (decode 长 tail, MTP 在 Ascend 还未成熟)'
+  - 'multi-modal vision (vision encoder 在 Ascend 优化弱)'
+  - '< 7B 端侧场景 (910C 单卡浪费, 走端侧 NPU 或消费级 GPU)'
+
+related_cases:
+  - case-dsr1-on-ascend-910b-x16-mindie-001
+
+affects_stages: [acquire, convert, quantize, compile, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-dense-ascend-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://e.huawei.com/cn/products/computing/ascend
+    accessed: '2026-04-30'
+    citation: 'Synthesized from Huawei Atlas 800I / 800T deployment guides + community vllm-ascend benchmarks for Llama / Qwen 7B-13B.'
+
+disclaimers:
+  - '910C 性能基线 ~H100 60-70% on 7B; 单卡 perf 优势在 cost-effectiveness, 不是绝对吞吐'
+  - '海外模型 conversion 工程量 1-3 周; 国产模型 (Qwen / GLM / DeepSeek) plug-and-play'
+  - 'Production 部署应先做 task-specific quality eval — INT8 在某些任务上可能跌 1-3 pt'
