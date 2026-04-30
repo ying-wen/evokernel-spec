@@ -1,0 +1,74 @@
+id: grouped-matmul
+name: Grouped Matmul (MoE expert batched-GEMM)
+category: matmul
+
+flops_formula: '2 * sum_over_groups(batch_g * hidden * ffn_size)'
+bytes_formula: '2 * (sum_over_groups(batch_g * hidden) + ffn_size * hidden + batch_g * ffn_size)'
+arithmetic_intensity_formula: '~ 50–500 FLOP/byte (compute-bound for medium-batch experts)'
+arithmetic_intensity_typical:
+  min: 30
+  max: 500
+  notes: '与 dense matmul 类似 — compute-bound when batch sufficient; falls to memory-bound at batch=1'
+
+description: |
+  Grouped Matmul 是 MoE 模型的关键算子: 对一批 token 按 routing 分配给不同 expert 后,
+  每个 expert 处理它分到的 token 子集. Naive 实现是 N 次独立 GEMM (N = active experts × shard);
+  grouped 实现把所有 expert 的 GEMM 合并成一次 batched call, 用一个 kernel launch.
+
+  ## 与 regular matmul 的关键差异
+
+  - **Regular matmul**: `(M, K) × (K, N) → (M, N)`, 单一 weight matrix.
+  - **Grouped matmul**: `[(M_1, K) × (K, N), (M_2, K) × (K, N), ...]` — 不同 batch_size,
+    不同 weight matrix. M_i 是 expert i 拿到的 token 数.
+
+  ## 实现要点
+
+  - **Token packing**: routing 后 token 按 expert id 排序+packing, 让 GPU thread block 处理
+    同 expert 的连续 token (减少 thread divergence).
+  - **Padding vs masking**: 为对齐 SM 数, 短 expert 通常 padding 到 max batch (浪费一些 compute);
+    或者用 mask 跳过, 但 mask 路径慢一些.
+  - **Sparse routing**: top-K=8/256 expert 分布很 skewed (~80% token 集中在 20% expert). 实际
+    高效实现都用 sorted token + segment-based GEMM dispatch.
+
+  ## 关键 perf signal
+
+  - **Decode 阶段 batch=1**: grouped GEMM 退化为 K 个独立小 GEMM, 每个都 memory-bound. 这就是
+    MoE decode 不如 dense decode 高效的核心原因.
+  - **Prefill 阶段 batch=2048**: grouped GEMM 高效, MoE 优势明显 (active params 仅 1/3-1/5).
+  - **DeepEP / Mooncake**: 大规模 EP 时 token shuffle 跨节点是 bottleneck; grouped GEMM 本身
+    通常不是 perf 瓶颈.
+
+variants: [contiguous-grouped, padded-grouped, segment-grouped]
+
+fusion_targets: [matmul, moe-gate, all2all]
+participates_in_fused_kernels:
+  - fused-moe-dispatch-deepep
+
+engine_implementations:
+  - name: vLLM grouped GEMM kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/moe
+    notes: 'CUDA + Triton; integrated with fused-moe-dispatch'
+  - name: SGLang Mixtral / DeepSeek MoE
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+  - name: TensorRT-LLM grouped GEMM
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: MindIE Grouped GEMM (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+    notes: '昇腾 native; CANN MoE library'
+
+precision_support: [bf16, fp16, fp8-e4m3, int8]
+
+related_patterns: [moe-expert-routing-on-domestic]
+
+references:
+  - title: 'Mixture of Experts: Outrageously Large Networks (Shazeer et al. 2017)'
+    url: https://arxiv.org/abs/1701.06538
+    source_type: paper
+  - title: 'DeepEP: A Communication Library for MoE Models'
+    url: https://github.com/deepseek-ai/DeepEP
+    source_type: implementation

@@ -11,6 +11,39 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.16.0] — 2026-05-01
+
+**5 foundational operators + pipeline-stage case panel + 2 more playbooks.** Direct response to the persistent "算子层面信息也不全" complaint — fills the 5 most-cited missing ops.
+
+### Added
+
+**5 new operators** (13 → 18):
+- **layer-norm** (BERT/T5 ancestor of RMSNorm): Welford-stable streaming variance, 2-reduce path, comparison table vs RMSNorm — covers BERT-era / multi-modal vision encoder use.
+- **embedding-lookup** (input + LM head): Bimodal AI ranges (input gather AI=0.1, output projection AI=10-100). Documents tied vs untied embedding, vocab pruning, **LM head as decode bottleneck on large-vocab models** (Llama 4 Behemoth 260K vocab).
+- **all-gather** (TP/SP collective trinity): Companion to reduce-scatter and all-reduce. Documents Ring vs Recursive-Doubling vs SHARP variants. Critical for zero-bubble TP and SP→TP transitions.
+- **grouped-matmul** (MoE expert batched-GEMM): Distinct from regular matmul because of variable per-expert batch sizes. Documents token-packing, padding-vs-masking, sparse-routing implementation tradeoffs. Why MoE decode is less efficient than dense.
+- **top-k-sampling** (decoding op): Often-overlooked actual sampling op. Documents block-radix sort top-K, fused softmax+sampling+penalty path, and how 5-15% of decode time goes here on large-vocab models.
+
+**Pipeline stage detail page enhancement**:
+- Each stage now surfaces 🔬 实测案例 (concrete cases) that exemplify decisions in that stage — matched by patterns referenced in stage AND case
+- Closes the abstraction gap: stages had playbooks (recipes) and patterns (mechanisms) but no concrete proof; v1.16 adds case study links
+- Each case link shows bottleneck + decode tok/s as quick context
+
+**2 more playbooks** (17 → 19):
+- **reasoning-llm × cdna3-cluster**: DeepSeek R1 / QwQ on AMD MI300X / MI325X集群. **HBM 192-256 GB advantage avoids KV CPU offload latency on long reasoning** (vs Hopper 80 GB必须 offload).
+- **ssm-mamba × hopper-single-node**: Mamba-2 30B / Jamba 1.5 52B / Falcon-H1 大 size on H100 single-node. SSM linear-memory advantage on 13-50B range.
+
+**1 more case study** (24 → 25):
+- DeepSeek R1 671B reasoning on 32×MI325X with vLLM ROCm BF16 + spec decode — concrete proof for reasoning-llm × cdna3-cluster playbook. 8 TB HBM total avoids CPU offload required on H100.
+
+### Stats
+- **236/236** site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 25** (+1), **operator: 18** (was 13), fused-kernel: 15, pattern: 15, **playbook: 19** (was 17)
+- Build: 335 pages
+- Coverage matrix: 19/176 cells (~11%)
+
+---
+
 ## [1.15.0] — 2026-05-01
 
 **Operator-hardware fitness layer + engine compatibility matrix.** Cross-cutting structural views — answering questions that previously required browsing N pages.

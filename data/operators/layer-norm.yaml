@@ -1,0 +1,63 @@
+id: layer-norm
+name: LayerNorm (BERT/T5 ancestor of RMSNorm)
+category: norm
+
+flops_formula: '5 * batch * seq * hidden'
+bytes_formula: '4 * batch * seq * hidden + 2 * 2 * hidden'
+arithmetic_intensity_formula: '~ 1–2 FLOP/byte'
+arithmetic_intensity_typical:
+  min: 1.0
+  max: 2.5
+  notes: 'Memory-bound; 比 RMSNorm 多一个 mean 步, 算术强度略高但仍 memory-dominant'
+
+description: |
+  Standard Layer Normalization (Ba et al. 2016) — BERT/GPT-2/T5/Falcon 等模型默认 norm.
+  与 RMSNorm 的关键区别: LayerNorm 减 mean + 除 std, RMSNorm 只除 root-mean-square.
+
+  ## LayerNorm vs RMSNorm
+
+  - **LayerNorm**: `y = γ * (x - mean) / std + β` — mean + std 两次 reduce, β bias term
+  - **RMSNorm**: `y = γ * x / sqrt(mean(x²))` — 一次 reduce, 无 β
+  - **CompCost**: RMSNorm ~70% LayerNorm FLOPs; quality 在 LLM 上无显著差异
+  - **现代趋势**: Llama / Qwen / DeepSeek / Mistral 都用 RMSNorm; LayerNorm 仍在
+    BERT-era 模型 (T5, OPT, GPT-2) 和某些 multi-modal vision encoder 中.
+
+  ## 部署要点
+
+  - **Fusion 必启**: 几乎从不单独执行 — 与前后 GEMM/Attention residual 合并 (FusedAddNorm-Residual kernel)
+  - **Mixed precision**: input/output 可 BF16/FP16, 但 mean+var 累加必须 FP32 防数值崩
+  - **Welford 算法**: 数值稳定的 streaming variance 计算, 现代实现都用 (vLLM/TRT-LLM/AscendC)
+
+variants: [layer-norm, layer-norm-no-bias, group-norm, batch-norm-inference]
+
+fusion_targets: [matmul, attention, kv-write]
+participates_in_fused_kernels:
+  - fused-allreduce-residual
+
+engine_implementations:
+  - name: vLLM layer_norm CUDA kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/layernorm_kernels.cu
+    notes: 'Welford-stable; FP32 accumulator; fused with residual'
+  - name: TRT-LLM layer_norm
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: PyTorch nn.LayerNorm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, cdna4]
+    notes: 'reference; 部署时不直接用'
+  - name: MindIE LayerNorm (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'Layer Normalization'
+    url: https://arxiv.org/abs/1607.06450
+    source_type: paper
+  - title: 'Root Mean Square Layer Normalization (RMSNorm comparison)'
+    url: https://arxiv.org/abs/1910.07467
+    source_type: paper

@@ -1,0 +1,71 @@
+id: all-gather
+name: All-Gather (TP / SP collective)
+category: communication
+
+flops_formula: '0 (pure communication)'
+bytes_formula: '(N - 1) / N * total_size'
+arithmetic_intensity_formula: '0 (network-bound)'
+arithmetic_intensity_typical:
+  min: 0.001
+  max: 0.01
+  notes: '纯通信 — 每张卡向其他 N-1 张广播自己的 1/N chunk'
+
+description: |
+  All-Gather 把 N 张卡上各自持有的 1/N 张量分片合并起来, 让每张卡都拥有完整张量.
+  与 Reduce-Scatter 互补: `all-reduce(N) = reduce-scatter(N) + all-gather(N)`.
+
+  ## 在 LLM 推理中的角色
+
+  - **Tensor Parallelism (TP)**: 每层 attention/FFN 输入需要 hidden 张量在所有 TP rank 上完整 →
+    用 all-gather 把分片 hidden 收集. 现代 zero-bubble TP 把 all-reduce 拆成 reduce-scatter +
+    all-gather 后, all-gather 与下层 GEMM overlap, 隐藏通信延迟.
+  - **Sequence Parallelism (SP)**: layer-norm 后输出沿 sequence 切分, 进入下一个 attention
+    前 all-gather 把 sequence 维度收集回完整.
+  - **MoE EP**: expert 输出需要 all-gather 聚集 token routing 域 (相对 reduce-scatter 是 dispatch 阶段)
+
+  ## 算法变种
+
+  - **Ring all-gather**: 每张卡向下一张卡发自己的 1/N chunk × N-1 step. Bandwidth-optimal.
+  - **Recursive doubling**: log(N) step, 延迟低但带宽利用率次优.
+  - **NVSwitch broadcast**: NVLink Gen-3+ NVSwitch 支持 in-network broadcast, 单 hop 完成.
+
+  ## 与 reduce-scatter 的关系
+
+  Zero-bubble TP / SP 的关键 insight: 把 all-reduce 拆成 RS + AG 后, RS 阶段下游层可以
+  开始 compute 自己的 shard, AG 阶段从 N-1 张卡 streaming 收集 — 通信和计算 overlap,
+  TP 通信开销几乎隐藏到 noise level.
+
+variants: [ring-ag, recursive-doubling-ag, sharp-ag]
+
+fusion_targets: [matmul, attention, all-reduce]
+participates_in_fused_kernels: []
+
+engine_implementations:
+  - name: NCCL ncclAllGather
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/api/colls.html
+    notes: 'NVLink/NVSwitch + IB/RoCE; SHARP optional 加速'
+  - name: HCCL HcclAllGather
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+    url: https://www.hiascend.com/document
+    notes: '昇腾 HCCS 内 broadcast'
+  - name: RCCL ncclAllGather
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/rccl
+    notes: 'AMD ROCm; Infinity Fabric on-package'
+  - name: vLLM TP comm
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    notes: 'NCCL + custom fused-allgather-with-norm path'
+
+precision_support: [bf16, fp16, fp8-e4m3, int8]
+
+related_patterns: []
+
+references:
+  - title: 'NCCL collective communication library'
+    url: https://github.com/NVIDIA/nccl
+    source_type: implementation
+  - title: 'Zero-Bubble Pipeline Parallelism (uses split AR=RS+AG)'
+    url: https://arxiv.org/abs/2401.10241
+    source_type: paper

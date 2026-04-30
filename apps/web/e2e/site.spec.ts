@@ -576,6 +576,72 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.16: 5 new operators + pipeline-stage cases + 2 more playbooks + 1 case', () => {
+  test('LayerNorm operator visible (BERT-era ancestor of RMSNorm)', async ({ page }) => {
+    await page.goto('/operators/layer-norm/');
+    await expect(page.getByText(/LayerNorm|BERT/i).first()).toBeVisible();
+    await expect(page.getByText(/RMSNorm/i).first()).toBeVisible();
+  });
+
+  test('Embedding-lookup operator shows tied embedding + LM head context', async ({ page }) => {
+    await page.goto('/operators/embedding-lookup/');
+    await expect(page.getByText(/tied embedding|LM head/i).first()).toBeVisible();
+    await expect(page.getByText(/vocab/i).first()).toBeVisible();
+  });
+
+  test('All-Gather operator shows TP/SP context + Ring/SHARP variants', async ({ page }) => {
+    await page.goto('/operators/all-gather/');
+    await expect(page.getByText(/All-Gather|TP|SP/i).first()).toBeVisible();
+    await expect(page.getByText(/Ring|recursive doubling|SHARP/i).first()).toBeVisible();
+  });
+
+  test('Grouped-matmul operator shows MoE expert batched-GEMM context', async ({ page }) => {
+    await page.goto('/operators/grouped-matmul/');
+    await expect(page.getByText(/MoE|expert/i).first()).toBeVisible();
+    await expect(page.getByText(/DeepEP|grouped/i).first()).toBeVisible();
+  });
+
+  test('Top-K Sampling operator shows decoding op context', async ({ page }) => {
+    await page.goto('/operators/top-k-sampling/');
+    await expect(page.getByText(/top-k|top-p|nucleus/i).first()).toBeVisible();
+    await expect(page.getByText(/multinomial|greedy/i).first()).toBeVisible();
+  });
+
+  test('Pipeline stage page now surfaces concrete cases', async ({ page }) => {
+    await page.goto('/pipeline/quantize/');
+    await expect(page.getByText(/实测案例|瓶颈诊断/i).first()).toBeVisible();
+    // At least one case linked
+    await expect(page.locator('a[href*="/cases/case-"]').first()).toBeVisible();
+  });
+
+  test('Reasoning × CDNA-3 cluster playbook visible', async ({ page }) => {
+    await page.goto('/playbooks/reasoning-llm-on-cdna3-cluster/');
+    await expect(page.getByText(/MI300X|MI325X|HBM 容量/i).first()).toBeVisible();
+    await expect(page.getByText(/spec decode|reasoning/i).first()).toBeVisible();
+  });
+
+  test('SSM × Hopper single-node playbook visible', async ({ page }) => {
+    await page.goto('/playbooks/ssm-mamba-on-hopper-single-node/');
+    await expect(page.getByText(/Mamba-2|Jamba|hybrid/i).first()).toBeVisible();
+    await expect(page.getByText(/selective-scan|线性内存/i).first()).toBeVisible();
+  });
+
+  test('DeepSeek R1 × MI325X reasoning case visible', async ({ page }) => {
+    await page.goto('/cases/case-dsr1-on-mi325x-vllm-rocm-001/');
+    await expect(page.getByText(/MI325X|HBM3e/i).first()).toBeVisible();
+    await expect(page.getByText(/spec decode|reasoning/i).first()).toBeVisible();
+  });
+
+  test('Operators index now lists 18 operators', async ({ page }) => {
+    await page.goto('/operators/');
+    await expect(page.getByText(/LayerNorm/i).first()).toBeVisible();
+    await expect(page.getByText(/Embedding Lookup/i).first()).toBeVisible();
+    await expect(page.getByText(/All-Gather/i).first()).toBeVisible();
+    await expect(page.getByText(/Grouped Matmul/i).first()).toBeVisible();
+    await expect(page.getByText(/Top-K|Top-P/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.15: operator-hardware fitness + engine matrix + 2 more playbooks + 1 case', () => {
   test('Operator detail shows structural fitness panel across corpus', async ({ page }) => {
     await page.goto('/operators/attention/');

@@ -1,0 +1,77 @@
+id: top-k-sampling
+name: Top-K / Top-P Sampling (decoding op)
+category: misc
+
+flops_formula: 'O(vocab_size * log(K)) sort-based or O(vocab_size) scan-based'
+bytes_formula: '8 * vocab_size (logits + indices)'
+arithmetic_intensity_formula: '~ 0.1–0.5 FLOP/byte (memory-bound)'
+arithmetic_intensity_typical:
+  min: 0.1
+  max: 0.5
+  notes: '纯 memory access + sort/scan — 始终 memory-bound. 大 vocab (200K+) 时占 decode 的 5-15%.'
+
+description: |
+  Top-K Sampling: 从 softmax(logits) 中选取概率最高的 K 个 token, 然后在这 K 个里采样.
+  Top-P (nucleus): 选 cumulative probability 达到 P 的最小 token 集合, 再采样.
+
+  常被忽略的 decode 关键 op — 在大 vocab 模型 (Llama 4 Behemoth 260K, DeepSeek V3 130K)
+  和高 batch 服务上, top-k/top-p 占 decode 单次 forward 的 5-15% 时间.
+
+  ## 实现路径
+
+  - **Naive sort + slice**: O(V log V), 慢, 早期 PyTorch 默认
+  - **Block-radix sort top-K**: O(V) GPU-friendly, vLLM/TRT-LLM 现代实现
+  - **TopK 1-pass scan + heap**: 边扫边维护 K-heap, vLLM custom kernel
+  - **Approximate top-K**: 牺牲 1-2% quality 换 2-3x 加速 — 实验性
+
+  ## 与 sampling 的关系
+
+  Top-K/Top-P 是 *候选集筛选*, 之后还要做:
+  - **Multinomial sampling**: 在筛选后的候选集内按概率采样
+  - **Greedy** (temperature=0): top-1 直接选
+  - **Beam search**: 维护 K 条候选 prefix (推理几乎不用)
+
+  ## 部署细节
+
+  - **Fused with softmax**: 现代实现把 softmax + top-K + multinomial 融合到单 kernel,
+    减少 HBM round-trip.
+  - **Mixed precision**: logits 通常 FP32 (避免 FP16 溢出), 索引 INT32.
+  - **Penalty applications**: repetition_penalty / presence_penalty 在 sampling 前对 logits
+    做 element-wise 修改 — fuse 进 sampling kernel.
+
+variants: [top-k, top-p, top-k-top-p, min-p, multinomial, greedy, beam-search]
+
+fusion_targets: [softmax, embedding-lookup]
+participates_in_fused_kernels: []
+
+engine_implementations:
+  - name: vLLM sample_logits CUDA kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/sampling
+    notes: 'Block-radix top-K + fused multinomial; FP32 logit accumulator'
+  - name: TRT-LLM sampling
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: SGLang sampling
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+  - name: llama.cpp sampling
+    hardware_arch: [hopper, ampere, ada, cdna3]
+    url: https://github.com/ggerganov/llama.cpp
+    notes: 'CPU + GPU; min-p / mirostat sampling 默认'
+  - name: MindIE Sampling (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+
+precision_support: [fp32, fp16, bf16]
+
+related_patterns: []
+
+references:
+  - title: 'The Curious Case of Neural Text Degeneration (top-p / nucleus sampling)'
+    url: https://arxiv.org/abs/1904.09751
+    source_type: paper
+  - title: 'vLLM sampling kernels'
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/sampling
+    source_type: implementation

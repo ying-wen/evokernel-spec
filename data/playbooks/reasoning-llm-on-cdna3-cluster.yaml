@@ -1,0 +1,91 @@
+id: reasoning-llm-on-cdna3-cluster
+name: Reasoning LLM 在 AMD CDNA-3 集群部署 (DeepSeek R1 / QwQ on MI300X / MI325X 集群)
+model_archetype: reasoning-llm
+hardware_class: cdna3-cluster
+workload_profile: [reasoning-tot, low-latency-chat, agent-multi-turn]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: Reasoning LLM (DeepSeek R1 671B-A37B, QwQ 32B-72B, GLM-Reasoner) 部署到
+  AMD MI300X / MI325X 集群 (8-128 卡). 与 NVIDIA Hopper 路线相比, AMD 在 reasoning
+  workload 上的关键优势: HBM 192-256 GB/卡让 long decode KV cache 装得下而不需 CPU offload.
+
+  **不适合**: NVIDIA-only 工具链团队 (TensorRT-LLM 优化路径不可用)、严苛低延迟 SLA
+  (Infinity Fabric 比 NVSwitch 慢 30%, 长 reasoning 通信开销显著)、Blackwell-class FP4 工作负载.
+
+  ## 核心配方与 Hopper reasoning 路线的差异
+
+  1. **TP=8 + EP=8-64 + IF mesh**: AMD 8-OAM 节点 IF 全连接 mesh; 比 NVSwitch 慢 ~30% 但配 192GB HBM
+  2. **HBM 容量优势 = 不需 KV CPU offload**: Reasoning 长 KV 在 H100 80GB 必须 CPU offload (50-200ms TTFT 损失);
+     在 MI300X/MI325X 192-256GB 单卡装下, 命中率 100%
+  3. **vLLM ROCm + spec decode**: spec decode 在 ROCm 0.6.3+ 支持; MTP fused kernel 在 AMD 还未成熟
+  4. **FP8 (OCP) 或 BF16**: MI300X/MI325X 支持 OCP FP8, 但 ecosystem 尚未与 NVIDIA NVFP8 同等; 很多
+     生产部署仍 BF16 (HBM 容量充裕避开 quant calibration)
+  5. **Disaggregated 不强需**: AMD vLLM disagg 路径未成熟; 集中式 + 大 HBM 是 AMD 的 reasoning 路线
+
+recipe:
+  parallelism:
+    tp: '8 (intra-OAM IF mesh)'
+    ep: '8-64 (跨节点 RoCE-400G)'
+    pp: '1'
+    sp: '0-8'
+    notes: 'AMD reasoning 路线: 大 HBM 单节点 + 中等集群; 不强需 disagg (vs Hopper 集群 disagg 必启)'
+    disaggregated: false
+  quantization: bf16
+  engine_primary: vllm
+  engine_alternates: [sglang]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-spec-decode
+    - fused-rmsnorm-residual
+  patterns:
+    - flashattention-v3
+    - speculative-decoding
+    - prefix-radix-cache
+    - kv-cache-int8
+    - moe-expert-routing-on-domestic
+  expected_perf:
+    decode_tok_s_per_gpu_min: 2200
+    decode_tok_s_per_gpu_max: 4500
+    prefill_throughput_min: 18000
+    prefill_throughput_max: 35000
+    ttft_ms_p50_min: 280
+    ttft_ms_p50_max: 550
+    cost_per_million_tokens_usd_min: 1.2
+    cost_per_million_tokens_usd_max: 3.5
+    notes: 'DeepSeek R1 on MI300Xx32 ~3000 tok/s/GPU decode; MI325Xx32 ~3800. AMD reasoning $/token 比 H100 低 15-25% (HBM 容量避开 CPU offload latency).'
+
+decision_points:
+  - scale: '8 GPU MI300X (1 OAM 节点, ≤ 200B reasoning)'
+    guidance: 'TP=8 + EP=8 + BF16. QwQ 72B 余量大; DeepSeek R1 671B 紧 (BF16 不装下, 必走 FP8/INT8).'
+  - scale: '32 GPU MI325X (4 节点, DeepSeek R1 671B BF16)'
+    guidance: 'TP=8 + EP=32, BF16. MI325X HBM3e 256 GB × 32 = 8 TB 让 R1 BF16 + 长 KV 装下. AMD reasoning 旗舰.'
+  - scale: '64+ GPU (8+ nodes, 高 QPS reasoning 服务)'
+    guidance: 'EP=64 + 启用 spec decode. 此规模 AMD UALink (planned 2026) 替代 RoCE 时跨节点提升.'
+
+not_for:
+  - 'NVIDIA-only 工具链 (TensorRT-LLM Medusa plugin 不可用)'
+  - 'MTP 模型 (DeepSeek V3 MTP head — vLLM ROCm MTP path 未成熟; fall back to spec decode)'
+  - '低延迟严苛 (TTFT P99 < 200ms — IF mesh 慢于 NVSwitch)'
+
+related_cases:
+  - case-qwen36plus-on-mi300x-vllm-rocm-001
+
+affects_stages: [quantize, compile, shard, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-reasoning-cdna3-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://docs.vllm.ai/en/latest/getting_started/amd-installation.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from AMD MI300X/MI325X reasoning workload benchmarks (Lambda, MosaicML community reports). Reasoning on AMD 公开数据较少; 数字 indicative.'
+
+disclaimers:
+  - 'Status: experimental — AMD reasoning workload deployment 较新, 公开数据少'
+  - 'spec decode 在 vLLM ROCm 较 NVIDIA 慢 1-2 个版本迭代'
+  - 'HBM 容量优势在 reasoning long-decode 上比 chat 更明显'

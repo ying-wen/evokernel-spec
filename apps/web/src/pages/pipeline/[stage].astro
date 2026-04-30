@@ -4,7 +4,7 @@ import Container from '~/components/ui/Container.astro';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import Badge from '~/components/ui/Badge.astro';
 import { pathname } from '~/lib/i18n';
-import { getPipelineStages, getPatterns, getOperators, getEngines, getPlaybooks } from '~/lib/data';
+import { getPipelineStages, getPatterns, getOperators, getEngines, getPlaybooks, getCases } from '~/lib/data';
 import { marked } from 'marked';
 
 export async function getStaticPaths() {
@@ -13,8 +13,8 @@ export async function getStaticPaths() {
 }
 const { s } = Astro.props;
 
-const [allStages, allPatterns, allOperators, allEngines, allPlaybooks] = await Promise.all([
-  getPipelineStages(), getPatterns(), getOperators(), getEngines(), getPlaybooks()
+const [allStages, allPatterns, allOperators, allEngines, allPlaybooks, allCases] = await Promise.all([
+  getPipelineStages(), getPatterns(), getOperators(), getEngines(), getPlaybooks(), getCases()
 ]);
 const desc = await marked.parse(s.description_md);
 
@@ -23,6 +23,12 @@ const relatedOperators = allOperators.filter((o) => s.related_operators.includes
 const primaryEngines = allEngines.filter((e) => s.primary_engines.includes(e.id));
 // Playbooks that affect this stage — surface them so the deployment chain is navigable
 const relatedPlaybooks = allPlaybooks.filter((pb) => pb.affects_stages.includes(s.id));
+// v1.16: surface concrete cases that exemplify decisions in this stage —
+// match by patterns referenced in this stage AND in the case (case proof of stage decision).
+const stagePatternIds = new Set(s.related_patterns);
+const exemplifyingCases = allCases
+  .filter((c) => c.patterns.some((pid) => stagePatternIds.has(pid)))
+  .slice(0, 6);
 
 const prevStage = allStages.find((x) => x.order === s.order - 1);
 const nextStage = allStages.find((x) => x.order === s.order + 1);
@@ -138,6 +144,27 @@ const downstreamStages = allStages.filter((x) => s.invalidates_downstream.includ
     )}
 
     <!-- Related patterns -->
+    {/* v1.16: cases exemplifying this stage's decisions — concrete proof, not just abstractions */}
+    {exemplifyingCases.length > 0 && (
+      <section class="pb-10">
+        <h3 class="text-xl font-semibold mb-3">🔬 实测案例 ({exemplifyingCases.length})</h3>
+        <p class="text-xs mb-3" style="color: var(--color-text-muted);">在此阶段的 pattern 决策上有实测案例佐证. 每个案例进入还有 <strong>瓶颈诊断</strong> 把案例瓶颈映射到具体改善路径.</p>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {exemplifyingCases.map((c) => (
+            <a href={pathname(`/cases/${c.id}/`)} class="block rounded p-3 text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium text-xs" style="color: var(--color-text);">{c.title.length > 60 ? c.title.slice(0, 58) + '…' : c.title}</div>
+              <div class="text-xs mt-1 flex gap-2 flex-wrap" style="color: var(--color-text-muted);">
+                <span>{c.bottleneck}</span>
+                <span>·</span>
+                <span>{c.results.throughput_tokens_per_sec.decode} tok/s decode</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
     {relatedPlaybooks.length > 0 && (
       <section class="pb-10">
         <h3 class="text-xl font-semibold mb-3">📘 部署 Playbook ({relatedPlaybooks.length})</h3>

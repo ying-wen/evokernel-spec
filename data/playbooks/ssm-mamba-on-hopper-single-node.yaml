@@ -1,0 +1,88 @@
+id: ssm-mamba-on-hopper-single-node
+name: SSM / Mamba 大模型在 Hopper 单节点部署 (Mamba-2 13B-30B / Jamba 1.5 52B / Falcon-H1 大 size)
+model_archetype: ssm-mamba
+hardware_class: hopper-single-node
+workload_profile: [streaming-decode, low-latency-chat, long-context-rag]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 大 SSM / Mamba / Hybrid 模型 (Mamba-2 13B-30B, Jamba 1.5 52B 是 hybrid SSM+attention,
+  Falcon-H1 30B+) 部署到 H100/H200 SXM 单节点 (1-8 卡). SSM 的 **线性内存** 在长 context
+  + 中等模型规模上是关键 — 比 transformer attention 长 context KV cache 省 5-50x 内存.
+
+  **不适合**: 短 context 工作负载 (SSM advantage 小, 走 dense-llm-medium); 7B-13B 端侧 (走
+  ssm-mamba × ada-single-node playbook); 100B+ 大 SSM (本 playbook 不覆盖, 需多节点).
+
+  ## 核心配方
+
+  1. **TP=2-8 fully-supported**: H100 SMEM 大 + tensor cores 让 selective-scan 高效;
+     与 ada-single-node playbook 区别在 TP 可走更大
+  2. **fused-selective-scan kernel 必启**: vLLM 0.6+ Mamba2 backend; SGLang 实验
+  3. **BF16 主力**: SSM 比 transformer 更 quantization-friendly, 但 H100 HBM 80GB 让 13B-30B
+     BF16 + 长 context state 都装下不需 INT8
+  4. **Hybrid 模型 (Jamba)**: Mamba 层 + attention 层 mixed scheduling, vLLM 0.6+ 支持
+  5. **No KV cache savings 但有 stateful overhead**: SSM stateful h_t 每 token 维护, 多 turn
+     chat 的 cross-session state 持久化是新挑战 (与 KV cache 完全不同的 lifecycle)
+
+recipe:
+  parallelism:
+    tp: '2-8 (intra-node NVLink-4)'
+    ep: '0'
+    pp: '1'
+    sp: '0'
+    notes: 'TP > 4 收益 marginal — selective-scan 不像 attention 那样高效 split. TP=2-4 是 sweet spot.'
+    disaggregated: false
+  quantization: bf16
+  engine_primary: vllm
+  engine_alternates: [sglang, lmdeploy, mamba-ssm]
+  kernels:
+    - fused-selective-scan
+    - fused-mlp-silu
+    - flash-attention-v3
+    - fused-rmsnorm-residual
+  patterns:
+    - prefix-caching
+    - continuous-batching
+  expected_perf:
+    decode_tok_s_per_gpu_min: 800
+    decode_tok_s_per_gpu_max: 2200
+    prefill_throughput_min: 8000
+    prefill_throughput_max: 22000
+    ttft_ms_p50_min: 60
+    ttft_ms_p50_max: 200
+    cost_per_million_tokens_usd_min: 0.10
+    cost_per_million_tokens_usd_max: 0.30
+    notes: 'Mamba-2 30B BF16 on H100x2 ~1500 tok/s/GPU; Jamba 1.5 52B hybrid on H100x4 ~1100 tok/s/GPU. SSM throughput 比同 size transformer 高 30-50% (decode 没 KV memory pressure).'
+
+decision_points:
+  - scale: '2 GPU H100 (单卡 13-30B Mamba-2)'
+    guidance: 'TP=2 + BF16. Mamba-2 30B 在 H100 80GB × 2 装下 + 任意长 context (SSM 不爆 KV).'
+  - scale: '4 GPU H100 (Jamba 1.5 52B hybrid)'
+    guidance: 'TP=4 + BF16. Hybrid SSM + attention 模型在 vLLM 0.6+ 支持 mixed-layer scheduling.'
+  - scale: '8 GPU H200 (multi-instance Mamba serving)'
+    guidance: 'TP=2 × 4 instance, 高 QPS Mamba 服务. SSM throughput 摊到 8 卡比 transformer 多 30%.'
+
+not_for:
+  - 'Pure transformer LLM (本 playbook fused-selective-scan kernel 不适用)'
+  - '< 13B SSM 端侧 (走 ssm-mamba × ada-single-node playbook)'
+  - '> 100B SSM (尚无 production 部署经验; 走多节点 SSM playbook 待补)'
+  - '长程依赖关键任务 (SSM quality 仍弱于同规模 transformer)'
+
+related_cases: []
+
+affects_stages: [acquire, compile, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-ssm-hopper-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://github.com/state-spaces/mamba
+    accessed: '2026-04-30'
+    citation: 'Synthesized from Mamba-2 30B / Jamba 1.5 / Falcon-H1 launch reports + vLLM Mamba2 backend benchmarks for data center single-node.'
+
+disclaimers:
+  - 'SSM 生态成熟度 ~transformer 30-40%; 长尾 SSM 模型可能需 mamba-ssm reference impl'
+  - 'SSM long-context quality vs transformer 仍是开放问题 — 部署前 task-specific eval 必做'
+  - 'Hybrid SSM-attention (Jamba) 比 pure SSM 更稳健 — production 优先考虑 hybrid'
