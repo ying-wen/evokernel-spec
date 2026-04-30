@@ -21,6 +21,25 @@ architecture:
   pcie_gen: { value: 5, evidence_ref: ev-sn40l-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-sn40l-001 }
   reconfigurable: true
+  memory_hierarchy:
+    - name: 'PMU SRAM (per RDU tile)'
+      scope: per-cu
+      size_kb: { value: 64, evidence_ref: ev-sn40l-001 }
+      notes: 'Pattern Memory Unit (PMU) — 每个 RDU tile 上 64 KB 本地 SRAM. 1040 tiles × 64 KB ≈ 64 MB on-die fast SRAM (与 architecture.on_die_sram_mb 一致).'
+    - name: 'HBM3 (Tier 2)'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-sn40l-001 }
+      bandwidth_tbs: { value: 6.4, evidence_ref: ev-sn40l-001 }
+      notes: '64 GB HBM3 / 6.4 TB/s — 与 NVIDIA H100 (80 GB / 3.35 TB/s) 类似容量但带宽高 2x. 用于 hot weight + KV cache.'
+    - name: 'DDR5 (Tier 3)'
+      scope: global
+      size_mb: { value: 1638400, evidence_ref: ev-sn40l-001 }
+      bandwidth_tbs: { value: 0.4, evidence_ref: ev-sn40l-001 }
+      notes: '1.6 TB DDR5 / ~400 GB/s — SN40L 独家三级内存, 让 5T+ 参数模型可以单卡 host (其他加速器都做不到).'
+  on_chip_interconnect:
+    name: 'RDU dataflow mesh (reconfigurable)'
+    bandwidth_tbs: { value: 150.0, evidence_ref: ev-sn40l-001 }
+    notes: 'RDU (Reconfigurable Dataflow Unit) 内部 PCU + PMU 通过 reconfigurable mesh 互联, 总带宽估算 150 TB/s. 关键差异化: tile 之间通过 dataflow 编程模型组合, 不需要 explicit memcpy — 数据流过 spatial graph.'
 memory:
   capacity_gb: { value: 1664, evidence_ref: ev-sn40l-001 }
   bandwidth_gbps: { value: 6400, evidence_ref: ev-sn40l-001 }

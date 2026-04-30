@@ -18,6 +18,20 @@ architecture:
   process_node_nm: { value: 12, evidence_ref: ev-tt-wh-001 }
   pcie_gen: { value: 4, evidence_ref: ev-tt-wh-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-tt-wh-001 }
+  memory_hierarchy:
+    - name: 'Tensix L1 SRAM (per tile)'
+      scope: per-cu
+      size_kb: { value: 1500, evidence_ref: ev-tt-wh-001 }
+      notes: 'Per-Tensix-core 1.5 MB SRAM (5× 256 KB RISC-V data SRAM + 1 MB matrix-engine scratchpad). 128 cores × 1.5 MB ≈ 192 MB total on-die SRAM — 大量本地 SRAM, 减少 GDDR6 访问.'
+    - name: 'GDDR6'
+      scope: global
+      size_mb: { value: 24576, evidence_ref: ev-tt-wh-001 }
+      bandwidth_tbs: { value: 0.576, evidence_ref: ev-tt-wh-001 }
+      notes: '12 channels × 16 Gbps = 576 GB/s. GDDR6 (而非 HBM) 是成本/能效 trade-off — Wormhole 定位 edge-to-data-center 跨级.'
+  on_chip_interconnect:
+    name: 'Tile NoC mesh'
+    bandwidth_tbs: { value: 1.0, evidence_ref: ev-tt-wh-001 }
+    notes: '128 Tensix tiles 通过 mesh NoC 互联, 每个方向 1 GB/s/tile. Tile-based 架构: 每个 Tensix 核 = 5 个 RISC-V CPU + 1 matrix engine, 类似 Cerebras/Groq 的 spatial 设计.'
 memory:
   capacity_gb: { value: 24, evidence_ref: ev-tt-wh-001 }
   bandwidth_gbps: { value: 576, evidence_ref: ev-tt-wh-001 }

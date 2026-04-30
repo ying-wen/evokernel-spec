@@ -1,0 +1,68 @@
+id: fp4-weight-only-quant
+name: FP4 仅权重量化 (Blackwell / Rubin native)
+category: quantization
+description_md: |
+  ## 简介
+
+  FP4 仅权重量化 (W4-only) 把模型权重压到 4-bit 浮点 (NVFP4 / MXFP4 格式),
+  activation 仍保持 BF16/FP16。在 Blackwell (B200, GB200) 和 Rubin (R100/R200, 计划)
+  上有 native FP4 tensor core 支持, 解码吞吐 1.8-2.5x BF16, HBM 占用降 4x。
+
+  与 FP4 native compute (W4A4 全 FP4) 不同 — W4-only 不动 activation, 质量损失小,
+  对 calibration 要求低。
+
+  ## 量化格式
+  - **NVFP4** (NVIDIA, Blackwell+): E2M1 + 16-element block scale (FP8 E4M3 scale)
+  - **MXFP4** (OCP MX format): E2M1 + 32-element block scale (E8M0 power-of-2)
+  - **AWQ-INT4** (经典对照): 4-bit integer + per-group scale, GEMM 走 INT4 tensor core
+
+  ## 何时启用
+  - Blackwell 及更新硬件 (B100/B200/GB200/R100); Hopper 走 FP8 W8A8 更优
+  - 模型 ≥ 70B (小模型量化损失明显)
+  - 优先决码吞吐 (decode-bottleneck) 而非 prefill 速度
+
+  ## 实测收益
+  - Llama 4 Maverick / DeepSeek V3 在 B200 上 W4-FP4: decode 5200 tok/s, BF16 baseline 2100 tok/s (~2.5x)
+  - HBM 占用: 405B 模型从 810 GB (BF16) → 203 GB (FP4) — 4x
+  - 质量: MMLU 跌 0.3-0.8 pt (vs 70B+ baseline), 可忽略
+
+applies_when:
+  - blackwell-or-newer-hardware
+  - decode-bottleneck
+  - large-model-70b-plus
+  - hbm-capacity-limited
+related_operators: [matmul, gemm, dequantize]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy]
+hardware_requires:
+  - blackwell-architecture
+  - fp4-tensor-cores
+model_archetypes: [dense-llm, moe-llm, long-context]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 1.8
+    multiplier_max: 2.5
+    notes: 'Blackwell native FP4 path; Hopper 走 emulation 收益 1.1-1.3x'
+  - metric: memory-footprint
+    multiplier_min: 3.5
+    multiplier_max: 4.0
+    notes: 'BF16 → FP4 权重 4x, 加上 scale 元数据 ~3.7x 实测'
+  - metric: quality
+    multiplier_min: 0.97
+    multiplier_max: 1.0
+    notes: '70B+ 模型 MMLU 跌 0.3-0.8 pt; <13B 模型可能跌 1-3 pt'
+trade_offs:
+  - 'Hopper 及更老硬件 FP4 走 emulation, 收益跌一半'
+  - 'Activation 仍 BF16, 长 context 时 KV cache 仍是 BF16 大头'
+  - 'Calibration set 选不好 outlier 偏多, 可能特定任务质量崩'
+  - '需要新版 vLLM/TRT-LLM, 旧版本只支持 W4A16-INT4'
+references:
+  - title: 'NVIDIA Blackwell architecture (introduces FP4)'
+    url: https://www.nvidia.com/en-us/data-center/technologies/blackwell-architecture/
+    source_type: docs
+  - title: 'OCP MX format spec (MXFP4)'
+    url: https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
+    source_type: docs
+  - title: 'TensorRT-LLM FP4 support'
+    url: https://nvidia.github.io/TensorRT-LLM/reference/precision.html
+    source_type: docs

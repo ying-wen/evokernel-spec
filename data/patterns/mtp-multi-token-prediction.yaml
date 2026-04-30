@@ -1,0 +1,62 @@
+id: mtp-multi-token-prediction
+name: MTP 多 token 预测 (DeepSeek V3 head)
+category: scheduling
+description_md: |
+  ## 动机
+
+  Speculative decoding 需要单独的草稿模型, 增加部署复杂度。
+  **Multi-Token Prediction (MTP)** 直接在目标模型上加 K 个独立预测 head, 同一个 forward
+  生成 K 个候选 token, 主头验证。无需草稿模型, 无 draft+target 协调开销。
+
+  DeepSeek V3 / V4 引入 MTP 训练目标, 推理时 head 用作 spec 生成器, 接受率可达 80-90%
+  (高于独立草稿的 60-70%)。
+
+  ## MTP vs 经典 Speculative Decoding
+  - **草稿模型**: 独立小模型 + 协调开销; 接受率 ~60%; 草稿模型自身要 forward
+  - **Medusa**: 共享底层 + 几个独立 head; 接受率 ~70%; 训练时即加 head
+  - **EAGLE-2**: 一层 transformer 草稿, 共享 embedding; 接受率 ~75%
+  - **MTP (DeepSeek V3)**: 训练时联合优化 K 个 future-token head; 接受率 ~85%
+
+  ## 何时启用
+  - 模型本身训练时含 MTP loss (如 DeepSeek V3/V4, Qwen 3 candidate)
+  - Decode 是瓶颈 (memory-bound) 而非 prefill
+  - K=2 是常见选择 (K=3 的边际收益快速衰减)
+
+  ## 引擎支持
+  - vLLM 0.6+: `--num-speculative-tokens` 配合 MTP weights
+  - SGLang 0.4+: 内置 MTP path
+  - TensorRT-LLM: MTP plugin
+
+applies_when:
+  - decode-bottleneck
+  - model-trained-with-mtp
+  - low-latency-target
+related_operators: [matmul, attention, softmax]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm]
+hardware_requires:
+  - tensor-cores-bf16-or-fp8
+model_archetypes: [dense-llm, moe-llm, reasoning]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 1.6
+    multiplier_max: 2.5
+    notes: '单 GPU decode 吞吐 1.6-2.5x; MoE 模型 (V3) 在 EP 高度分布时收益更大'
+  - metric: ttft
+    multiplier_min: 0.95
+    multiplier_max: 1.05
+    notes: 'TTFT 几乎不变 (prefill 阶段不用 MTP head)'
+trade_offs:
+  - '模型必须训练时含 MTP head — post-hoc 加 head 接受率会跌'
+  - 'MTP head 占用额外 ~3-5% 参数 + 显存'
+  - '高接受率依赖 token 分布稳定 — code generation/数学推理可能跌到 70%'
+references:
+  - title: 'DeepSeek-V3 Technical Report'
+    url: https://arxiv.org/abs/2412.19437
+    source_type: paper
+  - title: 'vLLM speculative decoding (incl. MTP)'
+    url: https://docs.vllm.ai/en/latest/features/spec_decode.html
+    source_type: docs
+  - title: 'SGLang MTP support'
+    url: https://github.com/sgl-project/sglang/tree/main/python/sglang/srt/speculative
+    source_type: implementation

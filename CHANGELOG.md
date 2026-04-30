@@ -11,6 +11,37 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.9.0] — 2026-05-01
+
+Operator-fusion / optimization-pattern push (gap 2 from the 3-gap directive). Patterns library 9 → 15, super-pod coverage now 100%.
+
+### Added
+
+**6 new optimization patterns** (9 → 15):
+- **prefix-radix-cache** (RadixAttention 前缀缓存 trie): SGLang-style radix tree for token-level prefix sharing. Multi-turn chat TTFT 5-20×, prefill cost 60-90% reduction.
+- **mtp-multi-token-prediction** (DeepSeek V3 MTP head): K-token prediction heads built into the model — 80-90% acceptance rate vs 60% for independent draft. Decode 1.6-2.5×.
+- **sliding-window-attention** (Mistral / Gemma hybrid SWA): O(L·W) attention + streaming KV cache. KV memory 4-32× reduction at long context.
+- **fp4-weight-only-quant** (NVFP4 / MXFP4 W4A16): Blackwell native FP4 path. Decode 1.8-2.5×, HBM 4× reduction. Hopper falls back to emulation (~1.2×).
+- **ring-attention-long-context**: Sequence-parallel attention for 1M+ context. Memory linear-N reduction across N GPUs. Trade: prefill TTFT slightly worse, but unlocks contexts that don't fit single-card.
+- **kv-cache-cpu-offload** (Mooncake / vLLM swap): HBM → host DRAM offload for idle multi-turn sessions. 5-20× active-session capacity. Cache-miss path adds 50-200ms TTFT.
+
+**Memory hierarchy on 4 more cards** (24 → 28 deep-filled, **72% catalog coverage** up from 62%):
+- **Biren BR100**: 192 KB L1/SPC × 64 SPCs = 12 MB scratchpad, 32 MB L2, HBM2e 64 GB / 2.3 TB/s, **on-package chiplet Bi-link Mesh** (国产首款 chiplet GPU)
+- **Tenstorrent Wormhole n300**: 1.5 MB Tensix L1 SRAM × 128 cores ≈ 192 MB total on-die SRAM, GDDR6 24 GB (cost/efficiency tradeoff vs HBM), tile NoC mesh — RISC-V tile-based architecture
+- **MetaX 曦云 C500**: 128 KB shared/CU × 64 CUs = 8 MB, 16 MB L2, HBM2e 64 GB / 1.8 TB/s. 单 die 路线 (vs Biren chiplet)
+- **SambaNova SN40L**: 3-tier memory — 64 MB on-die SRAM (1040 RDU tiles × 64 KB PMU), 64 GB HBM3, **1.6 TB DDR5** (only accelerator that hosts 5T+ models in single node), reconfigurable RDU dataflow mesh
+
+**Cluster internals on last 2 super-pods** (12 → 14, **100% super-pod coverage**):
+- **Moore Threads KUAE 集群方案**: 8 nodes × 8 cards = 64 MTT-S4000. MTLink switch × 8 (radix 8, 50 GB/s/port) intra-node, 200 GbE RoCE 2:1 oversubscribed inter-node. 国产 GPU 集群参考方案
+- **Cambricon 思元 X8 Server**: single-node 8× MLU590 reference design. MLU-Link-v2 switch (radix 8, 50 GB/s/port, similar to NVSwitch Gen-3 single-side), 4× 200 GbE RoCE optional scale-out. 训推一体, 4U air-cooled
+
+### Stats
+- 168/168 site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 22, fused-kernel: 12, **pattern: 15** (was 9)
+- Build: 297 pages
+
+---
+
 ## [1.8.0] — 2026-05-01
 
 Continuing the data-density push. Wafer-scale and on-die-SRAM architectures now first-class in the schema.

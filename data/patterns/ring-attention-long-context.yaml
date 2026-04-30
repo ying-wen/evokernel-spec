@@ -1,0 +1,76 @@
+id: ring-attention-long-context
+name: Ring Attention (长 context 多卡分片)
+category: parallel
+description_md: |
+  ## 简介
+
+  Ring Attention 把长序列 attention 沿 sequence 维度切分到多张 GPU,
+  各卡持有 KV-cache 的一个 chunk, 通过 **环形传递** 让每张卡轮流看到完整 KV,
+  最终 attention 输出按位置聚合。把 200K-1M context 单卡放不下的 KV cache
+  分摊到 N 张卡上, **memory 直接降 N 倍**。
+
+  与 Tensor Parallelism (TP) 切 head 不同, Ring 切 sequence; 两者可叠加 (TP × Ring)。
+
+  ## 算法核心
+  1. 把 KV cache 按 sequence 切成 N chunk, 每张卡持有 chunk_i
+  2. 每张卡先用本地 K,V 算 partial attention
+  3. 沿环形顺序: rank_i 把自己的 K,V 发给 rank_(i+1), 同时收 rank_(i-1) 的
+  4. 累加 partial 直到所有 rank 看到全部 KV — N 次 ring step
+  5. 最终 softmax 归一化按 online-softmax (FlashAttention-style)
+
+  ## 与其他长 context 方案对比
+  - **Sliding Window**: O(W) 内存但牺牲长程依赖
+  - **Ring Attention**: O(L/N) 单卡内存, 完整 attention, 但需要 N 卡
+  - **Sparse Attention (BigBird)**: O(L) 但近似, 模型需训练时即支持
+  - **MQA/GQA**: 减 KV head 数, 不减 sequence
+
+  ## 何时启用
+  - 1M+ context (Gemini 1.5 / Claude 3.5 / Llama 4 Behemoth 级别)
+  - 多卡可用 (典型 8x 或 16x)
+  - 单卡 HBM 装不下完整 KV cache (例如 200K context × 70B BF16 ≈ 90 GB KV)
+  - Prefill 阶段为主 (ring 通信开销在 prefill 摊薄, decode 单 token 太亏)
+
+  ## 引擎支持
+  - SGLang: 内置 ring + flashattention 集成
+  - vLLM 0.6+: experimental ring path
+  - DeepSpeed-Ulysses: SP (sequence parallelism) 是 Ring 的简化变种
+  - Megatron-LM: SP + ring 训练支持
+
+applies_when:
+  - long-context
+  - 1m-token-context
+  - multi-gpu-prefill
+related_operators: [attention, flashattention, all-gather, all-reduce]
+supporting_cases_min: 0
+engines_supporting: [sglang, vllm, deepspeed]
+hardware_requires:
+  - high-bandwidth-interconnect
+  - nvlink-or-equivalent
+model_archetypes: [dense-llm, moe-llm, long-context]
+speedup:
+  - metric: memory-footprint
+    multiplier_min: 4.0
+    multiplier_max: 16.0
+    notes: '单卡 KV 内存降 N 倍 (N=8 → 8x, N=16 → 16x)'
+  - metric: prefill-throughput
+    multiplier_min: 0.85
+    multiplier_max: 1.1
+    notes: 'Prefill 略降 (ring 通信开销 5-15%), 但能装下原本装不下的 context'
+  - metric: ttft
+    multiplier_min: 1.0
+    multiplier_max: 1.2
+    notes: 'TTFT 增加 (额外 N 次 KV 通信) — 不是为加速, 是为可行性'
+trade_offs:
+  - '通信 N 次 KV chunk, 对 NVLink/HCCS bandwidth 要求高'
+  - 'Decode 单 token 摊不开通信成本, ring 通常只在 prefill 启用'
+  - 'TP × Ring 组合调参复杂, 不同 (L, N, head_dim) 最优 TP/Ring 比例不同'
+references:
+  - title: 'Ring Attention with Blockwise Transformers'
+    url: https://arxiv.org/abs/2310.01889
+    source_type: paper
+  - title: 'DeepSpeed-Ulysses sequence parallelism'
+    url: https://github.com/microsoft/DeepSpeed/tree/master/deepspeed/sequence
+    source_type: implementation
+  - title: 'SGLang ring attention'
+    url: https://docs.sglang.ai/backend/long_context.html
+    source_type: docs

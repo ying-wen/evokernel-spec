@@ -1,0 +1,66 @@
+id: prefix-radix-cache
+name: RadixAttention 前缀缓存 (前缀复用 trie)
+category: kv-cache
+description_md: |
+  ## 简介
+
+  RadixAttention 是 SGLang 提出的 KV-cache 复用机制。把所有进行中和历史的 KV cache
+  组织成 **radix tree (基数树)**, 每条新请求按 token 序列在 trie 上查找最长公共前缀,
+  命中部分直接复用 KV — **零重计算**。
+
+  与传统 prefix-caching (按整段缓存) 的关键区别: radix tree 支持 *任意长度* 共享前缀,
+  甚至 token-level 粒度匹配, 系统提示词和 few-shot examples 几乎不再重算。
+
+  ## 何时收益最大
+  - **Agent / chatbot 场景**: 多轮共享 system prompt + tool description, 前缀命中率 70-95%
+  - **Few-shot inference**: 几十个例子 + 短问题, 前缀占请求 80%+ token
+  - **JSON / structured generation**: 前缀 schema 固定, 后缀分支
+  - **批量 evaluation**: 同一 prompt 不同 sample (多 sample decode)
+
+  ## 实现机制
+  - SGLang RadixAttention: 自带 trie 索引, GPU memory page 级 swap
+  - vLLM 0.5+: `--enable-prefix-caching`, hash-based 实现 (粒度粗一些)
+  - LMDeploy: TurboMind prefix cache
+
+  ## 收益规模
+  - 多轮 chat: TTFT 降 5-20x, prefill cost 降 60-90%
+  - Agent loop: end-to-end latency 降 40-70%
+  - 单轮独立请求: 几乎无收益 (前缀不重复)
+applies_when:
+  - multi-turn-chat
+  - agent-loop
+  - few-shot-inference
+  - shared-system-prompt
+related_operators: [attention, paged-attention]
+supporting_cases_min: 0
+engines_supporting: [sglang, vllm, lmdeploy]
+hardware_requires:
+  - sufficient-hbm-for-cache
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning]
+speedup:
+  - metric: ttft
+    multiplier_min: 5.0
+    multiplier_max: 20.0
+    notes: '多轮 chat 命中率 70%+ 时 TTFT 降 5-20x; 独立请求无收益'
+  - metric: prefill-throughput
+    multiplier_min: 2.5
+    multiplier_max: 10.0
+    notes: '前缀复用 = prefill 计算量直接降低'
+  - metric: cost-per-token
+    multiplier_min: 0.4
+    multiplier_max: 0.7
+    notes: 'TCO 降 30-60%, 取决于流量结构'
+trade_offs:
+  - 'KV cache 占 HBM 比例上升 (20-40%), 减少可用 batch'
+  - 'Trie 维护开销 (O(prefix_len)) 在百万级 entry 时显现'
+  - '单轮独立请求 + 高 throughput 工作负载几乎无收益'
+references:
+  - title: 'SGLang: Efficient Execution of Structured Language Model Programs'
+    url: https://arxiv.org/abs/2312.07104
+    source_type: paper
+  - title: 'SGLang RadixAttention docs'
+    url: https://docs.sglang.ai/backend/cache.html
+    source_type: docs
+  - title: 'vLLM prefix caching'
+    url: https://docs.vllm.ai/en/latest/automatic_prefix_caching/apc.html
+    source_type: docs

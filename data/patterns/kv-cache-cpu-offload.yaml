@@ -1,0 +1,75 @@
+id: kv-cache-cpu-offload
+name: KV Cache CPU 内存卸载 (多轮 chat)
+category: kv-cache
+description_md: |
+  ## 简介
+
+  在多轮 chat / 长会话场景, 每个 session 的 KV cache 长期占据 HBM 但实际只在该 session
+  对话时才被访问。**CPU offload** 把不活跃 session 的 KV cache 异步搬到 host DRAM
+  (pinned memory + UVA), 活跃时再 paged copy 回 HBM。
+
+  容量 trade-off: HBM 80 GB → host DRAM 1-2 TB, **活跃 session 容量上限 10-20x**。
+  延迟 trade-off: 命中 HBM 0 ms swap; 命中 DRAM ~50-200 ms swap (PCIe/NVLink-C2C)。
+
+  ## 实现层次
+  - **vLLM swap**: HBM 满时 evict 老 session 到 CPU, 命中时 swap-in
+  - **Mooncake KV-store**: 分布式 KV cache 服务, 跨节点 CPU/SSD 三级缓存
+  - **NVIDIA Dynamo**: KV cache router + offload + LMCache 三件套
+
+  ## 关键性能因素
+  - PCIe bandwidth: Gen5 x16 = 64 GB/s 单向, 80 GB KV swap ~1.3s
+  - NVLink-C2C (Grace+Hopper): 900 GB/s, 80 GB KV swap ~90ms (10x PCIe)
+  - PinMem 必须: 不 pin 会走 page-cache, 真实 bandwidth 跌一半
+
+  ## 何时收益最大
+  - 长会话 / agent 服务, 每用户独立 KV cache
+  - 用户活跃度低 (大量 session 几分钟级闲置)
+  - GPU 节点配 1-2 TB host RAM (现代 H100/H200/B200 节点典型)
+  - 不适合: 单轮高并发 (cache 复用率低, swap 浪费)
+
+  ## 引擎支持
+  - vLLM: `--swap-space` (默认 4 GB CPU swap)
+  - SGLang: `--mem-fraction-static` 间接控制
+  - Mooncake: 独立 KV-store + vLLM/SGLang adapter
+  - NVIDIA Dynamo: 端到端长会话 router
+
+applies_when:
+  - multi-turn-chat
+  - agent-loop
+  - long-session
+  - hbm-capacity-limited
+related_operators: [memcpy-async, paged-attention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, lmdeploy]
+hardware_requires:
+  - sufficient-host-dram
+  - nvlink-c2c-or-pcie-gen5
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning]
+speedup:
+  - metric: cost-per-token
+    multiplier_min: 0.5
+    multiplier_max: 0.8
+    notes: '把 idle session 从 HBM 搬走 = GPU 利用率上升 = TCO 降 20-50%'
+  - metric: memory-footprint
+    multiplier_min: 5.0
+    multiplier_max: 20.0
+    notes: '活跃 session 容量上限提升; 不影响单 session 计算开销'
+  - metric: ttft
+    multiplier_min: 1.0
+    multiplier_max: 1.3
+    notes: 'Cache miss + swap-in 路径 TTFT 增加 50-200ms; HBM 命中无影响'
+trade_offs:
+  - 'Cache-miss + swap-in 路径增加 50-200 ms TTFT, P99 抖动'
+  - 'PCIe Gen4 节点 swap bandwidth 不够, 退化到 Mooncake 多节点缓存才划算'
+  - 'PinMem 占用 host RAM, 调度系统需感知'
+  - 'Single-turn / 高吞吐工作负载 swap 成本 > 收益'
+references:
+  - title: 'vLLM swap configuration'
+    url: https://docs.vllm.ai/en/latest/configuration/optimization.html
+    source_type: docs
+  - title: 'Mooncake: A KVCache-centric Disaggregated Architecture'
+    url: https://arxiv.org/abs/2407.00079
+    source_type: paper
+  - title: 'NVIDIA Dynamo Inference Framework'
+    url: https://github.com/ai-dynamo/dynamo
+    source_type: implementation

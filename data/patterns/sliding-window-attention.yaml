@@ -1,0 +1,68 @@
+id: sliding-window-attention
+name: Sliding Window Attention (Mistral / Gemma)
+category: kernel-fusion
+description_md: |
+  ## 简介
+
+  Sliding Window Attention (SWA) 限制每个 token 只能 attend 到前 W 个 token (典型 W=4096),
+  把 attention 计算从 O(L²) 降到 O(L·W)。配合 streaming KV cache, 可以处理 32K-200K context
+  而内存只占 W 大小的 KV。
+
+  Mistral 7B / Mixtral 早期版本 W=4096; Gemma 2 / Gemma 3 用 hybrid (1:5 比例混合 SWA + global)。
+
+  ## SWA vs Full Attention
+  - **Full**: KV cache O(L), attention compute O(L²)
+  - **SWA**: KV cache O(W) (滑窗丢弃旧 KV), attention compute O(L·W)
+  - **Hybrid (Gemma 2)**: 5 层 SWA + 1 层 global, 平衡长程依赖与计算开销
+
+  ## 实现关键
+  - **Streaming KV**: 满 W 后旧 token 直接丢弃 (与 PagedAttention 互补)
+  - **Mask 形状**: 对角带状 mask, FlashAttn-2/v3 通过 `window_size` 参数支持
+  - **Block-mask sparsity**: SGLang/Triton kernel 利用稀疏性进一步加速
+
+  ## 何时收益最大
+  - 长 context (>16K), 但语义局部性强 (chat, code, document QA)
+  - HBM 容量受限 (8B/13B 在 8GB 显存上跑长 context)
+  - Edge / 端侧部署 (Phone/Laptop CPU 推理)
+
+  ## 不适用
+  - 长程依赖关键的任务 (代码全局符号查找, 长 reasoning chain)
+  - Full attention 已经 fits in HBM 时 (SWA 的 quality 损失白付)
+
+applies_when:
+  - long-context
+  - kv-cache-bottleneck
+  - edge-deployment
+  - mistral-architecture
+related_operators: [attention, flashattention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, lmdeploy, llama-cpp, transformers]
+hardware_requires: []
+model_archetypes: [dense-llm, long-context]
+speedup:
+  - metric: memory-footprint
+    multiplier_min: 4.0
+    multiplier_max: 32.0
+    notes: 'KV cache 减少 L/W 倍 (32K context + W=4096 → 8x; 200K + W=4096 → 50x)'
+  - metric: prefill-throughput
+    multiplier_min: 2.0
+    multiplier_max: 8.0
+    notes: 'Attention compute O(L·W) vs O(L²), 长 context 加速显著'
+  - metric: quality
+    multiplier_min: 0.95
+    multiplier_max: 1.0
+    notes: '局部任务质量几乎无损; 长程任务有 1-5% 跌幅'
+trade_offs:
+  - '长程依赖任务质量下降, 不适合所有模型'
+  - 'Hybrid 模型 (Gemma 2) 部分缓解但仍有限'
+  - '需要模型训练时即采用 SWA mask, post-hoc 改 mask 质量崩'
+references:
+  - title: 'Mistral 7B paper (introduces SWA)'
+    url: https://arxiv.org/abs/2310.06825
+    source_type: paper
+  - title: 'Gemma 2: hybrid sliding-window architecture'
+    url: https://arxiv.org/abs/2408.00118
+    source_type: paper
+  - title: 'FlashAttention window_size param'
+    url: https://github.com/Dao-AILab/flash-attention
+    source_type: implementation

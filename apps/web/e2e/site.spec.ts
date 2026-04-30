@@ -575,6 +575,72 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.9: 6 new patterns + 4 more cards + last 2 super-pods (72% / 100%)', () => {
+  test('Patterns hub now lists 15 patterns', async ({ page }) => {
+    await page.goto('/patterns/');
+    await expect(page.getByRole('link', { name: /RadixAttention 前缀缓存/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /MTP 多 token 预测/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /Sliding Window/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /FP4 仅权重量化/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /Ring Attention/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /KV Cache CPU/i }).first()).toBeVisible();
+  });
+
+  test('RadixAttention pattern detail shows engines + speedup', async ({ page }) => {
+    await page.goto('/patterns/prefix-radix-cache/');
+    await expect(page.getByText(/SGLang/i).first()).toBeVisible();
+    await expect(page.getByText(/radix tree|基数树/i).first()).toBeVisible();
+  });
+
+  test('MTP pattern shows DeepSeek V3 context', async ({ page }) => {
+    await page.goto('/patterns/mtp-multi-token-prediction/');
+    await expect(page.getByText(/DeepSeek V3|DeepSeek-V3/i).first()).toBeVisible();
+    await expect(page.getByText(/接受率/i).first()).toBeVisible();
+  });
+
+  test('FP4 weight-only pattern shows Blackwell context', async ({ page }) => {
+    await page.goto('/patterns/fp4-weight-only-quant/');
+    await expect(page.getByText(/Blackwell/i).first()).toBeVisible();
+    await expect(page.getByText(/NVFP4|MXFP4/i).first()).toBeVisible();
+  });
+
+  test('BR100 hardware shows chiplet mesh', async ({ page }) => {
+    await page.goto('/hardware/br100/');
+    await expect(page.getByText(/chiplet/i).first()).toBeVisible();
+    await expect(page.getByText(/Bi-link Mesh|双 die/i).first()).toBeVisible();
+  });
+
+  test('Wormhole n300 shows Tensix L1 SRAM tile-based', async ({ page }) => {
+    await page.goto('/hardware/wormhole-n300/');
+    await expect(page.getByText(/Tensix L1 SRAM|1\.5 MB/i).first()).toBeVisible();
+    await expect(page.getByText(/RISC-V|tile-based|Tile-based/i).first()).toBeVisible();
+  });
+
+  test('SambaNova SN40L shows 3-tier memory (SRAM + HBM + DDR5)', async ({ page }) => {
+    await page.goto('/hardware/sn40l/');
+    await expect(page.getByText(/PMU SRAM|RDU/i).first()).toBeVisible();
+    await expect(page.getByText(/DDR5/i).first()).toBeVisible();
+  });
+
+  test('KUAE super-pod (Moore Threads) shows MTLink + RoCE', async ({ page }) => {
+    await page.goto('/servers/moore-threads-kuae/');
+    await expect(page.getByText(/MTLink/i).first()).toBeVisible();
+    await expect(page.getByText(/夸娥|KUAE/i).first()).toBeVisible();
+  });
+
+  test('Cambricon X8 Server shows MLU-Link-v2 single-node', async ({ page }) => {
+    await page.goto('/servers/cambricon-x8-server/');
+    await expect(page.getByText(/MLU-Link-v2/i).first()).toBeVisible();
+    await expect(page.getByText(/思元 X8|训推/i).first()).toBeVisible();
+  });
+
+  test('/quality coverage now shows ≥70% hardware + 100% super-pod', async ({ page }) => {
+    await page.goto('/quality/');
+    // memory_hierarchy at 72% (28/39) or switch_chips at 100% (14/14)
+    await expect(page.locator('text=/100% 完成|7[0-9]% 完成|8[0-9]% 完成/').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.8: 6 more cards memory_hierarchy + 4 more super-pods cluster internals (62% / 86%)', () => {
   test('/quality coverage now shows ≥60% hardware + ≥85% super-pod', async ({ page }) => {
     await page.goto('/quality/');

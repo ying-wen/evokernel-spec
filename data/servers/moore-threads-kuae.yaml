@@ -10,12 +10,47 @@ inter_node_interconnect: RoCEv2-200G
 cooling: liquid
 rack_power_kw: 60
 total_memory_gb: 3072
+total_compute_pflops_bf16: 6.4
 release_year: 2024
 chinese_names: ['夸娥智算集群', 'KUAE']
+
+# v1.9: cluster internals — 摩尔线程夸娥智算集群 (KUAE).
+# 8 节点 × 8 卡 = 64 MTT-S4000; 节点内 MTLink, 跨节点 RoCE v2 200G.
+# 国产 GPU 集群参考方案 — 大部分参数从公开方案估算.
+switch_chips:
+  - name: 'MTLink Switch (intra-node)'
+    count: 8
+    radix: 8
+    bandwidth_gbps_per_port: 50
+    url: https://www.mthreads.com/
+  - name: '200 GbE RoCE NIC (inter-node)'
+    count: 32
+    radix: 4
+    bandwidth_gbps_per_port: 25
+oversubscription_ratio: 2.0
+scale_out_nics_per_node: 4
+scale_out_bandwidth_gbps_per_nic: 25
+power_distribution:
+  psu_count: 12
+  redundancy: N+1
+  sustained_kw: 48
+  peak_kw: 60
+  voltage: '380V 3-phase'
+cabinet_layout_md: |
+  ## 摩尔线程 KUAE 集群布局 / 8-node KUAE pod layout
+
+  - **8 节点 × 8 卡 = 64× MTT-S4000**, 跨多机柜部署
+  - **节点内 MTLink**: 8× MTLink switch (radix 8, 50 GB/s/port). scale-up 域 8 卡, 跨节点必须走 RoCE
+  - **节点间 RoCE v2 200G**: 32× 200 GbE NIC (4/节点), 2:1 oversubscribed (国产 enterprise 部署典型预算)
+  - **vs 思元 590 集群**: 同 8-card scale-up 域 + RoCE 跨节点设计, 国产生态典型 8-卡-节点拓扑
+  - **冷却**: 48 kW 持续 / 60 kW 峰值, 全部液冷 (1U 节点高密度部署)
+
 evidence:
   - id: ev-kuae-001
     tier: official
     source_type: vendor-press-release
     url: https://www.mthreads.com/
     accessed: '2026-04-28'
-    citation: 'Moore Threads KUAE cluster announcement'
+    citation: 'Moore Threads KUAE cluster announcement (8 node × 8 MTT-S4000 = 64 cards; figures estimated from product brief)'
+disclaimers:
+  - 'Configuration estimated from production deployment briefs; vendor brief lacks per-node spec.'

@@ -13,10 +13,28 @@ compute:
   int8_tops: { value: 1024, evidence_ref: ev-br100-001 }
 architecture:
   compute_unit_count: { value: 64, evidence_ref: ev-br100-arch-001 }
-  compute_unit_label: SM
+  compute_unit_label: Cluster
   hbm_stacks: { value: 4, evidence_ref: ev-br100-arch-001 }
   process_node_nm: { value: 7, evidence_ref: ev-br100-arch-001 }
   transistor_count_b: { value: 77, evidence_ref: ev-br100-arch-001 }
+  memory_hierarchy:
+    - name: 'L1 Buffer (per SPC)'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-br100-arch-001 }
+      notes: 'Per-SPC scratchpad — 64 SPCs × 192 KB ≈ 12 MB total. Smaller than NVIDIA H100 SMEM (228 KB) but larger than A100 (192 KB).'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 32, evidence_ref: ev-br100-arch-001 }
+      notes: '芯片级 L2 cache, 估算 32 MB (与 A100 同档). Chiplet 设计每 die 单独 L2 partition.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-br100-001 }
+      bandwidth_tbs: { value: 2.3, evidence_ref: ev-br100-001 }
+      notes: '4 stacks × 16 GB ⇒ 64 GB. 受 US 出口管制限制为 HBM2e (vs H100 HBM3).'
+  on_chip_interconnect:
+    name: 'Bi-link Mesh (chiplet)'
+    bandwidth_tbs: { value: 1.2, evidence_ref: ev-br100-arch-001 }
+    notes: 'BR100 是国产首款 chiplet GPU — 双 die 通过 on-package mesh 互联。Chiplet 是 Biren 的关键差异化技术 (vs Hygon DCU 单 die).'
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-br100-001 }
   bandwidth_gbps: { value: 2300, evidence_ref: ev-br100-001 }
