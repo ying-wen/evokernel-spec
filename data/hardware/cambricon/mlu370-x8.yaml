@@ -18,6 +18,24 @@ architecture:
   process_node_nm: { value: 7, evidence_ref: ev-mlu370-arch-001 }
   pcie_gen: { value: 4, evidence_ref: ev-mlu370-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-mlu370-001 }
+  memory_hierarchy:
+    - name: 'IPU local SRAM'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-mlu370-arch-001 }
+      notes: 'MLUarch02 per-IPU 本地 256 KB SRAM. 64 IPU × 256 KB = 16 MB total — 比同代 NVIDIA A100 (192 KB shared/SM) 略大.'
+    - name: 'Inter-die L2 (chiplet bridge)'
+      scope: global
+      size_mb: { value: 24, evidence_ref: ev-mlu370-arch-001 }
+      notes: 'MLU370-X8 是双 die chiplet 设计, L2 估算 24 MB (per-die 12 MB) 通过 MLU-Link bridge 互联.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 49152, evidence_ref: ev-mlu370-001 }
+      bandwidth_tbs: { value: 0.614, evidence_ref: ev-mlu370-001 }
+      notes: '2 stacks × 24 GB ⇒ 48 GB / 0.614 TB/s. 同代 A100 80 GB 容量较小但价格远低, 国产推理性价比代表.'
+  on_chip_interconnect:
+    name: 'MLU-Link inter-die bridge'
+    bandwidth_tbs: { value: 0.4, evidence_ref: ev-mlu370-arch-001 }
+    notes: 'MLU370 是 Cambricon 首款 chiplet 设计 (双 die). MLU-Link bridge 0.4 TB/s, 不如 NVIDIA NV-HBI (10 TB/s+) 但远早于其商用化.'
 memory:
   capacity_gb: { value: 48, evidence_ref: ev-mlu370-001 }
   bandwidth_gbps: { value: 614, evidence_ref: ev-mlu370-001 }

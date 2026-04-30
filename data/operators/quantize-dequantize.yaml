@@ -1,0 +1,76 @@
+id: quantize-dequantize
+name: Quantize / Dequantize (Q/DQ)
+category: misc
+
+flops_formula: '2 * batch * seq * hidden'
+bytes_formula: '(precision_in_bits + precision_out_bits) * batch * seq * hidden / 8'
+arithmetic_intensity_formula: '~ 0.5–1 FLOP/byte (memory-bound)'
+arithmetic_intensity_typical:
+  min: 0.3
+  max: 1.5
+  notes: '搬运 + scale/clip; 始终 memory-bound, 不 fuse 时是显著开销'
+
+description: |
+  Quantize 把高精度张量转低精度 (BF16 → FP8/INT8/FP4); Dequantize 反向.
+  推理服务中 **几乎从不单独执行** — 总是 fuse 在 GEMM/Attention kernel 内
+  (例如 `fp8_gemm` 内部隐式 dequantize input, quantize output)。
+
+  独立 Q/DQ 出现在: 1) 模型加载时一次性 calibration, 2) 跨 engine 边界,
+  3) KV cache 写入/读取 (FP8 KV cache).
+
+  ## 量化格式 × 实现
+
+  | 格式 | 单元 | 硬件加速 | 典型 scale 粒度 |
+  |---|---|---|---|
+  | INT8 | 8-bit symmetric | 大部分 GPU/NPU | per-tensor / per-channel |
+  | FP8-E4M3 | 8-bit float | Hopper+ tensor core | per-tensor + dynamic |
+  | FP8-E5M2 | 8-bit float (大 range) | Hopper+ tensor core | scale 自校准 |
+  | INT4-AWQ | 4-bit int + group scale | tensor core (W4A16) | per-group (128) |
+  | INT4-GPTQ | 4-bit int + group scale | similar | per-channel + group |
+  | FP4 (NVFP4) | E2M1 + FP8 block scale | Blackwell+ FP4 TC | block-16 |
+  | FP4 (MXFP4) | E2M1 + E8M0 block scale | Blackwell+ FP4 TC | block-32 |
+
+  ## Calibration
+
+  量化前需要用 **representative dataset** 计算 scale/zero-point. AWQ 用 activation outlier preservation,
+  GPTQ 用二阶 Hessian 信息. 大多数引擎 (vLLM, TRT-LLM, llama.cpp) 都内置 calibration 工具.
+
+variants: [int8-symmetric, int8-asymmetric, fp8-e4m3, fp8-e5m2, int4-awq, int4-gptq, nvfp4, mxfp4]
+
+fusion_targets: [matmul, attention, memcpy]
+participates_in_fused_kernels:
+  - fused-quantized-attention
+  - fused-kv-quant
+
+engine_implementations:
+  - name: vLLM quantization kernels
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/tree/main/csrc/quantization
+    notes: 'GPTQ / AWQ / FP8 / INT8 多路径'
+  - name: TRT-LLM quantization
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: 'modelopt 工具链 + native FP8/FP4 calibration'
+  - name: llama.cpp GGUF quantization
+    hardware_arch: [hopper, ampere, ada, cdna3]
+    url: https://github.com/ggerganov/llama.cpp
+    notes: 'CPU + GPU; K-quants (Q2_K, Q4_K, Q5_K, Q6_K) 主流端侧路径'
+  - name: AutoAWQ / GPTQModel
+    url: https://github.com/casper-hansen/AutoAWQ
+    notes: 'offline calibration 工具'
+
+precision_support: [bf16, fp16, fp8-e4m3, fp8-e5m2, int8, int4-awq, int4-gptq, fp4]
+
+related_patterns: [kv-cache-int8, fp4-weight-only-quant, memory-bound-decode-prefer-int8]
+
+references:
+  - title: 'AWQ: Activation-aware Weight Quantization'
+    url: https://arxiv.org/abs/2306.00978
+    source_type: paper
+  - title: 'GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers'
+    url: https://arxiv.org/abs/2210.17323
+    source_type: paper
+  - title: 'FP8 Formats for Deep Learning'
+    url: https://arxiv.org/abs/2209.05433
+    source_type: paper

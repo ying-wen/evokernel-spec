@@ -1,0 +1,96 @@
+id: fused-radix-attention
+name: Fused RadixAttention (SGLang prefix-trie kernel)
+category: attention
+summary: |
+  把 SGLang 的 radix-tree 前缀查找 + paged KV cache lookup + FlashAttention 计算
+  融合到单一 kernel pipeline. 多轮 chat / agent 场景下命中前缀直接复用 KV, **零重计算**;
+  trie 查找 O(prefix_len) 摊在 attention kernel 上几乎免费.
+
+description_md: |
+  ## 为什么要 fuse trie + attention
+
+  Naive RadixAttention 分两步:
+  1. CPU/GPU 上做 trie 查找, 得到 hit 长度 + KV page list
+  2. Attention kernel 拿 KV page list 做 paged-attention
+
+  问题:
+  - 每个 request 都要 host↔device 同步一次 (trie 通常在 CPU 上)
+  - Attention kernel 无法预知 hit 长度 → block size 调度次优
+  - Cache miss 时要 fallback 重新 prefill, 又一次 launch
+
+  ## Fused 版本
+
+  - **Trie 在 GPU**: 把 radix-tree 索引和 KV cache 一起放 HBM, GPU kernel 直接查
+  - **Block-aligned hit length**: trie 查找时按 paged-attention block 对齐, kernel 内部
+    可以直接按 block 跳过已 hit 部分
+  - **Inline miss recompute**: cache miss 部分 (suffix) 直接在同一 kernel 内 prefill, 不再
+    launch 第二次
+
+  ## 加速规模
+
+  - 多轮 chat (90% 命中率): TTFT 5-20×, prefill cost 60-90% 降低
+  - Agent loop (system prompt + tool desc 共享): end-to-end 延迟 40-70% 降低
+  - JSON / structured generation (前缀 schema 固定): 前缀部分零成本
+
+  独立 trie 查找 vs fused 路径的差异: ~5-15% 的额外加速 (主要省 host↔device 同步).
+
+fuses_operators: [attention, softmax]
+why_fuse: |
+  RadixAttention 的核心收益来自命中前缀复用; 但每 request 的 trie lookup + page list
+  传递 + paged-attn launch 三步分裂带来 host↔device sync 和调度开销, 在高 throughput
+  场景吞吐天花板低 30-50%. Fused 版本把 trie 索引放 HBM, kernel 内对齐 block 直接跳,
+  miss 部分 inline prefill — 高并发吞吐进一步提升 1.1-1.2×, 同时维持 cache miss 路径
+  no-regression.
+
+speedup:
+  - baseline: 'Vanilla full prefill (no prefix cache)'
+    multiplier_min: 5.0
+    multiplier_max: 20.0
+    notes: '多轮 chat 命中率 70%+; 算法层 + kernel fusion 总收益'
+  - baseline: 'Independent trie + paged-attn (separate launches)'
+    multiplier_min: 1.1
+    multiplier_max: 1.2
+    notes: 'kernel fusion 独立贡献 — 主要省 host sync 和调度开销'
+
+implementations:
+  - name: SGLang RadixAttention kernel
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://docs.sglang.ai/backend/cache.html
+    notes: 'Native impl; trie + kernel co-design'
+  - name: vLLM prefix caching (hash-based, 粒度粗)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://docs.vllm.ai/en/latest/automatic_prefix_caching/apc.html
+  - name: Flashinfer RadixAttention path
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+    notes: 'SGLang 后端; CUDA + Triton hybrid'
+  - name: LMDeploy TurboMind prefix cache
+    engine_id: lmdeploy
+    hardware_arch: [hopper, ampere]
+
+hardware_requires:
+  - 'PagedAttention-style KV cache'
+  - 'Sufficient HBM for trie + KV (20-40% extra HBM vs no-cache)'
+
+enables_patterns: [prefix-radix-cache]
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'KV cache 占 HBM 比例 +20-40%, 减少可用 batch size (高 throughput 场景需 trade)'
+  - 'Trie 维护开销 (O(prefix_len) per query) 在百万级 entry 时显现'
+  - '单轮独立请求 + 高吞吐 workload 没有命中收益, 反而吃 HBM'
+  - '需要 RadixAttention-aware scheduler — 不能 plug-in 到非 SGLang stack 上'
+
+references:
+  - title: 'SGLang: Efficient Execution of Structured Language Model Programs'
+    url: https://arxiv.org/abs/2312.07104
+    source_type: paper
+  - title: 'SGLang RadixAttention docs'
+    url: https://docs.sglang.ai/backend/cache.html
+    source_type: docs
+  - title: 'Flashinfer (SGLang backend)'
+    url: https://github.com/flashinfer-ai/flashinfer
+    source_type: implementation

@@ -1,0 +1,85 @@
+id: selective-scan
+name: Selective Scan (SSM core)
+category: misc
+
+flops_formula: '~ 9 * batch * seq * hidden * state_dim'
+bytes_formula: '~ 4 * batch * seq * hidden * (1 + state_dim/16)'
+arithmetic_intensity_formula: '~ 1–4 FLOP/byte (sequence-length-independent)'
+arithmetic_intensity_typical:
+  min: 1.5
+  max: 4.0
+  notes: 'Mamba/Mamba-2 核心 op — 序列长度不影响 AI (与 attention O(L²) 不同)'
+
+description: |
+  State Space Model (SSM) 的核心算子, **Mamba** / **Mamba-2** / **Hyena** / **RWKV** 等
+  非-attention 序列模型的关键 op. 与 attention O(L²) 不同, selective scan 是
+  **O(L · D · N)** (D=hidden, N=state_dim), 长序列上摊平显著优于 attention.
+
+  ## 算子核心
+
+  对每个 token 维护一个 state `h_t`, 通过 input-dependent 矩阵 `A_t, B_t, C_t, D_t` 演化:
+  ```
+  h_t = A_t * h_{t-1} + B_t * x_t
+  y_t = C_t * h_t + D_t * x_t
+  ```
+
+  关键创新: `A_t / B_t / C_t` 由 input `x_t` 决定 (selective), 而不是固定参数 — 这给了
+  SSM 类似 attention 的 content-aware 能力。
+
+  ## 实现要点
+
+  - **Naive sequential scan**: O(L) 串行依赖, GPU 无法并行 — 几乎不用
+  - **Parallel prefix scan (Blelloch)**: O(L · log L) 但常数大, 仅在 L 很大时收益
+  - **Mamba-2 SSD path**: 用矩阵乘法重构, 用 Tensor Core + cuDNN attention path 重利用 → 5-10x naive
+  - **FlashAttn-style block-tiled scan**: GPU SRAM 内做 chunk-level scan, 减少 HBM trip
+
+  ## 部署现状
+
+  - **vLLM 0.6+**: 支持 Mamba2 + Jamba 推理
+  - **SGLang**: experimental Mamba2 path
+  - **TRT-LLM**: Mamba block plugin
+  - **llama.cpp**: Mamba CPU/GPU 推理
+
+  ## 何时选 Mamba 而非 Transformer
+
+  - 超长 context (1M+) 且语义局部为主
+  - 推理时希望线性 memory (vs Transformer KV cache O(L))
+  - 预算 / 端侧场景 (Mamba 体积小但质量略低)
+
+variants: [mamba1, mamba2, hyena, rwkv-v5, rwkv-v6]
+
+fusion_targets: [matmul, silu, layer-norm]
+participates_in_fused_kernels:
+  - fused-selective-scan
+
+engine_implementations:
+  - name: mamba_ssm CUDA kernel
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/state-spaces/mamba
+    notes: 'Reference impl from authors; FlashSSM-style chunked'
+  - name: vLLM Mamba2 path
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/layers/mamba
+  - name: TRT-LLM Mamba plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: 'plugin 形式; 核心 SSD 走 GEMM'
+  - name: llama.cpp Mamba
+    url: https://github.com/ggerganov/llama.cpp
+    hardware_arch: [hopper, ampere, ada, cdna3]
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'Mamba: Linear-Time Sequence Modeling with Selective State Spaces'
+    url: https://arxiv.org/abs/2312.00752
+    source_type: paper
+  - title: 'Mamba-2: State Space Duality (SSD)'
+    url: https://arxiv.org/abs/2405.21060
+    source_type: paper
+  - title: 'Mamba reference implementation'
+    url: https://github.com/state-spaces/mamba
+    source_type: implementation

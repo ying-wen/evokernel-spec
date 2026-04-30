@@ -18,6 +18,24 @@ architecture:
   process_node_nm: { value: 7, evidence_ref: ev-tianhe-arch-001 }
   pcie_gen: { value: 4, evidence_ref: ev-tianhe-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-tianhe-001 }
+  memory_hierarchy:
+    - name: 'L1 / Shared Memory (per SM)'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-tianhe-arch-001 }
+      notes: 'CoreX SM 与 NVIDIA A100 SMEM 类似 (192 KB). CUDA-compatible 设计意味着 PTX 兼容, 软件栈可以从 NVIDIA 平移.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 8, evidence_ref: ev-tianhe-arch-001 }
+      notes: '估算 8 MB L2 — 32 SM 单 die 设计, 比 A100 (40 MB) 小很多, 大部分 reuse 走 HBM.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 32768, evidence_ref: ev-tianhe-001 }
+      bandwidth_tbs: { value: 1.2, evidence_ref: ev-tianhe-001 }
+      notes: '2 stacks × 16 GB ⇒ 32 GB / 1.2 TB/s. CUDA 兼容路线让其在国产替代中部署阻力低.'
+  on_chip_interconnect:
+    name: 'CoreX on-die NoC'
+    bandwidth_tbs: { value: 0.5, evidence_ref: ev-tianhe-arch-001 }
+    notes: '单 die NoC, 估算 0.5 TB/s. 关键差异化 — 多卡互联走 PCIe Gen4 而非专用 fabric, scale-up 域被限制.'
 memory:
   capacity_gb: { value: 32, evidence_ref: ev-tianhe-001 }
   bandwidth_gbps: { value: 1200, evidence_ref: ev-tianhe-001 }

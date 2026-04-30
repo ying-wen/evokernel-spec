@@ -11,6 +11,35 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.10.0] — 2026-05-01
+
+Operator-level depth push (gap 2). Added 4 foundational operators + 3 fused-kernels covering MTP / SWA / RadixAttention. Hardware coverage now 80%.
+
+### Added
+
+**4 new operators** (9 → 13):
+- **gelu** (Gaussian Error Linear Unit): BERT/GPT-2/GPT-3/T5/Falcon default activation. Variants: exact (erf-based), tanh approximation, fast (sigmoid). Fuses with FFN GEMM.
+- **quantize-dequantize** (Q/DQ): Foundational op for FP8/FP4/INT8 paths. Documents 7+ quantization formats (INT8 sym/asym, FP8-E4M3/E5M2, INT4-AWQ/GPTQ, NVFP4, MXFP4) with calibration mechanics.
+- **selective-scan** (Mamba/Mamba-2 SSM core): O(L · D · N) — sequence-length-independent arithmetic intensity, alternative to attention's O(L²). Implements parallel-prefix-scan + SSD path (matrix-multiply-reduction).
+- **reduce-scatter** (TP/SP collective): Bandwidth-optimal half of all-reduce; key for zero-bubble TP. Documents Ring vs Tree vs SHARP variants. Critical for MoE EP and SP→TP transitions.
+
+**3 new fused-kernels** (12 → 15):
+- **fused-mtp-head** (DeepSeek V3 MTP): K-prediction-head fusion sharing target backbone. Includes comparison table vs Medusa / EAGLE-2 — MTP achieves 80-90% acceptance vs 60-75% for post-hoc draft methods.
+- **fused-attn-sliding-window** (Mistral/Gemma SWA): Implicit mask + streaming KV evict + block-sparse early-exit fused into FlashAttn-3 path. Long context 4-40× speedup vs full attention.
+- **fused-radix-attention** (SGLang RadixAttention kernel): Trie-on-GPU + block-aligned hit length + inline miss recompute. High-concurrency throughput +10-20% vs separate trie-then-attention.
+
+**Memory hierarchy on 3 more cards** (28 → 31 deep-filled, **~80% catalog coverage**):
+- **Biren BR104**: derated BR100 — 32 cluster × 192 KB ≈ 6 MB scratchpad, 16 MB L2 (50% of BR100), 32 GB HBM2e / 1.15 TB/s. Bi-link Mesh single-die (vs BR100 dual-die)
+- **Cambricon MLU370-X8**: 256 KB SRAM × 64 IPU = 16 MB total, 24 MB L2 (chiplet bridged), 48 GB HBM2e dual-die. **First Cambricon chiplet design** — predates NV-HBI commercialization
+- **Iluvatar 天垓 100**: 192 KB SMEM/SM (CUDA-compatible CoreX), 8 MB L2, 32 GB HBM2e / 1.2 TB/s. PCIe Gen4 fabric (no proprietary scale-up)
+
+### Stats
+- 178/178 site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 22, **operator: 13** (was 9), **fused-kernel: 15** (was 12), pattern: 15
+- Build: 304 pages
+
+---
+
 ## [1.9.0] — 2026-05-01
 
 Operator-fusion / optimization-pattern push (gap 2 from the 3-gap directive). Patterns library 9 → 15, super-pod coverage now 100%.

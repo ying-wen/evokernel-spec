@@ -1,0 +1,76 @@
+id: reduce-scatter
+name: Reduce-Scatter (TP / SP collective)
+category: communication
+
+flops_formula: '0 (pure communication)'
+bytes_formula: '(N - 1) / N * total_size'
+arithmetic_intensity_formula: '0 (network-bound, latency + bandwidth)'
+arithmetic_intensity_typical:
+  min: 0.001
+  max: 0.01
+  notes: '纯通信; 性能由 NVLink/NVSwitch/HCCS bandwidth + topology + algorithm 决定 (近零 AI)'
+
+description: |
+  Reduce-Scatter 把分布在 N 张卡上的张量做 element-wise reduce (求和), 然后把结果
+  按 rank 切分回 N 份, 每张卡只持有 1/N 大小. 与 all-reduce 互补 (`all-reduce = reduce-scatter + all-gather`).
+
+  ## 与其他 collective 的关系
+
+  - **all-reduce(N elements)** = reduce-scatter(N) + all-gather(N) — 总通信量 2 × (N-1)/N × bytes
+  - **reduce-scatter(N)** = single-pass reduce + sharding — 通信量 (N-1)/N × bytes
+  - **all-gather(N)** = broadcast 自己的 chunk 给所有人 — 通信量 (N-1)/N × bytes
+
+  Reduce-scatter 比 all-reduce **省一半带宽** — 但下游必须接受 sharded 输出.
+
+  ## 在 LLM 推理中的使用
+
+  - **Tensor Parallelism (TP)**: 每层 attention/FFN 输出做 all-reduce → 改造成 reduce-scatter + all-gather 拆开,
+    可以与下一层 GEMM overlap (zero-bubble TP)
+  - **Sequence Parallelism (SP)**: layer-norm / dropout 等 element-wise 操作沿 sequence 切分 →
+    reduce-scatter 是 SP→TP 转换的关键 collective
+  - **MoE EP**: expert 输出 reduce-scatter 回 token-routing 域
+
+  ## 算法变种
+
+  - **Ring**: 每张卡向下一张卡发 1/N chunk × N-1 step; bandwidth-optimal, 延迟高
+  - **Tree (recursive halving)**: 对数级 step, 延迟低, 但带宽利用率稍低
+  - **NVSwitch SHARP**: 在 switch 内做 reduce, 1-hop 完成 — Hopper+ NVL 启用 SHARP 时延迟降 30-50%
+
+variants: [ring-rs, recursive-halving-rs, sharp-rs]
+
+fusion_targets: [matmul, attention, all-reduce]
+participates_in_fused_kernels:
+  - fused-allreduce-residual
+
+engine_implementations:
+  - name: NCCL ncclReduceScatter
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/api/colls.html
+    notes: 'NVLink/NVSwitch + IB/RoCE; SHARP optional 加速'
+  - name: HCCL HcclReduceScatter
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+    url: https://www.hiascend.com/document
+    notes: '昇腾 HCCS 内 reduce; 与 NCCL ABI-similar'
+  - name: RCCL ncclReduceScatter
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/rccl
+    notes: 'AMD ROCm; Infinity Fabric on-package'
+  - name: vLLM TP comm
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    notes: 'NCCL + custom fused-allreduce-residual path'
+
+precision_support: [bf16, fp16, fp8-e4m3, int8]
+
+related_patterns: []
+
+references:
+  - title: 'NCCL collective communication library'
+    url: https://github.com/NVIDIA/nccl
+    source_type: implementation
+  - title: 'Zero-Bubble Pipeline Parallelism (uses split AR=RS+AG)'
+    url: https://arxiv.org/abs/2401.10241
+    source_type: paper
+  - title: 'NVIDIA SHARP collectives'
+    url: https://docs.nvidia.com/networking/display/sharpv300
+    source_type: docs

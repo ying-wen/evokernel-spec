@@ -575,6 +575,70 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.10: 4 new operators + 3 new fused-kernels + 3 more cards (80%)', () => {
+  test('Operators hub now lists 13 operators incl. new ones', async ({ page }) => {
+    await page.goto('/operators/');
+    await expect(page.getByText(/GELU/i).first()).toBeVisible();
+    await expect(page.getByText(/Quantize.*Dequantize|Q\/DQ/i).first()).toBeVisible();
+    await expect(page.getByText(/Selective Scan|SSM core/i).first()).toBeVisible();
+    await expect(page.getByText(/Reduce-Scatter/i).first()).toBeVisible();
+  });
+
+  test('Selective Scan operator shows Mamba/Mamba-2 context', async ({ page }) => {
+    await page.goto('/operators/selective-scan/');
+    await expect(page.getByText(/Mamba|SSM/i).first()).toBeVisible();
+    await expect(page.getByText(/state_dim|state space/i).first()).toBeVisible();
+  });
+
+  test('Quantize-Dequantize shows AWQ/GPTQ/FP4 formats', async ({ page }) => {
+    await page.goto('/operators/quantize-dequantize/');
+    await expect(page.getByText(/AWQ/i).first()).toBeVisible();
+    await expect(page.getByText(/NVFP4|MXFP4/i).first()).toBeVisible();
+  });
+
+  test('Reduce-Scatter shows TP/SP context + SHARP', async ({ page }) => {
+    await page.goto('/operators/reduce-scatter/');
+    await expect(page.getByText(/Tensor Parallelism|TP/i).first()).toBeVisible();
+    await expect(page.getByText(/SHARP/i).first()).toBeVisible();
+  });
+
+  test('Fused-kernels hub now shows 15 kernels incl. new ones', async ({ page }) => {
+    await page.goto('/fused-kernels/');
+    await expect(page.getByRole('link', { name: /Fused MTP Head/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /Fused Sliding Window/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /Fused RadixAttention/i }).first()).toBeVisible();
+  });
+
+  test('Fused MTP Head shows DeepSeek V3/V4 context', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-mtp-head/');
+    await expect(page.getByText(/DeepSeek V3|V3\/V4/i).first()).toBeVisible();
+    await expect(page.getByText(/MTP/i).first()).toBeVisible();
+  });
+
+  test('Fused Sliding Window shows Mistral/Gemma + window_size', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-attn-sliding-window/');
+    await expect(page.getByText(/Mistral|Gemma/i).first()).toBeVisible();
+    await expect(page.getByText(/window_size|window/i).first()).toBeVisible();
+  });
+
+  test('BR104 hardware shows derated chiplet', async ({ page }) => {
+    await page.goto('/hardware/br104/');
+    await expect(page.getByText(/derated|Bi-link Mesh/i).first()).toBeVisible();
+  });
+
+  test('MLU370-X8 shows dual-die chiplet', async ({ page }) => {
+    await page.goto('/hardware/mlu370-x8/');
+    await expect(page.getByText(/MLU-Link|chiplet|双 die/i).first()).toBeVisible();
+    await expect(page.getByText(/MLUarch02|IPU/i).first()).toBeVisible();
+  });
+
+  test('Iluvatar BI shows CoreX CUDA-compatible context', async ({ page }) => {
+    await page.goto('/hardware/iluvatar-bi/');
+    await expect(page.getByText(/CoreX|CUDA-compatible/i).first()).toBeVisible();
+    await expect(page.getByText(/天垓/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.9: 6 new patterns + 4 more cards + last 2 super-pods (72% / 100%)', () => {
   test('Patterns hub now lists 15 patterns', async ({ page }) => {
     await page.goto('/patterns/');

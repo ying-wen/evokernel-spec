@@ -1,0 +1,57 @@
+id: gelu
+name: GELU (Gaussian Error Linear Unit)
+category: activation
+
+flops_formula: '8 * batch * seq * hidden'
+bytes_formula: '2 * batch * seq * hidden'
+arithmetic_intensity_formula: '~ 4 FLOP/byte'
+arithmetic_intensity_typical:
+  min: 3
+  max: 5
+  notes: '比 SiLU 略高 FLOP (额外 erf/tanh approx); memory-bound 必 fuse'
+
+description: |
+  Gaussian Error Linear Unit (Hendrycks & Gimpel 2016): `gelu(x) = x * Φ(x)`,
+  其中 Φ 是标准正态 CDF。BERT / GPT-2 / GPT-3 / T5 / Falcon 等模型的默认 FFN 激活。
+  与 SiLU 相比 GELU 在小模型上稍微更稳定, 在 LLM 时代被 SwiGLU 替代为主流。
+
+  ## 实现近似
+
+  - **exact (erf-based)**: `0.5 * x * (1 + erf(x / sqrt(2)))` — 精度高, 慢
+  - **tanh approximation**: `0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))` — GPT-2 默认, 快
+  - **fast/quick approximation**: `x * sigmoid(1.702 * x)` — 用于推理 fast path
+
+  ## 推理时的 fusion
+
+  与 SiLU 类似, 几乎从不单独 launch — 总是和 FFN 的 fc1 GEMM 输出做 fused element-wise.
+
+variants: [gelu-exact, gelu-tanh, gelu-fast]
+
+fusion_targets: [matmul]
+participates_in_fused_kernels:
+  - fused-mlp-gelu
+
+engine_implementations:
+  - name: vLLM gelu_and_mul kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/activation_kernels.cu
+    notes: 'tanh approximation 默认; CUDA + Triton 双路径'
+  - name: TRT-LLM activation
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: PyTorch nn.GELU
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, cdna4]
+    notes: 'reference; 部署时不直接用'
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'Gaussian Error Linear Units'
+    url: https://arxiv.org/abs/1606.08415
+    source_type: paper
+  - title: 'BERT: Pre-training of Deep Bidirectional Transformers'
+    url: https://arxiv.org/abs/1810.04805
+    source_type: paper

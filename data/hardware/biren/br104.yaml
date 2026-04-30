@@ -13,9 +13,27 @@ compute:
   int8_tops: { value: 512, evidence_ref: ev-br104-001 }
 architecture:
   compute_unit_count: { value: 32, evidence_ref: ev-br104-arch-001 }
-  compute_unit_label: SM
+  compute_unit_label: Cluster
   hbm_stacks: { value: 2, evidence_ref: ev-br104-arch-001 }
   process_node_nm: { value: 7, evidence_ref: ev-br104-arch-001 }
+  memory_hierarchy:
+    - name: 'L1 Buffer (per cluster)'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-br104-arch-001 }
+      notes: '32 cluster × 192 KB ≈ 6 MB total. 与 BR100 同 per-cluster 配置, BR104 cluster 数减半.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 16, evidence_ref: ev-br104-arch-001 }
+      notes: 'Derated from BR100 (32 MB) by ~50% — 与 SPC count 减半同步.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 32768, evidence_ref: ev-br104-001 }
+      bandwidth_tbs: { value: 1.15, evidence_ref: ev-br104-001 }
+      notes: '2 stacks × 16 GB ⇒ 32 GB. Export-control compliant — bandwidth 减半 vs BR100 (4.6 TB/s 不允许).'
+  on_chip_interconnect:
+    name: 'Bi-link Mesh (chiplet, derated)'
+    bandwidth_tbs: { value: 0.6, evidence_ref: ev-br104-arch-001 }
+    notes: '同 BR100 chiplet 设计但单 die only (BR100 双 die). 出口管制版减半 fabric bandwidth.'
 memory:
   capacity_gb: { value: 32, evidence_ref: ev-br104-001 }
   bandwidth_gbps: { value: 1150, evidence_ref: ev-br104-001 }

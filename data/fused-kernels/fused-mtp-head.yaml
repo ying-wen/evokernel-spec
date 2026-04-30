@@ -1,0 +1,92 @@
+id: fused-mtp-head
+name: Fused MTP Head (DeepSeek V3 Multi-Token Prediction)
+category: attention
+summary: |
+  把 MTP (Multi-Token Prediction) 的 K 个并行 prediction head 融合到 target model 的
+  最后一次 forward — 单 kernel 同时输出主 token + K 个 future-token logits + accept mask.
+  与 Medusa/EAGLE 的关键区别: MTP head 在训练时即作为 loss 一同优化, 接受率显著更高 (~85% vs 60-70%).
+
+description_md: |
+  ## MTP head fusion 原理
+
+  DeepSeek V3 / V4 的 MTP head 是 K 个独立的 transformer block (每个 ~1 层), 共享 target
+  model 的 backbone hidden state. 推理时:
+
+  1. Target model forward → final hidden state `h`
+  2. 对每个 head_k (k = 1..K):
+     - `h` → linear projection → MTP_head_k 内部 attention (1 层) → token_k logits
+  3. 主 head 输出 token_0; MTP heads 输出 token_1..K candidates
+  4. 下一步 verify pass: target 拿 [token_0, token_1, ..., token_K] forward 一次, 接受最长前缀
+
+  Naive 实现: K+1 次独立 kernel launch (target + K heads). Fused 版本把所有 K head 的
+  attention/MLP 写成一个 batched kernel, 减少 launch + 共享 SMEM.
+
+  ## vs 经典 Speculative Decoding 的差异
+
+  | 维度 | Vanilla draft + target | Medusa | EAGLE-2 | **MTP (V3/V4)** |
+  |---|---|---|---|---|
+  | Draft 模型 | 独立小模型 | 共享 backbone, K 个 head | 1 层 transformer | **K 个 1-层 head, 训练时即学** |
+  | Draft forward 成本 | 独立 forward, ~10-20% target | head 几乎免费 | 1 transformer 层 | 1 transformer 层 × K |
+  | 训练要求 | 无 (post-hoc) | post-hoc fine-tune heads | post-hoc | **预训练时即含 MTP loss** |
+  | 接受率 | 50-65% | 65-75% | 70-80% | **80-90%** |
+  | Decode speedup | 1.5-2.0× | 1.8-2.5× | 2.0-2.8× | **2.0-3.0×** |
+
+  ## 实现关键
+
+  - **共享 KV cache**: K 个 head 共享 target 的 KV — 不需要 K 倍 KV 存储
+  - **Batched attention**: K head 的 attention 通过 batch 维度合并, FlashAttn-3 直接复用
+  - **Tree-mask verify**: verify 阶段用 tree-mask 一次 forward 同时验证 K 个候选
+
+fuses_operators: [attention, matmul, softmax]
+why_fuse: |
+  MTP head 共享 backbone hidden state, K 个 head 内部结构相同 — 完美 fuse 候选.
+  Naive K+1 次 launch 在 K=2/3 时占整个 forward 30-40% 开销. Fused 版本通过 batched
+  attention 一次 launch 处理所有 head, 配合 tree-mask verify 路径, 整体 decode 延迟降 1.6-2.5×.
+
+speedup:
+  - baseline: 'Vanilla autoregressive decode (no MTP)'
+    multiplier_min: 1.6
+    multiplier_max: 3.0
+    notes: 'DeepSeek V3 在 H100/H200 上实测 2.0-2.5×; V4 + Blackwell FP4 path 推到 3×'
+  - baseline: 'MTP without fused kernel (K+1 separate launches)'
+    multiplier_min: 1.15
+    multiplier_max: 1.4
+    notes: 'kernel fusion 单独贡献 — 在 K=3 时收益最显著'
+
+implementations:
+  - name: vLLM MTP backend (DeepSeek V3 path)
+    engine_id: vllm
+    hardware_arch: [hopper, blackwell]
+    url: https://docs.vllm.ai/en/latest/features/spec_decode.html
+  - name: SGLang MTP path
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/sgl-project/sglang/tree/main/python/sglang/srt/speculative
+  - name: TensorRT-LLM MTP plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/advanced/speculative-decoding.html
+
+hardware_requires:
+  - 'Tensor cores BF16 or FP8'
+  - 'Sufficient SMEM for K-head batched attention'
+
+enables_patterns: [mtp-multi-token-prediction]
+
+applies_at_stage: compile
+
+trade_offs:
+  - '只对训练时含 MTP head 的模型有效 (DeepSeek V3+); 其他模型 fall back to Medusa/EAGLE'
+  - 'K=2 是 sweet spot; K=3+ 边际收益快速衰减'
+  - 'Tree-mask verify 增加 ~5-8% kernel 复杂度, 调试成本上升'
+
+references:
+  - title: 'DeepSeek-V3 Technical Report'
+    url: https://arxiv.org/abs/2412.19437
+    source_type: paper
+  - title: 'vLLM MTP support'
+    url: https://docs.vllm.ai/en/latest/features/spec_decode.html
+    source_type: docs
+  - title: 'Multi-Token Prediction (Meta)'
+    url: https://arxiv.org/abs/2404.19737
+    source_type: paper
