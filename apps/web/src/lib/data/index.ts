@@ -1,10 +1,10 @@
 import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
-  ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema,
+  ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
   type Vendor, type Hardware, type Server, type Interconnect,
   type Operator, type Engine, type Quantization, type ParallelStrategy,
-  type Model, type Case, type Pattern, type PipelineStage
+  type Model, type Case, type Pattern, type PipelineStage, type FusedKernel
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
@@ -59,6 +59,9 @@ export async function getPatterns(): Promise<Pattern[]> {
 export async function getPipelineStages(): Promise<PipelineStage[]> {
   const stages = await loadAll('pipeline/*.yaml', PipelineStageSchema);
   return stages.sort((a, b) => a.order - b.order);
+}
+export async function getFusedKernels(): Promise<FusedKernel[]> {
+  return loadAll('fused-kernels/*.yaml', FusedKernelSchema);
 }
 
 export async function getResolvedHardware(): Promise<ResolvedHardware[]> {

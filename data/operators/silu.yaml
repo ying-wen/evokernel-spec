@@ -1,6 +1,48 @@
 id: silu
 name: SiLU / Swish
 category: activation
+
 flops_formula: '4 * batch * seq * hidden'
 bytes_formula: '2 * batch * seq * hidden'
-description: 'Sigmoid-weighted Linear Unit; default activation in modern LLMs (Llama, Qwen)'
+arithmetic_intensity_formula: '~ 2 FLOP/byte'
+arithmetic_intensity_typical:
+  min: 1.5
+  max: 2.5
+  notes: '内存搬运操作; 必须 fuse 进 MLP gate × up'
+
+description: |
+  Sigmoid-weighted Linear Unit (Elfwing et al. 2017): `silu(x) = x * sigmoid(x)`.
+  又称 Swish。Llama / Qwen / DeepSeek / Mistral 等现代 LLM 的 FFN 默认激活, 通常配合
+  GLU 形成 SwiGLU: `silu(x @ W_gate) * (x @ W_up)`. 实际部署中**几乎从不单独执行**, 总是
+  与 gate_proj / up_proj GEMM fuse 在同一个 kernel.
+
+variants: [swiglu, swish, geglu]
+
+fusion_targets: [matmul]
+participates_in_fused_kernels:
+  - fused-mlp-silu
+  - fused-swiglu
+
+engine_implementations:
+  - name: vLLM silu_and_mul kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/activation_kernels.cu
+    notes: 'fused with element-wise mul (gate × up)'
+  - name: TRT-LLM activation
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: Triton swiglu
+    hardware_arch: [hopper, ampere, blackwell, cdna3, cdna4]
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'GLU Variants Improve Transformer'
+    url: https://arxiv.org/abs/2002.05202
+    source_type: paper
+  - title: 'Sigmoid-Weighted Linear Units for Neural Network Function Approximation'
+    url: https://arxiv.org/abs/1702.03118
+    source_type: paper

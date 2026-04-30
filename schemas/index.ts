@@ -11,4 +11,5 @@ export * from './model';
 export * from './case';
 export * from './pattern';
 export * from './pipeline-stage';
+export * from './fused-kernel';
 export * from './manifest';

@@ -1,6 +1,0 @@
-id: flash-attention-3
-name: FlashAttention-3
-category: attention
-flops_formula: 'same as attention but with hardware-aware tiling'
-bytes_formula: 'reduced HBM reads via SRAM tiling and warp-specialized scheduling'
-description: 'Hopper-optimized FlashAttention v3 using TMA and FP8 paths'

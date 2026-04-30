@@ -4,33 +4,117 @@ import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getOperators } from '~/lib/data';
+import { getOperators, getFusedKernels } from '~/lib/data';
 
-const operators = (await getOperators()).sort((a, b) => a.category.localeCompare(b.category) || a.id.localeCompare(b.id));
+const operators = await getOperators();
+// Fused-kernels feed catalog count + per-op participation badges
+const allFused = await getFusedKernels().catch(() => []);
+
+// Group by category for visual scaffolding
+const groupOrder = ['matmul', 'attention', 'norm', 'activation', 'embedding', 'moe-routing', 'communication', 'memory', 'misc'] as const;
+type Cat = (typeof groupOrder)[number];
+const categoryLabel: Record<Cat, string> = {
+  matmul: '矩阵乘 / GEMM',
+  attention: 'Attention',
+  norm: '归一化',
+  activation: '激活函数',
+  embedding: 'Embedding',
+  'moe-routing': 'MoE 路由',
+  communication: '集合通信',
+  memory: 'KV / 内存搬运',
+  misc: '其他'
+};
+const grouped = new Map<Cat, typeof operators>();
+for (const c of groupOrder) grouped.set(c, []);
+for (const op of operators) (grouped.get(op.category as Cat) ?? grouped.get('misc')!).push(op);
+for (const arr of grouped.values()) arr.sort((a, b) => a.id.localeCompare(b.id));
+
+// Heuristic for "AI bound class" badge color when typical-AI is populated
+function aiBound(op: typeof operators[number]): { label: string; color: string } | null {
+  const t = op.arithmetic_intensity_typical;
+  if (!t) return null;
+  if (t.max < 10) return { label: '🟦 mem-bw', color: 'var(--color-china)' };
+  if (t.min > 100) return { label: '🟧 compute', color: 'var(--color-accent)' };
+  return { label: '🟨 mixed', color: 'var(--color-tier-estimated)' };
+}
 ---
 <BaseLayout title="算子目录">
-  <Container>
+  <Container width="wide">
     <section class="py-12">
-      <SectionHeader eyebrow="OPERATORS" title="算子目录" subtitle={`${operators.length} 个算子 · FLOPs / bytes 公式 · 跨硬件实现差异`} />
-      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-8">
-        {operators.map((op) => (
-          <a href={pathname(`/operators/${op.id}/`)} class="block">
-            <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
-                     style="background: var(--color-surface-raised); border-color: var(--color-border);">
-              <div class="flex justify-between items-start gap-2 mb-2">
-                <h3 class="text-base font-semibold">{op.name}</h3>
-                <Badge>{op.category}</Badge>
-              </div>
-              <p class="text-xs leading-relaxed" style="color: var(--color-text-muted);">{op.description}</p>
-              {op.variants.length > 0 && (
-                <div class="flex gap-1 mt-3 flex-wrap">
-                  {op.variants.slice(0, 3).map((v) => <span class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">{v}</span>)}
-                </div>
-              )}
-            </article>
+      <SectionHeader
+        eyebrow="OPERATORS"
+        title="算子目录"
+        subtitle={`${operators.length} 个算子 · FLOPs / bytes 公式 · 算术强度分类 · 跨硬件实现 · ${allFused.length > 0 ? `${allFused.length} 个命名 fused kernels` : '融合图谱'}`}
+      />
+
+      {allFused.length > 0 && (
+        <div class="mt-6 mb-8 rounded-lg border p-4 flex items-center justify-between gap-4 flex-wrap"
+             style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+          <div>
+            <div class="text-sm font-semibold" style="color: var(--color-accent);">⚡ 命名 fused kernels</div>
+            <div class="text-xs mt-1" style="color: var(--color-text-muted);">
+              FlashAttention, FusedMLP, PagedAttention 等 — 把多个 op 折叠成一个 kernel 的工程产出
+            </div>
+          </div>
+          <a href={pathname('/fused-kernels/')} class="text-sm font-medium px-4 py-2 rounded"
+             style="background: var(--color-accent); color: white;">
+            查看融合 catalog ({allFused.length}) →
           </a>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {groupOrder.map((cat) => {
+        const ops = grouped.get(cat) ?? [];
+        if (ops.length === 0) return null;
+        return (
+          <section class="mb-8">
+            <h2 class="text-lg font-semibold mb-3 pb-2 border-b" style="border-color: var(--color-border);">
+              <span style="color: var(--color-accent);">{categoryLabel[cat]}</span>
+              <span class="text-xs ml-2 font-normal" style="color: var(--color-text-muted);">{ops.length}</span>
+            </h2>
+            <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {ops.map((op) => {
+                const bound = aiBound(op);
+                return (
+                  <a href={pathname(`/operators/${op.id}/`)} class="block">
+                    <article class="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
+                             style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                      <div class="flex justify-between items-start gap-2 mb-2">
+                        <h3 class="text-base font-semibold">{op.name}</h3>
+                        {bound && (
+                          <span class="text-xs px-2 py-0.5 rounded font-mono whitespace-nowrap"
+                                style={`background: color-mix(in oklch, ${bound.color} 12%, var(--color-bg)); color: ${bound.color};`}>
+                            {bound.label}
+                          </span>
+                        )}
+                      </div>
+                      <p class="text-xs leading-relaxed mb-3" style="color: var(--color-text-muted);">
+                        {(op.description.split('\n')[0] ?? '').slice(0, 140)}
+                      </p>
+                      <div class="flex items-center gap-2 text-xs" style="color: var(--color-text-muted);">
+                        {op.engine_implementations.length > 0 && (
+                          <span title="Engine kernel implementations">🔧 {op.engine_implementations.length}</span>
+                        )}
+                        {op.participates_in_fused_kernels.length > 0 && (
+                          <span title="Named fused kernels" style="color: var(--color-accent);">⚡ {op.participates_in_fused_kernels.length}</span>
+                        )}
+                        {op.references.length > 0 && (
+                          <span title="References">📚 {op.references.length}</span>
+                        )}
+                      </div>
+                      {op.variants.length > 0 && (
+                        <div class="flex gap-1 mt-3 flex-wrap">
+                          {op.variants.slice(0, 3).map((v) => <span class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">{v}</span>)}
+                        </div>
+                      )}
+                    </article>
+                  </a>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </section>
   </Container>
 </BaseLayout>

@@ -1,0 +1,139 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getFusedKernels, getOperators, getEngines } from '~/lib/data';
+
+const [fused, operators, engines] = await Promise.all([
+  getFusedKernels(), getOperators(), getEngines()
+]);
+
+const opsById = new Map(operators.map((o) => [o.id, o]));
+
+// Group by category for visual scaffolding
+const groupOrder = ['attention', 'mlp', 'rope-attention', 'normalization', 'moe', 'kv-cache-management', 'communication', 'misc'] as const;
+type Cat = (typeof groupOrder)[number];
+const categoryLabel: Record<Cat, string> = {
+  attention: 'Attention',
+  mlp: 'MLP / FFN',
+  'rope-attention': 'RoPE + Attention',
+  normalization: 'Norm + Residual',
+  moe: 'MoE',
+  'kv-cache-management': 'KV cache 管理',
+  communication: '通信融合',
+  misc: '其他'
+};
+const grouped = new Map<Cat, typeof fused>();
+for (const c of groupOrder) grouped.set(c, []);
+for (const fk of fused) (grouped.get(fk.category as Cat) ?? grouped.get('misc')!).push(fk);
+
+// Engine × fused-kernel coverage matrix
+type EngineCount = { engine: typeof engines[number]; count: number };
+const engineCoverage: EngineCount[] = engines.map((e) => ({
+  engine: e,
+  count: fused.filter((fk) => fk.implementations.some((impl) => impl.engine_id === e.id)).length
+})).sort((a, b) => b.count - a.count);
+---
+<BaseLayout title="融合 kernel catalog">
+  <Container width="wide">
+    <section class="pt-16 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        FUSED KERNELS
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        命名 fused kernels — 算子融合工程产出
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        模型推理 70-90% 时间集中在 ~5-8 个算子上, 而**剩下 10-30% 性能空间几乎全部来自 fusion**:
+        把多个算子折叠成一个 kernel 消除中间 HBM 读写、消除 dispatch 开销、保持 SRAM 数据复用。
+        每条都是 paper-worthy 的工程产出, 但散在 vLLM / TRT-LLM / FlashInfer / DeepEP 各自仓库里。
+        这里把它们一一标注、归类、横向对比。
+      </p>
+    </section>
+
+    <!-- Engine support overview -->
+    <section class="py-8">
+      <h2 class="text-xl font-semibold mb-3">引擎覆盖度</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        各推理引擎当前对这些 fused kernels 的实现数量:
+      </p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {engineCoverage.map(({ engine, count }) => (
+          <div class="rounded p-3 border" style={`border-color: ${count > 0 ? 'var(--color-accent)' : 'var(--color-border)'}; background: var(--color-surface-raised); opacity: ${count > 0 ? 1 : 0.6};`}>
+            <div class="font-mono text-xs mb-1" style="color: var(--color-text-muted);">{engine.id}</div>
+            <div class="flex justify-between items-baseline">
+              <span class="font-medium text-sm">{engine.name}</span>
+              <span class="font-mono font-semibold" style={`color: ${count > 0 ? 'var(--color-accent)' : 'var(--color-text-muted)'};`}>
+                {count}/{fused.length}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- Catalog by category -->
+    {groupOrder.map((cat) => {
+      const fks = grouped.get(cat) ?? [];
+      if (fks.length === 0) return null;
+      return (
+        <section class="py-8 border-t" style="border-color: var(--color-border);">
+          <h2 class="text-xl font-semibold mb-3">
+            <span style="color: var(--color-accent);">{categoryLabel[cat]}</span>
+            <span class="text-xs ml-2 font-normal" style="color: var(--color-text-muted);">{fks.length}</span>
+          </h2>
+          <div class="grid md:grid-cols-2 gap-4">
+            {fks.map((fk) => {
+              const constituent = fk.fuses_operators.map((id) => opsById.get(id)?.name ?? id);
+              return (
+                <a href={pathname(`/fused-kernels/${fk.id}/`)} class="block rounded-lg p-5 border transition-transform hover:-translate-y-0.5"
+                   style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                  <div class="flex justify-between items-start gap-2 mb-2">
+                    <h3 class="text-base font-semibold">{fk.name}</h3>
+                    <Badge variant="accent">stage:{fk.applies_at_stage}</Badge>
+                  </div>
+                  <p class="text-sm leading-relaxed mb-3" style="color: var(--color-text-muted);">{(fk.summary.split('\n')[0] ?? '').slice(0, 180)}</p>
+                  <div class="text-xs flex items-center flex-wrap gap-x-2 gap-y-1" style="color: var(--color-text);">
+                    <span style="color: var(--color-text-muted);">合并:</span>
+                    {constituent.map((n, i) => (
+                      <>
+                        <span class="font-mono">{n}</span>
+                        {i < constituent.length - 1 && <span style="color: var(--color-accent);">+</span>}
+                      </>
+                    ))}
+                  </div>
+                  <div class="mt-3 flex gap-3 text-xs" style="color: var(--color-text-muted);">
+                    <span>🔧 {fk.implementations.length} 实现</span>
+                    {fk.speedup[0] && (
+                      <span style="color: var(--color-tier-measured);">
+                        ⚡ {fk.speedup[0].multiplier_min.toFixed(1)}-{fk.speedup[0].multiplier_max.toFixed(1)}× speedup
+                      </span>
+                    )}
+                    {fk.references.length > 0 && <span>📚 {fk.references.length}</span>}
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      );
+    })}
+
+    <!-- CTA: contribute -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">缺失某个 fused kernel?</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          Schema 在 <code>schemas/fused-kernel.ts</code>, 数据在 <code>data/fused-kernels/</code>.
+          常见候选: FusedRMSNorm+Residual, FusedSpeculativeDecode, MoE-fused-routing, AscendC FlashAttention, Cambricon MLU-fused-attention.
+        </p>
+        <a href={pathname('/contribute/')} class="inline-block px-4 py-2 rounded-md font-medium text-sm"
+           style="background: var(--color-accent); color: white;">
+          ⚡ 贡献一个 fused kernel →
+        </a>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

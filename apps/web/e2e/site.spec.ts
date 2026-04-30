@@ -573,6 +573,50 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('Operators rich detail + fused-kernels catalog', () => {
+  test('/operators/ groups by category with AI-bound badges', async ({ page }) => {
+    await page.goto('/operators/');
+    // Category headings present
+    await expect(page.getByRole('heading', { name: /矩阵乘.*GEMM/i }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Attention/ }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: /MoE 路由/ }).first()).toBeVisible();
+    // Fused-kernel CTA card visible
+    await expect(page.locator('a[href*="/fused-kernels"]').first()).toBeVisible();
+  });
+
+  test('/operators/attention/ surfaces fusion graph + engine impls + refs', async ({ page }) => {
+    await page.goto('/operators/attention/');
+    await expect(page.getByText(/融合图谱.*Fusion graph/i).first()).toBeVisible();
+    await expect(page.getByText(/引擎实现.*Engine kernels/i).first()).toBeVisible();
+    await expect(page.getByText(/参考文献.*References/i).first()).toBeVisible();
+    // Cross-link to a fused kernel
+    await expect(page.locator('a[href*="/fused-kernels/flash-attention-v3"]').first()).toBeVisible();
+  });
+
+  test('/fused-kernels/ shows catalog grouped by category', async ({ page }) => {
+    await page.goto('/fused-kernels/');
+    await expect(page.getByText(/FlashAttention-3/).first()).toBeVisible();
+    await expect(page.getByText(/Fused MLP/).first()).toBeVisible();
+    await expect(page.getByText(/PagedAttention Decode/i).first()).toBeVisible();
+    // Engine coverage matrix shown
+    await expect(page.getByText(/引擎覆盖度/).first()).toBeVisible();
+  });
+
+  test('/fused-kernels/flash-attention-v3/ shows constituents + speedup + impls', async ({ page }) => {
+    await page.goto('/fused-kernels/flash-attention-v3/');
+    // Constituent operators stripe
+    await expect(page.getByText(/融合的算子.*Constituent operators/i).first()).toBeVisible();
+    // "Why fuse" callout
+    await expect(page.getByText(/为什么要融合/).first()).toBeVisible();
+    // Speedup section
+    await expect(page.getByText(/加速.*Speedup/i).first()).toBeVisible();
+    // Cross-link back to attention operator
+    await expect(page.locator('a[href*="/operators/attention"]').first()).toBeVisible();
+    // Cross-link to compile pipeline stage
+    await expect(page.locator('a[href*="/pipeline/compile"]').first()).toBeVisible();
+  });
+});
+
 test.describe('Deployment pipeline (7-stage)', () => {
   test('/pipeline/ overview shows all 7 stages with correct order', async ({ page }) => {
     await page.goto('/pipeline/');

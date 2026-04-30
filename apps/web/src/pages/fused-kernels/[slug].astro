@@ -1,0 +1,207 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getFusedKernels, getOperators, getEngines, getPatterns, getPipelineStages } from '~/lib/data';
+import { marked } from 'marked';
+
+export async function getStaticPaths() {
+  const fused = await getFusedKernels();
+  return fused.map((fk) => ({ params: { slug: fk.id }, props: { fk } }));
+}
+const { fk } = Astro.props;
+
+const [allOps, allEngines, allPatterns, allStages] = await Promise.all([
+  getOperators(), getEngines(), getPatterns(), getPipelineStages()
+]);
+
+const desc = await marked.parse(fk.description_md);
+const constituentOps = fk.fuses_operators.map((id) => allOps.find((o) => o.id === id)).filter(Boolean) as typeof allOps;
+const enabledPatterns = allPatterns.filter((p) => fk.enables_patterns.includes(p.id));
+const stage = allStages.find((s) => s.id === fk.applies_at_stage);
+
+// Engine coverage badge ordering
+const enginesById = new Map(allEngines.map((e) => [e.id, e]));
+---
+<BaseLayout title={fk.name}>
+  <Container>
+    <section class="pt-12 pb-3">
+      <Breadcrumbs items={[
+        { name: '首页', href: '/' },
+        { name: 'Fused Kernels', href: '/fused-kernels/' },
+        { name: fk.name }
+      ]} />
+    </section>
+
+    <section class="pt-3 pb-6">
+      <div class="text-xs font-mono uppercase tracking-widest font-semibold mb-2" style="color: var(--color-accent);">
+        FUSED KERNEL · {fk.category.toUpperCase()}
+      </div>
+      <h1 style="font-size: clamp(1.75rem, 1.5rem + 1.5vw, 2.75rem); font-weight: 600; letter-spacing: -0.02em;">
+        {fk.name}
+      </h1>
+      <p class="text-base mt-4 max-w-3xl" style="color: var(--color-text-muted);">{fk.summary}</p>
+
+      <!-- Constituent operators stripe -->
+      <div class="mt-6 rounded-lg border p-4" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 4%, var(--color-bg));">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-accent);">融合的算子 / Constituent operators ({constituentOps.length})</div>
+        <div class="flex items-center flex-wrap gap-2">
+          {constituentOps.map((op, i) => (
+            <>
+              <a href={pathname(`/operators/${op.id}/`)} class="text-sm font-medium px-3 py-1 rounded border" style="border-color: var(--color-accent); background: var(--color-bg); color: var(--color-accent);">
+                {op.name}
+              </a>
+              {i < constituentOps.length - 1 && <span style="color: var(--color-accent); font-weight: 700;">+</span>}
+            </>
+          ))}
+          <span class="text-sm font-bold" style="color: var(--color-accent);">→ 1 kernel</span>
+        </div>
+      </div>
+
+      {stage && (
+        <div class="mt-3 text-sm">
+          <span style="color: var(--color-text-muted);">应用于阶段:</span>
+          <a href={pathname(`/pipeline/${stage.id}/`)} class="ml-2 px-3 py-1 rounded border"
+             style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 8%, var(--color-bg)); color: var(--color-accent);">
+            <span class="font-mono text-xs">{stage.order}/7</span> {stage.name_zh}
+          </a>
+        </div>
+      )}
+    </section>
+
+    <!-- why fuse -->
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-2">为什么要融合 / Why fuse</h3>
+      <p class="text-base px-4 py-3 rounded" style="background: var(--color-surface); border-left: 3px solid var(--color-accent); color: var(--color-text);">
+        {fk.why_fuse}
+      </p>
+    </section>
+
+    <!-- Description body -->
+    <section class="pb-8">
+      <article style="color: var(--color-text); line-height: 1.7; max-width: 48rem;" set:html={desc}></article>
+    </section>
+
+    {fk.speedup.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">加速 / Speedup ({fk.speedup.length})</h3>
+        <div class="grid md:grid-cols-2 gap-3">
+          {fk.speedup.map((s) => (
+            <article class="rounded-lg border p-4" style="border-color: var(--color-tier-measured); background: color-mix(in oklch, var(--color-tier-measured) 5%, var(--color-bg));">
+              <div class="flex justify-between items-baseline mb-1">
+                <span class="text-xs font-mono" style="color: var(--color-text-muted);">vs baseline</span>
+                <span class="font-mono font-bold text-lg" style="color: var(--color-tier-measured);">
+                  {s.multiplier_min.toFixed(1)}–{s.multiplier_max.toFixed(1)}×
+                </span>
+              </div>
+              <div class="text-sm font-medium">{s.baseline}</div>
+              {s.notes && <p class="text-xs mt-2" style="color: var(--color-text-muted);">{s.notes}</p>}
+            </article>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {fk.implementations.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">实现 / Implementations ({fk.implementations.length})</h3>
+        <div class="grid md:grid-cols-2 gap-3">
+          {fk.implementations.map((impl) => {
+            const eng = impl.engine_id ? enginesById.get(impl.engine_id) : null;
+            return (
+              <article class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="flex justify-between items-start gap-2 mb-2">
+                  <h4 class="font-mono text-sm font-semibold">{impl.name}</h4>
+                  {eng && (
+                    <a href={pathname(`/engines/${eng.id}/`)} class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 15%, var(--color-bg)); color: var(--color-accent);">
+                      {eng.name}
+                    </a>
+                  )}
+                </div>
+                {impl.hardware_arch.length > 0 && (
+                  <div class="flex flex-wrap gap-1 mb-2">
+                    {impl.hardware_arch.map((arch) => <Badge>{arch}</Badge>)}
+                  </div>
+                )}
+                {impl.notes && <p class="text-xs mb-2" style="color: var(--color-text-muted);">{impl.notes}</p>}
+                {impl.url && (
+                  <a href={impl.url} target="_blank" rel="noopener" class="text-xs underline" style="color: var(--color-accent);">
+                    docs / source →
+                  </a>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    )}
+
+    {fk.hardware_requires.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">硬件要求 / Hardware requirements</h3>
+        <ul class="space-y-1 text-sm" style="color: var(--color-text-muted);">
+          {fk.hardware_requires.map((req) => <li>· {req}</li>)}
+        </ul>
+      </section>
+    )}
+
+    {fk.trade_offs.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">权衡 / Trade-offs</h3>
+        <ul class="space-y-2">
+          {fk.trade_offs.map((t) => (
+            <li class="text-sm px-3 py-2 rounded" style="background: color-mix(in oklch, var(--color-tier-estimated) 8%, var(--color-bg)); color: var(--color-text);">⚠ {t}</li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {enabledPatterns.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">支撑的优化模式 / Enables patterns</h3>
+        <div class="grid sm:grid-cols-2 gap-2">
+          {enabledPatterns.map((p) => (
+            <a href={pathname(`/patterns/${p.id}/`)} class="block rounded p-3 text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{p.name}</div>
+              <div class="text-xs mt-1" style="color: var(--color-text-muted);">{p.category}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {fk.references.length > 0 && (
+      <section class="pb-12">
+        <h3 class="text-lg font-semibold mb-3">参考文献 / References ({fk.references.length})</h3>
+        <ul class="space-y-1.5 text-sm">
+          {fk.references.map((ref) => (
+            <li>
+              <a href={ref.url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{ref.title}</a>
+              <span class="text-xs ml-2 px-1.5 py-0.5 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">{ref.source_type}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </Container>
+</BaseLayout>
+
+<style>
+  article :global(h1), article :global(h2), article :global(h3) { margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; }
+  article :global(h2) { font-size: 1.25rem; }
+  article :global(h3) { font-size: 1.05rem; }
+  article :global(p) { margin-bottom: 0.75rem; }
+  article :global(ul), article :global(ol) { margin-left: 1.5rem; list-style: disc; margin-bottom: 0.75rem; }
+  article :global(ol) { list-style: decimal; }
+  article :global(li) { margin-bottom: 0.25rem; }
+  article :global(code) { background: var(--color-surface); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.875em; font-family: var(--font-mono); }
+  article :global(pre) { background: var(--color-surface); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; font-size: 0.85em; }
+  article :global(pre code) { padding: 0; background: transparent; }
+  article :global(table) { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: 0.9em; }
+  article :global(th), article :global(td) { border: 1px solid var(--color-border); padding: 0.5rem; text-align: left; }
+  article :global(th) { background: var(--color-surface); font-weight: 600; }
+  article :global(strong) { color: var(--color-text); font-weight: 600; }
+</style>

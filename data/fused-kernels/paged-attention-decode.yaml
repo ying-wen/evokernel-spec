@@ -1,0 +1,82 @@
+id: paged-attention-decode
+name: PagedAttention Decode Kernel
+category: kv-cache-management
+summary: |
+  vLLM 提出的块状 KV cache attention kernel: KV 不再连续存放, 而是分成固定大小的 block,
+  每个 sequence 维护一个 page table (类似虚拟内存). decode kernel 通过 page table 间接寻
+  址读取 KV, 解决长 context 时 KV 内存碎片化问题.
+
+description_md: |
+  ## 问题: KV cache 内存碎片化
+
+  传统 attention 假设 KV 连续存储, 每条 sequence 预留 max_seq_len 显存. 高并发 LLM 服务
+  里这意味着 90% 显存空闲(请求多数没用到 max_seq_len), 同时新请求来了又分配不出来.
+
+  ## PagedAttention 的虚拟内存类比
+
+  - **物理 page**: 显存里 16 或 32 token 一个 KV block (固定大小)
+  - **page table**: 每个 sequence 一张 logical → physical block 映射表
+  - **decode kernel**: 拿 page table, 间接寻址读 K/V, 写当前 token 的 K/V 到末尾的 page
+
+  这把 KV 显存利用率从 ~30% 提到 95%+. 同样硬件能跑 3-5x 并发.
+
+  ## kernel 实现细节
+
+  - **block_size 固定** (16/32) — kernel 内部是规则 GEMV, 间接寻址只在 outer loop
+  - **prefix sharing** — 多个 sequence 共享 system prompt 的 KV block (无需复制)
+  - **swap to host** — 显存压力时 page 可以 swap 到 host RAM (slower 但不掉服务)
+
+fuses_operators: [attention, kv-read]
+why_fuse: |
+  传统 contiguous KV attention kernel 在分页场景下会跨 block 边界做不连续 read,
+  CUDA 协程 stall. PagedAttention kernel 把"按页读 + softmax + V@" 折叠到一起,
+  并用 block_size=16 这种 cache-friendly 粒度避免 random access.
+
+speedup:
+  - baseline: 'Naive contiguous-KV attention with max_seq_len reservation'
+    multiplier_min: 3
+    multiplier_max: 5
+    notes: '不是 kernel 本身快了, 而是同样显存能跑 3-5x 并发 → 整体 throughput 收益'
+
+implementations:
+  - name: vLLM paged_attention_v2
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/tree/main/csrc/attention
+    notes: 'reference impl, vLLM 论文同名'
+  - name: SGLang RadixAttention (extension)
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/sgl-project/sglang
+    notes: '在 PagedAttention 基础上加 prefix radix tree, 自动 cache 公共 prefix'
+  - name: TRT-LLM Paged KV Cache
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: LMDeploy PagedAttn
+    engine_id: lmdeploy
+    hardware_arch: [hopper, ampere]
+  - name: MindIE PagedKVCache
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c]
+    notes: '昇腾 native page-table 实现, HBM3 + L2 协同'
+
+hardware_requires:
+  - 'GPU with sufficient SMEM for indirect addressing (almost all modern AI accel)'
+  - 'page_size 通常 16, 需要硬件 cache line 友好 (128B+)'
+
+enables_patterns: [paged-attention, prefix-caching]
+
+applies_at_stage: serve
+
+trade_offs:
+  - 'Long-tail page-table 间接寻址比连续 KV 慢 ~5-10% (单 sequence)'
+  - '需要 KV manager 进程, 调度复杂度上升'
+  - 'paged 写入需要 block-aligned, 每个 step 要 round up'
+
+references:
+  - title: 'Efficient Memory Management for Large Language Model Serving with PagedAttention'
+    url: https://arxiv.org/abs/2309.06180
+    source_type: paper
+  - title: 'vLLM PagedAttention CUDA kernel'
+    url: https://github.com/vllm-project/vllm/tree/main/csrc/attention
+    source_type: implementation

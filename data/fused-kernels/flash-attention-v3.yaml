@@ -1,0 +1,90 @@
+id: flash-attention-v3
+name: FlashAttention-3
+category: attention
+summary: |
+  Hopper-aware tiled attention kernel. 把 Q@K^T → softmax → @V 三步融合, 用 TMA + WGMMA
+  + warp-specialized async pipelining 把 attention 推到 Hopper 峰值的 75% (FP16) / 85% (FP8).
+
+description_md: |
+  ## 为什么 FA3 比 FA2 快
+
+  FlashAttention-2 在 Hopper 上没用到三个新硬件特性:
+  1. **TMA (Tensor Memory Accelerator)** — Hopper 专属的异步 DMA 引擎, 把 HBM ↔ SMEM 拷贝
+     从 SM 计算单元上卸载下来
+  2. **WGMMA (Warp-Group MMA)** — 在 4 个 warp (warpgroup) 上跑 64×N tensor core, 一次 issue
+     多个 GEMM 指令
+  3. **Async pipelining** — softmax 与 GEMM 可以异步交叠, GEMM 0 算完后 GEMM 1 同时跑
+     softmax(0)
+
+  FA3 把这三件事重新拼装:
+  - **生产者 warp** (8 个) 专门用 TMA 搬数据进 SMEM
+  - **消费者 warp** (8 个) 跑 WGMMA + softmax, 不等数据搬运
+  - softmax 用 online normalization 维持精度, 同时 fused 进同一 kernel
+
+  ## FP8 路径
+
+  FP8 e4m3 走 transposed mma (cuBLAS 没有 FP8 GEMM, 但 FA3 自己写了); 在 H100/H200 上
+  attention 部分能拿到 1.2-1.4 PFLOPs (FP8), 比 BF16 快 ~1.6x。
+
+  ## 集成
+
+  vLLM 0.6+, SGLang (via Flashinfer), TensorRT-LLM 0.14+ 都已默认启用 FA3 在 Hopper 上的
+  fast path。Ampere fallback 仍是 FA2。
+
+fuses_operators: [attention, matmul, softmax]
+why_fuse: |
+  Standalone attention 需要把 N×N attention matrix 写回 HBM 再读回来 (softmax stage); 内存
+  搬运量随 seq^2 增长, 32K context 时光这一项就吃掉 80% wallclock. FA3 让中间结果只在
+  SMEM 周转, HBM 只读 Q/K/V, 写 O — 内存量从 O(N^2) 降到 O(N).
+
+speedup:
+  - baseline: PyTorch SDPA (eager)
+    multiplier_min: 3
+    multiplier_max: 8
+    notes: 'prefill 阶段, 长 context 收益更大'
+  - baseline: FlashAttention-2
+    multiplier_min: 1.5
+    multiplier_max: 2.0
+    notes: 'Hopper 上 (TMA + WGMMA 路径)'
+
+implementations:
+  - name: flash-attn (Tri Dao official)
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/Dao-AILab/flash-attention
+    notes: 'reference implementation; CUDA 12.3+ 必须'
+  - name: vLLM FA3 backend
+    engine_id: vllm
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/vllm-project/vllm
+  - name: SGLang Flashinfer FA3
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: TRT-LLM trtllm-attention FA3
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+
+hardware_requires:
+  - 'Hopper (sm_90) or Blackwell (sm_100): TMA + WGMMA'
+  - 'HBM3 bandwidth ≥ 3 TB/s 才能喂饱 attention'
+  - 'CUDA 12.3+ (TMA driver)'
+
+enables_patterns: [flashattention-v3]
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Hopper-only 的硬件锁定; Ampere 必须 fallback FA2 (打折 1.5x)'
+  - 'kernel 复杂度高, 调试需要 cuda-gdb + ptxas analysis'
+  - 'FP8 路径的数值校准比 BF16 麻烦, 需要 per-channel scaling'
+
+references:
+  - title: 'FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision'
+    url: https://arxiv.org/abs/2407.08608
+    source_type: paper
+  - title: 'flash-attention repository'
+    url: https://github.com/Dao-AILab/flash-attention
+    source_type: implementation
+  - title: 'NVIDIA Hopper TMA Programming Guide'
+    url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#asynchronous-data-copies
+    source_type: docs

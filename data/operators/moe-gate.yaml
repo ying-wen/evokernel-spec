@@ -1,6 +1,61 @@
 id: moe-gate
-name: MoE Routing
+name: MoE Routing & Dispatch
 category: moe-routing
+
 flops_formula: 'batch * seq * hidden * num_experts'
 bytes_formula: '2 * batch * seq * (hidden + num_experts)'
-description: 'Top-k expert selection via softmax over router logits'
+arithmetic_intensity_formula: '~ hidden / 2 (compute-bound for large hidden)'
+arithmetic_intensity_typical:
+  min: 100
+  max: 4000
+  notes: '路由本身是 GEMM-shaped; 但 dispatch + combine 引入 all-to-all → 受互联带宽控制'
+
+description: |
+  MoE 路由有 3 段:
+  1. **Router GEMM**: `logits = x @ W_router`  (类似 GEMV/GEMM)
+  2. **Top-k selection + softmax** over experts (排序 + 归一化)
+  3. **Dispatch**: 把 token 按选中的 expert 拆分 (all-to-all 通信)
+     **Combine**: 拉回 expert 输出 (再一次 all-to-all)
+
+  实际部署中 1+2 通常 fuse 成 router kernel; 3 是 EP (expert parallel) 通信瓶颈,
+  跨节点 all-to-all 在大规模 MoE 上是性能杀手 (DeepSeek-V3 用 DeepEP 优化此处).
+
+variants: [top-k-routing, soft-mixture-of-experts, expert-choice-routing]
+
+fusion_targets: [matmul, softmax, all2all]
+participates_in_fused_kernels:
+  - fused-moe-routing
+  - fused-moe-experts
+
+engine_implementations:
+  - name: vLLM fused_moe
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/fused_moe
+    notes: 'top-k + softmax + dispatch in one Triton kernel'
+  - name: SGLang grouped_topk + dispatch
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+  - name: DeepEP (DeepSeek)
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/deepseek-ai/DeepEP
+    notes: '专门优化大规模 EP 的高性能 all-to-all + dispatch 库'
+  - name: MindIE MoE dispatch
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c]
+    notes: '昇腾原生 MoE 支持, HCCS all-to-all'
+
+precision_support: [bf16, fp16, fp32, fp8-e4m3]
+
+related_patterns: [moe-expert-routing-on-domestic]
+
+references:
+  - title: 'Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts'
+    url: https://arxiv.org/abs/1701.06538
+    source_type: paper
+  - title: 'DeepEP: An efficient expert-parallel communication library'
+    url: https://github.com/deepseek-ai/DeepEP
+    source_type: implementation
+  - title: 'GShard: Scaling Giant Models with Conditional Computation'
+    url: https://arxiv.org/abs/2006.16668
+    source_type: paper

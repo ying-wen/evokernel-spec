@@ -1,6 +1,48 @@
 id: all2all
 name: All-to-All
 category: communication
+
 flops_formula: '0'
-bytes_formula: '2 * (N-1)/N * payload_bytes'
-description: 'Used in expert parallelism for token dispatch and combine'
+bytes_formula: '(N-1)/N * payload_bytes'
+arithmetic_intensity_formula: 'N/A (zero compute)'
+arithmetic_intensity_typical:
+  min: 0.0001
+  max: 0.01
+  notes: '比 AllReduce 通信量更大, 因为每对节点都要交换数据 (而非 reduce)'
+
+description: |
+  All-to-All: 每张卡发数据给每张其他卡, 同时接收来自所有其他卡的数据。
+  在 **Expert Parallel (EP)** 中是核心通信原语 — token 按选中的 expert 分发到对应 GPU,
+  expert 算完后再 all-to-all 拉回结果。
+
+  这是 MoE 大规模部署的最大通信瓶颈, 尤其当 EP 跨节点 (>8 卡) 时:
+  - **Hopper + NVLink-NVSwitch**: 节点内 all-to-all 接近线性
+  - **跨节点 IB/RoCE**: 比节点内慢 5-10x, 容易抵消 EP 收益
+  - **国产 HCCS / IF**: all-to-all 实现仍在迭代, MoE 在国产硬件上需要 expert pinning 技巧
+
+variants: [all-to-all-v, hierarchical-all2all]
+
+fusion_targets: [moe-gate]
+participates_in_fused_kernels:
+  - fused-moe-routing
+
+engine_implementations:
+  - name: NCCL all2all (ncclSendRecv loop)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/deeplearning/nccl/
+  - name: DeepEP (DeepSeek) all2all
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/deepseek-ai/DeepEP
+    notes: '专为大规模 MoE EP 设计的 all-to-all, 比 NCCL 经典实现快 1.5-3x'
+  - name: HCCL all2all (Huawei)
+    hardware_arch: [ascend-910b, ascend-910c]
+    notes: '昇腾自研 all-to-all, 与 CloudMatrix 384 拓扑深度集成'
+
+precision_support: [bf16, fp16, fp8-e4m3]
+
+related_patterns: [moe-expert-routing-on-domestic]
+
+references:
+  - title: 'DeepEP: Efficient Expert-Parallel Communication'
+    url: https://github.com/deepseek-ai/DeepEP
+    source_type: implementation

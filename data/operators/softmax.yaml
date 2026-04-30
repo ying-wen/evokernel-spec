@@ -1,6 +1,42 @@
 id: softmax
 name: Softmax
 category: activation
+
 flops_formula: '5 * batch * heads * seq * seq'
 bytes_formula: '2 * batch * heads * seq * seq'
-description: 'Softmax over attention scores; numerically stable form'
+arithmetic_intensity_formula: '~ 2.5 FLOP/byte'
+arithmetic_intensity_typical:
+  min: 2
+  max: 3
+  notes: 'memory-bound when standalone; FlashAttention 把它 fuse 进 attention 主 kernel 让它"消失"'
+
+description: |
+  Softmax over attention scores: `softmax(QK^T / sqrt(d_k))`. 数值稳定形式需要先减 max
+  再 exp, 然后归一化 — **三遍 N×N 矩阵读写**, 显存带宽极敏感。
+  这正是 FlashAttention 的核心优化目标: 不显式 materialize attention matrix, softmax
+  改用 online normalization 算法在 SRAM 内分块累加。
+
+variants: []
+
+fusion_targets: [attention]
+participates_in_fused_kernels:
+  - flash-attention-v3
+  - paged-attention-decode
+
+engine_implementations:
+  - name: 'Online softmax (Milakov & Gimelshein 2018)'
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, cdna4]
+    url: https://arxiv.org/abs/1805.02867
+    notes: '所有现代 attention kernel 都用这个; 不再单独有 standalone softmax kernel'
+  - name: cudnn softmax
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    notes: '兜底实现, 性能不如 fused 版'
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: [flashattention-v3, paged-attention]
+
+references:
+  - title: 'Online normalizer calculation for softmax'
+    url: https://arxiv.org/abs/1805.02867
+    source_type: paper

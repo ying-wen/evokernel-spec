@@ -4,7 +4,7 @@ import { pathname } from '~/lib/i18n';
 import Container from '~/components/ui/Container.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getOperators, getModels, getResolvedHardware } from '~/lib/data';
+import { getOperators, getModels, getResolvedHardware, getEngines, getPatterns } from '~/lib/data';
 
 export async function getStaticPaths() {
   const operators = await getOperators();
@@ -12,10 +12,28 @@ export async function getStaticPaths() {
 }
 
 const { op } = Astro.props;
-const allModels = await getModels();
-const allHw = await getResolvedHardware();
+const [allModels, allHw, allOperators, allEngines, allPatterns] = await Promise.all([
+  getModels(), getResolvedHardware(), getOperators(), getEngines(), getPatterns()
+]);
+
+// Fusion graph: this op's neighbors in the fusion graph (forward + reverse).
+const fusionTargetOps = allOperators.filter((o) => op.fusion_targets.includes(o.id));
+const fusedFromOps = allOperators.filter((o) => o.fusion_targets.includes(op.id) && o.id !== op.id);
+const relatedPatternsList = allPatterns.filter((p) => op.related_patterns.includes(p.id));
 // Find models that reference this operator in decomposition
 const usedBy = allModels.filter((m) => m.operator_decomposition.some((d) => d.operator === op.id));
+
+const aiTypical = op.arithmetic_intensity_typical;
+const aiBoundClass = aiTypical
+  ? (aiTypical.max < 10 ? 'memory-bound'
+     : aiTypical.min > 100 ? 'compute-bound'
+     : 'mixed')
+  : null;
+const aiClassLabel: Record<string, string> = {
+  'memory-bound': '🟦 内存带宽受限 (memory-bound)',
+  'compute-bound': '🟧 计算受限 (compute-bound)',
+  mixed: '🟨 区间跨界 (regime-dependent)'
+};
 
 // HARDWARE FITNESS ANALYSIS:
 // For a representative model + this operator, compute per-hardware:
@@ -59,12 +77,150 @@ const fitnessRows = intensity > 0
     </section>
 
     <section class="pb-8">
-      <h3 class="text-lg font-semibold mb-3">公式</h3>
+      <h3 class="text-lg font-semibold mb-3">公式 / Roofline math</h3>
       <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
         <SpecRow label="FLOPs"><code style="font-family: var(--font-mono); font-size: 0.875rem;">{op.flops_formula}</code></SpecRow>
         <SpecRow label="Bytes"><code style="font-family: var(--font-mono); font-size: 0.875rem;">{op.bytes_formula}</code></SpecRow>
+        {op.arithmetic_intensity_formula && (
+          <SpecRow label="Arithmetic intensity"><code style="font-family: var(--font-mono); font-size: 0.875rem;">{op.arithmetic_intensity_formula}</code></SpecRow>
+        )}
       </div>
+      {aiTypical && aiBoundClass && (
+        <div class="mt-3 px-4 py-3 rounded text-sm" style={`background: var(--color-surface); border-left: 3px solid ${aiBoundClass === 'memory-bound' ? 'var(--color-china)' : aiBoundClass === 'compute-bound' ? 'var(--color-accent)' : 'var(--color-tier-estimated)'};`}>
+          <div class="font-semibold mb-1">{aiClassLabel[aiBoundClass]}</div>
+          <div style="color: var(--color-text-muted);">
+            典型 AI 区间: <strong style="color: var(--color-text); font-family: var(--font-mono);">{aiTypical.min} – {aiTypical.max} FLOP/byte</strong>
+            {aiTypical.notes && <span> · {aiTypical.notes}</span>}
+          </div>
+        </div>
+      )}
     </section>
+
+    {(fusionTargetOps.length > 0 || fusedFromOps.length > 0 || op.participates_in_fused_kernels.length > 0) && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">融合图谱 / Fusion graph</h3>
+        <p class="text-xs mb-4" style="color: var(--color-text-muted);">
+          算子融合 (operator fusion) 是把多个 op 折叠到同一 kernel, 消除 HBM 中转读写。
+          该 op 的融合相邻关系如下:
+        </p>
+        <div class="grid sm:grid-cols-2 gap-4">
+          {fusionTargetOps.length > 0 && (
+            <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <h4 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">→ 该 op 通常 fuse 进:</h4>
+              <ul class="space-y-1.5">
+                {fusionTargetOps.map((o) => (
+                  <li>
+                    <a href={pathname(`/operators/${o.id}/`)} class="text-sm font-medium underline" style="color: var(--color-text);">
+                      {o.name}
+                    </a>
+                    <span class="text-xs ml-2" style="color: var(--color-text-muted);">{o.category}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {fusedFromOps.length > 0 && (
+            <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <h4 class="text-sm font-semibold mb-2" style="color: var(--color-china);">← 反向: 这些 op 把自己 fuse 进当前 op:</h4>
+              <ul class="space-y-1.5">
+                {fusedFromOps.map((o) => (
+                  <li>
+                    <a href={pathname(`/operators/${o.id}/`)} class="text-sm font-medium underline" style="color: var(--color-text);">
+                      {o.name}
+                    </a>
+                    <span class="text-xs ml-2" style="color: var(--color-text-muted);">{o.category}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        {op.participates_in_fused_kernels.length > 0 && (
+          <div class="mt-4 rounded-lg border p-4" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+            <h4 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">⚡ 出现在以下命名 fused kernels:</h4>
+            <div class="flex flex-wrap gap-2">
+              {op.participates_in_fused_kernels.map((slug) => (
+                <a href={pathname(`/fused-kernels/${slug}/`)} class="text-sm font-medium px-3 py-1 rounded border" style="border-color: var(--color-accent); color: var(--color-accent);">
+                  {slug}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+    )}
+
+    {op.engine_implementations.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">引擎实现 / Engine kernels ({op.engine_implementations.length})</h3>
+        <div class="grid md:grid-cols-2 gap-3">
+          {op.engine_implementations.map((impl) => {
+            const eng = impl.engine_id ? allEngines.find((e) => e.id === impl.engine_id) : null;
+            return (
+              <article class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="flex justify-between items-start gap-2 mb-2">
+                  <h4 class="font-mono text-sm font-semibold" style="color: var(--color-text);">{impl.name}</h4>
+                  {eng && (
+                    <a href={pathname(`/engines/${eng.id}/`)} class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 15%, var(--color-bg)); color: var(--color-accent);">
+                      {eng.name}
+                    </a>
+                  )}
+                </div>
+                {impl.hardware_arch.length > 0 && (
+                  <div class="flex flex-wrap gap-1 mb-2">
+                    {impl.hardware_arch.map((arch) => <Badge>{arch}</Badge>)}
+                  </div>
+                )}
+                {impl.notes && <p class="text-xs mb-2" style="color: var(--color-text-muted);">{impl.notes}</p>}
+                {impl.url && (
+                  <a href={impl.url} target="_blank" rel="noopener" class="text-xs underline" style="color: var(--color-accent);">
+                    docs / source →
+                  </a>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    )}
+
+    {op.precision_support.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">原生精度支持 / Native precision support</h3>
+        <div class="flex flex-wrap gap-2">
+          {op.precision_support.map((p) => <Badge variant="accent">{p.toUpperCase()}</Badge>)}
+        </div>
+      </section>
+    )}
+
+    {relatedPatternsList.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">相关优化模式 / Related patterns</h3>
+        <div class="grid sm:grid-cols-2 gap-2">
+          {relatedPatternsList.map((p) => (
+            <a href={pathname(`/patterns/${p.id}/`)} class="block rounded p-3 text-sm border transition-transform hover:translate-x-0.5"
+               style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="font-medium">{p.name}</div>
+              <div class="text-xs mt-1" style="color: var(--color-text-muted);">{p.category}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {op.references.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">参考文献 / References</h3>
+        <ul class="space-y-1.5 text-sm">
+          {op.references.map((ref) => (
+            <li>
+              <a href={ref.url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{ref.title}</a>
+              <span class="text-xs ml-2 px-1.5 py-0.5 rounded" style="background: var(--color-surface); color: var(--color-text-muted);">{ref.source_type}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
 
     {fitnessRows.length > 0 && repModel && repDecomp && (
       <section class="pb-12">

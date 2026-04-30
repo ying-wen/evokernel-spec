@@ -82,6 +82,6 @@ failure_modes:
     fix: '`mode="reduce-overhead"` + `dynamic=True`, 或者用 vLLM/SGLang 已经处理好的 capture 池'
 
 related_patterns: [flashattention-v3, paged-attention, continuous-batching]
-related_operators: [matmul, attention, flash-attention-3, rmsnorm, rope]
+related_operators: [matmul, attention, rmsnorm, rope]
 primary_engines: [vllm, sglang, tensorrt-llm, lmdeploy, mindie]
 invalidates_downstream: [shard, serve]

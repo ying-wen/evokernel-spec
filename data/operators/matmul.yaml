@@ -1,6 +1,62 @@
 id: matmul
-name: Matrix Multiplication
+name: Matrix Multiplication (GEMM)
 category: matmul
+
 flops_formula: '2 * M * N * K'
 bytes_formula: '2 * (M*K + K*N + M*N)'
-description: 'General matrix multiply (GEMM); base operator for FFN and attention projections'
+arithmetic_intensity_formula: 'M*N*K / (M*K + K*N + M*N) ≈ M*N/(M+N) when K is large'
+arithmetic_intensity_typical:
+  min: 16
+  max: 4096
+  notes: 'small-batch decode GEMV ~ 16-64 FLOP/byte (memory-bound); large prefill batched ~ 1000+ (compute-bound)'
+
+description: |
+  General Matrix Multiply (GEMM): `C = A @ B`. 推理里所有 GEMM 都来自 attention projection
+  (Q/K/V/O), FFN gate/up/down, lm_head, embedding lookup-projection. 规模决定 roofline 位置:
+  decode 阶段几乎都是 GEMV (batch=1), prefill 是 batched GEMM。
+
+variants: [gemv, batched-matmul, grouped-matmul]
+
+fusion_targets: [silu, gelu, rmsnorm, layernorm, rope, allreduce]
+participates_in_fused_kernels:
+  - fused-mlp-silu
+  - fused-rope-qkv
+  - fused-rmsnorm-residual
+  - fused-qkv-projection
+
+engine_implementations:
+  - name: cuBLAS / cuBLASLt
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/cuda/cublas/
+    notes: 'NVIDIA 官方 BLAS; FP8/FP4 走 cuBLASLt'
+  - name: hipBLASLt
+    hardware_arch: [cdna3, cdna4, rdna3]
+    url: https://github.com/ROCm/hipBLASLt
+    notes: 'AMD ROCm BLAS, MI300X/MI355X'
+  - name: CUTLASS
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/NVIDIA/cutlass
+    notes: '可定制模板, 支持自定义 epilogue (fusion 入口)'
+  - name: Triton matmul
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, cdna4]
+    url: https://github.com/triton-lang/triton
+    notes: 'Python DSL, vLLM/SGLang 大量用'
+  - name: AscendC GEMM
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+    notes: '昇腾原生 GEMM via Cube Unit'
+  - name: BANG / Neuware GEMM
+    hardware_arch: [cambricon-mlu]
+    notes: '寒武纪 MLU 私有 GEMM'
+
+precision_support: [fp4, fp8-e4m3, fp8-e5m2, bf16, fp16, fp32, int4-awq, int4-gptq, int8]
+
+related_patterns: [memory-bound-decode-prefer-int8, flashattention-v3]
+
+references:
+  - title: 'CUTLASS: CUDA Templates for Linear Algebra Subroutines'
+    url: https://github.com/NVIDIA/cutlass
+    source_type: implementation
+  - title: 'Marlin: Mixed Precision Auto-Tuned GEMM Kernel'
+    url: https://github.com/IST-DASLab/marlin
+    source_type: implementation

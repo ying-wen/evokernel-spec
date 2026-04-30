@@ -1,6 +1,46 @@
 id: rmsnorm
 name: RMSNorm
 category: norm
+
 flops_formula: '5 * batch * seq * hidden'
 bytes_formula: '2 * batch * seq * hidden'
-description: 'Root mean square normalization; cheaper than LayerNorm, common in modern LLMs'
+arithmetic_intensity_formula: '~ 2.5 FLOP/byte'
+arithmetic_intensity_typical:
+  min: 2
+  max: 3
+  notes: '极度 memory-bound; 单独跑就是浪费 — 必须 fuse'
+
+description: |
+  Root Mean Square Normalization (Zhang & Sennrich 2019). LLaMA / Qwen / DeepSeek 等
+  现代 LLM 的标配 — 比 LayerNorm 省一个 mean 减法。**几乎所有引擎都把 RMSNorm 与
+  下游 GEMM (Q/K/V projection) fuse**, 因为单独 RMSNorm 是纯内存搬运操作。
+
+variants: []
+
+fusion_targets: [matmul, attention]
+participates_in_fused_kernels:
+  - fused-rmsnorm-residual
+  - fused-rmsnorm-qkv
+
+engine_implementations:
+  - name: vLLM fused_add_rms_norm
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/layernorm_kernels.cu
+    notes: 'fused with residual add'
+  - name: TRT-LLM rmsnorm plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: Triton rmsnorm
+    hardware_arch: [hopper, ampere, blackwell, cdna3, cdna4]
+    url: https://triton-lang.org/main/getting-started/tutorials/05-layer-norm.html
+    notes: '示范级 Triton kernel, 通常作为 fusion epilogue'
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'Root Mean Square Layer Normalization'
+    url: https://arxiv.org/abs/1910.07467
+    source_type: paper

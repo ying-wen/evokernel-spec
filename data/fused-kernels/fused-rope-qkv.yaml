@@ -1,0 +1,72 @@
+id: fused-rope-qkv
+name: Fused RoPE + QKV Projection
+category: rope-attention
+summary: |
+  把 `x → Q/K/V projection → RoPE` 序列融合到一个 kernel, 让 RoPE 旋转直接在 SMEM 内
+  完成, 不写中间 Q/K. KV cache 写入也合并进同一 kernel.
+
+description_md: |
+  ## 输入到 attention 的 4 步
+
+  ```
+  step 1: qkv = x @ W_qkv          # GEMM 输出 [batch, seq, 3*hidden]
+  step 2: q, k, v = split(qkv)     # 切片
+  step 3: q_rot, k_rot = rope(q, k, pos)  # element-wise sin/cos 旋转
+  step 4: kv_cache.append(k_rot, v)       # KV cache 写入
+  ```
+
+  Standalone 时 Q/K/V 在 step 1 后写 HBM, step 3 又读回 RoPE 旋转再写回, step 4 再读。
+  RoPE 算术强度极低 (<2 FLOP/byte), 完全是内存搬运浪费.
+
+  ## Fused 实现
+
+  - GEMM 的 epilogue 立刻 split + RoPE, 结果只写 KV cache (V 直接, K_rot 旋转后), Q_rot 进入
+    attention kernel 的输入 stage
+  - 等价于 CUTLASS 的 "epilogue + custom op" 模式
+
+  在 Hopper 上常和 FlashAttention-3 进一步组合: QKV proj → RoPE → FA3 三层 kernel boundary
+  压缩到 2 个; 整个 decode-step attention 块少 4-6 次 HBM round-trip.
+
+fuses_operators: [matmul, rope, kv-write]
+why_fuse: |
+  RoPE 是典型的 memory-bound 操作 (AI ~1.5 FLOP/byte), 单独 kernel 完全是 HBM 带宽瓶颈。
+  与上游 QKV GEMM fuse, 旋转直接在 epilogue 的 register file 完成, 节省 100% 中间显存读写。
+
+speedup:
+  - baseline: 'unfused QKV proj + standalone RoPE'
+    multiplier_min: 1.15
+    multiplier_max: 1.4
+    notes: 'decode 阶段; prefill 时 QKV GEMM 是 compute-bound, 收益更小'
+
+implementations:
+  - name: vLLM rotary_embedding (post-QKV variant)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/pos_encoding_kernels.cu
+  - name: Flashinfer apply_rope_pos_ids_inplace
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: TRT-LLM gpt_attention_plugin (fused-qkv-rope)
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: 'TRT-LLM 把 QKV proj + RoPE + attention 全部合并到 gpt_attention_plugin'
+
+hardware_requires:
+  - 'Tensor Core GPU; SMEM 大小 ≥ 128 KB (Hopper/Blackwell 充足)'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'YaRN / NTK-aware RoPE 需要不同的 frequency table, kernel 要按变体编译'
+  - 'GQA / MQA 模型中 K head 数 ≠ Q head, kernel 需要支持 broadcast'
+
+references:
+  - title: 'RoFormer: Enhanced Transformer with Rotary Position Embedding'
+    url: https://arxiv.org/abs/2104.09864
+    source_type: paper
+  - title: 'TensorRT-LLM gpt_attention_plugin'
+    url: https://nvidia.github.io/TensorRT-LLM/architecture/core-concepts.html
+    source_type: docs

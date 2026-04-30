@@ -1,7 +1,64 @@
 id: attention
 name: Multi-Head Attention
 category: attention
+
 flops_formula: '4 * batch * seq * hidden^2 + 2 * batch * heads * seq^2 * head_dim'
 bytes_formula: '2 * batch * seq * hidden * (1 + 2/heads)'
-description: 'Standard multi-head attention; FLOPs and bytes are per layer per token'
-variants: [flash-attention-2, flash-attention-3, mla, csa, hca]
+arithmetic_intensity_formula: 'compute / bytes ≈ seq * head_dim / 2 (decode low; prefill high)'
+arithmetic_intensity_typical:
+  min: 2
+  max: 100
+  notes: 'decode 阶段 (seq=1) 低端 ~2-10 FLOP/byte (memory-bound); prefill 阶段 high (compute-bound)'
+
+description: |
+  Multi-Head Attention (Vaswani 2017). 每层包含 4 个 GEMM (Q/K/V projection + output)
+  和一个 attention 运算 (softmax(QK^T) @ V). decode 阶段 attention 是 KV cache 读取主导,
+  prefill 阶段是 batch×seq^2 计算主导。
+
+variants: [mla, csa, hca, mqa, gqa]
+
+fusion_targets: [matmul, softmax, rope, rmsnorm, kv-write]
+participates_in_fused_kernels:
+  - flash-attention-v3
+  - paged-attention-decode
+  - fused-rope-qkv
+  - mla-fused-decode
+
+engine_implementations:
+  - name: vLLM PagedAttention CUDA kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/tree/main/csrc/attention
+    notes: '块状 KV cache, 高并发友好'
+  - name: SGLang Flashinfer attention
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+    notes: 'Triton + CUDA hybrid, RadixAttention enabler'
+  - name: TensorRT-LLM trtllm.attention
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    url: https://github.com/NVIDIA/TensorRT-LLM
+  - name: LMDeploy TurboMind attention
+    engine_id: lmdeploy
+    hardware_arch: [hopper, ampere]
+    url: https://github.com/InternLM/lmdeploy
+  - name: MindIE attention (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+    notes: '昇腾 native attention, 与 CANN 算子库协同'
+
+precision_support: [bf16, fp16, fp8-e4m3, fp8-e5m2, int8]
+
+related_patterns: [flashattention-v3, paged-attention, prefix-caching, kv-cache-int8]
+
+references:
+  - title: 'Attention Is All You Need'
+    url: https://arxiv.org/abs/1706.03762
+    source_type: paper
+  - title: 'FlashAttention: Fast and Memory-Efficient Exact Attention'
+    url: https://arxiv.org/abs/2205.14135
+    source_type: paper
+  - title: 'FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision'
+    url: https://arxiv.org/abs/2407.08608
+    source_type: paper

@@ -45,6 +45,8 @@ export const CRITICAL_ROUTES: CriticalRoute[] = [
   { path: '/contribute/',       reason: 'contributor onboarding',    contentType: 'text/html' },
   { path: '/patterns/',         reason: 'optimization patterns hub', contentType: 'text/html' },
   { path: '/pipeline/',         reason: '7-stage deployment pipeline', contentType: 'text/html' },
+  { path: '/operators/',        reason: 'operator catalog with AI bound classes', contentType: 'text/html' },
+  { path: '/fused-kernels/',    reason: 'fused kernel catalog (FlashAttn, FusedMLP, ...)', contentType: 'text/html' },
   { path: '/api/healthz',       reason: 'k8s liveness probe',        contentType: null }, // SSG strips text/plain
   { path: '/api/index.json',    reason: 'API descriptor',           contentType: 'application/json' }
 ];

@@ -1,6 +1,55 @@
 id: allreduce
 name: AllReduce
 category: communication
+
 flops_formula: '0'
 bytes_formula: '2 * (N-1)/N * payload_bytes'
-description: 'Ring or tree all-reduce across TP group; bandwidth-dominated'
+arithmetic_intensity_formula: 'N/A (zero compute, pure bandwidth)'
+arithmetic_intensity_typical:
+  min: 0.001
+  max: 0.01
+  notes: '纯带宽搬运, 不占算力, 受 NVLink/HCCS scale-up bandwidth 主导'
+
+description: |
+  AllReduce: 把每张卡的局部张量求和, 结果广播到全组。Tensor Parallel (TP) 每层 forward
+  之后必须 AllReduce 输出 — TP 互联带宽不足时直接卡死整个 LLM 推理。
+
+  实际实现:
+  - **Ring AllReduce**: 经典算法, 带宽利用率 (N-1)/N, 适合 NVLink-flat 拓扑
+  - **Tree AllReduce**: 大规模时延迟更优
+  - **NCCL allreduce**: NVIDIA 自动选择算法的 black-box
+  - **MSCCL** (Microsoft) / **HCCL** (Huawei): 拓扑感知, 在层级化网络上更优
+
+variants: [ring-allreduce, tree-allreduce, double-binary-tree]
+
+fusion_targets: [matmul]
+participates_in_fused_kernels:
+  - fused-allreduce-residual
+
+engine_implementations:
+  - name: NCCL
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/deeplearning/nccl/
+    notes: 'NVIDIA 通信库, NVLink/IB 拓扑感知'
+  - name: RCCL (AMD)
+    hardware_arch: [cdna3, cdna4, rdna3]
+    url: https://github.com/ROCm/rccl
+    notes: 'AMD ROCm 对应 NCCL, Infinity Fabric 优化'
+  - name: HCCL (华为)
+    hardware_arch: [ascend-910b, ascend-910c]
+    notes: '昇腾通信库, HCCS scale-up + RoCE scale-out'
+  - name: MUSA Communication Library
+    hardware_arch: [moore-threads]
+    notes: '摩尔线程对应 NCCL'
+
+precision_support: [bf16, fp16, fp32, fp8-e4m3, int8]
+
+related_patterns: []
+
+references:
+  - title: 'Bandwidth Optimal All-reduce Algorithms for Clusters of Workstations'
+    url: http://www.cs.fsu.edu/~xyuan/paper/09jpdc.pdf
+    source_type: paper
+  - title: 'NCCL Documentation'
+    url: https://docs.nvidia.com/deeplearning/nccl/
+    source_type: docs

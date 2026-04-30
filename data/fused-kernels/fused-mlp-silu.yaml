@@ -1,0 +1,76 @@
+id: fused-mlp-silu
+name: Fused MLP (SwiGLU)
+category: mlp
+summary: |
+  把 LLaMA / Qwen / DeepSeek 的 MLP block (`silu(x @ W_gate) * (x @ W_up) @ W_down`) 融合
+  成 1-2 个 kernel — gate × up GEMM 的 epilogue 直接 silu+mul, 然后是 down_proj GEMM.
+  消除两次中间 HBM 写读, decode 阶段 1.3-1.8x 加速.
+
+description_md: |
+  ## 标准 MLP block 的 4 步
+
+  ```
+  step 1: gate = x @ W_gate     # GEMM, 写 HBM
+  step 2: up   = x @ W_up        # GEMM, 写 HBM
+  step 3: gated = silu(gate) * up  # element-wise, 读两次写一次
+  step 4: out  = gated @ W_down  # GEMM, 读 gated, 写 out
+  ```
+
+  Standalone 实现要做 **5 次 HBM 写 + 5 次读** (含中间 gate/up/gated). decode 阶段 batch=1
+  时这些读写就是大头 — Llama-3 70B decode 在 H100 上 standalone MLP 占 ~35% wallclock.
+
+  ## Fused 版本
+
+  - **Stage 1**: 一个 kernel 里同时算 gate 和 up (concat 成一个 `[2*ffn_size]` GEMM),
+    epilogue 立刻 silu(gate) * up, 结果留在 SMEM 不写回
+  - **Stage 2**: down_proj GEMM, 直接读 SMEM 输入 (如果 ffn_size 能 fit 进 SMEM tile)
+
+  实际部署中常见两种实现:
+  - **vLLM `silu_and_mul`**: stage 1 末尾的 fused activation kernel, gate 和 up 仍各自一次 GEMM
+  - **CUTLASS / Triton `fused_swiglu`**: 真正把两个 GEMM 也合一, 但只在大 hidden 时收益
+    (small batch 下双 GEMM 反而更优)
+
+fuses_operators: [matmul, silu]
+why_fuse: |
+  silu(x) * y 是一个纯 element-wise op, 单独跑就是浪费内存带宽。把它合进 GEMM epilogue
+  是 CUTLASS 经典优化 (epilogue fusion), 几乎无运行时开销.
+
+speedup:
+  - baseline: PyTorch nn.Linear + F.silu + multiply
+    multiplier_min: 1.3
+    multiplier_max: 1.8
+    notes: 'decode batch=1; prefill batched 收益更小 (本来就 compute-bound)'
+
+implementations:
+  - name: vLLM silu_and_mul kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/activation_kernels.cu
+  - name: CUTLASS Swiglu Epilogue
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/NVIDIA/cutlass
+  - name: Triton fused_swiglu (SGLang)
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell, cdna3, cdna4]
+  - name: TRT-LLM SwiGLU plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+
+hardware_requires:
+  - 'Tensor Core capable GPU (Volta+, MI200+, Ascend 910 series)'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - '微调模型如果改了激活函数 (e.g. GeGLU), fused kernel 要重新生成'
+  - '极小 hidden_size (<2048) 时 fusion 不一定划算 — kernel launch 开销占比变高'
+
+references:
+  - title: 'GLU Variants Improve Transformer'
+    url: https://arxiv.org/abs/2002.05202
+    source_type: paper
+  - title: 'CUTLASS Epilogue Fusion'
+    url: https://github.com/NVIDIA/cutlass/blob/main/media/docs/efficient_gemm.md
+    source_type: docs

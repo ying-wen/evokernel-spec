@@ -1,6 +1,51 @@
 id: rope
-name: Rotary Position Embedding
+name: Rotary Position Embedding (RoPE)
 category: embedding
+
 flops_formula: '6 * batch * seq * hidden'
 bytes_formula: '4 * batch * seq * hidden'
-description: 'Rotary positional embedding applied to Q and K projections'
+arithmetic_intensity_formula: '~ 1.5 FLOP/byte'
+arithmetic_intensity_typical:
+  min: 1
+  max: 2
+  notes: '极度 memory-bound; 必须 fuse 进 attention 或 QKV proj 输出'
+
+description: |
+  Rotary Position Embedding (Su et al. 2021). 把绝对位置编码成 cos/sin 旋转矩阵, 应用到
+  Q 和 K projection 之后。RoPE 是 LLaMA / Qwen / DeepSeek / Mistral 等现代 LLM 的位置编码
+  默认方案。变体: NTK-aware scaling (long context), YaRN (long context with attention temp).
+
+variants: []
+
+fusion_targets: [matmul, attention]
+participates_in_fused_kernels:
+  - fused-rope-qkv
+  - flash-attention-v3
+
+engine_implementations:
+  - name: vLLM rotary_embedding kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/pos_encoding_kernels.cu
+  - name: Flashinfer apply_rope
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: TRT-LLM rope
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: AscendC RoPE
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c]
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: [flashattention-v3]
+
+references:
+  - title: 'RoFormer: Enhanced Transformer with Rotary Position Embedding'
+    url: https://arxiv.org/abs/2104.09864
+    source_type: paper
+  - title: 'YaRN: Efficient Context Window Extension of Large Language Models'
+    url: https://arxiv.org/abs/2309.00071
+    source_type: paper
