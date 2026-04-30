@@ -12,6 +12,37 @@ rack_power_kw: 5.5
 total_memory_gb: 512
 total_compute_pflops_bf16: 2.56
 release_year: 2023
+
+# v1.6: cluster internals — Atlas 800T A3 是单机箱 8-card 训推服务器, 比
+# CloudMatrix 384 体量小但适合 enterprise on-prem. 没有跨机柜 fabric, scale-up
+# 域只到 8 卡 (HCCS direct).
+switch_chips:
+  - name: 'HCCS-v1 Switch'
+    count: 1
+    radix: 16
+    bandwidth_gbps_per_port: 50
+    url: https://e.huawei.com/en/products/computing/ascend
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 4
+scale_out_bandwidth_gbps_per_nic: 25
+bisection_bandwidth_tbs:
+  value: 0.4
+  evidence_ref: ev-atlas800t-001
+power_distribution:
+  psu_count: 4
+  redundancy: N+1
+  sustained_kw: 4.5
+  peak_kw: 5.5
+  voltage: '220V'
+cabinet_layout_md: |
+  ## Atlas 800T A3 机箱布局 / Chassis layout
+
+  - **8× Ascend 910B** OAM 板, 单 4U 机箱
+  - **HCCS-v1 switch**: 单芯片 radix 16, 端口 50 GB/s. 节点内 bisection 约 0.4 TB/s — 比 HGX H100 NVLink Gen-3 fabric (7.2 TB/s) 慢一个数量级.
+  - **4× 200 GbE NIC**: scale-out 走 RoCE v2; cluster 部署时通过外接交换机扩展.
+  - **风冷散热**: 4.5 kW 持续 / 5.5 kW 峰值; 标准 4U 机箱.
+  - **vs CloudMatrix 384**: Atlas 800T A3 是 enterprise 单机方案; CloudMatrix 384 是 16 机柜 + 32 个 Lingqu 光交换的 hyperscale 部署. 两者对应不同 use case.
+
 chinese_names: ['华为 Atlas 800T A3 训推服务器']
 evidence:
   - id: ev-atlas800t-001

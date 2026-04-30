@@ -1,0 +1,107 @@
+id: fused-spec-decode
+name: Fused Speculative Decoding (Medusa / EAGLE)
+category: attention
+summary: |
+  把 draft model 推理 + target model verification + token-tree 验证三步融合到一个
+  kernel pipeline. Medusa heads 共享 target model 的 hidden state; EAGLE 用专门 draft
+  model. 接受率 60-80% 时整体 1.5-3× decode 加速.
+
+description_md: |
+  ## 为什么 speculative decoding 难加速
+
+  Speculative decoding (Leviathan et al. 2023) 的思路: 用快的 draft model 先生成 K
+  个 token 候选, 再让 slow target model 一次 forward 验证全部 K 个 — 接受的全部留下,
+  第一个被拒的清空, 然后重新开始.
+
+  Naive 实现的问题:
+  - **Draft model 推理 + target verify**: 两个独立 forward pass, kernel launch 开销
+    + 中间 hidden state 写回 HBM
+  - **Token tree expansion**: Medusa 用 multiple draft heads 并行生成 token tree, naive
+    实现需要 O(tree_size) 次 token-by-token attention
+
+  ## Fused 版本
+
+  - **Medusa**: draft heads 直接附在 target model 的 last hidden state 上 (共享 backbone),
+    一次 target forward 同时输出 K 个 draft token 的 logits + accept mask. 单 kernel.
+  - **EAGLE**: 专门小 draft model 但 attention KV cache 与 target 共享, 减少 draft
+    inference cost. Custom kernel 把 draft attention 直接读 target's KV cache.
+  - **Tree Attention**: 验证阶段用 tree-structured attention mask (每个 candidate token
+    只看到自己分支的 prefix), 一次 forward 验证整个 token tree.
+
+  ## 接受率 vs 加速
+
+  Speedup ≈ E[accepted_tokens] / 1 + verify_overhead. 接受率高时收益大:
+  - 通用文本: 50-65% 接受率, 1.5-2× speedup
+  - 代码生成 / structured output: 75-85%, 2-3× speedup
+  - 创意写作 / 长尾领域: 30-45%, 接近 1× (有时反而慢)
+
+  ## 引擎落地
+
+  - **vLLM**: speculative decoding 自 0.6+ 官方支持, 多 backend (Medusa / EAGLE / draft model)
+  - **SGLang**: 类似支持, 集成到 RadixAttention
+  - **TRT-LLM**: NVIDIA Medusa plugin, 在 Llama-3 70B 上 demo 2.4× speedup
+
+fuses_operators: [attention, matmul]
+why_fuse: |
+  Speculative decoding 涉及 draft + verify 两个 forward, 中间 hidden state 的 HBM
+  round-trip 是开销大头. Fused 版本把两个 forward 的 attention kernel 合并 (共享 KV
+  cache, 共用 SMEM 中间张量), 把 verify 阶段的 tree attention mask 直接 generated
+  在 kernel 内.
+
+speedup:
+  - baseline: 'Vanilla autoregressive decode (no speculation)'
+    multiplier_min: 1.5
+    multiplier_max: 3.0
+    notes: '高接受率场景 (代码生成等) 收益最大. 低接受率反而可能慢 1.1×.'
+  - baseline: 'Speculative decoding without fused kernel (separate draft + verify)'
+    multiplier_min: 1.2
+    multiplier_max: 1.6
+    notes: 'kernel-fusion 部分独立带来的额外收益, 不算 spec decode 本身的算法收益'
+
+implementations:
+  - name: vLLM speculative_decoding (Medusa + EAGLE backends)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://docs.vllm.ai/en/latest/serving/speculative_decoding.html
+  - name: SGLang speculative_decoding
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://docs.sglang.ai/backend/speculative_decoding.html
+  - name: TensorRT-LLM Medusa plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/advanced/speculative-decoding.html
+  - name: Medusa repo (academic)
+    hardware_arch: [hopper, ampere]
+    url: https://github.com/FasterDecoding/Medusa
+  - name: EAGLE repo (academic)
+    hardware_arch: [hopper, ampere]
+    url: https://github.com/SafeAILab/EAGLE
+
+hardware_requires:
+  - 'GPU with shared KV cache between draft + target inference paths'
+  - 'Sufficient SMEM to hold token-tree attention mask'
+
+enables_patterns: [speculative-decoding]
+
+applies_at_stage: compile
+
+trade_offs:
+  - '需要 offline 训练 draft model (Medusa heads / EAGLE small model) — 不是 plug-and-play'
+  - '低接受率任务上反而比 vanilla decode 慢; production 必须先 offline 测接受率分布'
+  - '内存开销: draft model + token-tree state 增加 KV cache 占用 5-15%'
+  - '调试复杂度: spec decode bug 难复现 (dependent on stochastic draft acceptance)'
+
+references:
+  - title: 'Fast Inference from Transformers via Speculative Decoding'
+    url: https://arxiv.org/abs/2211.17192
+    source_type: paper
+  - title: 'Medusa: Simple LLM Inference Acceleration Framework'
+    url: https://arxiv.org/abs/2401.10774
+    source_type: paper
+  - title: 'EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty'
+    url: https://arxiv.org/abs/2401.15077
+    source_type: paper
+  - title: 'vLLM speculative decoding docs'
+    url: https://docs.vllm.ai/en/latest/serving/speculative_decoding.html
+    source_type: docs

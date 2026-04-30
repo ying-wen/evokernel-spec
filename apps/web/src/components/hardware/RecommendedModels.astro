@@ -1,0 +1,192 @@
+---
+/**
+ * Reverse-direction recommendation widget. Symmetric to RecommendedHardware
+ * but iterated over the orthogonal axis: given a hardware card, score every
+ * model on throughput / cost / verified.
+ *
+ * Algorithm and TCO formula are identical to /calculator and /pricing — only
+ * the pivot axis changes. Same UX pattern as the model-side widget so users
+ * have a consistent mental model: "3 leaderboards, drill into /calculator
+ * with one click".
+ */
+import type { Hardware, Model, Case } from '@evokernel/schemas';
+import { pathname, type Locale } from '~/lib/i18n';
+import {
+  recommendModelsForHardware,
+  topModelsByThroughput,
+  topModelsByCost,
+  modelsVerifiedByMeasuredCase,
+  calculatorDeepLinkForModel,
+  type ReverseRecommendationRow
+} from '~/lib/recommendations';
+
+interface Props {
+  hardware: Hardware;
+  /** All hardware in the corpus — used by the calibration map so cases on
+   *  other cards still inform efficiency estimates. */
+  allHardware: Hardware[];
+  models: Model[];
+  cases: Case[];
+  locale?: Locale;
+}
+const { hardware, allHardware, models, cases, locale = 'zh' } = Astro.props as Props;
+const en = locale === 'en';
+
+const rows = recommendModelsForHardware({ hardware, models, cases, allHardware });
+const topThroughput = topModelsByThroughput(rows, 5);
+const topCost = topModelsByCost(rows, 5);
+const verified = modelsVerifiedByMeasuredCase(rows).slice(0, 5);
+
+const totalFeasible = rows.filter((r) => r.feasible).length;
+const totalScorable = rows.filter((r) => r.model.operator_decomposition.length > 0).length;
+
+function fmtNum(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return Math.round(n).toLocaleString();
+}
+function fmtCost(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return `$${n.toFixed(2)}`;
+}
+
+interface CardProps {
+  title: string;
+  badge: string;
+  badgeColor: string;
+  emptyMsg: string;
+  rows: ReverseRecommendationRow[];
+  primaryMetric: 'throughput' | 'cost' | 'measured';
+}
+
+const cards: CardProps[] = [
+  {
+    title: en ? 'Highest decode throughput' : '最高 decode 吞吐',
+    badge: '🚀',
+    badgeColor: 'var(--color-accent)',
+    emptyMsg: en
+      ? 'No model fits this card with operator-decomposition data.'
+      : '无可在该硬件上 score 的模型 (需 operator_decomposition 数据)',
+    rows: topThroughput,
+    primaryMetric: 'throughput'
+  },
+  {
+    title: en ? 'Lowest $/M tokens' : '最低 $/M tokens',
+    badge: '💰',
+    badgeColor: 'var(--color-tier-measured)',
+    emptyMsg: en
+      ? 'Need at least one feasible model to estimate cost.'
+      : '至少需要一个可行模型才能估成本',
+    rows: topCost,
+    primaryMetric: 'cost'
+  },
+  {
+    title: en ? 'Verified by measured cases' : '✅ 实测案例验证',
+    badge: '✅',
+    badgeColor: 'var(--color-tier-measured)',
+    emptyMsg: en
+      ? 'No measured deployment case for this hardware yet — be the first to contribute.'
+      : '该硬件暂无实测案例 — 欢迎首位贡献者',
+    rows: verified,
+    primaryMetric: 'measured'
+  }
+];
+---
+<section class="pb-12" id="recommended-models">
+  <div class="mb-4">
+    <h3 class="text-lg font-semibold mb-1">
+      {en ? 'Recommended models / 推荐模型' : '推荐模型 / Recommended models'}
+    </h3>
+    <p class="text-xs" style="color: var(--color-text-muted);">
+      {en
+        ? `Default scenario: ${rows[0]?.scenario.tp ?? 8} cards, TP=${rows[0]?.scenario.tp ?? 8}, prefill=1024 / decode=256, batch=16. Each row links to /calculator with these knobs preset for further tuning. ${totalFeasible} of ${totalScorable} scorable models fit in this scenario; ${totalScorable - totalFeasible} ruled out by memory.`
+        : `默认场景: ${rows[0]?.scenario.tp ?? 8} 卡, TP=${rows[0]?.scenario.tp ?? 8}, prefill=1024 / decode=256, batch=16. 每行链接到 /calculator 携带配置, 可继续调参. ${totalScorable} 个可 score 的模型中 ${totalFeasible} 个可在该场景下容纳, ${totalScorable - totalFeasible} 个因显存不足排除.`}
+    </p>
+  </div>
+
+  <div class="grid lg:grid-cols-3 gap-4">
+    {cards.map((card) => (
+      <article class="rounded-lg border" style={`border-color: color-mix(in oklch, ${card.badgeColor} 30%, var(--color-border)); background: var(--color-surface-raised);`}>
+        <header class="px-4 py-3 border-b flex items-center justify-between gap-2" style={`border-color: var(--color-border); background: color-mix(in oklch, ${card.badgeColor} 6%, var(--color-bg));`}>
+          <h4 class="text-sm font-semibold flex items-center gap-2" style={`color: ${card.badgeColor};`}>
+            <span style="font-size: 1.1rem;">{card.badge}</span>
+            {card.title}
+          </h4>
+          <span class="text-xs px-2 py-0.5 rounded font-mono" style={`background: var(--color-surface); color: ${card.badgeColor};`}>
+            {card.rows.length}/{card.primaryMetric === 'measured' ? rows.length : 5}
+          </span>
+        </header>
+        {card.rows.length === 0 ? (
+          <div class="p-4 text-xs" style="color: var(--color-text-muted);">
+            {card.emptyMsg}
+          </div>
+        ) : (
+          <ol class="divide-y" style="border-color: var(--color-border);">
+            {card.rows.map((row, i) => {
+              const m = row.model;
+              const archFamily = m.architecture.family;
+              const isMoE = archFamily === 'moe';
+              return (
+                <li class="px-4 py-3 flex items-start justify-between gap-3" style="border-color: var(--color-border);">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-xs font-mono font-semibold" style="color: var(--color-text-muted);">#{i + 1}</span>
+                      <a href={pathname(`/models/${m.id}/`)} class="text-sm font-medium hover:underline" style="color: var(--color-text);">
+                        {m.name}
+                      </a>
+                      {isMoE && <span class="text-xs px-1.5 py-0.5 rounded font-mono" style="background: color-mix(in oklch, var(--color-accent) 12%, var(--color-bg)); color: var(--color-accent);">MoE</span>}
+                      {row.hasMeasuredCase && card.primaryMetric !== 'measured' && (
+                        <span title={en ? 'Has at least one measured case' : '有实测 case'} style="color: var(--color-tier-measured);">✅</span>
+                      )}
+                    </div>
+                    <div class="text-xs mt-1 flex items-center gap-2 flex-wrap" style="color: var(--color-text-muted);">
+                      <span class="font-mono">
+                        {m.architecture.active_params_b !== m.architecture.total_params_b
+                          ? `${m.architecture.active_params_b}B/${m.architecture.total_params_b}B active`
+                          : `${m.architecture.total_params_b}B`}
+                      </span>
+                      <span class="font-mono">· {row.precision.toUpperCase()}</span>
+                      {row.bottleneck === 'memory' && <span style="color: var(--color-china);">mem-bw bound</span>}
+                      {row.bottleneck === 'compute' && <span style="color: var(--color-accent);">compute bound</span>}
+                      {row.isCalibrated && <span title={en ? 'Calibrated against measured cases' : '已用实测案例校准'}>📐 calibrated</span>}
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    {card.primaryMetric === 'throughput' && (
+                      <>
+                        <div class="font-mono text-base font-semibold" style="color: var(--color-text);">{fmtNum(row.decodeTokPerSecPerCard)}</div>
+                        <div class="text-xs" style="color: var(--color-text-muted);">tok/s/card</div>
+                      </>
+                    )}
+                    {card.primaryMetric === 'cost' && (
+                      <>
+                        <div class="font-mono text-base font-semibold" style="color: var(--color-tier-measured);">{fmtCost(row.costPerMTokens)}</div>
+                        <div class="text-xs" style="color: var(--color-text-muted);">/M tokens</div>
+                      </>
+                    )}
+                    {card.primaryMetric === 'measured' && (
+                      <>
+                        <div class="font-mono text-base font-semibold" style="color: var(--color-tier-measured);">
+                          {fmtNum(row.measuredDecodeTokPerSecPerCard ?? 0)}
+                        </div>
+                        <div class="text-xs" style="color: var(--color-text-muted);">measured tok/s/card</div>
+                      </>
+                    )}
+                    <a href={pathname(calculatorDeepLinkForModel(hardware.id, row))} class="text-xs underline mt-1 inline-block" style="color: var(--color-accent);">
+                      {en ? 'tune →' : '调参 →'}
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </article>
+    ))}
+  </div>
+
+  <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+    {en
+      ? 'Methodology: same Roofline math as /calculator with calibrated efficiency from /cases corpus when available; cost formula matches /pricing (assumes $2.5/h/card, $0.10/kWh, PUE 1.3 — compute-only BoM lower bound).'
+      : '方法论: 与 /calculator 同 Roofline 公式, 有 /cases 时启用 calibrated efficiency; 成本公式与 /pricing 一致 (假设 $2.5/卡/小时, $0.10/kWh, PUE 1.3 — 纯推理 BoM 下界).'}
+  </p>
+</section>

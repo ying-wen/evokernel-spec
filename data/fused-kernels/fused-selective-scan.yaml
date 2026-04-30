@@ -1,0 +1,95 @@
+id: fused-selective-scan
+name: Fused Selective Scan (Mamba / SSD)
+category: misc
+summary: |
+  State-Space Model (SSM) 的核心算子: 在 hidden-state 维度上的 input-dependent
+  recurrent scan. Mamba / Mamba-2 / SSD 用 selective_scan 替代 attention, 把内存
+  复杂度从 O(N²) 降到 O(N), 长 context 时收益显著.
+
+description_md: |
+  ## 为什么 SSM 是 attention 的替代候选
+
+  Transformer attention 内存复杂度 O(N²) — 32K context 的 KV cache 在 70B 模型上
+  能吃掉 60+ GB. SSM (State-Space Model) 用 fixed-size hidden state h_t 取代 KV
+  cache, 内存复杂度回归 O(N). 代价: 表达能力受 hidden state 容量限制.
+
+  Mamba (Gu & Dao 2023) 引入 **input-dependent SSM**: A, B, C 矩阵是输入的函数 —
+  这就是 "selective" scan 的含义. 解决了固定 SSM 表达力不足的问题, 在多个 benchmark
+  上接近同 size attention transformer.
+
+  ## Fused selective_scan kernel
+
+  Naive 实现 selective_scan 需要 N 次 sequential matrix-vector op, 每次都从 HBM
+  读 hidden state, 写回. 对 16K context, 这就是 16K HBM round-trips, 完全 bandwidth-
+  bound.
+
+  Fused 版本 (Mamba-2 + Triton):
+  - **Block-parallel scan**: 将 N 个 step 分成 chunk, chunk 内 sequential, chunks
+    之间 parallel reduce. Hillis-Steele scan 风格.
+  - **Hidden state 留在 SMEM**: 一个 chunk 内的 N/chunk-count 步全部在 SMEM 内做,
+    HBM 只读 chunk 起始 hidden + 写 chunk 末尾 hidden.
+  - **Causal-respecting mask** in fused kernel — 不需要事后单独 apply.
+
+  这是 **Mamba 模型在 H100 上能跑出 2-3x 同 size transformer 速度** 的关键。
+
+  ## 引擎集成
+
+  - **mamba.py / mamba-ssm**: reference 实现, Triton kernel
+  - **vLLM**: 实验性 SSM model support 通过 mamba-ssm 引入
+  - **SGLang**: 路线图上, 取决于 Mamba 系列模型市场接受度
+  - **TensorRT-LLM**: 暂无, NVIDIA 在 Hymba (hybrid SSM+attention) 上做实验
+
+fuses_operators: [matmul, softmax]
+why_fuse: |
+  Selective scan 是 sequential 算法 (h_t = A_t * h_{t-1} + B_t * x_t), naive 实现把
+  每个 t 当独立 op 跑, 频繁 HBM 读写浪费 bandwidth. Fused kernel 用 chunk-parallel
+  scan + SMEM hidden state, 把 sequential 局限的 inner loop 留在 register/SMEM 完成.
+
+speedup:
+  - baseline: 'PyTorch eager selective_scan (Python loop over time steps)'
+    multiplier_min: 8
+    multiplier_max: 20
+    notes: '极度 memory-bound 的 baseline; chunk-parallel + SMEM 收益巨大'
+  - baseline: 'FlashAttention-3 on equivalent sequence length'
+    multiplier_min: 1.2
+    multiplier_max: 3
+    notes: 'long context (32K+) 时 SSM 的 O(N) 内存优势超过 attention 的 expressiveness 优势'
+
+implementations:
+  - name: mamba-ssm reference
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/state-spaces/mamba
+    notes: 'official from Mamba authors; Triton + CUDA hybrid'
+  - name: vLLM SSM extension
+    engine_id: vllm
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/vllm-project/vllm
+    notes: 'experimental — mamba-ssm integration'
+  - name: Triton selective_scan
+    hardware_arch: [hopper, ampere, blackwell, cdna3, cdna4]
+    url: https://github.com/state-spaces/mamba/blob/main/mamba_ssm/ops/triton/selective_scan.py
+
+hardware_requires:
+  - 'GPU with substantial SMEM (≥64 KB per CU/SM) for hidden-state caching'
+  - 'CUDA 12+ recommended for warp-level primitives'
+  - 'Tensor cores not strictly required — kernel is bandwidth-bound, not compute-bound'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Limited to SSM-class architectures (Mamba, Mamba-2, SSD, Hymba); not a general substitute for attention'
+  - 'Numerical stability: sequential nature means small errors compound; FP8 path not yet stable'
+  - 'Reverse-direction (training backward pass) requires checkpointing the chunk boundaries'
+
+references:
+  - title: 'Mamba: Linear-Time Sequence Modeling with Selective State Spaces'
+    url: https://arxiv.org/abs/2312.00752
+    source_type: paper
+  - title: 'Transformers are SSMs: Generalized Models and Efficient Algorithms (Mamba-2)'
+    url: https://arxiv.org/abs/2405.21060
+    source_type: paper
+  - title: 'mamba-ssm repository'
+    url: https://github.com/state-spaces/mamba
+    source_type: implementation

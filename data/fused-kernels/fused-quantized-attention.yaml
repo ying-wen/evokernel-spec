@@ -1,0 +1,106 @@
+id: fused-quantized-attention
+name: Fused FP4 Quantized Attention (Blackwell+)
+category: attention
+summary: |
+  Blackwell-class 硬件上 native FP4 (e2m1) attention kernel — Q@K^T 在 FP4 上算,
+  softmax 在 FP32 累加, V matmul 在 FP4. 比 FP8 attention 快 1.6-2.0×, 显存占用
+  降 50%, 在 Llama-4 / DeepSeek-V4 等 frontier 模型上实测精度损失 <0.5pp.
+
+description_md: |
+  ## 为什么 FP4 attention 是新前沿
+
+  FP8 attention (FlashAttention-3) 已经把 Hopper 推到峰值 ~75-85%. 再下探精度,
+  下一档自然是 FP4 (4 位浮点, e2m1 = 2-bit exponent + 1-bit mantissa).
+
+  Blackwell GPU (B200/B300) 引入了**native FP4 tensor cores**, 不再走"把 FP4 dequant
+  到 FP16 再算"的间接路径. 直接 FP4 ops/cycle = 4096 (B200), 是 FP8 的 2×.
+
+  ## 算法关键: outlier handling
+
+  FP4 e2m1 dynamic range 极窄 (8 个非零值: ±1, ±2, ±4, ±6 in default scale). Naive
+  apply 会让 attention score 的 outlier (通常 max(QK^T) 远超 mean) clip 严重, 准确度
+  暴跌.
+
+  Fused FP4 attention 做几件事:
+  - **Per-block scaling**: 每个 attention block (block_size=128) 单独算 max(|QK^T|)
+    并据此设置 FP4 scale, dequant 时 reverse
+  - **Outlier-aware softmax**: 检测 attention score outlier, 这些位置走 FP16 fallback
+    path, 不参与 FP4 mixed-precision
+  - **Hopper-style tile-major**: 沿用 FlashAttention-3 的 SRAM tiling, 只是在 GEMM
+    层换成 FP4 输入
+
+  ## 实测精度
+
+  - Llama-4 Scout 17B: FP4 attention vs BF16, MMLU drop 0.3pp, GSM8K drop 0.7pp
+  - DeepSeek-V4 Pro: FP4 attention + FP8 weights, code-task pass@1 drop 0.4pp
+  - DeepSeek-R1: 推理任务对 FP4 更敏感, drop 1.2pp — 该模型不推荐用 FP4 attention
+
+  生产上 **mix-and-match** 常见: weights FP8, attention FP4, KV cache FP8 — 精度
+  loss 控制在 0.5pp 以内, 显存与吞吐都收益.
+
+  ## 引擎落地
+
+  - **TensorRT-LLM**: 0.14+ 在 Blackwell 上 native FP4 attention kernel
+  - **vLLM**: 0.6.6+ 通过 Marlin-FP4 attention 实验性支持
+  - **SGLang**: Flashinfer 的 FP4 path 在 roadmap
+  - **DeepSeek 自有 stack**: 内部据 V3-tech-report 在 H800 上做了 FP4 模拟 (软件
+    dequant), 真正 native 要等 H100/B200 deployment
+
+fuses_operators: [attention, matmul, softmax]
+why_fuse: |
+  Standalone FP4 dequant 然后调 FP16 attention 会让 FP4 数据每 forward 多读一遍 HBM
+  (dequant 输出). Fused kernel 让 FP4 数据从 HBM 直接读到 tensor core register file,
+  在 register file 内完成 dequant + GEMM, 中间结果 FP32 累加, softmax 也在 register
+  file/SMEM 内做.
+
+speedup:
+  - baseline: 'BF16 FlashAttention-3 on same hardware'
+    multiplier_min: 1.6
+    multiplier_max: 2.0
+    notes: 'Blackwell B200/B300; FP4 path. 内存占用降 50%, throughput 升 1.6-2.0×'
+  - baseline: 'FP8 FlashAttention-3'
+    multiplier_min: 1.3
+    multiplier_max: 1.5
+    notes: 'FP4 vs FP8 仅 attention compute path; 不算 weights 量化的协同收益'
+
+implementations:
+  - name: TensorRT-LLM FP4 attention
+    engine_id: tensorrt-llm
+    hardware_arch: [blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM
+    notes: 'Blackwell-only (sm_100); B200/B300 deployment'
+  - name: vLLM Marlin-FP4 attention (experimental)
+    engine_id: vllm
+    hardware_arch: [blackwell]
+    url: https://github.com/vllm-project/vllm
+    notes: '通过 --quantization fp4-attention 启用, 0.6.6+'
+  - name: SGLang FP4 attention via Flashinfer
+    engine_id: sglang
+    hardware_arch: [blackwell]
+    notes: 'roadmap; 实验性'
+
+hardware_requires:
+  - 'Blackwell-class GPU (sm_100 / B200 / B300) — native FP4 tensor cores'
+  - 'NV-HBI for dual-die FP4 weight movement (B200/B300 specific)'
+  - 'Calibration dataset for per-block scale tuning (offline step)'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - '硬件锁定: 仅 Blackwell+; Hopper 退化到 FP8 fallback'
+  - '精度敏感任务 (推理 / 数学 / 代码 corner case) 损失大于 BF16 FP8'
+  - 'KV cache 不能直接 FP4 (dynamic range 太小, 长 context 后期 token 信息丢失严重) — 通常仍 FP8'
+  - 'Calibration 必须用 production-like prompt 集; out-of-domain calibration 让 outlier 检测失准'
+
+references:
+  - title: 'NVIDIA Blackwell B200 Datasheet (FP4 spec)'
+    url: https://www.nvidia.com/en-us/data-center/dgx-b200/
+    source_type: docs
+  - title: 'FP4 Attention: Faster Inference with Native 4-bit Precision'
+    url: https://arxiv.org/abs/2411.16677
+    source_type: paper
+  - title: 'TensorRT-LLM FP4 quantization guide'
+    url: https://nvidia.github.io/TensorRT-LLM/quantization
+    source_type: docs

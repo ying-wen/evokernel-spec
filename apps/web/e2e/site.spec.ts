@@ -575,6 +575,68 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.6: hardware → recommended models (reverse rec) + data density', () => {
+  test('zh /hardware/<slug>/ shows 3 reverse-rec leaderboards', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    await expect(page.getByRole('heading', { name: /推荐模型.*Recommended models/i }).first()).toBeVisible();
+    await expect(page.getByText(/最高 decode 吞吐/).first()).toBeVisible();
+    await expect(page.getByText(/最低 \$\/M tokens/).first()).toBeVisible();
+    await expect(page.getByText(/实测案例验证/).first()).toBeVisible();
+    // Calculator deep link with hw=h100-sxm5 preset
+    await expect(page.locator('a[href*="/calculator/?model="][href*="hw=h100-sxm5"]').first()).toBeVisible();
+  });
+
+  test('en /en/hardware/<slug>/ shows English reverse-rec headings', async ({ page }) => {
+    await page.goto('/en/hardware/h100-sxm5/');
+    await expect(page.getByText(/Highest decode throughput/i).first()).toBeVisible();
+    await expect(page.getByText(/Lowest \$\/M tokens/i).first()).toBeVisible();
+    await expect(page.getByText(/Verified by measured cases/i).first()).toBeVisible();
+  });
+
+  test('B300 hardware page shows new memory hierarchy + tensor core specs', async ({ page }) => {
+    await page.goto('/hardware/b300-sxm/');
+    await expect(page.getByText(/Memory Hierarchy/i).first()).toBeVisible();
+    // 36 GB HBM3e stacks (B300-specific upgrade vs B200 24 GB)
+    await expect(page.getByText(/36 GB stacks|Register File/i).first()).toBeVisible();
+    await expect(page.getByText(/NV-HBI/i).first()).toBeVisible();
+  });
+
+  test('Trainium 2 hardware page shows NeuronCore SBUF + NeuronLink fabric', async ({ page }) => {
+    await page.goto('/hardware/trainium-2/');
+    await expect(page.getByText(/NeuronCore SBUF/i).first()).toBeVisible();
+    await expect(page.getByText(/NeuronLink/i).first()).toBeVisible();
+  });
+
+  test('GB300 NVL72 super-pod shows updated cluster internals', async ({ page }) => {
+    await page.goto('/servers/nvidia-gb300-nvl72/');
+    await expect(page.getByText(/集群内部/i).first()).toBeVisible();
+    await expect(page.getByText(/NVSwitch Gen-4/i).first()).toBeVisible();
+    // GB300-specific upgrade (HBM stacks 24 → 36 GB)
+    await expect(page.getByText(/HBM3e stack 从 24 GB 升到 36 GB|36 GB|20\.7 TB/).first()).toBeVisible();
+  });
+
+  test('HGX H100 has SwitchFabric SVG topology', async ({ page }) => {
+    await page.goto('/servers/nvidia-hgx-h100/');
+    await expect(page.getByText(/Switch Fabric Topology/i).first()).toBeVisible();
+    await expect(page.getByText(/NVSwitch Gen-3/i).first()).toBeVisible();
+  });
+
+  test('/fused-kernels/ catalog now shows 12 entries including new 4', async ({ page }) => {
+    await page.goto('/fused-kernels/');
+    await expect(page.getByText(/Fused Selective Scan/i).first()).toBeVisible();
+    await expect(page.getByText(/Fused Speculative Decoding/i).first()).toBeVisible();
+    await expect(page.getByText(/Fused FP4 Quantized Attention/i).first()).toBeVisible();
+    await expect(page.getByText(/Fused KV Cache Quantization/i).first()).toBeVisible();
+  });
+
+  test('Mamba selective scan fused kernel page renders with constituents + cross-link', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-selective-scan/');
+    await expect(page.getByText(/State-Space Model/i).first()).toBeVisible();
+    await expect(page.getByText(/Mamba/i).first()).toBeVisible();
+    await expect(page.locator('a[href*="/pipeline/compile"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.5: model → recommended hardware (3 leaderboards)', () => {
   test('zh /models/<slug> shows 3 recommendation leaderboards with deep links', async ({ page }) => {
     await page.goto('/models/llama-4-scout/');

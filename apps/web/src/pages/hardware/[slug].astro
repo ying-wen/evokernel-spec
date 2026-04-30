@@ -9,6 +9,7 @@ import TierChip from '~/components/ui/TierChip.astro';
 import { getResolvedHardware, getCases, getEngines, getQuantizations, getModels, getHardware, getOperators, getServers } from '~/lib/data';
 import { buildEfficiencyMap, getEfficiency } from '~/lib/calculator';
 import Topology from '~/components/hardware/Topology.astro';
+import RecommendedModels from '~/components/hardware/RecommendedModels.astro';
 import MemoryHierarchy from '~/components/hardware/MemoryHierarchy.astro';
 import OperatorFitnessMatrix from '~/components/hardware/OperatorFitnessMatrix.astro';
 import SuperPodAtlas from '~/components/hardware/SuperPodAtlas.astro';
@@ -222,8 +223,18 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       <SuperPodAtlas hw={allHardwareRaw.find((x) => x.id === hw.id)!} servers={await getServers()} />
     </section>
 
+    <section class="pb-4" id="recommended">
+      <RecommendedModels
+        hardware={allHardwareRaw.find((x) => x.id === hw.id)!}
+        allHardware={allHardwareRaw}
+        models={allModels}
+        cases={allCases}
+        locale="zh"
+      />
+    </section>
+
     <section class="pb-8" id="models">
-      <h3 class="text-lg font-semibold mb-3">能跑哪些模型?</h3>
+      <h3 class="text-lg font-semibold mb-3">能跑哪些模型? · QuickEstimates</h3>
       <QuickEstimates hw={allHardwareRaw.find((x) => x.id === hw.id)!} models={allModels} cases={allCases} hardware={allHardwareRaw} />
     </section>
 

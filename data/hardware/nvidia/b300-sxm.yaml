@@ -20,6 +20,41 @@ architecture:
   process_node_nm: { value: 4, evidence_ref: ev-b300-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-b300-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-b300-001 }
+  base_clock_mhz: { value: 1500, evidence_ref: ev-b300-arch-001 }
+  boost_clock_mhz: { value: 2500, evidence_ref: ev-b300-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-b300-arch-001 }
+      notes: '256 KB per SM × 168 SMs ≈ 42 MB total RF (Blackwell-Ultra refresh of B200; same RF size).'
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-b300-arch-001 }
+      notes: 'Configurable up to 228 KB SMEM (Blackwell-class). ~42 MB total across 168 SMs.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 100, evidence_ref: ev-b300-arch-001 }
+      bandwidth_tbs: { value: 11.0, evidence_ref: ev-b300-arch-001 }
+      notes: 'Split per-die (50 MB × 2) on the dual-die package; connected via NV-HBI.'
+    - name: 'HBM3e'
+      scope: global
+      size_mb: { value: 294912, evidence_ref: ev-b300-001 }
+      bandwidth_tbs: { value: 8.0, evidence_ref: ev-b300-001 }
+      notes: '8 stacks × 36 GB across the dual-die package (vs B200: 8 × 24 GB ⇒ 180 GB). 60% memory bump is the main B300 vs B200 upgrade.'
+  tensor_core_specs:
+    - precision: fp4
+      ops_per_cycle: { value: 4096, evidence_ref: ev-b300-arch-001 }
+      sparsity_multiplier: 2
+    - precision: fp8
+      ops_per_cycle: { value: 2048, evidence_ref: ev-b300-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 1024, evidence_ref: ev-b300-arch-001 }
+      sparsity_multiplier: 1
+  on_chip_interconnect:
+    name: 'NV-HBI (NVIDIA High-Bandwidth Interface, die-to-die)'
+    bandwidth_tbs: { value: 10.0, evidence_ref: ev-b300-arch-001 }
+    notes: 'Same NV-HBI as B200, connecting two GB100/200 dies as one logical GPU.'
 memory:
   capacity_gb: { value: 288, evidence_ref: ev-b300-001 }
   bandwidth_gbps: { value: 8000, evidence_ref: ev-b300-001 }

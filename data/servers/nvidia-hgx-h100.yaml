@@ -12,6 +12,40 @@ rack_power_kw: 10.2
 total_memory_gb: 640
 total_compute_pflops_bf16: 7.9
 release_year: 2022
+
+# v1.6: cluster internals
+switch_chips:
+  - name: 'NVSwitch Gen-3'
+    count: 4
+    radix: 64
+    bandwidth_gbps_per_port: 50
+    url: https://www.nvidia.com/en-us/data-center/hgx/
+  - name: 'ConnectX-7 NIC'
+    count: 8
+    radix: 1
+    bandwidth_gbps_per_port: 50
+    url: https://www.nvidia.com/en-us/networking/connectx-7/
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 8
+scale_out_bandwidth_gbps_per_nic: 50
+bisection_bandwidth_tbs:
+  value: 7.2
+  evidence_ref: ev-hgxh100-001
+power_distribution:
+  psu_count: 6
+  redundancy: N+1
+  sustained_kw: 8.5
+  peak_kw: 10.2
+  voltage: '240V'
+cabinet_layout_md: |
+  ## HGX H100 8-GPU 机箱布局 / Chassis layout
+
+  - **8× H100 SXM5** 在单个 8-GPU baseboard 上, 4 NVSwitch Gen-3 互联
+  - **4× NVSwitch Gen-3 芯片**: radix 64, 每端口 50 GB/s. 节点内提供 7.2 TB/s bisection (8 GPUs × 18 NVLink × 50 GB/s ÷ 2 dual-direction).
+  - **8× ConnectX-7**: 每 GPU 配一张 NIC, scale-out 总带宽 8 × 50 = 400 GB/s 至 cluster fabric (IB-NDR).
+  - **风冷散热**: 8.5 kW 持续 / 10.2 kW 峰值; 标准 4U 机箱.
+  - **vs NVL72**: HGX H100 是 8 GPU/server, NVL72 是 72 GPU/rack — 后者用 NVSwitch backplane 把 scale-up 域扩到 9× 大.
+
 evidence:
   - id: ev-hgxh100-001
     tier: official

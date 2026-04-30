@@ -1,0 +1,116 @@
+id: fused-kv-quant
+name: Fused KV Cache Quantization
+category: kv-cache-management
+summary: |
+  在 attention output 写入 KV cache 时直接做 FP8 / INT8 量化, 不经过 BF16 中转. 比
+  事后 quantization 节省 50% KV cache HBM 占用 + 50% KV read bandwidth, 长 context
+  decode 收益巨大. 与 PagedAttention 兼容.
+
+description_md: |
+  ## 为什么 KV cache 是长 context 的瓶颈
+
+  Decode 阶段每个 step 都要读完整 KV cache 计算 attention. 32K context, 70B 模型,
+  GQA group=8, BF16: KV cache ≈ 32768 × 80 layers × (128 KV heads × 128 head_dim)
+  × 2 bytes × 2 (K+V) ÷ 8 (GQA share) = 26.8 GB. **比模型权重还大.**
+
+  显存压力直接转化为:
+  - 单卡能容纳的并发请求数下降 (KV pool 吃满显存)
+  - decode tok/s/card 受 HBM 带宽限制 — 26.8 GB / 3.35 TB/s = 8 ms 单步 KV 读
+
+  ## Naive 量化的问题
+
+  事后 KV quantization (写完 BF16 KV → 单独 kernel re-quant 到 FP8 → 再写回) 浪费
+  bandwidth: KV cache 经过 HBM 三次 (write BF16, read for quant, write FP8). 反而
+  比不量化更慢, 直到第一次 attention read 时才回本.
+
+  ## Fused 写入
+
+  Fused KV-quant kernel 在 K/V projection 输出阶段直接走 FP8/INT8 path:
+  - **Per-token scale**: 每个 token 的 K/V 单独算 max(|.|), 据此 scale FP8 quant
+  - **In-flight quantization**: K projection 输出 → in-register scale → FP8 store →
+    HBM. 一次写, 不经 BF16.
+  - **Read-side dequant in attention**: PagedAttention kernel 在读 KV block 时 inline
+    dequant 到 FP16 (register file 完成), 不需要 staging buffer
+
+  ## 兼容性
+
+  - **PagedAttention**: 兼容 — 改的是 KV cell 内部存储格式, page-table 不变
+  - **Prefix caching**: 兼容 — quant 是 per-token 的, prefix tokens 仍可 share
+  - **Speculative decoding**: 部分兼容 — draft model 通常不需要 KV quant 的精度损失
+  - **Disaggregated (Mooncake)**: 兼容 — RDMA 直接传 FP8 KV, 比 BF16 KV 减半带宽
+
+  ## 实测精度
+
+  - Llama-3 70B + FP8 KV: PPL 涨 0.05, MMLU 持平, GSM8K -0.2pp
+  - DeepSeek-V4 Pro + FP8 KV: 推理质量基本无影响, code pass@1 持平
+  - INT4 KV: 长 context 后期 token 准确度明显下降, 通常不推荐
+
+  ## 引擎落地
+
+  - **vLLM**: `--kv-cache-dtype fp8_e4m3` 自 0.5+ 默认可用
+  - **SGLang**: FP8 KV 通过 RadixAttention 集成
+  - **TensorRT-LLM**: FP8 KV 是 Blackwell 默认
+  - **MindIE**: INT8 KV 支持, FP8 在 CANN 8.x 路线图
+
+fuses_operators: [matmul, kv-write]
+why_fuse: |
+  Standalone KV-quant kernel 在 BF16 KV 写完后再做 quant — 让 BF16 KV 经过 HBM 一次
+  无意义中转. Fused 版本让 K/V projection GEMM 的 epilogue 直接做 quant, FP8 数据
+  唯一一次写 HBM. 节省 1× KV-cache-sized HBM round-trip per layer per token.
+
+speedup:
+  - baseline: 'BF16 KV cache (no quantization)'
+    multiplier_min: 1.4
+    multiplier_max: 2.0
+    notes: '32K+ context decode 阶段; 收益主要来自 KV read bandwidth 减半'
+  - baseline: 'Post-hoc INT8 KV quantization (separate kernel)'
+    multiplier_min: 1.2
+    multiplier_max: 1.5
+    notes: 'fusion 部分独立带来的额外收益, 不算 quant algorithm 本身的内存收益'
+
+implementations:
+  - name: vLLM fused KV quant (--kv-cache-dtype fp8_e4m3)
+    engine_id: vllm
+    hardware_arch: [hopper, ada, blackwell]
+    url: https://docs.vllm.ai/en/latest/quantization/fp8.html
+  - name: SGLang FP8 KV cache
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell]
+    url: https://docs.sglang.ai/backend/quantization.html
+  - name: TensorRT-LLM FP8 KV cache plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/quantization
+  - name: MindIE INT8 KV cache
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c]
+    notes: 'INT8 only; FP8 KV 等 CANN 8.x'
+  - name: LMDeploy KV INT8
+    engine_id: lmdeploy
+    hardware_arch: [hopper, ampere]
+    url: https://github.com/InternLM/lmdeploy
+
+hardware_requires:
+  - 'Hopper or newer for FP8 KV path (need FP8 native tensor cores)'
+  - 'Ampere可走INT8 KV fallback (cuBLAS GEMM with INT8)'
+  - '昇腾 / DCU / 国产硬件: INT8 KV 普遍支持, FP8 路径正在补'
+
+enables_patterns: [kv-cache-int8, paged-attention, prefix-caching]
+
+applies_at_stage: serve
+
+trade_offs:
+  - '量化精度: FP8 e4m3 在 attention score outlier 上有累积误差, 长 context 推理任务上偶发'
+  - '与某些 attention 变种不兼容 (MLA decompresses K differently); DeepSeek-V3 用专门的 FP8 KV path'
+  - 'Calibration: per-token dynamic scale 不需要 calibration 数据集, 但 per-tensor static scale 需要'
+
+references:
+  - title: 'KV Cache Quantization for LLM Inference'
+    url: https://arxiv.org/abs/2403.04643
+    source_type: paper
+  - title: 'vLLM FP8 KV cache documentation'
+    url: https://docs.vllm.ai/en/latest/quantization/fp8.html
+    source_type: docs
+  - title: 'KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache'
+    url: https://arxiv.org/abs/2402.02750
+    source_type: paper

@@ -18,6 +18,20 @@ architecture:
   process_node_nm: { value: 7, evidence_ref: ev-dcuz100-arch-001 }
   pcie_gen: { value: 4, evidence_ref: ev-dcuz100-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-dcuz100-001 }
+  memory_hierarchy:
+    - name: 'LDS (Local Data Share)'
+      scope: per-cu
+      size_kb: { value: 64, evidence_ref: ev-dcuz100-arch-001 }
+      notes: 'GCN-derived 64 KB LDS per CU (Hygon DCU is AMD GCN-fork via license). 64 CUs ⇒ ~4 MB total LDS.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 4, evidence_ref: ev-dcuz100-arch-001 }
+      notes: 'Per-die L2 — single-die design, no Infinity Cache layer (DCU Z100 predates AMD CDNA 3 chiplet architecture).'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-dcuz100-001 }
+      bandwidth_tbs: { value: 1.024, evidence_ref: ev-dcuz100-001 }
+      notes: '4 stacks × 16 GB. SMIC 7nm-class. Bandwidth comparable to MLU590; performance gap to NV Hopper mostly comes from compute peak (96 vs 989 TFLOPS BF16).'
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-dcuz100-001 }
   bandwidth_gbps: { value: 1024, evidence_ref: ev-dcuz100-001 }

@@ -12,6 +12,42 @@ rack_power_kw: 140
 total_memory_gb: 20736
 total_compute_pflops_bf16: 270
 release_year: 2025
+
+# v1.6: cluster internals — same chassis shape as GB200 NVL72 with B300
+# refresh; bigger HBM (288 GB via 36 GB stacks vs B200's 24 GB) bumps memory
+# total to 20.7 TB. Bisection bandwidth same as NVL72 (NVLink-5 retained).
+switch_chips:
+  - name: 'NVSwitch Gen-4 (NVL5 backplane)'
+    count: 18
+    radix: 144
+    bandwidth_gbps_per_port: 200
+    url: https://www.nvidia.com/en-us/data-center/gb300-nvl72/
+  - name: 'ConnectX-8 SuperNIC'
+    count: 72
+    radix: 8
+    bandwidth_gbps_per_port: 100
+    url: https://www.nvidia.com/en-us/networking/connectx-8/
+oversubscription_ratio: 1.0
+scale_out_nics_per_node: 1
+scale_out_bandwidth_gbps_per_nic: 800
+bisection_bandwidth_tbs:
+  value: 64.8
+  evidence_ref: ev-nvl72-300-001
+power_distribution:
+  psu_count: 8
+  redundancy: N+N
+  sustained_kw: 110
+  peak_kw: 152
+  voltage: '415V 3-phase'
+cabinet_layout_md: |
+  ## GB300 NVL72 机柜布局 / Cabinet layout
+
+  - **18 个 compute trays**: 每 tray 2 个 GB300 superchip × 2 GPUs = 4 GPUs/tray; 72 GPUs/rack 与 GB200 NVL72 一致.
+  - **9 个 NVSwitch trays**: 18 颗 NVSwitch Gen-4 芯片, 与 GB200 NVL72 同 backplane.
+  - **B300 vs B200 升级要点**: HBM3e stack 从 24 GB 升到 36 GB, 单卡 180 → 288 GB, 整 rack 显存从 13.8 TB 增到 20.7 TB. TDP 从 1000 W 增到 1400 W (rack 持续 100 → 110 kW).
+  - **8 个 PSU**: N+N 冗余, 415V 3-phase. Peak 152 kW (turbo + 冷启动).
+  - **液冷**: cold plate 直接覆盖每个 GPU 与 NVSwitch chip; 单 rack ~1.5 GPM (gallon/min) 冷却液流量.
+
 evidence:
   - id: ev-nvl72-300-001
     tier: official

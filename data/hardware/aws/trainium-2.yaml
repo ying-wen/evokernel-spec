@@ -16,6 +16,27 @@ architecture:
   compute_unit_label: XPU
   hbm_stacks: { value: 4, evidence_ref: ev-trn2-arch-001 }
   process_node_nm: { value: 5, evidence_ref: ev-trn2-arch-001 }
+  memory_hierarchy:
+    - name: 'NeuronCore SBUF (per-core)'
+      scope: per-cu
+      size_mb: { value: 24, evidence_ref: ev-trn2-arch-001 }
+      notes: '24 MB SBUF per NeuronCore-v3 × 8 cores ≈ 192 MB on-chip SRAM. AWS-distinguishing scratchpad for activation reuse — much larger per-core SRAM than NV (256 KB SMEM/SM) trades flexibility for streaming-friendly compiler pipelines.'
+    - name: 'HBM3'
+      scope: global
+      size_mb: { value: 98304, evidence_ref: ev-trn2-001 }
+      bandwidth_tbs: { value: 2.9, evidence_ref: ev-trn2-001 }
+      notes: '4 stacks × 24 GB. Lower bandwidth than NV/AMD top-tier (8.0 TB/s on B200), but Trn2 compensates via large per-core SBUF + NeuronLink-v3 fabric scaling to 64 chips per UltraServer.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 1024, evidence_ref: ev-trn2-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 512, evidence_ref: ev-trn2-arch-001 }
+      sparsity_multiplier: 1
+  on_chip_interconnect:
+    name: 'NeuronLink-v3 fabric (intra-package + intra-server)'
+    bandwidth_tbs: { value: 1.28, evidence_ref: ev-trn2-001 }
+    notes: 'Connects NeuronCore-v3 engines on-chip + extends to 64-chip Trn2 UltraServer scale-up domain (largest scale-up per single-vendor system in our catalog after CloudMatrix 384).'
 memory:
   capacity_gb: { value: 96, evidence_ref: ev-trn2-001 }
   bandwidth_gbps: { value: 2900, evidence_ref: ev-trn2-001 }

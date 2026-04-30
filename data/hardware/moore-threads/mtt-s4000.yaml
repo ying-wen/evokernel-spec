@@ -17,6 +17,20 @@ architecture:
   process_node_nm: { value: 7, evidence_ref: ev-mtts4000-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-mtts4000-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-mtts4000-001 }
+  memory_hierarchy:
+    - name: 'Cluster shared memory'
+      scope: per-cu
+      size_kb: { value: 96, evidence_ref: ev-mtts4000-arch-001 }
+      notes: 'Per-cluster shared memory on MUSA architecture. 48 clusters × 96 KB ≈ 4.5 MB total shared SRAM. MUSA programming model exposes this via __shared__ semantics similar to CUDA.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 24, evidence_ref: ev-mtts4000-arch-001 }
+      notes: 'Chip-wide L2 — partial vendor disclosure from MTT developer day.'
+    - name: 'GDDR6'
+      scope: global
+      size_mb: { value: 49152, evidence_ref: ev-mtts4000-001 }
+      bandwidth_tbs: { value: 0.768, evidence_ref: ev-mtts4000-001 }
+      notes: '12 × 4 GB GDDR6 (no HBM). S4000 chose GDDR6 for cost/yield reasons; bandwidth ceiling much lower than HBM-class cards. MUSA stack continues to mature.'
 memory:
   capacity_gb: { value: 48, evidence_ref: ev-mtts4000-001 }
   bandwidth_gbps: { value: 768, evidence_ref: ev-mtts4000-001 }
