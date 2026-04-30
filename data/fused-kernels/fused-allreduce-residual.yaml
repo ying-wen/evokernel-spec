@@ -1,0 +1,101 @@
+id: fused-allreduce-residual
+name: Fused AllReduce + Residual Add
+category: communication
+summary: |
+  TP (Tensor Parallel) 分布式 forward 后必有的 AllReduce + 后续 residual add, 在通信
+  开销大的卡 (Ascend HCCS, AMD IF) 上 fuse 成一个"通信即计算"kernel, 让 add 在通信
+  完成的同时由远端发起方做, 减少一次 HBM round-trip.
+
+description_md: |
+  ## 标准 TP 流程的隐性开销
+
+  TP 把 attention output projection 和 MLP down_proj 切成 N 份 partial-sum, 每张卡:
+
+  ```
+  step 1: partial_out = my_input @ W_partial   # 每张卡的 partial GEMM
+  step 2: AllReduce(partial_out) → full_out    # 全员同步累加
+  step 3: residual_out = full_out + residual    # 与 skip connection 融合
+  step 4: rmsnorm(residual_out)                 # 进入下一层
+  ```
+
+  Step 2 (AllReduce) 通信量: `2 × (N-1)/N × hidden_size_bytes`. 在 Hopper NVLink
+  上每次 ~30-100 µs, 占 decode-step 时间的 5-15%.
+  Step 3 是纯 element-wise add — memory-bound, 完全是浪费.
+
+  ## Fused AllReduce + Residual
+
+  - **NVIDIA NVLS (NVLink Sharp)**: NVSwitch Gen-3+ 直接在 switch 内部做 reduce,
+    再广播; receiver 拿到时已 fuse residual add 进入 epilogue.
+  - **AMD RCCL fused_allreduce**: ROCm 6.x 把 AllReduce 输出直接写到 epilogue 的
+    residual 张量, 节省一次 read-modify-write
+  - **Huawei HCCL fused_allreduce_add**: 在 HCCS 上类似实现, CANN 7.x 起默认开启
+
+  ## 收益场景
+
+  - **Hopper / Blackwell 上**: AllReduce 已经很快, fusion 收益有限 (5-10%)
+  - **Ascend / Hygon DCU 上**: 通信占比更高 (HCCS 784 GB/s vs NVLink 900 GB/s),
+    fusion 收益 15-25%
+  - **跨节点 TP**: PP > 1 时跨节点 AllReduce 慢, fusion 收益最大 (30%+)
+
+  ## 限制
+
+  TP=1 时本 kernel 退化为纯 residual add, 完全无收益. 只在 TP ≥ 2 时被启用.
+
+fuses_operators: [allreduce, matmul]
+why_fuse: |
+  AllReduce 的最后一步 reduce-scatter 写回 partial 张量到每张卡; standalone 时这个张量
+  会被读出来做 residual add 再写回. Fusion 让 reduce-scatter epilogue 直接做 add, 节省
+  一整轮 HBM round-trip — 在 TP forward 路径上是关键 latency 节省.
+
+speedup:
+  - baseline: 'Standard NCCL allreduce + standalone residual add'
+    multiplier_min: 1.05
+    multiplier_max: 1.15
+    notes: 'Hopper 收益较小 (NVLink 已经很快)'
+  - baseline: 'HCCL allreduce + standalone add on Ascend 910C'
+    multiplier_min: 1.15
+    multiplier_max: 1.25
+    notes: 'HCCS 通信占比更高, fusion 收益更大'
+  - baseline: 'Inter-node TP allreduce'
+    multiplier_min: 1.20
+    multiplier_max: 1.40
+    notes: 'IB / RoCE 跨节点延迟高, fusion 收益最显著'
+
+implementations:
+  - name: NVIDIA NVLS (NVLink Sharp)
+    hardware_arch: [hopper, blackwell]
+    url: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/communicators.html
+    notes: 'NVSwitch in-network reduce; transparent to NCCL caller'
+  - name: AMD RCCL fused_allreduce
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/rccl
+    notes: 'ROCm 6.0+ flag --enable-fused-residual'
+  - name: HCCL fused_allreduce_add (Huawei)
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c]
+    notes: 'CANN 7.0+ 默认开启; CloudMatrix 384 上 HCCS 上特别有效'
+  - name: vLLM custom_allreduce (TP backend)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/vllm/distributed/device_communicators
+
+hardware_requires:
+  - 'TP ≥ 2 — 本 kernel 在单卡场景退化'
+  - 'In-network reduce 支持: NVSwitch Gen-3+ / Huawei UB-Switch / AMD switch'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'TP=1 时无收益; 调试时常被误认为是单卡退化的 bug'
+  - '与 chunked-prefill 结合时调度复杂, 部分 engine 暂未支持'
+  - 'NVLS 需要 NVSwitch 全连接, 不规则拓扑 (8卡机以外) 无效'
+
+references:
+  - title: 'NVIDIA NVLink Sharp (NVLS) overview'
+    url: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/communicators.html
+    source_type: docs
+  - title: 'Reducing Latency of Tensor-Parallel Inference (PR analysis)'
+    url: https://github.com/vllm-project/vllm/pull/5219
+    source_type: implementation

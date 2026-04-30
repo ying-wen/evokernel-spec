@@ -16,6 +16,24 @@ architecture:
   compute_unit_label: AI Core
   hbm_stacks: { value: 4, evidence_ref: ev-asc910b-arch-001 }
   process_node_nm: { value: 7, evidence_ref: ev-asc910b-arch-001 }
+  memory_hierarchy:
+    - name: 'L0 Buffer (per AI Core)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-asc910b-arch-001 }
+      notes: 'Da Vinci 2.0 cube unit-local L0; ~8 MB total across 32 AI Cores. (910C 翻倍到 64 cores)'
+    - name: 'L1 Buffer (UB / Unified Buffer)'
+      scope: per-cu
+      size_kb: { value: 512, evidence_ref: ev-asc910b-arch-001 }
+      notes: 'Per-AI-Core unified buffer for matrix tile reuse.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-asc910b-arch-001 }
+      notes: 'Chip-wide L2; 910B 是 single-die, 比 910C dual-die 的 192 MB L2 少一半.'
+    - name: 'HBM2e'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-asc910b-001 }
+      bandwidth_tbs: { value: 1.6, evidence_ref: ev-asc910b-001 }
+      notes: '4 stacks × 16 GB. HBM2e — 比 910C (HBM3 3.2 TB/s) 慢 2x, 长 context 短板.'
 memory:
   capacity_gb: { value: 64, evidence_ref: ev-asc910b-001 }
   bandwidth_gbps: { value: 1600, evidence_ref: ev-asc910b-001 }

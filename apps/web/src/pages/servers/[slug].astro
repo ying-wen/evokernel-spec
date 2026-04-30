@@ -8,6 +8,7 @@ import Badge from '~/components/ui/Badge.astro';
 import TierChip from '~/components/ui/TierChip.astro';
 import { getServers, getResolvedHardware, getCases } from '~/lib/data';
 import { marked } from 'marked';
+import SwitchFabric from '~/components/server/SwitchFabric.astro';
 
 export async function getStaticPaths() {
   const servers = await getServers();
@@ -143,6 +144,12 @@ const hasClusterDetail = (server.switch_chips?.length ?? 0) > 0
             </div>
           )}
         </div>
+
+        {(server.switch_chips?.length ?? 0) > 0 && (
+          <div class="mt-4">
+            <SwitchFabric server={server} />
+          </div>
+        )}
 
         {cabinetMd && (
           <div class="mt-4 rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">

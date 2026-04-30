@@ -1,0 +1,88 @@
+id: fused-rmsnorm-residual
+name: Fused RMSNorm + Residual Add
+category: normalization
+summary: |
+  把每个 Transformer block 的 `residual = x + dropout(layer_out); norm = rmsnorm(residual)`
+  序列融合到一个 kernel. 一次 HBM 读, 一次 HBM 写 — 比 standalone 实现少 50% 内存搬运.
+
+description_md: |
+  ## 标准 block 残差路径
+
+  ```
+  layer_out = sublayer(x)              # GEMM 输出, 已写 HBM
+  residual = x + layer_out              # element-wise add, 读两次写一次
+  next_input = rmsnorm(residual)        # 读 residual, 算 mean/scale, 写
+  ```
+
+  Standalone 实现产生 5 次 HBM round-trip (residual 读 2 + 写 1, rmsnorm 读 1 + 写 1).
+  在 decode 阶段 batch=1 时, 这一个 block 的开销就有 ~1.5 ms 在 H100 上, 全模型 80 层 ≈ 120 ms.
+
+  ## Fused 版本
+
+  vLLM 的 `fused_add_rms_norm` kernel 在一个 kernel 里完成:
+  1. 读 x 和 layer_out (一次性载入 SMEM)
+  2. SMEM 内做 add → 中间结果留在 SMEM
+  3. SMEM 内做 rmsnorm (mean → variance → normalize) — Welford online 算法
+  4. 写 normalized output 回 HBM
+
+  净内存搬运: **2 次读 + 1 次写**, 相比 standalone 的 3 读 3 写减半.
+  典型 1.4-1.7x decode 加速.
+
+  ## 为什么不再单独有 RMSNorm kernel?
+
+  几乎所有 production engine 都默认走 fused 版本. Standalone RMSNorm kernel 只在 debug
+  build 或 prefill 极小 batch 的边缘 case 出现. /operators/rmsnorm/ 列出的几个引擎实现
+  实际都是 "fused with residual" 的别名.
+
+fuses_operators: [rmsnorm, matmul]
+why_fuse: |
+  RMSNorm 单独跑算术强度 ~2.5 FLOP/byte, 完全 memory-bound. 与上游 add 操作 fuse,
+  让 add 的输出留在 SMEM, RMSNorm 直接消费, 节省一次 HBM round-trip — 这是教科书级别
+  的 epilogue fusion.
+
+speedup:
+  - baseline: 'PyTorch nn.Linear + nn.RMSNorm separate kernels'
+    multiplier_min: 1.4
+    multiplier_max: 1.7
+    notes: 'decode 阶段; prefill batched 收益较小 (本来就 GEMM-dominated)'
+
+implementations:
+  - name: vLLM fused_add_rms_norm
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/layernorm_kernels.cu
+    notes: 'reference impl, 一直默认启用'
+  - name: SGLang Triton fused_norm
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell, cdna3, cdna4]
+    url: https://github.com/sgl-project/sglang
+  - name: Flashinfer rmsnorm fused
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: TRT-LLM rmsnorm plugin (residual variant)
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: AscendC RMSNorm + Residual
+    engine_id: mindie
+    hardware_arch: [ascend-910b, ascend-910c]
+    notes: '昇腾原生融合实现; CANN 8.0+'
+
+hardware_requires:
+  - 'SMEM ≥ 2 × hidden × dtype_bytes (能装下两份 hidden 向量做 add+norm)'
+  - 'Welford online normalization 适合 GPU SIMT 模型; CPU 实现也可'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'numerical accuracy: online Welford 比 two-pass 算法略多累积误差 (通常 <1e-5)'
+  - '边缘 case: hidden_size 极大 (>16384) 时 SMEM 不够, 退化到 partial fusion'
+
+references:
+  - title: 'Root Mean Square Layer Normalization'
+    url: https://arxiv.org/abs/1910.07467
+    source_type: paper
+  - title: 'vLLM fused_add_rms_norm CUDA kernel'
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/layernorm_kernels.cu
+    source_type: implementation

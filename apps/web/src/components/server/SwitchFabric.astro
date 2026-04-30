@@ -1,0 +1,173 @@
+---
+import type { Server } from '@evokernel/schemas';
+
+interface Props { server: Server; }
+const { server } = Astro.props;
+
+const switches = server.switch_chips ?? [];
+
+// Visual layout: top row = switch chips (boxes), bottom row = compute nodes
+// (boxes), connecting lines drawn proportional to per-port bandwidth and
+// fanned out from each switch chip.
+//
+// We don't draw every port (would be unreadable for radix=144); instead we
+// show a representative fan: each switch fans `min(radix, 16)` lines outward,
+// downward to compute nodes. The visual is illustrative — exact topology
+// (mesh/torus/fat-tree) varies per super-pod and is not always public.
+
+const W = 760;
+const H = 320;
+const switchY = 70;
+const switchH = 48;
+const nodeY = 230;
+const nodeH = 36;
+
+// Total compute "nodes" we draw. For NVL72 we show 18 trays of 4 GPUs = 18.
+// For CloudMatrix 384 we show 16 cabinets × 24 GPUs = 16 cabinets at this
+// abstraction level. Heuristic: prefer ≤ 18 boxes for legibility.
+const nodeBoxCount = Math.min(18, Math.max(8, Math.ceil(server.card_count / 4)));
+const nodeWidth = (W - 60) / nodeBoxCount - 4;
+
+// Switch chip layout — distribute evenly across top
+const totalSwitches = switches.reduce((acc, s) => acc + Math.min(s.count, 8), 0);
+const switchSlotW = (W - 60) / Math.max(totalSwitches, 1);
+
+let switchSlot = 0;
+const switchLayout = switches.flatMap((s) => {
+  // Cap drawn switch chips per group at 8 for readability
+  const drawCount = Math.min(s.count, 8);
+  return Array.from({ length: drawCount }, (_, i) => {
+    const x = 30 + (switchSlot + i) * switchSlotW;
+    return { ...s, x, drawIdx: switchSlot + i, totalInGroup: drawCount, isFirst: i === 0, label: i === 0 ? s.name : '' };
+  }).map((entry, i) => {
+    if (i === drawCount - 1) switchSlot += drawCount;
+    return entry;
+  });
+});
+
+// Group switches by name for color
+const switchColors: Record<string, string> = {};
+const palette = ['oklch(60% 0.20 250)', 'oklch(60% 0.20 25)', 'oklch(60% 0.20 145)', 'oklch(60% 0.18 320)'];
+let colorIdx = 0;
+for (const s of switches) {
+  if (!switchColors[s.name]) {
+    switchColors[s.name] = palette[colorIdx % palette.length] ?? palette[0]!;
+    colorIdx += 1;
+  }
+}
+
+// Aggregate bandwidth per switch group (used for line thickness)
+const totalAggregate = switches.reduce((acc, s) => acc + s.count * s.radix * s.bandwidth_gbps_per_port, 0);
+function lineThickness(s: typeof switches[number]): number {
+  const agg = s.count * s.radix * s.bandwidth_gbps_per_port;
+  if (totalAggregate === 0) return 1;
+  // 0.6 → 3.5 px range scaled by share of total bandwidth
+  return 0.6 + (agg / totalAggregate) * 3;
+}
+---
+{switches.length > 0 && (
+  <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+    <div class="px-4 py-3 border-b" style="border-color: var(--color-border);">
+      <h4 class="text-sm font-semibold">Switch Fabric Topology</h4>
+      <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+        每条线粗细按聚合带宽缩放 (示意性 fan-out, 不代表精确拓扑). 颜色区分 switch chip 类型.
+      </p>
+    </div>
+    <div class="p-4 overflow-x-auto">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style="max-width: 100%; height: auto;" role="img" aria-labelledby="fabric-title">
+        <title id="fabric-title">Switch fabric topology for {server.name}</title>
+
+        <!-- top label -->
+        <text x={W/2} y={28} text-anchor="middle" font-size="11" font-weight="600" fill="var(--color-text)">
+          Scale-up switch fabric
+        </text>
+
+        <!-- switch chip group labels -->
+        {switches.map((s, i) => {
+          // place label above first chip in this group
+          const groupStart = switches.slice(0, i).reduce((acc, prev) => acc + Math.min(prev.count, 8), 0);
+          const x = 30 + groupStart * switchSlotW;
+          const color = switchColors[s.name];
+          return (
+            <text x={x} y={48} font-size="10" fill={color} font-weight="600">
+              {s.name} ×{s.count}
+            </text>
+          );
+        })}
+
+        <!-- switch chip boxes -->
+        {switchLayout.map((entry) => {
+          const color = switchColors[entry.name];
+          return (
+            <g>
+              <rect x={entry.x} y={switchY} width={switchSlotW - 4} height={switchH}
+                    rx="4" ry="4"
+                    fill={color} fill-opacity="0.15"
+                    stroke={color} stroke-width="1.5" />
+              <text x={entry.x + (switchSlotW - 4) / 2} y={switchY + switchH/2 + 4}
+                    text-anchor="middle" font-size="9" fill={color} font-weight="600">
+                radix {entry.radix}
+              </text>
+              <text x={entry.x + (switchSlotW - 4) / 2} y={switchY + switchH/2 + 16}
+                    text-anchor="middle" font-size="8" fill="var(--color-text-muted)">
+                {entry.bandwidth_gbps_per_port} GB/s
+              </text>
+            </g>
+          );
+        })}
+
+        <!-- fan-out connection lines: each switch chip → spread across compute nodes -->
+        {switchLayout.map((entry) => {
+          const color = switchColors[entry.name];
+          const sx = entry.x + (switchSlotW - 4) / 2;
+          const sy = switchY + switchH;
+          const thickness = lineThickness(entry);
+          // Pick a few representative target nodes (heuristic spread)
+          const targets = [0, 0.25, 0.5, 0.75, 1].map((p) => Math.floor(p * (nodeBoxCount - 1)));
+          return targets.map((nodeIdx) => {
+            const nx = 30 + nodeIdx * (nodeWidth + 4) + nodeWidth / 2;
+            const ny = nodeY;
+            return (
+              <line x1={sx} y1={sy} x2={nx} y2={ny}
+                    stroke={color} stroke-width={thickness}
+                    stroke-opacity="0.45" />
+            );
+          });
+        })}
+
+        <!-- compute node row -->
+        {Array.from({ length: nodeBoxCount }).map((_, i) => {
+          const x = 30 + i * (nodeWidth + 4);
+          return (
+            <g>
+              <rect x={x} y={nodeY} width={nodeWidth} height={nodeH}
+                    rx="3" ry="3"
+                    fill="var(--color-surface)"
+                    stroke="var(--color-border)" stroke-width="1" />
+              {i === Math.floor(nodeBoxCount / 2) && (
+                <text x={x + nodeWidth/2} y={nodeY + nodeH + 16}
+                      text-anchor="middle" font-size="9" fill="var(--color-text-muted)">
+                  {server.card_count} × {server.card} {nodeBoxCount < server.card_count ? `(grouped)` : ''}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        <!-- bottom label: total card count + bisection -->
+        <text x={W/2} y={H - 8} text-anchor="middle" font-size="10" fill="var(--color-text)">
+          {server.bisection_bandwidth_tbs?.value
+            ? `Bisection: ${server.bisection_bandwidth_tbs.value} TB/s` + (server.oversubscription_ratio === 1 ? ' · full bisection (1.0×)' : server.oversubscription_ratio ? ` · ${server.oversubscription_ratio.toFixed(1)}× oversubscribed` : '')
+            : `${server.card_count} cards in scale-up domain`}
+        </text>
+      </svg>
+    </div>
+    <div class="px-4 py-3 border-t text-xs" style="border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-muted);">
+      <strong style="color: var(--color-text);">Aggregate fabric bandwidth:</strong>
+      <span class="font-mono ml-2" style="color: var(--color-accent);">
+        {(totalAggregate / 1000).toFixed(1)} TB/s
+      </span>
+      <span class="ml-2">= sum of (count × radix × per-port BW) across all switch groups</span>
+    </div>
+  </div>
+)}

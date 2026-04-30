@@ -575,6 +575,52 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.4: more fused kernels + 3 cards memory hierarchy + switch fabric SVG', () => {
+  test('/fused-kernels/ catalog now shows 8 entries', async ({ page }) => {
+    await page.goto('/fused-kernels/');
+    // 4 from prior + 4 from this iteration
+    await expect(page.getByText(/FlashAttention-3/i).first()).toBeVisible();
+    await expect(page.getByText(/Fused RMSNorm \+ Residual Add/i).first()).toBeVisible();
+    await expect(page.getByText(/Mooncake KV Disaggregation/i).first()).toBeVisible();
+    await expect(page.getByText(/DeepEP Fused MoE All-to-All/i).first()).toBeVisible();
+    await expect(page.getByText(/Fused AllReduce \+ Residual/i).first()).toBeVisible();
+  });
+
+  test('/fused-kernels/mooncake-kv-disaggregation/ detail surfaces speedup + serve stage', async ({ page }) => {
+    await page.goto('/fused-kernels/mooncake-kv-disaggregation/');
+    await expect(page.getByText(/Mooncake/).first()).toBeVisible();
+    await expect(page.getByText(/为什么要融合/).first()).toBeVisible();
+    // Stage badge linking to /pipeline/serve/
+    await expect(page.locator('a[href*="/pipeline/serve"]').first()).toBeVisible();
+    // Constituent operators visible (attention is one)
+    await expect(page.locator('a[href*="/operators/attention"]').first()).toBeVisible();
+  });
+
+  test('H200 memory hierarchy shows 6× HBM3e detail', async ({ page }) => {
+    await page.goto('/hardware/h200-sxm/');
+    await expect(page.getByText(/Memory Hierarchy/i).first()).toBeVisible();
+    await expect(page.getByText(/HBM3e/i).first()).toBeVisible();
+    // Notes mention 43% bandwidth jump vs H100
+    await expect(page.getByText(/4\.8|43%/).first()).toBeVisible();
+  });
+
+  test('MI300X memory hierarchy includes Infinity Cache (L3)', async ({ page }) => {
+    await page.goto('/hardware/mi300x/');
+    await expect(page.getByText(/Infinity Cache/i).first()).toBeVisible();
+    await expect(page.getByText(/17 TB\/s|17 TB.s/).first()).toBeVisible();
+  });
+
+  test('NVL72 page renders SwitchFabric SVG topology', async ({ page }) => {
+    await page.goto('/servers/nvidia-gb200-nvl72/');
+    await expect(page.getByText(/Switch Fabric Topology/i).first()).toBeVisible();
+    // Aggregate bandwidth callout present
+    await expect(page.getByText(/Aggregate fabric bandwidth/i).first()).toBeVisible();
+    // SVG element rendered
+    const svg = await page.locator('svg[viewBox*="760 320"]').first();
+    await expect(svg).toBeVisible();
+  });
+});
+
 test.describe('Hardware memory hierarchy + cluster-internals', () => {
   test('H100 detail surfaces memory hierarchy with all 4 levels', async ({ page }) => {
     await page.goto('/hardware/h100-sxm5/');

@@ -1,0 +1,103 @@
+id: fused-moe-dispatch-deepep
+name: DeepEP Fused MoE All-to-All
+category: moe
+summary: |
+  DeepSeek 开源的 MoE expert-parallel 通信库. 把"top-k 路由 + token 分桶 + all-to-all
+  dispatch + expert GEMM + all-to-all combine + 加权汇总"6 步压缩到 2 个 kernel,
+  比 NCCL 经典 all2all 路径快 1.5-3x.
+
+description_md: |
+  ## MoE 通信开销构成
+
+  在大规模 EP (expert-parallel) 部署中, 每个 token 要去到 top-k 个 expert 计算, 然后
+  把结果加权汇总回原 rank. 这两次跨节点 all-to-all 是性能杀手:
+
+  ```
+  step 1: router GEMM           → logits per token
+  step 2: top-k selection       → expert_id list per token
+  step 3: token bucket           → group tokens by expert_id
+  step 4: all-to-all dispatch    ← 第一次跨卡通信
+  step 5: expert GEMM            → 每张卡跑分到自己的 tokens
+  step 6: all-to-all combine     ← 第二次跨卡通信
+  step 7: weighted sum           → 按 router weight 汇总
+  ```
+
+  传统 NCCL 实现把这 7 步当作独立 op, 导致:
+  - 多次 kernel launch overhead
+  - dispatch buffer 在 HBM 中转 (浪费带宽)
+  - 节点间 all-to-all 用通用算法, 不感知 expert 分布
+
+  ## DeepEP 的优化
+
+  - **Intra-node**: NVLink 上跑 expert dispatch, 用 PTX intrinsics 直接操作
+    NVSwitch port — 理论 NVLink 带宽 95%+ 利用率
+  - **Inter-node**: IB / RoCE 上跑 hierarchical all-to-all, 先节点内归并再跨节点发,
+    比 flat all-to-all 通信量少 20-40%
+  - **Low-precision dispatch**: dispatch 阶段直接走 FP8, 把 token activation 通信量减半
+  - **Computation-communication overlap**: dispatch 和后续 expert GEMM 异步重叠,
+    隐藏通信延迟
+
+  ## Production 用例
+
+  - **DeepSeek V3 / R1**: 使用 DeepEP 在 2048× H800 上跑训练, MFU 38% (该规模
+    state-of-the-art)
+  - **vLLM EP-mode**: 0.6.6+ 集成 DeepEP 作为可选 EP backend
+  - **SGLang**: experimental DeepEP backend on roadmap
+
+fuses_operators: [moe-gate, all2all, matmul]
+why_fuse: |
+  传统 MoE 通信路径有 7 段独立 step, 每段都走 HBM 中转. DeepEP 把 dispatch + expert
+  computation + combine 当作一个**通信密集 kernel pipeline**, 用 SM 资源直接驱动 NVLink/IB
+  上的 doorbell — 跳过经典 collective lib 的 abstraction overhead.
+
+speedup:
+  - baseline: 'NCCL all2all + standalone MoE dispatch kernels'
+    multiplier_min: 1.5
+    multiplier_max: 3.0
+    notes: '大模型 (DeepSeek V3 671B, EP=8) 收益最大; 小模型 / EP=1-2 几乎无差'
+  - baseline: 'NVIDIA collective communication library on NVL72'
+    multiplier_min: 1.3
+    multiplier_max: 2.0
+    notes: 'intra-node only; NVSwitch fabric 已经接近上限'
+
+implementations:
+  - name: DeepEP (DeepSeek official)
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/deepseek-ai/DeepEP
+    notes: 'reference impl, MIT license; CUDA 12+ + PTX intrinsics'
+  - name: vLLM EP backend (DeepEP integration)
+    engine_id: vllm
+    hardware_arch: [hopper, blackwell]
+    url: https://docs.vllm.ai/en/latest/serving/distributed_serving.html
+    notes: '0.6.6+ 通过 --moe-backend deepep 启用'
+  - name: SGLang experimental DeepEP backend
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell]
+    notes: 'on roadmap, 实验性'
+
+hardware_requires:
+  - 'NVLink-4+ (Hopper 900 GB/s) or NVLink-5 (Blackwell 1800 GB/s) for intra-node'
+  - 'IB NDR / RoCE 400G+ for inter-node'
+  - 'GPUDirect RDMA — kernel 直接发起 RDMA, 不经 CPU'
+  - '至少 EP=4 才看出收益; EP=2 与 NCCL 持平'
+
+enables_patterns: [moe-expert-routing-on-domestic, disaggregated-prefill-decode]
+
+applies_at_stage: shard
+
+trade_offs:
+  - '硬件锁定: NVIDIA-only (Hopper+); AMD/华为 没有等价物'
+  - '调试难度: PTX intrinsics 出 bug 没 stack trace, 排查靠 cuda-gdb + nsys'
+  - '小模型反慢: EP=1-2 时 abstraction overhead > collective gain'
+  - '生产风险: 0.x.x 版本 ABI 仍在迭代, 与 vLLM 版本要严格对齐'
+
+references:
+  - title: 'DeepEP: An Efficient Expert-Parallel Communication Library'
+    url: https://github.com/deepseek-ai/DeepEP
+    source_type: implementation
+  - title: 'DeepSeek-V3 Technical Report'
+    url: https://arxiv.org/abs/2412.19437
+    source_type: paper
+  - title: 'DeepEP design notes'
+    url: https://github.com/deepseek-ai/DeepEP/blob/main/README.md
+    source_type: docs

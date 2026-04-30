@@ -1,0 +1,107 @@
+id: mooncake-kv-disaggregation
+name: Mooncake KV Disaggregation
+category: kv-cache-management
+summary: |
+  把 prefill 与 decode 物理拆到不同节点群上跑, prefill 节点把 KV cache 通过高速 RDMA
+  传到 decode 节点, 让 decode 节点不被长 prompt 阻塞. Moonshot/Kimi 在 production 上
+  把 H100 利用率从 30% 提到 80%+.
+
+description_md: |
+  ## 问题: 长 prompt 阻塞 decode
+
+  传统 vLLM continuous batching 把 prefill 与 decode 在同一卡上调度. 一个 32K context 的
+  prompt 进来, prefill 阶段会**独占 GPU 1-3 秒**, 期间所有正在 decode 的请求 TBT 飙升.
+
+  这个问题在 RAG / 长文档 / agent 场景下尤其严重: 平均请求 prompt 长度从 ~500 token
+  涨到 8000+, prefill 时间从 50 ms 涨到 1500 ms.
+
+  ## Mooncake 的方案
+
+  - **Prefill 节点群**: 专门跑 prefill, 满 SM 利用. KV cache 算完后**不丢**,
+    通过 RDMA 推送到 decode 节点
+  - **Decode 节点群**: 专门跑 decode, 接收预算好的 KV. SM 利用率低 (memory-bound) 但
+    这是 decode 本身的特性, 不是浪费
+  - **KV transfer**: 用 RDMA over Converged Ethernet (RoCE) 或 InfiniBand 直接 GPU
+    显存到显存, 单次 transfer ~30 ms (32K context, ~5 GB KV)
+  - **Cache pool**: 多层 KV cache (HBM hot, host RAM warm, NVMe cold) — Mooncake
+    的"分级 KV 池"
+
+  ## Fused 是什么意思
+
+  这里"fused" 不是指传统的 kernel 内 op 融合, 而是指 **scheduling-level fusion**:
+  把 KV-cache write (prefill 阶段) + KV-cache transfer (跨节点 RDMA) + KV-cache read
+  (decode 阶段) 当作一个**逻辑流水**统一调度. vLLM 0.6+ 的 disaggregated_prefill 实现
+  正是这个思路.
+
+  ## 引擎落地
+
+  - **vLLM**: PR #10502 起官方支持 prefill/decode disaggregation; KV transfer 走
+    NIXL (NVIDIA Internode Communication Library) 或 LMCache
+  - **SGLang**: PD-disaggregation native 支持, RadixAttention 与之协同
+  - **TRT-LLM**: NVIDIA Dynamo 框架的核心特性
+  - **Moonshot/Kimi**: production 部署框架开源在 [Mooncake repo](https://github.com/kvcache-ai/Mooncake)
+
+fuses_operators: [attention, kv-write, allreduce]
+why_fuse: |
+  Prefill 与 decode 的硬件需求完全不同 (compute-bound vs memory-bound), 强行同卡跑等于
+  让 70% 的 SM 浪费. Disaggregation 让两类工作匹配最适合的硬件: prefill 用高 FLOPs 卡,
+  decode 用大显存卡. KV transfer 是关键工程: 通过 RDMA + 异步 streaming 把开销控制在
+  1-3% 总延迟.
+
+speedup:
+  - baseline: 'Same-node continuous batching (vLLM default)'
+    multiplier_min: 2.5
+    multiplier_max: 4.0
+    notes: 'aggregate throughput 收益, 高 prompt 长度场景更显著'
+  - baseline: 'P99 TBT (time between tokens)'
+    multiplier_min: 3
+    multiplier_max: 8
+    notes: '长 prompt 不再阻塞 decode, P99 latency 显著下降'
+
+implementations:
+  - name: Mooncake (Moonshot)
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/kvcache-ai/Mooncake
+    notes: 'reference implementation; production-tested at Kimi 千万 DAU 级'
+  - name: vLLM disaggregated_prefill
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://docs.vllm.ai/en/latest/serving/disagg_prefill.html
+    notes: 'NIXL or LMCache transport; 0.6.4+'
+  - name: SGLang PD-disaggregation
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://docs.sglang.ai/router/pd_disaggregation.html
+  - name: NVIDIA Dynamo framework
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    url: https://github.com/ai-dynamo/dynamo
+
+hardware_requires:
+  - 'High-bandwidth scale-out fabric: ≥ 400 Gbps RDMA between nodes (IB NDR / RoCE 400G)'
+  - 'GPUDirect RDMA capability (skip CPU host memory in KV transfer)'
+  - '至少 2 个 node — 单 node 部署 disagg 没有意义'
+
+enables_patterns: [disaggregated-prefill-decode]
+
+applies_at_stage: serve
+
+trade_offs:
+  - '复杂度上升: 多了 router + KV cache pool 调度组件; SLO 要重新建模'
+  - 'KV transfer 延迟: 即使 1-2 ms RDMA 也会增加 TTFT (但 P99 TBT 显著改善)'
+  - '硬件错配风险: prefill node 选 H100 (FLOP-rich), decode node 选 H200 (BW-rich) 才发挥最佳; 同质化部署可能反慢'
+  - '故障域增加: prefill 节点宕机会让 in-flight 的 KV transfer 丢失, 需要 retry 逻辑'
+
+references:
+  - title: 'Mooncake: A KVCache-centric Disaggregated Architecture for LLM Serving'
+    url: https://arxiv.org/abs/2407.00079
+    source_type: paper
+  - title: 'Mooncake repository (Moonshot)'
+    url: https://github.com/kvcache-ai/Mooncake
+    source_type: implementation
+  - title: 'NVIDIA Dynamo'
+    url: https://github.com/ai-dynamo/dynamo
+    source_type: implementation
+  - title: 'vLLM disaggregated prefill design doc'
+    url: https://docs.vllm.ai/en/latest/serving/disagg_prefill.html
+    source_type: docs

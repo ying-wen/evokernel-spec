@@ -22,6 +22,41 @@ architecture:
   transistor_count_b: { value: 80, evidence_ref: ev-h200-arch-001 }
   pcie_gen: { value: 5, evidence_ref: ev-h200-001 }
   pcie_lanes: { value: 16, evidence_ref: ev-h200-001 }
+  base_clock_mhz: { value: 1095, evidence_ref: ev-h200-arch-001 }
+  boost_clock_mhz: { value: 1980, evidence_ref: ev-h200-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-h200-arch-001 }
+      notes: '与 H100 共用 GH100 die, 256 KB / SM × 132 SMs ≈ 33 MB total RF.'
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-h200-arch-001 }
+      notes: 'Configurable up to 228 KB SMEM (Hopper-class). ~33 MB total.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 50, evidence_ref: ev-h200-arch-001 }
+      bandwidth_tbs: { value: 5.5, evidence_ref: ev-h200-arch-001 }
+      notes: '与 H100 完全相同 — H200 是 HBM 升级版, 不动算力.'
+    - name: 'HBM3e'
+      scope: global
+      size_mb: { value: 144384, evidence_ref: ev-h200-001 }
+      bandwidth_tbs: { value: 4.8, evidence_ref: ev-h200-001 }
+      notes: '6 stacks × 24 GB. 141 GB usable. 比 H100 (3.35 TB/s) 提升 43% 带宽 — 长 context attention 关键收益点.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 1024, evidence_ref: ev-h200-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 512, evidence_ref: ev-h200-arch-001 }
+      sparsity_multiplier: 1
+    - precision: fp16
+      ops_per_cycle: { value: 512, evidence_ref: ev-h200-arch-001 }
+      sparsity_multiplier: 1
+  on_chip_interconnect:
+    name: 'NVLink-C2C (intra-die crossbar)'
+    bandwidth_tbs: { value: 7.0, evidence_ref: ev-h200-arch-001 }
+    notes: 'Same crossbar as H100. SM ↔ L2 partition.'
 memory:
   capacity_gb: { value: 141, evidence_ref: ev-h200-001 }
   bandwidth_gbps: { value: 4800, evidence_ref: ev-h200-001 }
