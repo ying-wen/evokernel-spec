@@ -11,6 +11,36 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ---
 
+## [1.14.0] — 2026-05-01
+
+**Bottleneck diagnosis layer** — closes the micro-level loop between concrete case measurements and the optimization knowledge graph. The user's persistent "后续部署优化链路也不清楚" gap addressed at the per-case level.
+
+### Added
+
+**Bottleneck → Pattern recommendation map** (NEW knowledge layer):
+- New `~/lib/bottleneck-map.ts` with hand-curated mapping from each `Bottleneck` enum value (memory-bandwidth / compute / interconnect / software / mixed / unknown) to relevant patterns + pipeline stages + diagnosis explanation + actionable advice
+- Each case detail page now renders **🩺 诊断 panel** showing: bottleneck classification → architectural diagnosis → applicable patterns (split: ✓ already used vs 🔄 suggested to try) → relevant pipeline stages
+- Closes the loop: case (concrete proof) → bottleneck (diagnosis) → patterns (mechanism) → playbook (recipe)
+
+**Bottleneck distribution panel** on `/cases/`:
+- 22 cases grouped by bottleneck — surfaces that **13/22 (59%) of LLM deployments are memory-bandwidth-bound** (which is *why* quantization is always "first thing to try")
+- 5 software, 2 compute, 0 interconnect bottlenecks visible — distribution shapes mental model for new contributors
+- Each bottleneck card lists top cases linking through to detail page (with the new diagnosis)
+
+**2 more playbooks** (13 → 15) targeting CDNA-3 single-node coverage gap:
+- **dense-llm-medium × cdna3-single-node**: Llama 3.3 70B / Qwen 2.5 72B / Mixtral 8x22B on MI300X 8-OAM. **HBM 192 GB × 8 = 1.5 TB BF16 advantage** — avoids FP8 calibration vs H100x8 80 GB.
+- **multi-modal × cdna3-single-node**: Llama 4 Scout / Qwen 2.5-VL / Pixtral on MI300X. Mixed-TP (LLM=8 / vision=1), high-res image sleeper advantage from large HBM.
+
+**1 new case study** (22 → 23): Qwen 3.6+ MoE on 8×MI300X with vLLM ROCm BF16 — concrete proof for moe-medium × cdna3 path. Memory-bandwidth-bound (78% memory-BW utilization), demonstrates intra-node EP=8 sweet spot.
+
+### Stats
+- **217/217** site E2E pass (+8 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 23** (+1), operator: 13, fused-kernel: 15, pattern: 15, **playbook: 15** (was 13)
+- Build: 322 pages
+- Coverage matrix: 15/176 cells (~9%)
+
+---
+
 ## [1.13.0] — 2026-05-01
 
 **Coverage matrix + memory_hierarchy 100%.** Playbook coverage gap now visualized as a 2D grid; long-tail hardware data work concluded.

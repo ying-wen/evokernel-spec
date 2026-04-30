@@ -1,0 +1,87 @@
+id: multi-modal-on-cdna3-single-node
+name: 多模态 LLM 在 AMD CDNA-3 单节点部署 (Llama 4 Scout / Qwen 2.5-VL / Pixtral on MI300X / MI325X)
+model_archetype: multi-modal
+hardware_class: cdna3-single-node
+workload_profile: [low-latency-chat, streaming-decode, agent-multi-turn]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 多模态 (vision + text) 模型 (Llama 4 Scout 109B, Qwen 2.5-VL 72B, Pixtral 124B,
+  Gemma 3 MM) 部署到 AMD MI300X 单节点 8-OAM. HBM 192 GB × 8 = 1.5 TB 是 multi-modal
+  长 vision context (多张图) 的关键卖点 — 比 H100 80 GB 装更多 image 同时.
+
+  **不适合**: TensorRT-LLM 优化的 NVIDIA-only 工具链、视频长 context (走 long-context
+  playbook)、超大 MM MoE (走 moe-llm-large × cdna3-cluster playbook).
+
+  ## 核心配方与 Hopper multi-modal 的差异
+
+  1. **TP=8 LLM + TP=1 vision encoder**: 与 NVIDIA Hopper multi-modal 同 mixed-TP 思路,
+     但 vLLM ROCm 0.7+ 才支持 mixed-TP, 老版本统一 TP=8 浪费.
+  2. **BF16 vision + BF16 LLM**: HBM 容量充裕避开 FP8/INT8 quant 复杂度
+  3. **vLLM ROCm 主栈**: SGLang ROCm multi-modal 路径未成熟; LMDeploy ROCm 实验
+  4. **Image embedding cache 关键**: 多轮 chat 同 image 复用 vision encoder 输出, 命中率 60-80%
+  5. **HBM 容量优势**: 192 GB × 8 让 high-resolution image (4K) + 多 image 一次 prompt 都装下
+
+recipe:
+  parallelism:
+    tp: '8 (LLM backbone) + TP=1-2 (vision encoder) — mixed-module'
+    ep: '0 (dense backbone)'
+    pp: '1'
+    sp: '0'
+    notes: 'vLLM ROCm 0.7+ 支持 mixed-TP; 老版本 fall back to uniform TP=8'
+    disaggregated: false
+  quantization: bf16
+  engine_primary: vllm
+  engine_alternates: [sglang]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - flashattention-v3
+    - prefix-caching
+    - paged-attention
+    - continuous-batching
+  expected_perf:
+    decode_tok_s_per_gpu_min: 2800
+    decode_tok_s_per_gpu_max: 5200
+    prefill_throughput_min: 12000
+    prefill_throughput_max: 25000
+    ttft_ms_p50_min: 400
+    ttft_ms_p50_max: 900
+    cost_per_million_tokens_usd_min: 0.40
+    cost_per_million_tokens_usd_max: 1.0
+    notes: 'TTFT 受 vision encoder 延迟限制 (与 Hopper 类似); 但 high-res image (4K) 在 HBM 192 GB 上能装下更多 vision token.'
+
+decision_points:
+  - scale: '8 GPU MI300X (1 OAM 节点)'
+    guidance: 'TP=8 LLM + TP=1 vision. Llama 4 Scout 109B 余量大 (vs Hopper 80GB 紧).'
+  - scale: '8 GPU MI325X (1 OAM 节点, HBM3e 256 GB/卡)'
+    guidance: '总 HBM 2 TB — 多模态 long vision context (10+ images, 4K) 装得下. 多模态部署旗舰配置.'
+  - scale: '4 GPU MI300X (1/2 节点, < 30B MM)'
+    guidance: 'TP=4 + INT8: Qwen 2.5-VL 7B / Gemma 3 MM 27B. 性价比起步配置.'
+
+not_for:
+  - 'TensorRT-LLM 优化路径 (NVIDIA-only)'
+  - '视频 / 长上下文 multi-modal (vision token 5-50K, 走 long-context playbook)'
+  - 'MoE multi-modal (Llama 4 Maverick MoE, 走 moe-llm-large × cdna3-cluster playbook)'
+
+related_cases:
+  - case-llama4scout-on-mi300x-vllm-001
+
+affects_stages: [acquire, convert, compile, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-mm-cdna3-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi300x.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from AMD MI300X / MI325X multi-modal benchmarks + vLLM ROCm multi-modal docs (Llama 4 Scout port).'
+
+disclaimers:
+  - 'Multi-modal perf 高度依赖 image resolution + image-per-request — 数字按 1 image = 1024 tokens'
+  - 'ROCm multi-modal 适配略晚于 CUDA 路径 — 部分新模型 vision encoder 需要适配 PR'

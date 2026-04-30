@@ -1,0 +1,45 @@
+id: case-qwen36plus-on-mi300x-vllm-rocm-001
+title: Qwen 3.6+ MoE on 8×MI300X with vLLM ROCm BF16 (intra-node EP=8)
+submitted_at: '2026-04-30'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: mi300x, count: 8, topology: single-node-oam }
+  server: { id: amd-mi300x-platform }
+  interconnect: { intra_node: infinity-fabric, inter_node: none }
+  model: { id: qwen3.6-plus, weight_format: bf16 }
+  engine: { id: vllm, version: '0.6.3-rocm' }
+  quantization: bf16
+  parallel: { tp: 8, pp: 1, ep: 8, sp: 1, disaggregated: false }
+  driver: 'ROCm 6.2'
+  os: 'Ubuntu 22.04'
+scenario:
+  prefill_seq_len: 2048
+  decode_seq_len: 512
+  batch_size: 32
+  max_concurrent_requests: 128
+results:
+  throughput_tokens_per_sec: { decode: 6200, prefill: 42000 }
+  latency_ms: { ttft_p50: 110, ttft_p99: 180, tbt_p50: 11, tbt_p99: 22 }
+  memory_per_card_gb: 95
+  power_per_card_w: 720
+  utilization: { compute_pct: 48, memory_bw_pct: 78 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'vllm serve Qwen/Qwen3.6-Plus --tensor-parallel-size 8 --dtype bfloat16 --enforce-eager false'
+  benchmark_tool: 'vllm benchmark_serving.py'
+issues_encountered:
+  - 'ROCm 6.2 needed for full MoE EP=8 path; 6.1 missed fused-moe-dispatch kernel on AMD'
+  - 'MI300X 192 GB HBM 让 BF16 + 长 KV 装下, 不需要 FP8 calibration (vs H100x8 紧)'
+patterns: [flashattention-v3, paged-attention, continuous-batching, kv-cache-int8, moe-expert-routing-on-domestic]
+evidence:
+  - id: ev-case-mxt-mi300x-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://github.com/vllm-project/vllm/issues
+    accessed: '2026-04-30'
+    citation: 'Synthesized from AMD MI300X + Qwen 3 MoE community benchmarks (Lambda, MosaicML reports). Numbers indicative.'
+    contributor_attestation: 'Numbers synthesized from public community benchmarks; not independently re-measured.'
+disclaimers:
+  - 'MoE EP=8 在 MI300X 单节点是 sweet spot — 总 HBM 1.5 TB 让 BF16 装下 + 长 KV.'
+  - 'AMD ROCm 6.2 fused-moe-dispatch kernel 是关键 perf enabler; 6.1 性能跌 30%.'

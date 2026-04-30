@@ -1,0 +1,89 @@
+id: dense-llm-medium-on-cdna3-single-node
+name: Dense 70B 模型在 AMD CDNA-3 单节点部署 (Llama 3.3 70B / Qwen 2.5 72B / Mixtral on MI300X / MI325X)
+model_archetype: dense-llm-medium
+hardware_class: cdna3-single-node
+workload_profile: [low-latency-chat, high-throughput-batch, cost-optimized]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 30B-90B dense LLM 部署到 AMD MI300X 8-OAM 单节点 (192 GB HBM3 × 8 = 1.5 TB).
+  HBM 容量优势让 70B BF16 + 长 KV cache 都能装得下而不需要 quantization. AMD vLLM ROCm
+  路径已成熟, 与 NVIDIA H100 stack 差异约 80% feature parity.
+
+  **不适合**: NVIDIA-only 工具链 (TensorRT-LLM, NVIDIA Triton optimization 不可用)、
+  极致低延迟 SLA (Infinity Fabric mesh 比 NVSwitch 慢 30%)、 Blackwell-class FP4 工作负载.
+
+  ## 核心配方
+
+  1. **TP=8 intra-OAM**: 8x MI300X 全 Infinity Fabric mesh 互联, TP=8 是单节点甜点
+  2. **BF16 优先 (容量优势)**: 192 GB HBM × 8 = 1.5 TB 让 70B BF16 + 32K context KV 都装下,
+     不需要 quant (与 H100 80GB 形成鲜明对比)
+  3. **vLLM ROCm 主栈**: SGLang ROCm 实验; 不要用 TensorRT-LLM (NVIDIA-only)
+  4. **MI325X 升 HBM3e**: 同 architecture, HBM 升至 256 GB/卡, 总 HBM 2 TB — 70B + 长 KV 余量更大
+  5. **Pattern stack 与 Hopper 类似**: FlashAttn-3, prefix-radix-cache, paged-attention
+
+recipe:
+  parallelism:
+    tp: '8 (intra-OAM Infinity Fabric mesh)'
+    ep: '0 (dense)'
+    pp: '1'
+    sp: '0'
+    notes: 'Infinity Fabric mesh 比 NVSwitch 慢 ~30% all-reduce; 但单节点内通信成本仍可接受'
+    disaggregated: false
+  quantization: bf16
+  engine_primary: vllm
+  engine_alternates: [sglang]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - flashattention-v3
+    - prefix-radix-cache
+    - paged-attention
+    - continuous-batching
+    - kv-cache-int8
+  expected_perf:
+    decode_tok_s_per_gpu_min: 3500
+    decode_tok_s_per_gpu_max: 7500
+    prefill_throughput_min: 28000
+    prefill_throughput_max: 55000
+    ttft_ms_p50_min: 95
+    ttft_ms_p50_max: 240
+    cost_per_million_tokens_usd_min: 0.18
+    cost_per_million_tokens_usd_max: 0.45
+    notes: 'Llama 3.3 70B BF16 on MI300Xx8 ~5500 tok/s; on MI325Xx8 ~6800 tok/s. AMD $/token 比 H100 低 20-30% (HBM 容量充裕避开 FP8 calibration 工作量).'
+
+decision_points:
+  - scale: '8 GPU MI300X (1 OAM 节点)'
+    guidance: 'TP=8 + BF16. Llama 3.3 70B / Qwen 2.5 72B / Mixtral 8x22B 都装下, 长 context 32K KV 余量足.'
+  - scale: '8 GPU MI325X (1 OAM 节点)'
+    guidance: '同 TP=8 + BF16, HBM3e 256 GB/卡让长 context 64K+ 都装下. 优先选 MI325X 而非 MI300X 当可获取时.'
+  - scale: '4 GPU MI300X (1/2 节点)'
+    guidance: 'TP=4 + INT8 KV: 30B-50B 模型可行; 但 8-OAM 系统拆 4 卡浪费.'
+
+not_for:
+  - 'NVIDIA-only 工具链 (TensorRT-LLM, NVIDIA-specific kernel optimizations 不可用)'
+  - 'MoE 模型 (走 moe-llm-large × cdna3-cluster playbook for cross-node EP)'
+  - '低延迟 SLA TTFT P99 < 80ms (Infinity Fabric 比 NVSwitch 慢 30%)'
+
+related_cases:
+  - case-llama4scout-on-mi300x-vllm-001
+  - case-qwen3-on-mi325x-sglang-001
+
+affects_stages: [acquire, quantize, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-cdna3-dense-001
+    tier: estimated
+    source_type: vendor-product-page
+    url: https://www.amd.com/en/products/accelerators/instinct/mi300/mi300x.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from AMD MI300X / MI325X launch + vLLM ROCm benchmarks for Llama 3 / Qwen 2.5 70B class.'
+
+disclaimers:
+  - 'AMD ROCm 软件栈成熟度 ~NVIDIA CUDA 80% — 主流模型 plug-and-play, 长尾需要适配'
+  - 'HBM 容量优势 (192-256 GB/卡) 是 dense 70B 部署的 sleeper 卖点 — 避开 FP8 calibration'

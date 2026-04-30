@@ -575,6 +575,59 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.14: bottleneck diagnosis layer + distribution panel + 2 more playbooks + 1 case', () => {
+  test('Case detail page shows bottleneck diagnosis panel (memory-bandwidth)', async ({ page }) => {
+    await page.goto('/cases/case-dsv4-flash-h100x8-vllm-fp8-001/');
+    await expect(page.getByText(/诊断 \/ Diagnosis|内存带宽 \(Memory-BW\)/i).first()).toBeVisible();
+    await expect(page.getByText(/建议尝试的优化模式|spec decode|FP4/i).first()).toBeVisible();
+  });
+
+  test('Case detail page bottleneck panel surfaces patterns + stages', async ({ page }) => {
+    await page.goto('/cases/case-dsv4-flash-h100x8-vllm-fp8-001/');
+    // Pattern recommendations rendered with links
+    await expect(page.locator('a[href*="/patterns/"]').first()).toBeVisible();
+    // Pipeline stage links rendered
+    await expect(page.locator('a[href*="/pipeline/"]').first()).toBeVisible();
+  });
+
+  test('Compute-bound case shows different diagnosis (Llama 4 Maverick)', async ({ page }) => {
+    await page.goto('/cases/case-llama4mvk-trillium-256-001/');
+    await expect(page.getByText(/算力|Compute/i).first()).toBeVisible();
+  });
+
+  test('Cases index shows bottleneck distribution panel', async ({ page }) => {
+    await page.goto('/cases/');
+    await expect(page.getByRole('heading', { name: /瓶颈分布|Bottleneck distribution/i }).first()).toBeVisible();
+    await expect(page.getByText(/of cases|of cases/i).first()).toBeVisible();
+    // memory-bandwidth is the dominant bottleneck — should show percentage
+    await expect(page.getByText(/内存带宽/i).first()).toBeVisible();
+  });
+
+  test('Dense 70B × CDNA-3 single-node playbook shows BF16 + 192 GB HBM advantage', async ({ page }) => {
+    await page.goto('/playbooks/dense-llm-medium-on-cdna3-single-node/');
+    await expect(page.getByText(/192 GB|MI300X|HBM 容量/i).first()).toBeVisible();
+    await expect(page.getByText(/BF16|bf16/i).first()).toBeVisible();
+  });
+
+  test('Multi-modal × CDNA-3 playbook shows mixed-TP + Llama 4 Scout', async ({ page }) => {
+    await page.goto('/playbooks/multi-modal-on-cdna3-single-node/');
+    await expect(page.getByText(/mixed-TP|vision encoder/i).first()).toBeVisible();
+    await expect(page.getByText(/Llama 4 Scout|Pixtral|Qwen 2\.5-VL/i).first()).toBeVisible();
+  });
+
+  test('New Qwen 3.6+ on MI300X case visible at correct route', async ({ page }) => {
+    await page.goto('/cases/case-qwen36plus-on-mi300x-vllm-rocm-001/');
+    await expect(page.getByText(/MI300X|ROCm/i).first()).toBeVisible();
+    await expect(page.getByText(/EP=8|MoE|fused-moe-dispatch/i).first()).toBeVisible();
+  });
+
+  test('Coverage matrix now shows 15 filled cells', async ({ page }) => {
+    await page.goto('/playbooks/');
+    // Match "15/176 cells" or similar — coverage % grew
+    await expect(page.locator('text=/15\\/176|15 cells/i').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.13: 4 more playbooks + Coverage Matrix view + memory_hierarchy 100%', () => {
   test('Playbooks index now shows Coverage Matrix view', async ({ page }) => {
     await page.goto('/playbooks/');

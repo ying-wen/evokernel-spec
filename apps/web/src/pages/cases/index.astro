@@ -5,8 +5,13 @@ import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import Leaderboard from '~/components/case/Leaderboard.tsx';
 import { getCases } from '~/lib/data';
+import { groupCasesByBottleneck, BOTTLENECK_LABEL_ZH, BOTTLENECK_COLOR } from '~/lib/bottleneck-map';
+import type { Bottleneck } from '@evokernel/schemas';
 
 const cases = await getCases();
+const byBottleneck = groupCasesByBottleneck(cases);
+const bottleneckOrder: Bottleneck[] = ['memory-bandwidth', 'compute', 'interconnect', 'software', 'mixed', 'unknown'];
+const totalCases = cases.length;
 ---
 <BaseLayout title="部署案例">
   <Container>
@@ -18,6 +23,46 @@ const cases = await getCases();
         </a>
       </div>
       <Leaderboard cases={cases} client:load />
+    </section>
+
+    {/* v1.14: bottleneck distribution panel — what's bottlenecking real deployments? */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🩺 瓶颈分布 · Bottleneck distribution</h2>
+      <p class="text-sm mb-6 max-w-3xl" style="color: var(--color-text-muted);">
+        全部 {totalCases} 个案例按瓶颈类型分组. 多数 LLM 推理部署是 <strong>memory-bandwidth</strong>-bound,
+        这就是 quantization (FP8/INT8/FP4) 永远是 "first thing to try" 的原因. 点击进入对应 pattern 推荐.
+      </p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {bottleneckOrder.map((b) => {
+          const items = byBottleneck[b];
+          if (items.length === 0) return null;
+          const pct = Math.round((items.length / totalCases) * 100);
+          return (
+            <div class="rounded-lg border p-4" style={`border-color: ${BOTTLENECK_COLOR[b]}; background: color-mix(in oklch, ${BOTTLENECK_COLOR[b]} 4%, var(--color-bg));`}>
+              <div class="flex justify-between items-start mb-2">
+                <div class="text-sm font-semibold" style={`color: ${BOTTLENECK_COLOR[b]};`}>{BOTTLENECK_LABEL_ZH[b]}</div>
+                <div class="text-right">
+                  <div class="font-mono text-lg font-bold" style="color: var(--color-text);">{items.length}</div>
+                  <div class="text-xs" style="color: var(--color-text-muted);">{pct}% of cases</div>
+                </div>
+              </div>
+              <ul class="text-xs space-y-1 mt-3">
+                {items.slice(0, 4).map((c) => (
+                  <li>
+                    <a href={pathname(`/cases/${c.id}/`)} class="hover:underline" style="color: var(--color-text);">
+                      → {c.title.length > 50 ? c.title.slice(0, 48) + '…' : c.title}
+                    </a>
+                  </li>
+                ))}
+                {items.length > 4 && <li style="color: var(--color-text-muted);">+ {items.length - 4} more</li>}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+      <p class="text-xs mt-4" style="color: var(--color-text-muted);">
+        每个案例详情页有 <strong>诊断面板</strong> — 把瓶颈映射到具体可尝试的优化模式.
+      </p>
     </section>
   </Container>
 </BaseLayout>
