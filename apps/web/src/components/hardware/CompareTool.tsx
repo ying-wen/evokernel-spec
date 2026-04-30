@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import type { Hardware } from '@evokernel/schemas';
 import { tr, type Locale } from '~/lib/i18n/island';
+import { pathname } from '~/lib/i18n';
 
 interface ResolvedHw extends Omit<Hardware, 'vendor'> {
   vendor: { id: string; name: string; country: string; chinese_names: string[] };
@@ -406,7 +407,7 @@ function FlippedCompareTable({ selectedCards, metrics, locale }: {
               return (
                 <tr key={h.id} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
                   <td className="px-2 py-2 font-medium">
-                    <a href={(en ? '/en' : '') + `/hardware/${h.id}/`} style={{ color: 'var(--color-text)' }}>{h.name}</a>
+                    <a href={pathname((en ? '/en' : '') + `/hardware/${h.id}/`)} style={{ color: 'var(--color-text)' }}>{h.name}</a>
                   </td>
                   <td className="px-2 py-2 text-xs" style={{ color: isCN ? 'var(--color-china)' : 'var(--color-text-muted)' }}>
                     {h.vendor.name}{isCN ? ' 🇨🇳' : ''}

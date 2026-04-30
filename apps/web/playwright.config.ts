@@ -2,6 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'e2e',
+  // Skip e2e/manual/* — those tests require a separate static server with
+  // a /evokernel-spec/ base path mirror and are run via `pnpm test:e2e:manual`.
+  testIgnore: '**/manual/**',
   fullyParallel: true,
   reporter: [['list']],
   use: {

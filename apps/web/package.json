@@ -9,6 +9,7 @@
     "preview": "astro preview",
     "test": "vitest --run",
     "test:e2e": "playwright test",
+    "test:e2e:basepath": "E2E_NO_SERVER=1 playwright test e2e/manual/basepath-island.spec.ts",
     "test:lighthouse": "RUN_LIGHTHOUSE=1 playwright test e2e/lighthouse.spec.ts",
     "check": "astro check"
   },

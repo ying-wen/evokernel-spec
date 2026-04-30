@@ -6,6 +6,7 @@ import {
 import type { Case } from '@evokernel/schemas';
 import { toCsv, downloadCsv } from '~/lib/csv';
 import { tr, type Locale } from '~/lib/i18n/island';
+import { pathname } from '~/lib/i18n';
 
 interface Props { cases: Case[]; locale?: Locale; }
 
@@ -330,7 +331,7 @@ export default function Leaderboard({ cases, locale = 'zh' }: Props) {
             ) : filtered.map((c) => (
               <tr key={c.id} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
                 <td className="px-3 py-2">
-                  <a href={`${en ? '/en' : ''}/cases/${c.id}/`} className="font-medium" style={{ color: 'var(--color-text)' }}>{c.title}</a>
+                  <a href={pathname(`${en ? '/en' : ''}/cases/${c.id}/`)} className="font-medium" style={{ color: 'var(--color-text)' }}>{c.title}</a>
                   <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                     {c.stack.hardware.id} ×{c.stack.hardware.count} · {c.stack.model.id} · {c.stack.engine.id} · {c.stack.quantization}
                   </div>

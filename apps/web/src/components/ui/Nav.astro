@@ -16,19 +16,27 @@ const links = [
   { href: localePath(locale, '/china'), label: t(locale, 'nav.china'), accent: true }
 ];
 
-// Build "switch locale" target: keep current path, swap prefix
+// Build "switch locale" target: keep current path, swap locale prefix.
+//
+// Astro.url.pathname includes the deploy base (e.g. /evokernel-spec/hardware/),
+// so we strip the base, swap the locale prefix on the bare path, then
+// re-prepend the base. Otherwise zh → en on a project-page deploy produces
+// "/en/evokernel-spec/..." (locale prefix landed in front of base).
 const currentPath = Astro.url.pathname;
 const otherLocale: Locale = locale === 'zh' ? 'en' : 'zh';
+const NAV_BASE_RAW = import.meta.env.BASE_URL ?? '/';
+const NAV_BASE = NAV_BASE_RAW === '/' ? '' : NAV_BASE_RAW.replace(/\/$/, '');
+const stripNavBase = (p: string) => (NAV_BASE && p.startsWith(NAV_BASE) ? p.slice(NAV_BASE.length) || '/' : p);
+const bare = stripNavBase(currentPath);
 const localeSwitchHref = (() => {
   if (locale === 'zh') {
-    // zh → en: prepend /en
-    if (currentPath === '/') return '/en/';
-    return '/en' + (currentPath.startsWith('/') ? currentPath : '/' + currentPath);
-  } else {
-    // en → zh: strip /en prefix
-    if (currentPath === '/en' || currentPath === '/en/') return '/';
-    return currentPath.replace(/^\/en/, '') || '/';
+    // zh → en: prepend /en (then base)
+    if (bare === '/') return NAV_BASE + '/en/';
+    return NAV_BASE + '/en' + (bare.startsWith('/') ? bare : '/' + bare);
   }
+  // en → zh: strip /en prefix (then base)
+  if (bare === '/en' || bare === '/en/') return NAV_BASE + '/';
+  return NAV_BASE + (bare.replace(/^\/en/, '') || '/');
 })();
 ---
 <header class="border-b sticky top-0 z-30" style="border-color: var(--color-border); background: color-mix(in oklch, var(--color-surface) 92%, transparent); backdrop-filter: blur(8px);">

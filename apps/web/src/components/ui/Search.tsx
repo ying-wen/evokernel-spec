@@ -27,7 +27,10 @@ export default function Search() {
     if (window.pagefind) return;
     // Load pagefind via runtime dynamic import using a string built at runtime so Vite/Rollup
     // doesn't try to bundle it. The asset lives at /pagefind/pagefind.js after `pagefind --site dist`.
-    const url = ['/pagefind', 'pagefind.js'].join('/');
+    // import.meta.env.BASE_URL is inlined at build time and equals '/' for default, '/evokernel-spec/'
+    // for project-page deploys — preserves the trailing slash either way.
+    const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
+    const url = [base + '/pagefind', 'pagefind.js'].join('/');
     (new Function('u', 'return import(u)')(url) as Promise<{ search: (q: string) => Promise<unknown> }>)
       .then((pf) => { window.pagefind = pf as unknown as typeof window.pagefind; })
       .catch(() => { /* index not built locally; search disabled */ });

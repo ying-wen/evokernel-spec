@@ -2,6 +2,7 @@ import { useState, useMemo, useId } from 'react';
 import type { Hardware, Vendor } from '@evokernel/schemas';
 import { toCsv, downloadCsv } from '~/lib/csv';
 import { tr, type Locale } from '~/lib/i18n/island';
+import { pathname } from '~/lib/i18n';
 
 type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Pick<Vendor, 'id' | 'name' | 'country' | 'chinese_names'> };
 
@@ -234,7 +235,10 @@ function VendorBadgeInline({ vendorId, vendorName, country }: { vendorId: string
 
 function HwCard({ h, isCN = false, locale = 'zh' }: { h: ResolvedHw; isCN?: boolean; locale?: Locale }) {
   const en = locale === 'en';
-  const detailHref = en ? `/en/hardware/${h.id}/` : `/hardware/${h.id}/`;
+  // Use pathname() so the deploy-base prefix (e.g. /evokernel-spec) gets
+  // applied — Vite inlines import.meta.env.BASE_URL at build time so this
+  // works in client-side React islands too.
+  const detailHref = pathname(en ? `/en/hardware/${h.id}/` : `/hardware/${h.id}/`);
   return (
     <a href={detailHref} className="block">
       <article className="rounded-lg p-5 border h-full transition-transform hover:-translate-y-0.5"
