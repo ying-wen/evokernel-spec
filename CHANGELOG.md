@@ -6,7 +6,7 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.40+ horizon
+### v1.41+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
@@ -23,6 +23,37 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.40.0] — 2026-05-02
+
+**`/learn/troubleshooting/`** — third angle on the deployment-chain knowledge: symptom-organized decision tree. Companion to v1.17's deployment-failures (stage-organized) and v1.30's observability (metric-organized). Same content, three access patterns.
+
+### Added
+
+**`/learn/troubleshooting/`** (NEW symptom-driven guide):
+- 11 distinct symptoms across 6 categories (throughput / latency / memory / quality / startup / cost)
+- 35+ ranked hypotheses (high/medium/low probability) with diagnostic command + fix path each
+- Cross-links to existing patterns (24), fused-kernels (24), and cases (41)
+- Designed for "凌晨 3 点 on-call" mindset — find symptom → follow tree → resolve
+
+**Three-angle deployment-chain coverage**:
+- **`/learn/deployment-failures/`** (v1.17, stage-organized): "where in the chain might this break?" — for design-phase planning
+- **`/learn/observability/`** (v1.30, metric-organized): "what should I monitor?" — for runtime instrumentation
+- **`/learn/troubleshooting/`** (v1.40, symptom-organized): "I see X, what now?" — for fault-time debugging
+
+Each page navigates to the others as the user's mental state shifts (designing → monitoring → debugging).
+
+**Wiring**:
+- Learn dropdown gains 11th item (Troubleshooting)
+- /learn/observability/ "下一步" CTA now leads with troubleshooting
+
+### Stats
+- 427/427 site E2E pass (+7 new) · 36/36 unit pass
+- Build: 440 pages
+- Learn dropdown count: 11 items (was 10)
+- 35+ ranked hypotheses with cross-references to existing patterns/cases/kernels
 
 ---
 

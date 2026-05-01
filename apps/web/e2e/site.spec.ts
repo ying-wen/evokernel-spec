@@ -581,6 +581,59 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.40: /learn/troubleshooting/ — symptom-driven debugging decision tree', () => {
+  test('/learn/troubleshooting/ renders header + 4 stat cards + symptom categories', async ({ page }) => {
+    await page.goto('/learn/troubleshooting/');
+    await expect(page.getByRole('heading', { name: /部署故障诊断|Production Troubleshooting/i }).first()).toBeVisible();
+    await expect(page.locator('[data-testid="ts-stat-symptoms"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="ts-stat-hypotheses"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="ts-stat-categories"]').first()).toBeVisible();
+  });
+
+  test('All 6 symptom categories present (throughput / latency / memory / quality / startup / cost)', async ({ page }) => {
+    await page.goto('/learn/troubleshooting/');
+    for (const cat of ['throughput', 'latency', 'memory', 'quality', 'startup', 'cost']) {
+      await expect(page.locator(`#cat-${cat}`).first()).toBeVisible();
+    }
+  });
+
+  test('Decode-slow symptom has multiple ranked hypotheses with diagnostic + fix', async ({ page }) => {
+    await page.goto('/learn/troubleshooting/');
+    const symptom = page.locator('[data-testid="symptom-decode-slow"]').first();
+    await expect(symptom).toBeVisible();
+    // Multiple hypotheses with high/medium/low probability
+    await expect(symptom).toContainText(/高概率/);
+    await expect(symptom).toContainText(/诊断/);
+    await expect(symptom).toContainText(/修复/);
+  });
+
+  test('Hypotheses cross-link to relevant patterns and fused-kernels', async ({ page }) => {
+    await page.goto('/learn/troubleshooting/');
+    // At least one pattern link + one fused-kernel link
+    await expect(page.locator('a[href*="/patterns/"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/fused-kernels/"]').first()).toBeVisible();
+  });
+
+  test('Page concludes with "三角覆盖" linking to deployment-failures + observability + lifecycle', async ({ page }) => {
+    await page.goto('/learn/troubleshooting/');
+    await expect(page.getByText(/三角覆盖/i).first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/deployment-failures"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/observability"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/production-lifecycle"]').first()).toBeVisible();
+  });
+
+  test('Learn dropdown contains the new troubleshooting link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="learn"]').first();
+    await expect(dd.locator('a[href*="/learn/troubleshooting"]').first()).toHaveCount(1);
+  });
+
+  test('/learn/observability/ now cross-links to troubleshooting', async ({ page }) => {
+    await page.goto('/learn/observability/');
+    await expect(page.locator('a[href*="/learn/troubleshooting"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.39: /contribute/case-form/ — web form generating PR-ready case YAML', () => {
   test('/contribute/case-form/ renders form + sticky output panel', async ({ page }) => {
     await page.goto('/contribute/case-form/');

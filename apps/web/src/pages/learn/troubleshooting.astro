@@ -1,0 +1,575 @@
+---
+/**
+ * /learn/troubleshooting/ — symptom-driven debugging decision tree.
+ *
+ * Companion to /learn/deployment-failures/ (which is *stage*-organized,
+ * good for "where in the deploy chain might this break") and to
+ * /learn/observability/ (which is *metric*-organized, good for "what to
+ * monitor"). This page is *symptom*-organized — for the on-call engineer at
+ * 3 AM who sees something wrong and needs to follow a decision tree to a fix.
+ *
+ * Each symptom maps to:
+ *   1. Likely metric signature (what alerts would also fire)
+ *   2. 3-5 causal hypotheses ranked by probability
+ *   3. Quick diagnostic commands / log greps
+ *   4. Cross-links to relevant patterns / cases / fused-kernels
+ *
+ * Closes the third angle on gap-3: deploy chain isn't just stages and
+ * metrics — it's also "what to do when something goes wrong, fast."
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getPatterns, getCases, getFusedKernels } from '~/lib/data';
+
+const [patterns, cases, fusedKernels] = await Promise.all([
+  getPatterns(), getCases(), getFusedKernels()
+]);
+
+const patternsById = new Map(patterns.map((p) => [p.id, p]));
+const casesById = new Map(cases.map((c) => [c.id, c]));
+const fusedKernelsById = new Map(fusedKernels.map((fk) => [fk.id, fk]));
+
+interface Hypothesis {
+  cause: string;
+  probability: 'high' | 'medium' | 'low';
+  diagnostic: string;
+  fix: string;
+  related?: {
+    patterns?: string[];
+    cases?: string[];
+    fusedKernels?: string[];
+  };
+}
+
+interface Symptom {
+  id: string;
+  title_zh: string;
+  title_en: string;
+  category: 'throughput' | 'latency' | 'memory' | 'quality' | 'startup' | 'cost';
+  metric_signature: string;
+  hypotheses: Hypothesis[];
+}
+
+const SYMPTOMS: Symptom[] = [
+  // === THROUGHPUT ===
+  {
+    id: 'decode-slow',
+    title_zh: 'Decode 吞吐 < 预期 30%+',
+    title_en: 'Decode throughput < 30% below expected',
+    category: 'throughput',
+    metric_signature: 'tok/s/card 远低于 case 中位 · GPU SM% 低 + HBM bandwidth% 低',
+    hypotheses: [
+      {
+        cause: 'CUDA Graph / 编译路径未启用 (--enforce-eager 还在配置里)',
+        probability: 'high',
+        diagnostic: '检查 vLLM/SGLang 启动参数, 看是否带 --enforce-eager; profile 看 kernel launch overhead 占比',
+        fix: '移除 --enforce-eager; vLLM 0.6+ 默认开启 CUDA Graph capture',
+        related: { patterns: ['compile-time-graph-optimization'] }
+      },
+      {
+        cause: 'Batch 太小, continuous batching 无法摊开 weight load',
+        probability: 'high',
+        diagnostic: '看 batch_size 配置 + 实测 batch 命中率 (vLLM `/metrics` 暴露)',
+        fix: '提高 --max-num-seqs (vLLM) 或 --max-running-requests (SGLang); decode-bound workload 目标 batch ≥ 32',
+        related: { patterns: ['continuous-batching'] }
+      },
+      {
+        cause: 'FlashAttention 退化到 v2 (Hopper 应该走 v3)',
+        probability: 'medium',
+        diagnostic: '看 engine 启动 log, 找 "flash_attn version" 字样; v2 在 Hopper 上慢 1.5-2x',
+        fix: '升级 flash-attn package; vLLM 0.7+ / SGLang 0.4+ 默认 v3',
+        related: { patterns: ['flashattention-v3'], fusedKernels: ['flash-attention-v3'] }
+      },
+      {
+        cause: 'TP=8 但跨节点 (RoCE/IB) all-reduce 没有 overlap',
+        probability: 'medium',
+        diagnostic: 'profile 看 NCCL/RCCL 时间; 跨节点 TP 时 all-reduce 占总 step 时间应该 < 30%',
+        fix: '启用 async-tp / tp-comm-overlap; 升级 NCCL 2.18+',
+        related: { patterns: ['tp-allreduce-overlap'], fusedKernels: ['fused-tp-allreduce-residual', 'fused-allgather-gemm'] }
+      },
+      {
+        cause: '量化 calibration 退化导致回退到 BF16 路径',
+        probability: 'low',
+        diagnostic: 'engine log 中找 "fallback to bf16" 字样; vLLM/TRT-LLM 都会在 calibration 缺失时静默 fallback',
+        fix: '重新跑量化 calibration; 检查 quantization config 是否被覆盖',
+        related: {}
+      }
+    ]
+  },
+  {
+    id: 'prefill-slow',
+    title_zh: 'Prefill 吞吐低 (TTFT 慢)',
+    title_en: 'Prefill throughput low (TTFT slow)',
+    category: 'throughput',
+    metric_signature: 'TTFT P50 > 2x baseline · prefill tok/s 低 · GPU SM% 高但 progress 慢',
+    hypotheses: [
+      {
+        cause: 'Long input 阻塞 short input (head-of-line blocking)',
+        probability: 'high',
+        diagnostic: '看 prefill seq len P99 vs P50 — 如果差 5x+ 就是这个问题',
+        fix: '启用 chunked prefill (vLLM `--enable-chunked-prefill`)',
+        related: { patterns: ['chunked-prefill'] }
+      },
+      {
+        cause: 'Prefix cache miss rate 高',
+        probability: 'high',
+        diagnostic: 'vLLM `/metrics` `prefix_cache_hit_rate`; SGLang RadixAttention metrics; 命中率 < 30% 是 problem',
+        fix: '启用 prefix-radix-cache (SGLang) 或 prefix-caching (vLLM); 增加 cache HBM 配额',
+        related: { patterns: ['prefix-radix-cache', 'prefix-caching'] }
+      },
+      {
+        cause: 'Disaggregated prefill 节点不足',
+        probability: 'medium',
+        diagnostic: '检查 prefill / decode 节点比例; 重 prefill 工作负载需要更多 prefill 节点',
+        fix: '调整 disagg 比例; 或者切回 unified scheduling 看哪个更优',
+        related: { patterns: ['disaggregated-prefill-decode'] }
+      }
+    ]
+  },
+
+  // === LATENCY ===
+  {
+    id: 'tbt-spikes',
+    title_zh: 'TBT (token-to-token) P99 突然 5x 上涨',
+    title_en: 'TBT P99 spikes 5x',
+    category: 'latency',
+    metric_signature: 'TBT P50 正常但 P99 急涨 · GPU 利用率剧烈抖动 · queue depth spike',
+    hypotheses: [
+      {
+        cause: '某请求 prefill 阶段独占 GPU, decode stall',
+        probability: 'high',
+        diagnostic: '看请求 input length 分布 P99; 找超长 input',
+        fix: '启用 chunked prefill; 设置 max input length 拒绝超长',
+        related: { patterns: ['chunked-prefill'] }
+      },
+      {
+        cause: 'Speculative decoding 接受率波动',
+        probability: 'medium',
+        diagnostic: 'vLLM/SGLang spec decode metrics 暴露 acceptance rate; 跌到 < 30% 就拖慢',
+        fix: '关 spec decode 或换更匹配的 draft model; 短期容忍 long-tail',
+        related: { patterns: ['speculative-decoding', 'mtp-multi-token-prediction'] }
+      },
+      {
+        cause: 'CPU-side scheduler / tokenizer 变成瓶颈',
+        probability: 'medium',
+        diagnostic: 'host CPU% 在 router / tokenizer 进程里 > 80%',
+        fix: '换 host CPU 到高核数 (EPYC 9654); 或者把 tokenizer 移到 GPU (vLLM 0.7+ 支持)',
+        related: {}
+      },
+      {
+        cause: '集群内某节点 GPU 故障 (XID error / ECC)',
+        probability: 'low',
+        diagnostic: 'dmesg | grep -i nvidia; nvidia-smi --query-remapped-rows=...',
+        fix: 'drain 故障节点; 跨节点冗余 schedule',
+        related: {}
+      }
+    ]
+  },
+  {
+    id: 'ttft-spike',
+    title_zh: 'TTFT P95 突然飙 5x',
+    title_en: 'TTFT P95 spikes 5x suddenly',
+    category: 'latency',
+    metric_signature: 'TTFT P95 急涨 · queue depth 上涨 · throughput 不变',
+    hypotheses: [
+      {
+        cause: 'Prefix-cache eviction (cache 被 evict)',
+        probability: 'high',
+        diagnostic: 'cache hit rate 突跌; vLLM logs 中找 "evicting prefix"',
+        fix: '增加 KV cache HBM 配额; 检查 max session count',
+        related: { patterns: ['prefix-radix-cache'] }
+      },
+      {
+        cause: 'Cold-start: KV cache 是空的, prefill 全跑',
+        probability: 'high',
+        diagnostic: '部署刚启动 5-10 min 内是这种状态;  warmup 后自然恢复',
+        fix: '部署 warmup script 预热 cache; auto-scaling 留 buffer',
+        related: {}
+      },
+      {
+        cause: 'Disaggregated 路径 prefill 节点饱和',
+        probability: 'medium',
+        diagnostic: 'prefill 节点 GPU% 接近 100%, decode 节点空闲',
+        fix: '增加 prefill 节点比例; 或者关 disagg',
+        related: { patterns: ['disaggregated-prefill-decode'] }
+      }
+    ]
+  },
+
+  // === MEMORY ===
+  {
+    id: 'oom',
+    title_zh: 'HBM 接近满, 偶发 OOM',
+    title_en: 'HBM near-full, occasional OOM',
+    category: 'memory',
+    metric_signature: 'HBM occupancy > 95% · error rate spike · saturation 警报',
+    hypotheses: [
+      {
+        cause: '并发数 (max-num-seqs) 估算偏高, KV cache 暴涨',
+        probability: 'high',
+        diagnostic: '看 active session count × per-session KV 估算; vLLM `--max-num-seqs` 配置',
+        fix: '降低 max-num-seqs; 或启用 KV-INT8 减半',
+        related: { patterns: ['kv-cache-int8'] }
+      },
+      {
+        cause: '量化未启用 / fall back to BF16',
+        probability: 'high',
+        diagnostic: '权重精度配置 vs 实际加载精度 (vLLM model loading log)',
+        fix: '启用 FP8 (Hopper+) / INT4-AWQ (Ampere); 50% HBM 节省',
+        related: { patterns: ['fp4-weight-only-quant', 'memory-bound-decode-prefer-int8'] }
+      },
+      {
+        cause: 'Long context 场景 KV cache 飙升, 没启用 hot-cold 分层',
+        probability: 'medium',
+        diagnostic: '请求 context length P99 > 32K; 单 session KV > 8 GB',
+        fix: '启用 hot-cold KV tiering (HBM/host RAM/NVMe 分层)',
+        related: { patterns: ['hot-cold-kv-tiering', 'kv-cache-cpu-offload'] }
+      },
+      {
+        cause: 'Engine memory leak (重启每周一次 workaround 信号)',
+        probability: 'low',
+        diagnostic: '运行 N 天后 HBM 慢慢吃满; 重启就恢复',
+        fix: '升级 engine 版本; 短期: cron 每周重启 + auto-failover',
+        related: {}
+      }
+    ]
+  },
+  {
+    id: 'storage-bottleneck',
+    title_zh: 'GPU 利用率低但 HBM 占用低 (storage 瓶颈)',
+    title_en: 'GPU underutilized + HBM underutilized (storage bottleneck)',
+    category: 'memory',
+    metric_signature: 'GPU SM% < 50% · HBM% < 50% · power < 60% TDP · disk/network I/O 高',
+    hypotheses: [
+      {
+        cause: 'Weight loading 是瓶颈 (大模型 cold start / weight streaming)',
+        probability: 'high',
+        diagnostic: '在启动阶段 nvidia-smi 看 GPU% 走势; 启动几分钟内是这种 pattern',
+        fix: 'GDS-capable 系统启用 weight streaming prefetch; 否则 cache 预热脚本',
+        related: { patterns: ['weight-streaming-prefetch'] }
+      },
+      {
+        cause: 'Dataloader 跟不上 (训练或长 context 多文档场景)',
+        probability: 'medium',
+        diagnostic: 'host CPU% 在 dataloader 进程里高; PCIe / NVMe-oF 带宽接近峰值',
+        fix: '增加 dataloader workers; 启用 GPU Direct Storage',
+        related: {}
+      }
+    ]
+  },
+
+  // === QUALITY ===
+  {
+    id: 'quality-regression',
+    title_zh: '量化部署后 MMLU 突跌 1+ pt',
+    title_en: 'Quality regression after quantization deploy',
+    category: 'quality',
+    metric_signature: 'eval-set quality 跌 · perplexity 涨 · 用户投诉率上升 · refusal rate 变化',
+    hypotheses: [
+      {
+        cause: 'PTQ calibration set 选错 (用了 generic 而非 task-specific)',
+        probability: 'high',
+        diagnostic: '看 calibration data 来源; reasoning model 用了 chat dataset = 灾难',
+        fix: '用任务相关 calibration data (math/code/Chinese 等); 重新量化',
+        related: { patterns: ['quant-aware-finetune'] }
+      },
+      {
+        cause: 'KV-INT8 缺乏 per-token scale, long context 漂移',
+        probability: 'medium',
+        diagnostic: '只在 long context (>8K) 时质量跌; short context 正常',
+        fix: '切回 KV BF16 用于 long context; 或启用 per-token quantization',
+        related: { patterns: ['kv-cache-int8'] }
+      },
+      {
+        cause: 'Engine FP8/FP4 path 实现差异',
+        probability: 'medium',
+        diagnostic: '同模型同精度在 vLLM vs TRT-LLM 上质量不同',
+        fix: 'A/B 测试两条 path; 选质量更好的 (通常 TRT-LLM 优化更深)',
+        related: {}
+      },
+      {
+        cause: '小模型 (< 13B) PTQ 损失天花板, 需要 QAT',
+        probability: 'low',
+        diagnostic: '13B 以下模型 + INT4 部署 + MMLU 跌 2+ pt',
+        fix: 'QAT (LoRA-QAT 4-12 hour 恢复 < 0.5 pt)',
+        related: { patterns: ['quant-aware-finetune'] }
+      }
+    ]
+  },
+  {
+    id: 'reasoning-drift',
+    title_zh: 'Reasoning 模型 chat benchmark 看似 OK 但实际跑分跌',
+    title_en: 'Reasoning model chat-benchmark OK but actual evals regressed',
+    category: 'quality',
+    metric_signature: 'MMLU 几乎不变 · AIME / MATH / GSM-8K 跌 1-3 pt · 用户长 CoT 投诉变多',
+    hypotheses: [
+      {
+        cause: 'FP4/FP8 量化对 reasoning long CoT 漂移敏感',
+        probability: 'high',
+        diagnostic: 'reasoning eval (AIME/MATH) 跌幅 > 2x chat eval (MMLU) 跌幅',
+        fix: '用 reasoning-specific calibration set 重新量化; 或退回 BF16 only for reasoning workload',
+        related: { patterns: ['fp4-weight-only-quant', 'kv-cache-int8'] }
+      },
+      {
+        cause: 'MTP head 接受率波动导致 token 概率分布漂移',
+        probability: 'medium',
+        diagnostic: 'MTP acceptance rate 波动大; reasoning 更敏感于此',
+        fix: '关 MTP for reasoning workload; 或 fine-tune draft model',
+        related: { patterns: ['mtp-multi-token-prediction'] }
+      }
+    ]
+  },
+
+  // === STARTUP ===
+  {
+    id: 'cold-start-slow',
+    title_zh: 'Engine 首次启动 / restart 慢 (10+ min)',
+    title_en: 'First-start / restart > 10 min',
+    category: 'startup',
+    metric_signature: 'startup phase HBM % 缓慢上涨 · CUDA Graph capture / engine build 进度 log',
+    hypotheses: [
+      {
+        cause: 'TRT-LLM engine build 首次 (35 min for 1T MoE) — 正常',
+        probability: 'high',
+        diagnostic: '`trtllm-build` 命令日志; 1T MoE 模型预期 30-40 min',
+        fix: '启用 graph cache; 重启后 ~3 min 恢复 (vs 首次 35 min)',
+        related: { patterns: ['compile-time-graph-optimization'] }
+      },
+      {
+        cause: '权重 download 是瓶颈 (拉远端 HF / S3)',
+        probability: 'high',
+        diagnostic: '看启动时网络 traffic; 70B 模型 ~150 GB BF16, 1T MoE ~2 TB',
+        fix: '权重预加载到 local NVMe; 国内走 ModelScope 镜像 5-10x 加速',
+        related: {}
+      },
+      {
+        cause: 'CANN/MindIE compile 阶段慢 (Ascend 平台)',
+        probability: 'medium',
+        diagnostic: 'mindie log 中 "compiling graph" 阶段持续 10-15 min',
+        fix: '启用 graph cache; 锁定 graph 形状减少重 compile',
+        related: {}
+      }
+    ]
+  },
+
+  // === COST ===
+  {
+    id: 'cost-spike',
+    title_zh: '$/M tokens 突然涨 30%+ (突发成本飙升)',
+    title_en: 'Cost-per-M-tokens spikes 30%+ unexpectedly',
+    category: 'cost',
+    metric_signature: '$/M tokens 7-day average 涨 · throughput 不变或微跌 · 用户量基本稳定',
+    hypotheses: [
+      {
+        cause: 'Traffic pattern 变化: 长 context 比例上升, prefill 占比上涨',
+        probability: 'high',
+        diagnostic: 'prefill seq len P50 / P99 突涨; long context (>8K) 请求比例上升',
+        fix: 'disagg prefill/decode; 或者 prefix-cache 提升命中率分摊 prefill 成本',
+        related: { patterns: ['disaggregated-prefill-decode', 'prefix-radix-cache'] }
+      },
+      {
+        cause: 'Engine 路径退化 (新版本引入慢 kernel)',
+        probability: 'medium',
+        diagnostic: '看是否最近有 engine 升级; 对照 /pricing/by-engine/ 看你这个 engine 在历史上的 $/M',
+        fix: '回退 engine 版本; 或者切到更便宜的 engine (vLLM ↔ SGLang ↔ TRT-LLM)',
+        related: {}
+      },
+      {
+        cause: 'GPU 利用率掉了 (实际是 throughput 跌, 不是成本涨)',
+        probability: 'medium',
+        diagnostic: '和 decode-slow symptom 重叠; 看 SM% / HBM bw% trend',
+        fix: '先解决 throughput 问题; $/M 自然回落',
+        related: {}
+      }
+    ]
+  }
+];
+
+const PROBABILITY_LABELS: Record<Hypothesis['probability'], { zh: string; color: string }> = {
+  high: { zh: '高概率', color: 'var(--color-china)' },
+  medium: { zh: '中概率', color: 'oklch(72% 0.18 75)' },
+  low: { zh: '低概率', color: 'var(--color-text-muted)' }
+};
+
+const CATEGORY_LABELS: Record<Symptom['category'], { zh: string; emoji: string }> = {
+  throughput: { zh: '吞吐', emoji: '⚡' },
+  latency: { zh: '延迟', emoji: '⏱️' },
+  memory: { zh: '内存', emoji: '💾' },
+  quality: { zh: '质量', emoji: '🎯' },
+  startup: { zh: '启动', emoji: '🚀' },
+  cost: { zh: '成本', emoji: '💰' }
+};
+
+const symptomsByCategory = new Map<Symptom['category'], Symptom[]>();
+for (const s of SYMPTOMS) {
+  if (!symptomsByCategory.has(s.category)) symptomsByCategory.set(s.category, []);
+  symptomsByCategory.get(s.category)!.push(s);
+}
+
+const totalHypotheses = SYMPTOMS.reduce((n, s) => n + s.hypotheses.length, 0);
+---
+<BaseLayout title="部署故障诊断 / Production Troubleshooting">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · TROUBLESHOOTING
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        部署故障诊断
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        凌晨 3 点 on-call 时用 — 按 <strong>症状</strong> 找原因. 每个症状给 metric 信号 +
+        3-5 个假设按概率排序 + 诊断命令 + 修复路径 + 相关 pattern/case 跨链.
+        与 <a href={pathname('/learn/deployment-failures/')} style="color: var(--color-accent);" class="hover:underline">/learn/deployment-failures/</a>
+        (按部署阶段组织) 和
+        <a href={pathname('/learn/observability/')} style="color: var(--color-accent);" class="hover:underline">/learn/observability/</a>
+        (按 metric 组织) 形成三角覆盖.
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-lg border p-3" data-testid="ts-stat-symptoms" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{SYMPTOMS.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">症状条目</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="ts-stat-hypotheses" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{totalHypotheses}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">假设条目 (按概率排序)</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="ts-stat-categories" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{symptomsByCategory.size}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">症状类别</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{patterns.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">交叉链接 patterns</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TOC by category -->
+    <section class="py-6 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-base font-semibold mb-3">按类别跳转</h2>
+      <div class="flex flex-wrap gap-2 text-xs">
+        {Array.from(symptomsByCategory.entries()).map(([cat, sList]) => {
+          const label = CATEGORY_LABELS[cat];
+          return (
+            <a href={`#cat-${cat}`} class="px-3 py-1.5 rounded border hover:opacity-80" style="border-color: var(--color-border); background: var(--color-surface-raised); color: var(--color-text);">
+              <span class="mr-1">{label.emoji}</span>
+              <strong>{label.zh}</strong>
+              <span class="ml-1.5" style="color: var(--color-text-muted);">×{sList.length}</span>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+
+    <!-- Symptoms grouped by category -->
+    {Array.from(symptomsByCategory.entries()).map(([cat, sList]) => {
+      const label = CATEGORY_LABELS[cat];
+      return (
+        <section id={`cat-${cat}`} class="py-8 border-t scroll-mt-24" style="border-color: var(--color-border);">
+          <h2 class="text-2xl font-semibold mb-2 flex items-center gap-2">
+            <span>{label.emoji}</span>
+            {label.zh} <span class="text-base font-normal" style="color: var(--color-text-muted);">({sList.length})</span>
+          </h2>
+
+          <div class="space-y-4 mt-6">
+            {sList.map((s) => (
+              <article id={s.id} class="rounded-lg border scroll-mt-24" data-testid={`symptom-${s.id}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <header class="px-5 py-4 border-b" style="border-color: var(--color-border);">
+                  <h3 class="text-lg font-semibold flex items-baseline gap-2 flex-wrap">
+                    <span class="text-xs font-mono px-2 py-0.5 rounded" style="background: var(--color-china); color: white;">⚠️ {s.id}</span>
+                    {s.title_zh}
+                  </h3>
+                  <div class="text-xs mt-2" style="color: var(--color-text-muted);">
+                    <strong style="color: var(--color-text);">Metric 信号:</strong>{' '}
+                    <code style="background: var(--color-bg); padding: 1px 6px; border-radius: 3px;">{s.metric_signature}</code>
+                  </div>
+                </header>
+
+                <div class="p-5 space-y-3">
+                  <div class="text-xs uppercase tracking-wider font-semibold" style="color: var(--color-text-muted);">
+                    可能原因 (按概率排序)
+                  </div>
+                  {s.hypotheses.map((h, idx) => {
+                    const probLabel = PROBABILITY_LABELS[h.probability];
+                    return (
+                      <div class="rounded border p-3" data-testid={`hyp-${s.id}-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-bg);">
+                        <div class="flex items-baseline gap-2 flex-wrap mb-2">
+                          <span class="text-xs font-mono px-2 py-0.5 rounded" style={`background: ${probLabel.color}; color: white;`}>
+                            {probLabel.zh}
+                          </span>
+                          <strong class="text-sm" style="color: var(--color-text);">{h.cause}</strong>
+                        </div>
+                        <div class="text-xs space-y-1.5">
+                          <div>
+                            <strong style="color: var(--color-text-muted);">🔍 诊断:</strong>{' '}
+                            <span style="color: var(--color-text);">{h.diagnostic}</span>
+                          </div>
+                          <div>
+                            <strong style="color: var(--color-accent);">→ 修复:</strong>{' '}
+                            <span style="color: var(--color-text);">{h.fix}</span>
+                          </div>
+                          {(h.related?.patterns?.length || h.related?.cases?.length || h.related?.fusedKernels?.length) && (
+                            <div class="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                              {h.related?.patterns?.map((pid) => {
+                                const p = patternsById.get(pid);
+                                if (!p) return null;
+                                return (
+                                  <a href={pathname(`/patterns/${p.id}/`)} class="px-1.5 py-0.5 rounded hover:underline" style="background: var(--color-surface-raised); color: var(--color-accent);">
+                                    🧩 {p.name.length > 30 ? p.name.slice(0, 28) + '…' : p.name}
+                                  </a>
+                                );
+                              })}
+                              {h.related?.fusedKernels?.map((fkid) => {
+                                const fk = fusedKernelsById.get(fkid);
+                                if (!fk) return null;
+                                return (
+                                  <a href={pathname(`/fused-kernels/${fk.id}/`)} class="px-1.5 py-0.5 rounded hover:underline" style="background: var(--color-surface-raised); color: var(--color-text);">
+                                    🔧 {fk.name.length > 30 ? fk.name.slice(0, 28) + '…' : fk.name}
+                                  </a>
+                                );
+                              })}
+                              {h.related?.cases?.map((cid) => {
+                                const c = casesById.get(cid);
+                                if (!c) return null;
+                                return (
+                                  <a href={pathname(`/cases/${c.id}/`)} class="px-1.5 py-0.5 rounded hover:underline" style="background: var(--color-surface-raised); color: var(--color-text-muted);">
+                                    📦 {c.title.length > 30 ? c.title.slice(0, 28) + '…' : c.title}
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      );
+    })}
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">三角覆盖 — 按需选 entry</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          同一组部署知识, 三个不同的 access pattern. 按你当下的 mental state 选 entry:
+        </p>
+        <ul class="text-sm space-y-2 mb-4" style="color: var(--color-text);">
+          <li>· <strong>设计阶段</strong> ("我要部署 X, 在哪里可能出错?") → <a href={pathname('/learn/deployment-failures/')} style="color: var(--color-accent);" class="hover:underline">deployment-failures (按 stage)</a></li>
+          <li>· <strong>运行时</strong> ("应该监控什么?") → <a href={pathname('/learn/observability/')} style="color: var(--color-accent);" class="hover:underline">observability (按 metric tier)</a></li>
+          <li>· <strong>故障时</strong> ("看到 X, 怎么办?") → <strong>本页 (按 symptom)</strong></li>
+        </ul>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/deployment-failures/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">部署失败模式 (按阶段) →</a>
+          <a href={pathname('/learn/observability/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">可观测性 (按指标) →</a>
+          <a href={pathname('/learn/production-lifecycle/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">生产生命周期 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>
