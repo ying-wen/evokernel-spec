@@ -1,0 +1,116 @@
+id: fused-rmsnorm-residual-quantize
+name: Fused RMSNorm + Residual + Quantize (FP8/INT8 fast-path)
+category: normalization
+fuses_operators: [rmsnorm, residual-add, quantize-dequantize]
+summary: |
+  扩展 fused-rmsnorm-residual: 把 RMSNorm + residual 之后的输出直接量化到
+  FP8 / INT8, 全部在 SMEM/寄存器内完成. FP8 推理 hot path — 不 fuse 时
+  output 是 BF16 落 HBM, 然后 quantize kernel 再读再量化再写, HBM I/O 翻倍.
+  Fused 版本让 BF16 中间值不落 HBM, 直接落 quant 后形态.
+
+description_md: |
+  ## 为什么这个 fusion 关键
+
+  Transformer block 内典型序列:
+  ```
+  x_residual = layer_input
+  x_norm = rmsnorm(x_residual)              # 输出 BF16
+  x_quant = quantize(x_norm, scale)          # 输出 FP8 / INT8
+  x_residual_new = x_residual + attention(x_quant)
+  ```
+
+  关键观察: x_norm 这个 BF16 中间张量 **不被任何下游 op 消费 BF16 形态** —
+  它立刻被量化成 FP8/INT8. 不 fuse 时:
+  - rmsnorm 写 BF16 到 HBM
+  - quantize 从 HBM 读 BF16, 量化, 写 FP8 到 HBM
+  - 总 HBM I/O: 写 BF16 (2 bytes/elem) + 读 BF16 + 写 FP8 (1 byte/elem) = 5 bytes/elem
+
+  Fused 版本:
+  - rmsnorm 输出 BF16 留在 SMEM/寄存器
+  - 立刻 quantize 到 FP8, 只有最终 FP8 落 HBM
+  - 总 HBM I/O: 读 input + 写 FP8 = ~3 bytes/elem (vs 7 fused-rmsnorm-residual + 2 quant)
+
+  对 FP8 推理流水线, 这条 fusion 让 norm 阶段 HBM 压力降 ~40%, decode tok/s 提升 5-10%.
+
+  ## 与 fused-rmsnorm-residual 的差异
+  - **fused-rmsnorm-residual** (existing): RMSNorm + residual 都在 BF16 输出, 适合 BF16-only 推理
+  - **fused-rmsnorm-residual-quantize** (this): 同上但输出 FP8/INT8, 适合 FP8/INT8 推理 hot-path
+
+  现代 FP8 推理引擎 (vLLM 0.7+ FP8, TRT-LLM 0.13 FP8, MindIE 2.0) 都在 attention/MLP
+  之间的 norm 边界做这条 fusion. 没有这条 fusion 的 FP8 实现往往 throughput 跌 8-15%.
+
+  ## 实现层次
+
+  - **vLLM 0.7+ FP8 path**: `fused_add_rms_norm_quantize` triton kernel (vllm/_custom_ops.py)
+  - **TRT-LLM 0.13+**: 内置 FP8 norm-quantize plugin (FP8 path 默认启用)
+  - **MindIE 2.0**: AscendC fused norm-quantize op (910C/910D FP8 启用时默认)
+  - **SGLang**: Flashinfer norm-quantize kernel (Hopper/Blackwell)
+  - **lmdeploy TurboMind**: 自研 fused norm-quant kernel
+
+  ## 应用场景
+
+  - **FP8 / INT8 推理 hot path**: H100/H200/B200 + FP8, 910C+ INT8, MI325X+ FP8
+  - **大 batch 高吞吐 serving**: norm 阶段 HBM 是瓶颈时, 这条 fusion 收益最大
+  - **长 context decode**: RMSNorm 在每层都要做, 长 context KV 已经是大头, 减少 norm I/O 重要
+
+why_fuse: |
+  RMSNorm 输出 BF16 中间张量立刻被量化, 不被任何 BF16 下游 op 消费 — 物化到 HBM 是浪费.
+  Fuse 进 quantize epilogue 让 BF16 中间值留在寄存器, 只有 FP8/INT8 最终结果落 HBM.
+  HBM I/O 降 ~40%, FP8 推理 throughput 提升 5-10%.
+
+speedup:
+  - baseline: PyTorch eager (separate rmsnorm + residual + quantize)
+    multiplier_min: 1.4
+    multiplier_max: 2.0
+    notes: 'FP8 decode hot path; separate kernel 路径需要 3x HBM round-trip, fused 1x.'
+  - baseline: fused-rmsnorm-residual + separate quantize
+    multiplier_min: 1.1
+    multiplier_max: 1.3
+    notes: 'Vs only fusing RMSNorm + residual (BF16 输出 + 单独 quantize kernel).'
+
+implementations:
+  - name: vLLM 0.7+ fused_add_rms_norm_quantize (Triton)
+    engine_id: vllm
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://github.com/vllm-project/vllm/blob/main/vllm/_custom_ops.py
+    notes: 'FP8 path 默认启用; 老版本 vLLM 不含此 fusion'
+  - name: TRT-LLM FP8 norm-quantize plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://nvidia.github.io/TensorRT-LLM/reference/precision.html
+  - name: MindIE 2.0 AscendC fused norm-quant
+    engine_id: mindie
+    hardware_arch: [ascend-910c, ascend-910d]
+    url: https://www.hiascend.com/document/detail/zh/mindie
+    notes: 'INT8 / FP8 path 默认启用'
+  - name: SGLang Flashinfer norm-quantize
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: lmdeploy TurboMind fused norm-quant
+    engine_id: lmdeploy
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/InternLM/lmdeploy
+
+hardware_requires:
+  - 'FP8 / INT8 tensor cores (Hopper sm_90, Ascend 910C+, CDNA-3+, Blackwell)'
+
+enables_patterns: [fp4-weight-only-quant, kv-cache-int8]
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Quantization scale (per-tensor / per-channel / per-token) 选择影响 fusion 复杂度 — per-token 需要先算 max 再量化, 多一次 reduce 步'
+  - 'Calibration set 选不好, 量化误差累积; fused 与 unfused 量化结果应该一致, 但 numerics 偶有差异'
+  - 'BF16-only 推理 (无 FP8/INT8) 不需要这条 path — 用 fused-rmsnorm-residual 即可'
+
+references:
+  - title: 'vLLM FP8 inference notes'
+    url: https://docs.vllm.ai/en/latest/quantization/fp8.html
+    source_type: docs
+  - title: 'TransformerEngine FP8 RMSNorm'
+    url: https://github.com/NVIDIA/TransformerEngine
+    source_type: implementation
+  - title: 'Flashinfer norm-quantize'
+    url: https://github.com/flashinfer-ai/flashinfer
+    source_type: implementation

@@ -49,6 +49,20 @@ host_cpu:
   host_ram_gb: 1024
   has_coherent_gpu_link: false
   notes: 'DGX A100 是首个用 AMD EPYC (vs DGX-1/2 用 Intel) 的 NVIDIA 旗舰服务器 — 选 EPYC 是因为 PCIe Gen4 lanes 数比当时 Intel Cascade Lake 多. 历史意义大: 之后 HGX 一直保留 AMD/Intel 双栈选择.'
+network_topology:
+  topology: fat-tree-rail-optimized
+  in_network_reduction: false
+  diameter_hops: 3
+  bisection_bandwidth_gbps_per_node: 1600
+  latency_us_p99_intra_node: 1.0
+  latency_us_p99_inter_node: 4.0
+  switch_count: 6
+  rdma_capable: true
+  notes: |
+    DGX A100 单节点 6× NVSwitch Gen-2 (vs Gen-3 在 H100/H200) 全连接 8 GPU,
+    跨节点出 8 × 200G HDR IB ConnectX-6. SHARP-1 (基础版) 可用. Ampere 时代典型
+    rail-optimized fat-tree, 但单边 IB 200 Gb/s 是 H100 era 400G 的一半 — 跨节点
+    all-reduce 时间 ~2x H100. 64-node SuperPOD 是经典参考部署.
 cabinet_layout_md: |
   ## DGX A100 8-GPU 机箱布局 / Chassis layout
 

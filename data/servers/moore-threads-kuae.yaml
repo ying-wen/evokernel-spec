@@ -47,6 +47,19 @@ host_cpu:
   host_ram_gb: 1024
   has_coherent_gpu_link: false
   notes: '摩尔线程 KUAE 集群 host 通常配海光 (信创预算友好) 或 Intel (兼容性优先). MTLink 是 GPU 间 fabric, 不依赖 host CPU. PCIe Gen5 路径在 KUAE 2024 release 后逐渐普及, 老配置仍是 Gen4.'
+network_topology:
+  topology: hierarchical-mesh
+  in_network_reduction: false
+  diameter_hops: 4
+  bisection_bandwidth_gbps_per_node: 1600
+  latency_us_p99_intra_node: 0.8
+  latency_us_p99_inter_node: 4.5
+  switch_count: 8
+  rdma_capable: true
+  notes: |
+    KUAE 集群 8 节点 × 8 卡 = 64 卡. 单节点通过 MTLink 全连接 (1 跳),
+    跨节点走 RoCE-v2 200G. 国产 GPU 集群中规模较小的部署形态, 适合中小型 LLM
+    训推. MTLink 暂无 in-network reduction. 软件栈 (MUSA) 仍在追赶 CUDA 兼容.
 cabinet_layout_md: |
   ## 摩尔线程 KUAE 集群布局 / 8-node KUAE pod layout
 

@@ -45,6 +45,19 @@ host_cpu:
   host_ram_gb: 768
   has_coherent_gpu_link: false
   notes: 'Atlas 800T A3 是 Atlas 800 系列的训推一体节点, host CPU 也是鲲鹏 920 (与 CloudMatrix 384 一致, 但 48-core 版本). PCIe Gen4 + HCCS 互联. 信创合规栈核心.'
+network_topology:
+  topology: single-switch
+  in_network_reduction: false
+  diameter_hops: 1
+  bisection_bandwidth_gbps_per_node: 800
+  latency_us_p99_intra_node: 0.6
+  latency_us_p99_inter_node: 3.5
+  switch_count: 1
+  rdma_capable: true
+  notes: |
+    Atlas 800T A3 是单节点 8 Ascend 910C, intra-node 通过 1 个 HCCS-v2 switch
+    全连接 (1 跳). 跨节点出 RoCE-v2 200G NIC, 但这是单节点 server, 跨节点拓扑由
+    使用方决定 (典型 fat-tree). 信创部署最常见的训推一体平台.
 cabinet_layout_md: |
   ## Atlas 800T A3 机箱布局 / Chassis layout
 

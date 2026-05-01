@@ -46,6 +46,18 @@ host_cpu:
   host_ram_gb: 512
   has_coherent_gpu_link: false
   notes: '思元 X8 单节点 server 是中型部署 (vs 思元 590 集群 16 节点). Host CPU 选择更广 — 单节点训推可以用 Intel Xeon (兼容性优先), 集群部署多用海光 (信创考虑). 4U 标准机箱, 风冷, 部署门槛低.'
+network_topology:
+  topology: single-switch
+  in_network_reduction: false
+  diameter_hops: 1
+  bisection_bandwidth_gbps_per_node: 400
+  latency_us_p99_intra_node: 0.7
+  switch_count: 1
+  rdma_capable: false
+  notes: |
+    思元 X8 是单节点 8 卡 server, intra-node 通过 1 个 MLU-Link-v2 switch 全连接.
+    跨节点扩展由部署方决定 — 通常用普通 100/200G ethernet, RoCE 不是默认.
+    适合中型企业训推一体场景, 不需要超大规模 fabric.
 cabinet_layout_md: |
   ## 思元 X8 Server 布局 / 8-card chassis layout
 

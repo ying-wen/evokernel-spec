@@ -42,6 +42,21 @@ host_cpu:
   host_ram_gb: 1024
   has_coherent_gpu_link: false
   notes: '鲲鹏 920 是华为自研 ARM 服务器 CPU, 信创合规栈核心组件. PCIe Gen4 (vs NVL72 Gen5) 限制 host-GPU bandwidth, 但 Ascend 910C 单卡只用 16 lanes 不构成瓶颈. HCCS 互联是 GPU 间通信主路径, 不依赖 PCIe. 这是国央企部署唯一全国产化路径.'
+network_topology:
+  topology: optical-fabric
+  in_network_reduction: true
+  diameter_hops: 2
+  bisection_bandwidth_gbps_per_node: 6400
+  latency_us_p99_intra_node: 0.5
+  latency_us_p99_inter_node: 1.2
+  switch_count: 384
+  rdma_capable: true
+  notes: |
+    CloudMatrix 384 是华为旗舰超节点, 全 384 卡通过**全光纤 fabric** (lingqu / 灵衢) 互联,
+    任意 GPU 对 ≤2 跳. HCCS-v2 over optical 让跨柜 latency 接近单柜 NVLink 水平.
+    华为自研 in-network reduction (类似 SHARP) 在 lingqu fabric 中可用, all-reduce
+    带宽放大 1.5x. 这是国央企部署对标 NVL72 的核心方案 — 单 super-pod 内不依赖 RoCE,
+    跨 super-pod 才走 RoCE-400G 跳出去.
 cabinet_layout_md: |
   ## CloudMatrix 384 多机柜布局 / Multi-cabinet layout
 

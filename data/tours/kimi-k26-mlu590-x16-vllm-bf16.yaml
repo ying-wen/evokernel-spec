@@ -1,0 +1,86 @@
+id: kimi-k26-mlu590-x16-vllm-bf16
+title: 'Kimi K2.6 × 16× MLU590 (Cambricon)'
+context_zh: '寒武纪 思元 590 × 2 节点 16 卡 · MLU-Link-v2 + RoCE-v2 · vLLM-MLU 社区移植 + BF16'
+case_id: case-kimik26-mlu590x16-001
+playbook_id: moe-llm-large-on-ascend-cluster
+display_order: 18
+why_it_matters: |
+  Cambricon 思元 590 是国产 GPU 中除 Ascend 之外的另一条 production 路径 — 软件栈 (Neuware + vLLM-MLU)
+  比 Ascend (CANN + MindIE) 更接近 NVIDIA CUDA 体验, PyTorch / vLLM 移植成本最低.
+  这条 tour 对应的是 1T-class MoE (Kimi K2.6) 跨 2 节点 16 卡部署 — 国央企非华为路线
+  下的核心选项, 软件成熟度仍是 BF16 stage (vs Ascend 已经 INT8 + MTP 路径). 与 Atlas 800T
+  reasoning tour 形成完整 国产 LLM 部署 双路径对照.
+
+stages:
+  - stage_id: acquire
+    decision: 'moonshotai/Kimi-K2.6 — HuggingFace safetensors (or 国内 ModelScope 镜像)'
+    rationale: |
+      Kimi K2.6 是 Moonshot AI 旗舰 MoE 模型, 开源权重通过 HuggingFace + ModelScope 双发.
+      国内部署优先 ModelScope (CDN 速度 5-10x), 拉权重 ~2-3 hour for 1T MoE BF16 (~2 TB).
+      Cambricon 平台不需要 NVIDIA-specific 权重格式, safetensors 通用.
+    pitfall: |
+      Kimi K2.6 license 要求商用部署填表登记 (vs Llama 4 完全开放) — 国央企部署前确认.
+
+  - stage_id: convert
+    decision: 'BF16 safetensors as-is — vLLM-MLU 直读 (社区移植版)'
+    rationale: |
+      vLLM-MLU 是 Cambricon 维护的 vLLM 0.6 fork, weight loader 与 mainline vLLM 兼容.
+      BF16 直接加载, 不需要任何 conversion.
+      Cambricon 的关键卖点: 软件栈接近 NVIDIA CUDA (PyTorch + vLLM API 99% 兼容).
+    pitfall: |
+      vLLM-MLU fork 版本通常滞后 mainline 1-2 month — Kimi K2.6 这类新模型支持需要等社区 patch,
+      首次部署遇到 model arch 不识别要 manual register or wait for upstream.
+
+  - stage_id: quantize
+    decision: 'BF16 — 暂不量化 (软件栈 INT8 / FP8 path 还未生产 ready)'
+    rationale: |
+      MLU590 硬件支持 INT8 / INT4 tensor core, 但 vLLM-MLU 的 quantized GEMM kernel 在
+      MoE 场景下仍 experimental (2026 Q1 状态). production 部署默认 BF16.
+      与 Atlas 800T (CANN + MindIE INT8 path 成熟) 对比, Cambricon 在量化路径成熟度上落后 6-9 月.
+    involves_patterns: []
+    pitfall: |
+      想跑 INT8 MoE 的工程师注意: vLLM-MLU 0.6 的 INT8 kernel 在 MoE expert dispatch 上有
+      accuracy regression (~3 pt MMLU 跌); 等社区 stable release 再上.
+
+  - stage_id: compile
+    decision: 'vLLM-MLU graph 模式 + Neuware 3.5 driver'
+    rationale: |
+      Neuware 3.5 是 Cambricon driver + runtime 套件, 等价 NVIDIA CUDA + cuDNN.
+      vLLM-MLU graph 模式启用 CUDA Graph 等价物 (MLU Graph), decode latency 比 eager 降 25%.
+      MoE 路由器在首次 forward 时编译, 1T MoE 的 expert routing graph 复杂, 首次 load ~18 min.
+    involves_kernels: [paged-attention-decode, fused-moe-dispatch-deepep, fused-rmsnorm-residual]
+    pitfall: |
+      MoE 路由器首次 load 18 min 是 production 痛点 — 这段时间 server 不响应, 调度系统
+      要预热. 解决方案: 部署时启用 graph cache (Neuware 3.5+ 支持), 重启后 ~2 min 即可恢复.
+
+  - stage_id: shard
+    decision: 'TP=8 (intra-node) + PP=2 (cross-node) + EP=1'
+    rationale: |
+      MLU590 单节点 8 卡通过 MLU-Link-v2 全互联 (1 跳), 跨节点走 RoCE-v2 200G.
+      Kimi K2.6 1T MoE: TP=8 把 dense weight 切到单节点, PP=2 把 layer 切到 2 节点.
+      不用 EP 是因为 vLLM-MLU 的 MoE expert parallelism 在 2026 Q1 仍 experimental.
+    involves_patterns: [moe-expert-routing-on-domestic, tp-allreduce-overlap]
+    pitfall: |
+      跨节点 PP 时 RoCE-v2 200G 是瓶颈 — pipeline bubble 让 decode tok/s 比同等 TP-only
+      路径慢 ~30%. 大 batch 部署考虑 4 节点 + EP 分布式 expert (等 vLLM-MLU 支持).
+
+  - stage_id: serve
+    decision: 'vLLM-MLU continuous batching + paged attention'
+    rationale: |
+      vLLM-MLU 0.6 fork 已经支持 continuous batching + paged attention (从 mainline vLLM 0.6 移植).
+      RadixAttention / 高级 prefix caching 仍未移植 — 多轮 chat 场景 prefix 命中率比 NVIDIA 路径低.
+    involves_kernels: [paged-attention-decode, fused-moe-dispatch-deepep]
+    involves_patterns: [continuous-batching, paged-attention]
+    pitfall: |
+      MoE expert dispatch 上 vLLM-MLU 在高并发时偶发死锁 (Neuware 3.5 driver bug,
+      官方 patch 在 3.5.1+); production 部署锁定 Neuware ≥ 3.5.1.
+
+  - stage_id: observe
+    decision: 'cambricon-smi + Prometheus exporter + Grafana 自定义 dashboard'
+    rationale: |
+      cambricon-smi 是 Cambricon 等价 nvidia-smi, 暴露 GPU 利用率 / HBM / 温度.
+      Prometheus exporter 是社区维护 (非官方), Grafana dashboard 模板要自己 build.
+      生产监控成熟度仍滞后 NVIDIA / AMD 一代.
+    pitfall: |
+      Cambricon 工具链对 third-party APM (DataDog / NewRelic) 集成最少 — 大部分国央企
+      自建 Prometheus + Grafana, 预留 2-4 周 dashboard / alert 调试时间.

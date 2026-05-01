@@ -1,0 +1,241 @@
+---
+/**
+ * /servers/network-topology-matrix/ — network topology comparison across super-pods.
+ *
+ * Continues the v1.27 host-cpu-matrix pattern but for the *other* major
+ * architectural divider: how the cluster is wired (fat-tree, dragonfly+,
+ * full-mesh, torus, optical-fabric, etc.). Topology choice fundamentally
+ * affects all-reduce latency at scale, longest-path hops, and whether
+ * SHARP-style in-network reduction is available.
+ *
+ * Reads from data/servers/*.yaml (any server with network_topology populated).
+ * Surfaces the architectural divide between coherent NVL fabric (NVL72,
+ * single full-mesh domain) vs rail-optimized fat-tree (HGX H100/H200) vs
+ * dragonfly+ (El Capitan / EX255a) vs torus (AWS Trn2) vs optical fabric
+ * (CloudMatrix 384) vs hierarchical mesh (Atlas 900 / KUAE).
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getServers } from '~/lib/data';
+
+const allServers = await getServers();
+const serversWithTopo = allServers.filter((s) => s.network_topology).sort((a, b) => {
+  // Group by in_network_reduction first (SHARP-capable first), then by topology family for stable order
+  const aReduction = a.network_topology!.in_network_reduction ?? false;
+  const bReduction = b.network_topology!.in_network_reduction ?? false;
+  if (aReduction !== bReduction) return aReduction ? -1 : 1;
+  return a.network_topology!.topology.localeCompare(b.network_topology!.topology) || a.id.localeCompare(b.id);
+});
+
+interface Row {
+  label_zh: string;
+  label_en: string;
+  format: (s: typeof serversWithTopo[number]) => string;
+  highlight?: 'max' | 'min';
+}
+
+const topoLabelMap: Record<string, string> = {
+  'fat-tree': 'Fat-Tree',
+  'fat-tree-rail-optimized': 'Fat-Tree (rail-optimized)',
+  'dragonfly-plus': 'Dragonfly+',
+  'full-mesh': 'Full-Mesh',
+  '2d-torus': '2D-Torus',
+  '3d-torus': '3D-Torus',
+  '4d-torus': '4D-Torus',
+  'slim-fly': 'Slim-Fly',
+  'optical-fabric': 'Optical Fabric',
+  'hierarchical-mesh': 'Hierarchical Mesh',
+  'star-burst': 'Star-Burst',
+  'single-switch': 'Single-Switch',
+  'other': 'Other'
+};
+
+const ROWS: Row[] = [
+  { label_zh: '拓扑', label_en: 'Topology', format: (s) => topoLabelMap[s.network_topology!.topology] ?? s.network_topology!.topology },
+  { label_zh: '直径 (跳)', label_en: 'Diameter', format: (s) => s.network_topology!.diameter_hops !== undefined ? `${s.network_topology!.diameter_hops}` : '—', highlight: 'min' },
+  { label_zh: 'Bisection / 节点', label_en: 'Bisection / node', format: (s) => s.network_topology!.bisection_bandwidth_gbps_per_node !== undefined ? `${s.network_topology!.bisection_bandwidth_gbps_per_node} GB/s` : '—', highlight: 'max' },
+  { label_zh: '节点内 latency p99', label_en: 'Intra-node p99', format: (s) => s.network_topology!.latency_us_p99_intra_node !== undefined ? `${s.network_topology!.latency_us_p99_intra_node} μs` : '—', highlight: 'min' },
+  { label_zh: '跨节点 latency p99', label_en: 'Inter-node p99', format: (s) => s.network_topology!.latency_us_p99_inter_node !== undefined ? `${s.network_topology!.latency_us_p99_inter_node} μs` : '—', highlight: 'min' },
+  { label_zh: 'Switch chip 数', label_en: 'Switch count', format: (s) => s.network_topology!.switch_count !== undefined ? `${s.network_topology!.switch_count}` : '—' },
+  { label_zh: 'In-network reduction', label_en: 'In-network reduction', format: (s) => s.network_topology!.in_network_reduction ? '✓ SHARP / 类似' : '—' },
+  { label_zh: 'RDMA', label_en: 'RDMA', format: (s) => s.network_topology!.rdma_capable ? '✓' : '—' },
+  { label_zh: 'GPU 总数', label_en: 'Total GPUs', format: (s) => `${s.card_count}× ${s.card}` },
+  { label_zh: 'Notes', label_en: 'Notes', format: (s) => s.network_topology!.notes ?? '—' }
+];
+
+function extractNumber(s: string): number | null {
+  const match = s.match(/^([\d.]+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function findHighlightId(row: Row): string | null {
+  if (!row.highlight) return null;
+  const nums = serversWithTopo.map((s) => ({ id: s.id, n: extractNumber(row.format(s)) }));
+  const valid = nums.filter((x) => x.n !== null);
+  if (valid.length === 0) return null;
+  const winner = valid.reduce((best, cur) => {
+    if (best.n === null) return cur;
+    if (cur.n === null) return best;
+    if (row.highlight === 'max' && cur.n > best.n) return cur;
+    if (row.highlight === 'min' && cur.n < best.n) return cur;
+    return best;
+  });
+  return winner.id;
+}
+
+// Topology family distribution stats
+const topoCounts = new Map<string, number>();
+for (const s of serversWithTopo) {
+  topoCounts.set(s.network_topology!.topology, (topoCounts.get(s.network_topology!.topology) ?? 0) + 1);
+}
+const totalServers = allServers.length;
+const populated = serversWithTopo.length;
+const reductionCount = serversWithTopo.filter((s) => s.network_topology!.in_network_reduction).length;
+---
+<BaseLayout title="超节点 网络拓扑对照 / Network Topology Matrix">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        SERVERS · NETWORK TOPOLOGY MATRIX
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        网络拓扑对照矩阵
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        网络拓扑决定 cluster-scale all-reduce 性能上限. NVL72 用 full-mesh + SHARP-3
+        把 72 卡变成单 NVLink domain; HGX H100/H200 用 rail-optimized fat-tree;
+        El Capitan 用 dragonfly+ 跑 11000+ blade; AWS Trn2 用 2D-torus; CloudMatrix 384
+        用全光纤 fabric. 每行 <span style="color: var(--color-accent);">★</span> 标记最优值.
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{populated}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">已填 network_topology / {totalServers} 总数</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{topoCounts.size}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">不同拓扑家族</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{reductionCount}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">含 in-network reduction (SHARP)</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{ROWS.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">对比维度</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="topo-distribution-heading">
+      <h2 id="topo-distribution-heading" class="text-lg font-semibold mb-3">拓扑家族分布</h2>
+      <div class="flex flex-wrap gap-2 text-xs">
+        {Array.from(topoCounts.entries()).sort((a, b) => b[1] - a[1]).map(([topo, count]) => (
+          <span class="px-3 py-1.5 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised); color: var(--color-text);">
+            <strong style="color: var(--color-accent);">{topoLabelMap[topo] ?? topo}</strong>
+            <span class="ml-2" style="color: var(--color-text-muted);">×{count}</span>
+          </span>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="matrix-heading">
+      <h2 id="matrix-heading" class="text-lg font-semibold mb-3">网络拓扑详情对照</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" style="border-collapse: collapse; min-width: 720px;" data-testid="network-topology-matrix">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--color-border);">
+              <th class="text-left py-3 px-3 font-semibold sticky left-0" style="color: var(--color-text-muted); background: var(--color-bg);">维度 / Axis</th>
+              {serversWithTopo.map((s) => (
+                <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text); min-width: 220px;">
+                  <a href={pathname(`/servers/${s.id}/`)} class="hover:underline" style="color: var(--color-accent);">{s.name}</a>
+                  <div class="text-xs font-normal mt-0.5" style="color: var(--color-text-muted);">{s.id}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ROWS.map((row) => {
+              const winnerId = findHighlightId(row);
+              return (
+                <tr style="border-bottom: 1px solid var(--color-border);" data-testid={`topology-row-${row.label_en.toLowerCase().replace(/\s+/g, '-').replace(/\//g, '')}`}>
+                  <td class="py-2.5 px-3 align-top text-xs sticky left-0" style="background: var(--color-bg);">
+                    <div class="font-semibold" style="color: var(--color-text);">{row.label_zh}</div>
+                    <div class="font-normal" style="color: var(--color-text-muted);">{row.label_en}</div>
+                  </td>
+                  {serversWithTopo.map((s) => {
+                    const isWinner = winnerId === s.id;
+                    return (
+                      <td class="py-2.5 px-3 align-top text-xs" style={isWinner
+                        ? 'color: var(--color-accent); font-weight: 600; background: color-mix(in oklch, var(--color-accent) 5%, transparent);'
+                        : 'color: var(--color-text);'}>
+                        {row.format(s)}
+                        {isWinner && <span class="ml-1" aria-label="best in this row">★</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="why-heading">
+      <h2 id="why-heading" class="text-lg font-semibold mb-3">为什么网络拓扑重要</h2>
+      <div class="grid lg:grid-cols-2 gap-4 text-sm">
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">1. 直径决定 all-reduce 上限</h3>
+          <p style="color: var(--color-text-muted);">
+            All-reduce 性能受最长路径主导. NVL72 (1 跳) 让 72 卡 all-reduce 接近单卡 NVLink 速度;
+            HGX-H100 跨节点 (3 跳 fat-tree) 慢 3-5x; 大规模 dragonfly+ (5 跳) 是规模 vs 跳数的折中.
+            选拓扑前先想 (model size × cluster size) 决定的 all-reduce frequency.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">2. SHARP / in-network reduction 是放大器</h3>
+          <p style="color: var(--color-text-muted);">
+            Switch 自己做 sum (SHARP / lingqu in-network) 让 all-reduce bandwidth 放大 1.5-2x —
+            集群越大效果越显著. NVL72 + IB SHARP-3, CloudMatrix 384 lingqu, 是当下两条 SHARP-class
+            路径. RoCE 标准没有, 所以 MI325X / Atlas 900 / KUAE 在大规模 all-reduce 上吃亏.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">3. Torus 适合规则通信, 不适合 all-to-all</h3>
+          <p style="color: var(--color-text-muted);">
+            AWS Trn2 用 2D-torus 是因为没有中央 switch — 邻居 1 跳, 但 unstructured all-to-all
+            (例如 MoE EP) 多跳很贵. 适合 dense LLM TP / PP, 不适合大型 MoE EP.
+            <a href={pathname('/patterns/tp-allreduce-overlap/')} class="hover:underline" style="color: var(--color-accent);">TP all-reduce overlap</a>
+            在 torus 上效果还可以, MoE 路由就难了.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">4. Optical fabric 是华为方案对标</h3>
+          <p style="color: var(--color-text-muted);">
+            CloudMatrix 384 用全光纤 fabric (lingqu) — 384 卡 ≤2 跳, 比 NVL72 (72 卡 1 跳)
+            规模大 5x, 但 latency 更高一些. 是国央企对标 NVIDIA NVL72 的方案核心.
+            <a href={pathname('/learn/tours/dsv4pro-cloudmatrix-384-mindie/')} class="hover:underline" style="color: var(--color-accent);">国央企 reasoning tour</a>
+            走的就是这条 fabric.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          看 host CPU 对照, 走 <a href={pathname('/servers/host-cpu-matrix/')} style="color: var(--color-accent);" class="hover:underline">/servers/host-cpu-matrix/</a>;
+          看 cluster-internal 完整对比, 走 <a href={pathname('/servers/compare/')} style="color: var(--color-accent);" class="hover:underline">/servers/compare/</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/servers/host-cpu-matrix/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">Host CPU 对照矩阵 →</a>
+          <a href={pathname('/servers/compare/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">超节点 cluster 对比 →</a>
+          <a href={pathname('/patterns/tp-allreduce-overlap/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">TP all-reduce overlap →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

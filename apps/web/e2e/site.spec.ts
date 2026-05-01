@@ -576,6 +576,95 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.28: network_topology on every super-pod (14/14) + matrix view + 2 fused kernels + Cambricon tour', () => {
+  test('/servers/network-topology-matrix/ renders matrix + topology distribution', async ({ page }) => {
+    await page.goto('/servers/network-topology-matrix/');
+    await expect(page.getByRole('heading', { name: /网络拓扑对照|Network Topology Matrix/i }).first()).toBeVisible();
+    await expect(page.getByTestId('network-topology-matrix').first()).toBeVisible();
+    // Stats: in-network reduction count + topology family count
+    await expect(page.getByText(/含 in-network reduction|in-network reduction/i).first()).toBeVisible();
+  });
+
+  test('Network topology matrix shows multiple topology families (full-mesh / fat-tree / dragonfly / torus / optical)', async ({ page }) => {
+    await page.goto('/servers/network-topology-matrix/');
+    // At least 4 distinct topology families visible
+    await expect(page.getByText(/Full-Mesh/i).first()).toBeVisible();
+    await expect(page.getByText(/Fat-Tree/i).first()).toBeVisible();
+    await expect(page.getByText(/Dragonfly/i).first()).toBeVisible();
+    await expect(page.getByText(/2D-Torus/i).first()).toBeVisible();
+    await expect(page.getByText(/Optical Fabric/i).first()).toBeVisible();
+  });
+
+  test('Network topology matrix surfaces "why network topology matters" educational section', async ({ page }) => {
+    await page.goto('/servers/network-topology-matrix/');
+    await expect(page.getByText(/为什么网络拓扑重要/i).first()).toBeVisible();
+    // Cross-link to tp-allreduce-overlap pattern
+    await expect(page.locator('a[href*="/patterns/tp-allreduce-overlap"]').first()).toBeVisible();
+  });
+
+  test('Per-server detail page surfaces network-topology card on GB200 NVL72 (full-mesh + in-network reduction)', async ({ page }) => {
+    await page.goto('/servers/nvidia-gb200-nvl72/');
+    const card = page.locator('[data-testid="network-topology-card"]').first();
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(/Full-Mesh/);
+    await expect(card).toContainText(/In-Network/);
+    // Cross-link to network-topology-matrix
+    await expect(card.locator('a[href*="/servers/network-topology-matrix"]')).toHaveCount(1);
+  });
+
+  test('Per-server detail page shows network topology on El Capitan (dragonfly+)', async ({ page }) => {
+    await page.goto('/servers/amd-mi300a-supercomputer/');
+    const card = page.locator('[data-testid="network-topology-card"]').first();
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(/Dragonfly/);
+  });
+
+  test('Per-server detail page shows network topology on AWS Trn2 UltraServer (2d-torus)', async ({ page }) => {
+    await page.goto('/servers/aws-trn2-ultraserver/');
+    const card = page.locator('[data-testid="network-topology-card"]').first();
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(/2D-Torus/);
+  });
+
+  test('All 14 super-pods now have network_topology rendered (100%)', async ({ page }) => {
+    const slugs = [
+      'nvidia-hgx-h100', 'nvidia-hgx-h200', 'nvidia-gb200-nvl72', 'nvidia-gb300-nvl72',
+      'nvidia-dgx-a100', 'amd-mi325x-platform', 'amd-mi300a-supercomputer',
+      'aws-trn2-ultraserver', 'huawei-cloudmatrix-384', 'huawei-atlas-900-superpod',
+      'huawei-atlas-800t-a3', 'cambricon-mlu590-pod', 'cambricon-x8-server',
+      'moore-threads-kuae'
+    ];
+    for (const slug of slugs) {
+      await page.goto(`/servers/${slug}/`);
+      await expect(page.locator('[data-testid="network-topology-card"]').first()).toBeVisible();
+    }
+  });
+
+  test('Tools dropdown contains the new network-topology-matrix link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="tools"]').first();
+    await expect(dd.locator('a[href*="/servers/network-topology-matrix"]').first()).toHaveCount(1);
+  });
+
+  test('Fused RMSNorm + Residual + Quantize kernel visible (FP8 fast-path)', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-rmsnorm-residual-quantize/');
+    await expect(page.getByText(/Fused RMSNorm.*Quantize|FP8.*INT8/i).first()).toBeVisible();
+    await expect(page.getByText(/TransformerEngine|MindIE|Flashinfer/i).first()).toBeVisible();
+  });
+
+  test('Fused All-Gather + GEMM kernel visible (column-wise TP)', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-allgather-gemm/');
+    await expect(page.getByText(/All-Gather|column-wise TP|async-tp/i).first()).toBeVisible();
+    await expect(page.getByText(/Megatron|tp-comm-overlap/i).first()).toBeVisible();
+  });
+
+  test('Cambricon MLU590 tour visible (Kimi K2.6 × 16 cards, vLLM-MLU)', async ({ page }) => {
+    await page.goto('/learn/tours/kimi-k26-mlu590-x16-vllm-bf16/');
+    await expect(page.getByText(/MLU590|思元|Kimi K2\.6/i).first()).toBeVisible();
+    await expect(page.getByText(/vLLM-MLU|Neuware|Cambricon/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.27: IA redesign — Nav dropdowns + homepage sections + host_cpu on per-server detail', () => {
   test('Nav exposes 4 grouped dropdowns (learn / optimize / tools / about)', async ({ page }) => {
     await page.goto('/');

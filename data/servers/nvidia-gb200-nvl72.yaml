@@ -48,6 +48,20 @@ host_cpu:
   host_ram_gb: 480
   has_coherent_gpu_link: true
   notes: 'NVLink-C2C 让 Grace CPU 与 Blackwell GPU 在同一 cache-coherent 域 (900 GB/s 双向). 这是 NVL72 区别 Hopper HGX 的关键 — Grace + Blackwell 一起 packaged, host RAM 实际可被 GPU 当作 tier-2 HBM 用 (zero-copy hot-cold KV tiering 走这条).'
+network_topology:
+  topology: full-mesh
+  in_network_reduction: true
+  diameter_hops: 1
+  bisection_bandwidth_gbps_per_node: 14400
+  latency_us_p99_intra_node: 0.4
+  latency_us_p99_inter_node: 0.6
+  switch_count: 18
+  rdma_capable: true
+  notes: |
+    NVL72 是单 NVLink-5 domain — 全 72 卡通过 NVSwitch full-mesh 互联,
+    任意 GPU 对之间 1 跳, 18 个 NVSwitch chip 提供 1.8 TB/s/GPU bidirectional.
+    跨 NVL72 出口走 IB XDR (800 Gb/s/NIC), 但 super-pod 内部不需要 IB.
+    SHARP-3 in-network all-reduce 在 NVL72 fabric 内可用 — TP 通信带宽实际放大 1.5-2x.
 cabinet_layout_md: |
   ## NVL72 机柜布局 / Cabinet layout
 

@@ -59,6 +59,51 @@ const HostCpuSchema = z.object({
 });
 
 /**
+ * Network-topology detail at the cluster level. Different topologies have
+ * dramatically different all-reduce / all-to-all scaling behavior — fat-tree
+ * with rail-optimized RDMA suits dense LLM TP, dragonfly+ minimizes longest-
+ * path hops at scale, 2D/3D-torus is what wafer-scale and Trainium UltraServer
+ * use. The shape of the inter-node fabric is the architectural divider.
+ *
+ * v1.28+: previously the bare `inter_node_interconnect` enum (RoCEv2 / IB-XDR /
+ * Slingshot / etc.) told you the link type but not how the cluster is wired.
+ */
+const NetworkTopologySchema = z.object({
+  /** Topology family. */
+  topology: z.enum([
+    'fat-tree',
+    'fat-tree-rail-optimized',
+    'dragonfly-plus',
+    'full-mesh',
+    '2d-torus',
+    '3d-torus',
+    '4d-torus',
+    'slim-fly',
+    'optical-fabric',
+    'hierarchical-mesh',
+    'star-burst',
+    'single-switch',
+    'other'
+  ]),
+  /** Whether the fabric supports SHARP-style in-network reduction. */
+  in_network_reduction: z.boolean().optional(),
+  /** Diameter — max hop count between any pair of GPUs in the cluster. */
+  diameter_hops: z.number().int().positive().optional(),
+  /** Per-node bisection bandwidth out of the node, in GB/s. */
+  bisection_bandwidth_gbps_per_node: z.number().positive().optional(),
+  /** Inter-node p99 latency in microseconds (real-world, not best-case). */
+  latency_us_p99_inter_node: z.number().positive().optional(),
+  /** Intra-node p99 latency in microseconds (between two GPUs in same node). */
+  latency_us_p99_intra_node: z.number().positive().optional(),
+  /** Total inter-node fabric switch chip count. */
+  switch_count: z.number().int().nonnegative().optional(),
+  /** Whether RDMA is supported on the inter-node fabric. */
+  rdma_capable: z.boolean().optional(),
+  /** Free-text notes — what's distinctive about this topology choice. */
+  notes: z.string().optional()
+});
+
+/**
  * Power-distribution detail at the rack/super-pod level. Sustained vs
  * peak matters because real datacenter PUE budgets live on sustained
  * draw, not the spec-sheet peak.
@@ -114,6 +159,10 @@ export const ServerSchema = z.object({
    *  Kunpeng across super-pods via /servers/host-cpu-matrix/. */
   host_cpu: HostCpuSchema.optional(),
 
+  /** Network topology detail. v1.28+: lets readers compare fat-tree vs
+   *  dragonfly+ vs torus across super-pods via /servers/network-topology/. */
+  network_topology: NetworkTopologySchema.optional(),
+
   /** Free-form markdown describing rack/cabinet layout. */
   cabinet_layout_md: z.string().optional(),
 
@@ -126,3 +175,4 @@ export type Server = z.infer<typeof ServerSchema>;
 export type SwitchChip = z.infer<typeof SwitchChipSchema>;
 export type PowerDistribution = z.infer<typeof PowerDistributionSchema>;
 export type HostCpu = z.infer<typeof HostCpuSchema>;
+export type NetworkTopology = z.infer<typeof NetworkTopologySchema>;

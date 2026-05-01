@@ -6,14 +6,73 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.28+ horizon)
-- Cambricon MLU590 tour (China stack diversification)
+### Planned (v1.29+ horizon)
 - Public submission portal (case YAML web form)
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - More tours: SD3 / Flux on Hopper (diffusion — needs schema work for non-LLM models)
 - Auto-translated vendor doc summaries via build-time API
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import
+- Storage architecture (parallel FS, GDS, NVMe locality) — third architectural axis after host_cpu + network_topology
+
+---
+
+## [1.28.0] — 2026-05-02
+
+Continuing the gap-1 cluster-internal depth push from v1.27. Added the **other** architectural divider — network topology — mirroring the host_cpu pattern (schema field + per-server card + matrix view). Plus the deferred Cambricon MLU590 tour and 2 more fused kernels filling operator-fusion gaps.
+
+### Added
+
+**`network_topology` server schema field**:
+- 11 enum values: fat-tree, fat-tree-rail-optimized, dragonfly-plus, full-mesh, 2d-torus, 3d-torus, 4d-torus, slim-fly, optical-fabric, hierarchical-mesh, star-burst, single-switch
+- Fields: `topology`, `in_network_reduction`, `diameter_hops`, `bisection_bandwidth_gbps_per_node`, `latency_us_p99_intra_node`, `latency_us_p99_inter_node`, `switch_count`, `rdma_capable`, `notes`
+
+**`network_topology` populated on all 14 super-pods (100%)**:
+- NVL72 / GB300 NVL72 — full-mesh + SHARP-3 in-network reduction (1 hop, 14.4 TB/s/node bisection)
+- HGX H100 / H200 — fat-tree-rail-optimized + SHARP-2 (3 hops typical)
+- DGX A100 — fat-tree-rail-optimized + SHARP-1 (Ampere era, 200G HDR IB)
+- MI325X Platform — switchless full-mesh (Infinity Fabric P2P, no central switch)
+- El Capitan EX255a — dragonfly+ (Slingshot-11, 11000+ blades, 5 hops)
+- AWS Trn2 UltraServer — 2D-torus (NeuronLink-v3, switchless)
+- CloudMatrix 384 — optical-fabric (lingqu, 384 cards ≤2 hops, in-network reduction)
+- Atlas 900 SuperPoD — hierarchical-mesh (8 cabinets × 32 cards, RoCE-400G inter-cabinet)
+- Atlas 800T A3 / Cambricon X8 — single-switch single-node
+- Cambricon MLU590-pod / Moore Threads KUAE — hierarchical-mesh (RoCE-200G inter-node)
+
+**`/servers/network-topology-matrix/`** (NEW comparison view):
+- 10-dimension side-by-side table: topology / diameter / bisection / intra-latency / inter-latency / switch count / in-network reduction / RDMA / GPU count / notes
+- Best-value highlighting (lowest hop diameter, lowest latency, highest bisection)
+- Topology family distribution chips (5 families covered)
+- "Why network topology matters" educational section with 4 trade-off cards
+- Cross-links to tp-allreduce-overlap pattern + 国央企 reasoning tour
+
+**Per-server detail page surfaces network_topology**:
+- New "网络拓扑" card alongside host_cpu, switch_chips, power
+- Accent border when `in_network_reduction === true` (visual encoding for SHARP-class fabrics)
+- All 9 network_topology fields rendered
+- Cross-link to `/servers/network-topology-matrix/`
+
+**2 more fused kernels** (22 → 24):
+- `fused-rmsnorm-residual-quantize`: extends fused-rmsnorm-residual by also fusing FP8/INT8 quant. Critical for FP8 inference hot path — without this, intermediate BF16 tensor wastes ~40% norm-stage HBM bandwidth. Implemented in vLLM 0.7+, TRT-LLM 0.13+, MindIE 2.0
+- `fused-allgather-gemm`: column-wise TP dual to fused-tp-allreduce-residual (which is RS+AR for row-wise TP). Megatron-LM async-tp + vLLM async-tp + TRT-LLM AG+GEMM plugin all implement this
+
+**1 more tour** (7 → 8) — completing the China stack diversification:
+- `kimi-k26-mlu590-x16-vllm-bf16`: Cambricon 思元 590 × 2 节点 16 卡, Kimi K2.6 1T MoE, vLLM-MLU community port. Surfaces 国产 LLM 部署的非华为路径 — vLLM-MLU 比 CANN+MindIE 接近 NVIDIA 体验, 但量化路径成熟度滞后 6-9 月
+
+### Stats
+- 346/346 site E2E pass (+11 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14 (**14 with host_cpu + 14 with network_topology**), model: 19, case: 38, **fused-kernel: 24**, playbook: 24, pattern: 21, operator: 25, citation: 1, **tour: 8**
+- Build: 412 pages
+
+### Tour spectrum (8 tours = full deployment span):
+- 端侧/edge: Qwen 2.5 7B × Jetson Orin
+- 单节点 NVIDIA: Llama 4 Scout × H200
+- 单节点 AMD: Qwen 3.6 Plus × MI325X
+- 单节点 Intel: GPT-OSS × Gaudi 3
+- 跨节点 Hopper: DSv4 Flash disagg × H100/H200
+- 国央企 super-pod (Ascend): DSv4 Pro × CloudMatrix 384
+- 国央企 alt path (Cambricon, NEW): Kimi K2.6 × MLU590 × 16
+- Frontier super-pod: Llama 4 Maverick × NVL72
 
 ---
 

@@ -28,8 +28,10 @@ const hasClusterDetail = (server.switch_chips?.length ?? 0) > 0
   || server.oversubscription_ratio !== undefined
   || server.bisection_bandwidth_tbs
   || server.host_cpu
+  || server.network_topology
   || cabinetMd;
 const hostCpu = server.host_cpu;
+const netTopo = server.network_topology;
 // Architecture label kept short for chip; full description shown in row.
 const archLabelMap: Record<string, string> = {
   'arm-neoverse-v2': 'ARM Neoverse V2',
@@ -42,6 +44,22 @@ const archLabelMap: Record<string, string> = {
   'x86-emerald-rapids': 'x86 Emerald Rapids',
   'x86-granite-rapids': 'x86 Granite Rapids',
   'risc-v': 'RISC-V',
+  'other': 'Other'
+};
+// Topology family — same pattern as archLabelMap.
+const topoLabelMap: Record<string, string> = {
+  'fat-tree': 'Fat-Tree',
+  'fat-tree-rail-optimized': 'Fat-Tree (rail-optimized)',
+  'dragonfly-plus': 'Dragonfly+',
+  'full-mesh': 'Full-Mesh',
+  '2d-torus': '2D-Torus',
+  '3d-torus': '3D-Torus',
+  '4d-torus': '4D-Torus',
+  'slim-fly': 'Slim-Fly',
+  'optical-fabric': 'Optical Fabric',
+  'hierarchical-mesh': 'Hierarchical Mesh',
+  'star-burst': 'Star-Burst',
+  'single-switch': 'Single-Switch',
   'other': 'Other'
 };
 ---
@@ -187,6 +205,40 @@ const archLabelMap: Record<string, string> = {
               <div class="px-4 py-2 border-t text-xs" style="border-color: var(--color-border);">
                 <a href={pathname('/servers/host-cpu-matrix/')} class="hover:underline" style="color: var(--color-accent);">
                   → 14/14 super-pod host CPU 对照矩阵
+                </a>
+              </div>
+            </div>
+          )}
+
+          {netTopo && (
+            <div class="rounded-lg border" data-testid="network-topology-card" style={`border-color: ${netTopo.in_network_reduction ? 'var(--color-accent)' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+              <div class="px-4 py-3 border-b" style="border-color: var(--color-border);">
+                <h4 class="text-sm font-semibold flex items-center gap-2">
+                  网络拓扑
+                  {netTopo.in_network_reduction && <Badge variant="default">In-Network Reduction</Badge>}
+                </h4>
+                <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  {topoLabelMap[netTopo.topology] ?? netTopo.topology}
+                </p>
+              </div>
+              <div>
+                <SpecRow label="拓扑">{topoLabelMap[netTopo.topology] ?? netTopo.topology}</SpecRow>
+                {netTopo.diameter_hops !== undefined && <SpecRow label="网络直径">{netTopo.diameter_hops} 跳</SpecRow>}
+                {netTopo.bisection_bandwidth_gbps_per_node !== undefined && <SpecRow label="Bisection / 节点">{netTopo.bisection_bandwidth_gbps_per_node} GB/s</SpecRow>}
+                {netTopo.latency_us_p99_intra_node !== undefined && <SpecRow label="节点内 latency p99">{netTopo.latency_us_p99_intra_node} μs</SpecRow>}
+                {netTopo.latency_us_p99_inter_node !== undefined && <SpecRow label="跨节点 latency p99">{netTopo.latency_us_p99_inter_node} μs</SpecRow>}
+                {netTopo.switch_count !== undefined && <SpecRow label="Switch chip 数">{netTopo.switch_count}</SpecRow>}
+                <SpecRow label="In-network reduction">{netTopo.in_network_reduction ? '✓ SHARP / 类似' : '— 不支持'}</SpecRow>
+                <SpecRow label="RDMA">{netTopo.rdma_capable ? '✓ 支持' : '— 不支持'}</SpecRow>
+              </div>
+              {netTopo.notes && (
+                <div class="px-4 py-3 border-t text-xs" style="border-color: var(--color-border); color: var(--color-text-muted); line-height: 1.6; white-space: pre-line;">
+                  {netTopo.notes}
+                </div>
+              )}
+              <div class="px-4 py-2 border-t text-xs" style="border-color: var(--color-border);">
+                <a href={pathname('/servers/network-topology-matrix/')} class="hover:underline" style="color: var(--color-accent);">
+                  → 14/14 super-pod 网络拓扑对照矩阵
                 </a>
               </div>
             </div>

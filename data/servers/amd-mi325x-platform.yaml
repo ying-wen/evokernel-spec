@@ -45,6 +45,21 @@ host_cpu:
   host_ram_gb: 3072
   has_coherent_gpu_link: false
   notes: 'AMD MI325X Platform 几乎都配 EPYC Genoa (同厂软硬一体). 192 cores per node 让 vLLM/SGLang router + KV cache 处理 host-side 任务时不卡 — 跟 Sapphire Rapids 同代但 core 数更多. 没有 GPU-coherent 链路 — Infinity Fabric 在 GPU 之间, 不延伸到 host.'
+network_topology:
+  topology: full-mesh
+  in_network_reduction: false
+  diameter_hops: 1
+  bisection_bandwidth_gbps_per_node: 7168
+  latency_us_p99_intra_node: 0.5
+  latency_us_p99_inter_node: 2.8
+  switch_count: 0
+  rdma_capable: true
+  notes: |
+    MI325X Platform 用 Infinity Fabric P2P **switchless full-mesh** — 8 OAM 之间
+    每对直连 (无中央 switch chip), 任意 GPU 对 1 跳, 节省 switch 成本和故障域.
+    跨节点出 8 × 400G RoCE-v2 NIC 走 rail-optimized fat-tree, 但 RDMA 没有 SHARP
+    in-network reduction (开放标准 RoCE, 不像 NVIDIA 专有 SHARP). 全 P2P 拓扑是
+    AMD 与 NVIDIA NVSwitch 路径的关键架构区别.
 cabinet_layout_md: |
   ## AMD MI325X 8-OAM Platform 布局 / Baseboard layout
 

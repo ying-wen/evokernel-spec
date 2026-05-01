@@ -50,6 +50,20 @@ host_cpu:
   host_ram_gb: 2048
   has_coherent_gpu_link: false
   notes: 'H200 上的 host 选择与 H100 类似 (Sapphire / Emerald Rapids 或 EPYC Genoa). H200 的差异在 GPU 端 (HBM3e 141GB), host 一致. 部分 OEM 走 EPYC 9654 路径 (96 cores/socket → 192 cores/node) 适合长 context 大 batch 工作负载.'
+network_topology:
+  topology: fat-tree-rail-optimized
+  in_network_reduction: true
+  diameter_hops: 3
+  bisection_bandwidth_gbps_per_node: 3200
+  latency_us_p99_intra_node: 0.5
+  latency_us_p99_inter_node: 2.5
+  switch_count: 4
+  rdma_capable: true
+  notes: |
+    HGX H200 与 H100 共用同一 NVSwitch Gen-3 fabric 设计 — 4 NVSwitch 单节点全连接,
+    跨节点 8 × 400G IB ConnectX-7 走 rail-optimized fat-tree. SHARP-2 in-network reduction
+    继承自 H100 部署规范. H200 的 HBM3e 提升让单卡 KV 容量增加, 但 inter-node
+    fabric 没有变化 — 跨节点 all-reduce 性能与 H100 等价.
 cabinet_layout_md: |
   ## HGX H200 8-GPU 机箱布局 / Chassis layout
 

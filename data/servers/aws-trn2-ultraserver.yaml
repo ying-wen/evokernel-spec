@@ -51,6 +51,21 @@ host_cpu:
   host_ram_gb: 768
   has_coherent_gpu_link: false
   notes: 'AWS Trn2 UltraServer 是云专属设计 — host 是 Graviton4 (AWS 自研 ARM 服务器 CPU), 与 Trainium 2 通过 NeuronLink-v3 互联. 不能在 EC2 之外购买. Graviton 架构与 Grace 同代但没有 GPU-coherent 链路 (NeuronLink 只在 Trainium 之间).'
+network_topology:
+  topology: 2d-torus
+  in_network_reduction: false
+  diameter_hops: 4
+  bisection_bandwidth_gbps_per_node: 1600
+  latency_us_p99_intra_node: 0.8
+  latency_us_p99_inter_node: 3.0
+  switch_count: 0
+  rdma_capable: true
+  notes: |
+    Trn2 UltraServer 把 64 Trainium 2 chip 通过 NeuronLink-v3 组织成 **2D-torus**
+    拓扑 — 没有中央 switch, 每个 chip 与上下左右邻居直连. Torus 的优势是
+    cost (no switches) + 局部通信效率高 (邻居 1 跳); 缺点是非邻居需要多跳,
+    对 unstructured all-to-all (例如 MoE EP) 不友好. AWS 选 torus 是为了规模:
+    通常 EC2 trn2 实例规模较大, dragonfly+ overhead 大.
 cabinet_layout_md: |
   ## Trn2 UltraServer 布局 / Layout
 
