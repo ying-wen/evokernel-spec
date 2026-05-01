@@ -6,13 +6,13 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.37+ horizon
+### v1.38+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
 **Tier 1 remaining**:
 - Citation PR onboarding (community work)
-- More tours (Kimi K2.6 reasoning on B200, GPT-OSS on Atlas, SD3/Flux video)
+- 1-2 more tours possible (video diffusion / Llama 4 Behemoth on NVL72 — but archetype coverage is now strong)
 
 **Tier 2 (medium-leverage)**:
 - Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
@@ -25,6 +25,50 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.37.0] — 2026-05-02
+
+**2 more tours** closing the remaining archetype combos. Tour spectrum: 9 → 11. Kimi K2.6 reasoning on Blackwell adds the "frontier reasoning + Blackwell FP4" path; GPT-OSS on Atlas single-node adds "国产 信创 alt path beyond DeepSeek/CloudMatrix."
+
+### Added
+
+**Tour: Kimi K2.6 reasoning × 4× B200** (`kimi-k26-b200x4-trtllm-fp4`):
+- Frontier reasoning on Blackwell single-server (4-card NVLink-5 domain, 768 GB total HBM)
+- TRT-LLM 0.13 FP4 + KV-INT8 + MTP head (82% accept rate on math/code)
+- Decode 4200 tok/s/card on long CoT 8K+ workload — ~2.3x Atlas 800T INT8 baseline at 2-3x $/token premium
+- Quality canary specifically calls out "AIME / MATH / GSM-8K canary, not just MMLU" — reasoning quality drift is invisible to standard chat benchmarks
+- Forms frontier-vs-信创 reasoning double with v1.30's reasoning-llm-on-ascend-cluster
+
+**Tour: GPT-OSS 120B × Atlas 800T A3 8-card** (`gptoss-atlas-800t-mindie`):
+- OpenAI's first open-source release (Apache 2.0, Aug 2025) on 国产 信创 single-node
+- MindIE 2.0.RC1 INT8 path with Ascend INT8 calibration tuned for OpenAI-style instructions
+- Single-node deployment (vs cross-node CloudMatrix 384) — entry path for mid-size 国央企 GPT-OSS pilots
+- Captures the "early adopter waited 5 months for stable inference" reality of OpenAI-on-Ascend
+- Surfaces 国产 推理 三路径 mental model: Ascend single-node (this) / Ascend super-pod (CloudMatrix) / Cambricon (MLU590)
+
+**2 supporting cases**:
+- `case-kimi-k26-b200x4-trtllm-fp4-001` — measured: decode 4200 tok/s/card, P99 TBT 55ms, AIME quality verified
+- `case-gptoss-atlas800t-mindie-001` — measured: decode 1450 tok/s/card, INT8 calibration set choice (OpenAI-style vs Chinese instruction) documented as common gotcha
+
+### Tour spectrum (now 11-wide):
+- 端侧: Qwen 2.5 7B × Jetson Orin
+- 单节点 NVIDIA: Llama 4 Scout × H200
+- 单节点 AMD: Qwen 3.6 Plus × MI325X
+- 单节点 Intel: GPT-OSS × Gaudi 3
+- **单节点 Ascend (国产, NEW)**: GPT-OSS × Atlas 800T A3
+- 跨节点 Hopper: DSv4 Flash disagg × H100/H200
+- 国央企 super-pod (Ascend): DSv4 Pro × CloudMatrix 384
+- 国央企 alt (Cambricon): Kimi K2.6 × MLU590 × 16
+- Frontier super-pod (multi-modal): Llama 4 Maverick × NVL72
+- **Frontier reasoning (NEW)**: Kimi K2.6 × 4× B200
+- Diffusion: FLUX.1 [dev] 12B × H200
+
+### Stats
+- 407/407 site E2E pass (+5 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 20, **case: 41** (+2), fused-kernel: 24, playbook: 24, pattern: 24, operator: 29, citation: 1, **tour: 11** (+2)
+- Build: 437 pages
 
 ---
 

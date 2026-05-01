@@ -1,0 +1,88 @@
+id: gptoss-atlas-800t-mindie
+title: 'GPT-OSS 120B × Atlas 800T A3 8-card (国产 Ascend 单节点)'
+context_zh: 'OpenAI GPT-OSS 在国产 信创 单节点 · Ascend 910C × 8 + MindIE 2.0 INT8 · 信创合规 alt path'
+case_id: case-gptoss-atlas800t-mindie-001
+playbook_id: moe-llm-large-on-ascend-cluster
+display_order: 17
+why_it_matters: |
+  GPT-OSS (OpenAI Aug 2025 首次开源 120B-A4B MoE) 是 LLM 领域最具象征意义的 Apache 2.0 模型 —
+  国央企部署 GPT-OSS 是 "信创合规" + "OpenAI 生态" 双满足的场景. 这条 tour 走单节点 Atlas 800T A3
+  (vs CloudMatrix 384 super-pod) 是中型企业 + 部门级国央企的入门路径. 与 v1.30 的 reasoning-llm-on-
+  ascend-cluster (DeepSeek R1 super-pod) 和 v1.28 的 Cambricon Kimi K2.6 形成 完整国产推理 三路径
+  对照: Ascend single-node (本 tour) / Ascend super-pod (CloudMatrix) / Cambricon (MLU590).
+
+stages:
+  - stage_id: acquire
+    decision: 'openai/gpt-oss-120b — HuggingFace + 国内 ModelScope 镜像'
+    rationale: |
+      GPT-OSS 是 Apache 2.0 — 商用零限制, 不需要登记. 这与 Llama 4 (Meta Community License)
+      / Kimi K2.6 (Moonshot License) 不同. ModelScope 镜像加速 5-10x 拉权重 ~1 hour for
+      120B MoE BF16 (~240 GB).
+    pitfall: |
+      早期 (2025-08) 国内没有官方 mirror, 需要 VPN. 2026 Q1 ModelScope 已镜像稳定.
+
+  - stage_id: convert
+    decision: 'Safetensors → MindIE checkpoint (CANN 9.0 toolkit 转换)'
+    rationale: |
+      MindIE 2.0+ 支持直读 HuggingFace safetensors, 但生产部署用 CANN 9.0 提供的 model_convert
+      工具转 OM (Offline Model) 格式获取最佳性能. 转换 ~25 min for GPT-OSS 120B.
+    pitfall: |
+      GPT-OSS 在 CANN 9.0 早期 release (2025-09 ~ 2025-12) 缺 MoE expert dispatch 算子, 路由器
+      性能差 50%. 2026 Q1 CANN 9.0.RC2+ 修复. Production 锁定 ≥ 9.0.RC2.
+
+  - stage_id: quantize
+    decision: 'INT8 W8A8 (CANN INT8 toolkit) + KV-INT8'
+    rationale: |
+      Ascend 910C 没有 native FP8, INT8 是最佳 quantization 选择. CANN INT8 toolkit + GPT-OSS
+      reference instruction-following calibration set 让 MMLU 跌 < 0.3 pt. KV-INT8 把 long
+      context (8K+) 的 KV cache 减半, 单 session 4GB → 2GB.
+    involves_patterns: [memory-bound-decode-prefer-int8, kv-cache-int8]
+    pitfall: |
+      INT8 calibration 必须用 OpenAI-style 指令数据 — 标准 CANN toolkit 默认 calibration 是
+      中文 instruction-following, GPT-OSS 上跌 0.8 pt MMLU. 切到 OpenAI Alpaca-style 数据
+      恢复 < 0.3 pt. 这是首次部署 OpenAI 模型在 Ascend 的常踩坑.
+
+  - stage_id: compile
+    decision: 'MindIE 2.0 graph mode + AscendC custom kernels for MoE dispatch'
+    rationale: |
+      MindIE 2.0 把整个 forward graph + KV cache + MoE 路由编译成单一 graph (类似 CUDA Graph).
+      Decode latency overhead 接近 0. AscendC kernel 是华为对标 CUDA C++ 的 NPU kernel 语言,
+      MoE dispatch 走 AscendC 优化版本而非通用算子, 提升 20-30%.
+    involves_kernels: [paged-attention-decode, fused-moe-dispatch-domestic, fused-rmsnorm-residual-quantize]
+    pitfall: |
+      Graph compile 首次启动 ~12 min (vs CUDA Graph ~2 min). Graph cache 启用后重启 ~3 min.
+      生产部署 SLA 必须考虑首次启动时间, 不能假设 30s 启动.
+
+  - stage_id: shard
+    decision: 'TP=8 + EP=8 + PP=1 (单节点 HCCS-v2 fully connected)'
+    rationale: |
+      Atlas 800T A3 单节点 8× Ascend 910C 通过 HCCS-v2 全互联 (1 跳, 单边 50 GB/s). GPT-OSS
+      120B-A4B MoE INT8 权重 = 60 GB, 8-card EP=8 = 7.5GB/卡 + KV/activation 富余. 不需要
+      跨节点 PP — 单节点容量足够中型部署.
+    involves_patterns: [tp-allreduce-overlap, moe-expert-routing-on-domestic]
+    pitfall: |
+      EP=8 on 8-card 是 1 expert/card for top_k=2 routing — 负载均衡紧张. 高并发下偶发
+      expert hot spots, P99 TBT 抖动比同代 NVIDIA H100 EP=8 严重 (HCCS-v2 < NVLink-3 bandwidth).
+
+  - stage_id: serve
+    decision: 'MindIE 2.0 OpenAI-compatible API + RadixAttention + continuous batching'
+    rationale: |
+      MindIE 2.0+ 暴露 OpenAI-compatible HTTP API, 客户端代码与 NVIDIA vLLM 几乎完全兼容
+      (一行 base_url 切换). RadixAttention prefix cache + continuous batching + paged attention
+      与 NVIDIA 路径功能对齐. GPT-OSS 没有 MTP head (需要 separate draft model 走 spec decode).
+    involves_kernels: [paged-attention-decode, fused-radix-attention]
+    involves_patterns: [continuous-batching, prefix-radix-cache, paged-attention]
+    pitfall: |
+      Spec decode 走 separate draft model (Llama 3.1 1B) — 需要额外加载 + 首次 graph compile.
+      部署多花 ~30 min. 接受率 ~70% (GPT-OSS 与 Llama 3 训练数据相似), 比 K2.6 MTP 82% 略低
+      但仍显著加速.
+
+  - stage_id: observe
+    decision: 'npu-smi + MindIE Prometheus endpoint + Grafana 自定义 dashboard + OpenAI eval canary'
+    rationale: |
+      标准 Ascend 监控栈. 关键差异 (vs CloudMatrix 384 tour): GPT-OSS 是 OpenAI 模型, 业务方
+      期望与 OpenAI API 行为对齐 — 监控不只是 latency / throughput, 还要跑 OpenAI evals 子集
+      (HumanEval / MMLU / GSM-8K) 作 quality canary 验证一致性.
+    pitfall: |
+      Ascend ecosystem 第三方 APM 集成最少 — DataDog / NewRelic 不支持. 必须自建 Prometheus +
+      Grafana, 预留 2-4 周 dashboard 调试. 国央企部署通常已有 FusionInsight (华为云) — 集成更顺.

@@ -581,6 +581,42 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.37: 2 more tours (Kimi K2.6 reasoning B200 + GPT-OSS Atlas) — closes archetype combos', () => {
+  test('Kimi K2.6 reasoning × 4× B200 tour visible (Blackwell + reasoning archetype)', async ({ page }) => {
+    await page.goto('/learn/tours/kimi-k26-b200x4-trtllm-fp4/');
+    await expect(page.getByText(/Kimi K2\.6|B200|reasoning|FP4/i).first()).toBeVisible();
+    await expect(page.getByText(/MTP|long CoT/i).first()).toBeVisible();
+    // All 7 pipeline stages
+    for (const stage of ['acquire', 'convert', 'quantize', 'compile', 'shard', 'serve', 'observe']) {
+      await expect(page.locator(`[data-testid="tour-stage-${stage}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('GPT-OSS × Atlas 800T A3 tour visible (国产 alt path beyond CloudMatrix)', async ({ page }) => {
+    await page.goto('/learn/tours/gptoss-atlas-800t-mindie/');
+    await expect(page.getByText(/GPT-OSS|Atlas|MindIE|信创/i).first()).toBeVisible();
+    await expect(page.getByText(/120B|MoE|Apache 2/i).first()).toBeVisible();
+  });
+
+  test('Kimi B200 case detail visible', async ({ page }) => {
+    await page.goto('/cases/case-kimi-k26-b200x4-trtllm-fp4-001/');
+    await expect(page.getByText(/Kimi K2\.6|B200|FP4/i).first()).toBeVisible();
+  });
+
+  test('GPT-OSS Atlas case detail visible', async ({ page }) => {
+    await page.goto('/cases/case-gptoss-atlas800t-mindie-001/');
+    await expect(page.getByText(/GPT-OSS|Atlas|MindIE|INT8/i).first()).toBeVisible();
+  });
+
+  test('Tours index now shows 11 tours', async ({ page }) => {
+    await page.goto('/learn/tours/');
+    const tourRows = page.locator('[data-testid^="tour-row-"]');
+    expect(await tourRows.count()).toBeGreaterThanOrEqual(11);
+    await expect(page.locator('[data-testid="tour-row-kimi-k26-b200x4-trtllm-fp4"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="tour-row-gptoss-atlas-800t-mindie"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.36: /pricing/by-engine/ — per-engine cost calibration matrix', () => {
   test('/pricing/by-engine/ renders header + 4 stat cards + engine summary + h2h matrix', async ({ page }) => {
     await page.goto('/pricing/by-engine/');

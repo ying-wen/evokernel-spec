@@ -1,0 +1,87 @@
+id: kimi-k26-b200x4-trtllm-fp4
+title: 'Kimi K2.6 1T reasoning × 4× B200 (Blackwell)'
+context_zh: 'Frontier reasoning · 单服务器 4 卡 Blackwell · TRT-LLM FP4 + MTP · 长 CoT 8K+ output'
+case_id: case-kimi-k26-b200x4-trtllm-fp4-001
+playbook_id: moe-llm-large-on-blackwell-superpod
+display_order: 7
+why_it_matters: |
+  Kimi K2.6 1T MoE reasoning + Blackwell FP4 是 2026 frontier 推理顶配组合.
+  Reasoning workload (long CoT decode 8K+) 与普通 chat 完全不同 — decode-bound, MTP 接受率
+  82%, KV cache 是主要 HBM 占用. 这条 tour 与 v1.30 的 reasoning-llm-on-ascend-cluster tour
+  (DeepSeek R1 × Atlas 800T) 形成 frontier (Blackwell FP4) vs 信创 (Ascend INT8) reasoning
+  双路径对照. 9 个 tour 中第一个明确的"reasoning archetype on Blackwell".
+
+stages:
+  - stage_id: acquire
+    decision: 'moonshotai/Kimi-K2.6 — HuggingFace + ModelScope 双发, 选 ModelScope 镜像加速'
+    rationale: |
+      Kimi K2.6 (Moonshot AI 旗舰 1T MoE, 2026 Q1 发布) 通过 HuggingFace 公开权重.
+      国内部署优先 ModelScope (CDN 5-10x 加速), 拉权重 ~3 hour for 1T MoE BF16.
+      License 注意 (与 v1.28 Cambricon tour 重复 — 同模型不同硬件, 商用部署登记).
+
+  - stage_id: convert
+    decision: 'Safetensors → TRT-LLM checkpoint (35 min build)'
+    rationale: |
+      TRT-LLM 0.13 是 Blackwell + FP4 的 production 路径首选. `trtllm-build` 把 safetensors
+      转 .engine, 生成本节点 sm_100 architecture-specific kernel. 跨 B200/B300 不通用 —
+      迁移到 GB300 需要重 build.
+    pitfall: |
+      TRT-LLM engine build 35 min 是 K2.6 1T MoE-specific (vs 70B dense build ~5 min).
+      MoE expert 多 / 路由器复杂 / FP4 calibration 三件叠加, 慢的合理. 部署 CI 给足时间.
+
+  - stage_id: quantize
+    decision: 'FP4 (NVFP4) weight + INT8 KV cache + FP16 activation'
+    rationale: |
+      Blackwell native FP4 path (sm_100 tensor core) — 权重压 4x (250GB → 63GB), decode
+      吞吐 ~2.3x BF16 baseline. KV-INT8 进一步把 long-CoT 8K+ output 的 KV cache 从单
+      session 8GB 降到 4GB. Reasoning calibration 必须用 reasoning-specific dataset
+      (math + code), 通用 calibration 在 AIME 上跌 1.2 pt.
+    involves_patterns: [fp4-weight-only-quant, kv-cache-int8, mtp-multi-token-prediction]
+    pitfall: |
+      FP4 calibration 是 reasoning workload 上线最大风险 — 不是 throughput 问题, 是
+      math accuracy. 部署前必跑 AIME / MATH / GSM-8K 完整 eval, 跌 0.5+ pt 必须重校准.
+
+  - stage_id: compile
+    decision: 'TRT-LLM 0.13 engine + CUDA Graph + FlashAttn-3 FP4 path'
+    rationale: |
+      TRT-LLM 编译时把整个 forward graph + KV cache 管理 + MTP head verify 折叠成单
+      engine. CUDA Graph 在 Blackwell sm_100 上 latency overhead 几乎 0. FlashAttention-3
+      Hopper 路径在 Blackwell 上自动启用 FP4 native — 最快 attention 路径.
+    involves_kernels: [flash-attention-v3, fused-mtp-head, fused-rmsnorm-residual-quantize, fused-moe-dispatch-deepep]
+    pitfall: |
+      First forward warmup 35 min — production 部署后 graph cache 启用, 重启后 ~2 min
+      恢复. K2.6 MoE 路由器 graph 复杂度让首次 forward 比 dense 慢一个数量级.
+
+  - stage_id: shard
+    decision: 'TP=4 + EP=4 + PP=1 (单服务器 4-card NVLink-5 domain)'
+    rationale: |
+      4× B200 (192GB HBM3e/卡, NVLink-5 1.8 TB/s) 单服务器 = 768GB 总 HBM. K2.6 1T MoE FP4
+      = 250GB 权重, 4-card EP=4 让每卡装 1/4 active experts (~250GB /4 = 63GB) + KV cache
+      120GB 富余. NVLink-5 4-card mesh (~85% bandwidth utilization) 比 8-card NVL72 略低
+      但 1T MoE 单服务器是 sweet spot — 不需要 super-pod 溢价.
+    involves_patterns: [tp-allreduce-overlap, moe-expert-routing-on-domestic]
+    pitfall: |
+      Top_k=2 routing on 4 expert groups → 偶尔 expert 间负载不均, all2all hot spots 让 P99 TBT
+      抖动. DeepEP path (TRT-LLM 0.13 集成) 缓解但不消除 — 大流量场景考虑 EP=8 跨 2 server.
+
+  - stage_id: serve
+    decision: 'TRT-LLM Triton frontend + MTP speculative + RadixAttention prefix cache'
+    rationale: |
+      TRT-LLM 通过 NVIDIA Triton Inference Server 暴露 OpenAI-compatible API.
+      MTP head 在 reasoning workload 接受率 ~82% — 长 CoT 出 token 速度等价 1.6x 单步 decode.
+      RadixAttention 在 reasoning multi-turn 场景前缀命中 60-75% (比 chat 略低, 思维链分支多).
+    involves_kernels: [paged-attention-decode, fused-mtp-head, fused-radix-attention]
+    involves_patterns: [continuous-batching, mtp-multi-token-prediction, prefix-radix-cache, paged-attention]
+    pitfall: |
+      Reasoning workload long output (avg 8K, P99 32K) 让 TBT P99 抖动比 chat 严重. Chunked
+      prefill 必备 (TRT-LLM 0.13 默认开启), 否则 long input 会 stall 同 batch decode.
+
+  - stage_id: observe
+    decision: 'NVIDIA DCGM + Triton metrics + reasoning-specific quality eval (AIME / MATH / GSM-8K)'
+    rationale: |
+      标准 NVIDIA stack. 关键差异: reasoning workload 要监控的不只是 throughput / latency,
+      还有 accuracy drift. 每日跑 AIME 子集 (~30 题) 作 canary, 跌 0.5+ pt 自动 alert.
+      MMLU 不够敏感 — reasoning 模型在 chat benchmark 上量化漂移看不出来.
+    pitfall: |
+      Reasoning 部署最易踩的坑: 性能 metric 全绿 (TTFT/TBT/throughput 正常) 但 math accuracy
+      悄悄从 80% 跌到 75%. 必须有 reasoning eval canary, 不能只看通用 benchmark.
