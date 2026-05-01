@@ -1,0 +1,154 @@
+---
+/**
+ * Deployment failure modes — aggregates `issues_encountered` from all cases
+ * organized by pipeline stage. Each issue is a real production gotcha
+ * extracted from concrete deployments, not a theoretical concern.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+import { getCases, getPipelineStages, getPlaybooks } from '~/lib/data';
+import type { Case, PipelineStage } from '@evokernel/schemas';
+
+const [allCases, allStages, allPlaybooks] = await Promise.all([
+  getCases(), getPipelineStages(), getPlaybooks()
+]);
+
+// Heuristic: assign each issue to the most-likely pipeline stage by keyword match.
+// Cases don't tag issues per-stage explicitly — we infer from issue text.
+const STAGE_KEYWORDS: Record<string, string[]> = {
+  acquire: ['weight', 'download', 'license', 'model card', 'authentication', 'tokenizer'],
+  convert: ['conversion', 'safetensors', 'gguf', 'awq', 'gptq', 'format', 'export', 'onnx'],
+  quantize: ['fp8', 'fp4', 'int8', 'int4', 'quant', 'calibration', 'awq', 'gptq', 'precision'],
+  compile: ['cuda graph', 'compile', 'capture', 'kernel', 'engine build', 'fused', 'plugin', 'rocm', 'cann', 'mindie', 'ascendc', 'enforce-eager', 'graph', 'fp8 calibration'],
+  shard: ['tp', 'ep', 'pp', 'parallel', 'shard', 'all-reduce', 'all-gather', 'nccl', 'hccl', 'rccl', 'rdma', 'roce', 'nvlink', 'topology'],
+  serve: ['scheduling', 'batch', 'paged', 'kv cache', 'continuous batching', 'oom', 'throughput', 'qps', 'router', 'load balancer'],
+  observe: ['profile', 'monitor', 'log', 'metric', 'utilization', 'sm%', 'memory bw', 'nsys', 'rocprof', 'ascend profiler']
+};
+
+type IssueByStage = {
+  stage: PipelineStage;
+  items: Array<{ caseId: string; caseTitle: string; issue: string; bottleneck: string; hardware: string }>;
+};
+
+function classifyIssue(issue: string): string {
+  const lower = issue.toLowerCase();
+  for (const [stage, kws] of Object.entries(STAGE_KEYWORDS)) {
+    if (kws.some((kw) => lower.includes(kw))) return stage;
+  }
+  return 'serve'; // default catchment
+}
+
+const byStage = new Map<string, IssueByStage>();
+for (const stage of allStages) {
+  byStage.set(stage.id, { stage, items: [] });
+}
+for (const c of allCases) {
+  for (const issue of c.issues_encountered) {
+    const stageId = classifyIssue(issue);
+    const entry = byStage.get(stageId);
+    if (entry) {
+      entry.items.push({
+        caseId: c.id,
+        caseTitle: c.title,
+        issue,
+        bottleneck: c.bottleneck,
+        hardware: c.stack.hardware.id
+      });
+    }
+  }
+}
+
+const orderedStages = allStages.sort((a, b) => a.order - b.order);
+const totalIssues = allCases.reduce((sum, c) => sum + c.issues_encountered.length, 0);
+---
+<BaseLayout title="部署失败模式 / Deployment Failure Modes">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · DEPLOYMENT FAILURES
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        踩坑记录 · 部署失败模式
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        从 <strong>{allCases.length} 个实测案例</strong> 中提取的 <strong>{totalIssues} 条 production 踩坑</strong>,
+        按 <strong>7 阶段部署链路</strong> 组织. 每条都是来自真实部署的具体问题, 不是抽象的最佳实践. 这是
+        "我应该担心什么会出错" 的快速查表入口.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">案例数: </span><strong>{allCases.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">踩坑总数: </span><strong>{totalIssues}</strong></div>
+        <div><span style="color: var(--color-text-muted);">阶段覆盖: </span><strong>{Array.from(byStage.values()).filter((s) => s.items.length > 0).length}/{allStages.length}</strong></div>
+      </div>
+    </section>
+
+    {orderedStages.map((stage) => {
+      const entry = byStage.get(stage.id);
+      if (!entry || entry.items.length === 0) return null;
+      const stagePlaybooks = allPlaybooks.filter((pb) => pb.affects_stages.includes(stage.id)).slice(0, 3);
+      return (
+        <section class="py-8 border-t" style="border-color: var(--color-border);">
+          <div class="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+            <h2 class="text-2xl font-semibold flex items-center gap-2">
+              <span class="text-sm font-mono px-2 py-0.5 rounded" style="background: var(--color-surface-raised); color: var(--color-text-muted);">{stage.order}/7</span>
+              <a href={pathname(`/pipeline/${stage.id}/`)} class="hover:underline" style="color: var(--color-text);">{stage.name_zh}</a>
+              <span class="text-base font-normal" style="color: var(--color-text-muted);">/ {stage.name_en}</span>
+            </h2>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              <strong style="color: var(--color-accent);">{entry.items.length}</strong> 条踩坑
+            </div>
+          </div>
+          <p class="text-sm mb-4" style="color: var(--color-text-muted);">{stage.summary_zh}</p>
+
+          <ul class="space-y-2.5">
+            {entry.items.map((it) => (
+              <li class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="text-sm" style="color: var(--color-text);">⚠️ {it.issue}</div>
+                <div class="text-xs mt-2 flex gap-3 flex-wrap" style="color: var(--color-text-muted);">
+                  <a href={pathname(`/cases/${it.caseId}/`)} class="hover:underline" style="color: var(--color-accent);">→ {it.caseTitle.length > 60 ? it.caseTitle.slice(0, 58) + '…' : it.caseTitle}</a>
+                  <span>·</span>
+                  <span>{it.bottleneck}</span>
+                  <span>·</span>
+                  <a href={pathname(`/hardware/${it.hardware}/`)} class="hover:underline" style="color: var(--color-text);">{it.hardware}</a>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {stagePlaybooks.length > 0 && (
+            <div class="mt-4 text-xs flex gap-2 flex-wrap" style="color: var(--color-text-muted);">
+              <span>相关 playbook:</span>
+              {stagePlaybooks.map((pb) => (
+                <a href={pathname(`/playbooks/${pb.id}/`)} class="px-2 py-0.5 rounded hover:underline"
+                   style="background: var(--color-bg); color: var(--color-accent);">{pb.id}</a>
+              ))}
+            </div>
+          )}
+        </section>
+      );
+    })}
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">遇到没列出的踩坑?</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          PR 给现有 <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">data/cases/&lt;year&gt;/&lt;month&gt;/&lt;slug&gt;.yaml</code>
+          的 <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">issues_encountered</code> 字段加一行即可。
+          每个 production 踩坑都帮其他工程师省半天时间.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/contribute/')} class="text-sm px-4 py-2 rounded-md font-medium"
+             style="background: var(--color-accent); color: white;">
+            ⚡ 提交案例 / 踩坑 →
+          </a>
+          <a href={pathname('/cases/')} class="text-sm px-4 py-2 rounded-md font-medium border"
+             style="border-color: var(--color-border); color: var(--color-text);">
+            浏览全部案例 →
+          </a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

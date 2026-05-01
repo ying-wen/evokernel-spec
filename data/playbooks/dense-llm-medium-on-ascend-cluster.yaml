@@ -1,0 +1,95 @@
+id: dense-llm-medium-on-ascend-cluster
+name: Dense 70B 模型在国产昇腾集群部署 (Llama 3.3 70B / Qwen 2.5 72B / GLM-4.5 70B on 910C / 910D)
+model_archetype: dense-llm-medium
+hardware_class: ascend-cluster
+workload_profile: [low-latency-chat, high-throughput-batch, cost-optimized]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 30B-90B dense LLM 部署到国产昇腾 910C / 910D 集群 (8-32 卡). 国央企 / 政务 /
+  金融 / 能源等强合规场景的主流 70B 部署起点 — 与 NVIDIA H100 路线相比成本低 30-50%
+  + 自主可控基线. 预期性能 NVIDIA 60-75% 是合理目标.
+
+  **不适合**: 不需国产合规要求 (走 dense-llm-medium × hopper-single-node 优先);
+  超大 MoE > 200B (走 moe-llm-large × ascend-cluster); 海外开源模型未做 NPU 适配
+  (需要先做 vllm-ascend / MindIE conversion PR).
+
+  ## 核心配方与 NVIDIA Hopper 路线的差异
+
+  1. **TP=8 intra-node, no PP/EP for dense**: 910C 8 卡 Atlas 800T A2 节点内 HCCS-v2 全互联;
+     dense 模型用满 TP=8
+  2. **INT8 quant 主力, FP16 备选**: 910C native FP8 路径未成熟, INT8 在国产卡是甜点;
+     INT8 比 FP16 perf +50%, MMLU 跌 0.3-0.8 pt
+  3. **MindIE 2.0 主栈 (国央企)**, vllm-ascend (社区路径): MindIE 在生产合规场景信任度高;
+     vllm-ascend 是开源开发者首选
+  4. **Cross-node 走 RoCE-200G**: 跨节点 (16-32 卡) 通信延迟 ~2x vs intra-node, 但 70B dense
+     主要是 TP=8 单节点 + 多副本 throughput scaling
+  5. **Pattern stack**: kv-cache-int8 是关键 (910C 64 GB HBM 紧张); MTP / FP4 等 NVIDIA 路径不可用
+
+recipe:
+  parallelism:
+    tp: '8 (intra-node HCCS-v2)'
+    ep: '0 (dense)'
+    pp: '1-2 (910C HBM 64GB 紧时 PP 减 activation memory)'
+    sp: '0-4'
+    notes: 'TP=8 是 910C 节点 sweet spot; PP 仅在长 context + KV 紧 时启用'
+    disaggregated: false
+  quantization: int8
+  engine_primary: mindie
+  engine_alternates: [vllm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - kv-cache-int8
+    - prefix-caching
+    - continuous-batching
+    - paged-attention
+  expected_perf:
+    decode_tok_s_per_gpu_min: 1200
+    decode_tok_s_per_gpu_max: 2500
+    prefill_throughput_min: 14000
+    prefill_throughput_max: 26000
+    ttft_ms_p50_min: 180
+    ttft_ms_p50_max: 380
+    cost_per_million_tokens_usd_min: 0.20
+    cost_per_million_tokens_usd_max: 0.50
+    notes: 'Llama 3.3 70B INT8 on Atlas 800T (910C × 8) ~1500 tok/s/GPU; 910D 上调至 ~2000. 国产 70B $/token 比 H100 低 30-40%, 成熟度差距体现在 0.85x perf.'
+
+decision_points:
+  - scale: '8 GPU 910C (1 节点 Atlas 800T A2)'
+    guidance: 'TP=8 + INT8 + MindIE 2.0. Llama 3.3 70B / Qwen 2.5 72B / GLM-4.5 70B 余量大. 国央企 70B 部署起步配置.'
+  - scale: '16-32 GPU 910C (2-4 节点)'
+    guidance: 'TP=8 + 多副本 throughput scaling, RoCE-200G 跨节点. 不是 TP > 8 (TP 跨节点性能跌 50%).'
+  - scale: '8 GPU 910D (新代次)'
+    guidance: '910D HBM3 + native FP8 — 优先选 910D 当可获取时. 7B BF16 装下, 70B INT8 余量更大.'
+
+not_for:
+  - '海外模型未做 NPU 适配 (Llama 3 / Mistral / Qwen 2.5 等需要 vllm-ascend / MindIE conversion)'
+  - 'reasoning long output (decode 长尾 + MTP 在 Ascend 未成熟)'
+  - 'multi-modal (vision encoder 在 Ascend 优化弱)'
+  - '< 7B 端侧 (走 dense-llm-small × ascend-cluster)'
+  - '> 100B dense (实际不存在 100B+ dense; 都是 MoE)'
+
+related_cases:
+  - case-dsr1-on-ascend-910b-x16-mindie-001
+  - case-dsv4-pro-on-cloudmatrix-384-mindie-001
+
+affects_stages: [acquire, convert, quantize, compile, shard, serve]
+status: stable
+
+evidence:
+  - id: ev-pb-dense-medium-ascend-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://e.huawei.com/cn/products/computing/ascend
+    accessed: '2026-04-30'
+    citation: 'Synthesized from Atlas 800T / 800I deployment guides + community vllm-ascend benchmarks for Llama 3.3 / Qwen 2.5 / GLM-4.5 70B class.'
+
+disclaimers:
+  - '910C 性能基线 ~H100 60-70% on 70B; 910D 上调至 70-85%; Ascend 950 (2026 Q4 GA) 计划匹配 H200'
+  - '海外开源模型移植到 NPU 需要 1-3 周工程投入'
+  - 'MindIE 在国央企合规优势; 海外用户 / 研究场景仍倾向 vllm-ascend'

@@ -576,6 +576,70 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.17: deployment failures guide + 3 playbooks + 2 cases + 1 fused-kernel', () => {
+  test('Deployment failures page lives at /learn/deployment-failures/', async ({ page }) => {
+    await page.goto('/learn/deployment-failures/');
+    await expect(page.getByRole('heading', { name: /踩坑记录|Deployment Failure/i }).first()).toBeVisible();
+    await expect(page.getByText(/条 production|实测案例/i).first()).toBeVisible();
+  });
+
+  test('Failures page organizes issues by pipeline stage', async ({ page }) => {
+    await page.goto('/learn/deployment-failures/');
+    // Stage headings should link to /pipeline/<id>/
+    await expect(page.locator('a[href*="/pipeline/"]').first()).toBeVisible();
+    // Each issue card has ⚠️ marker
+    await expect(page.getByText(/⚠️/).first()).toBeVisible();
+  });
+
+  test('Failures page surfaces playbook cross-links per stage', async ({ page }) => {
+    await page.goto('/learn/deployment-failures/');
+    await expect(page.getByText(/相关 playbook/i).first()).toBeVisible();
+    await expect(page.locator('a[href*="/playbooks/"]').first()).toBeVisible();
+  });
+
+  test('Multi-modal × CDNA-3 cluster playbook visible (Llama 4 Maverick path)', async ({ page }) => {
+    await page.goto('/playbooks/multi-modal-on-cdna3-cluster/');
+    await expect(page.getByText(/MI300X|MI325X|Llama 4 Maverick/i).first()).toBeVisible();
+    await expect(page.getByText(/mixed-TP|vision encoder/i).first()).toBeVisible();
+  });
+
+  test('Long-context × Blackwell super-pod playbook visible (NVL72 + Ring + FP4)', async ({ page }) => {
+    await page.goto('/playbooks/long-context-on-blackwell-superpod/');
+    await expect(page.getByText(/NVL72|GB200|GB300/i).first()).toBeVisible();
+    await expect(page.getByText(/Ring|10M context|Behemoth/i).first()).toBeVisible();
+  });
+
+  test('Dense 70B × Ascend cluster playbook visible (国产替代)', async ({ page }) => {
+    await page.goto('/playbooks/dense-llm-medium-on-ascend-cluster/');
+    await expect(page.getByText(/910C|910D|Atlas 800T/i).first()).toBeVisible();
+    await expect(page.getByText(/MindIE|国央企|国产/i).first()).toBeVisible();
+  });
+
+  test('Llama 4 Maverick × GB200 NVL72 case visible (compute-bound on Blackwell FP4)', async ({ page }) => {
+    await page.goto('/cases/case-llama4mvk-gb200-nvl72-001/');
+    await expect(page.getByText(/GB200|NVL72|FP4/i).first()).toBeVisible();
+    await expect(page.getByText(/disagg/i).first()).toBeVisible();
+  });
+
+  test('Qwen 2.5 7B Jetson edge case visible', async ({ page }) => {
+    await page.goto('/cases/case-qwen25-7b-jetson-orin-001/');
+    await expect(page.getByText(/Jetson|edge|端侧/i).first()).toBeVisible();
+    await expect(page.getByText(/llama.cpp|Q4_K_M|INT4/i).first()).toBeVisible();
+  });
+
+  test('Fused TP all-reduce + residual + norm kernel visible', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-tp-allreduce-residual/');
+    await expect(page.getByText(/zero-bubble|RS\+AG|reduce-scatter/i).first()).toBeVisible();
+    await expect(page.getByText(/SHARP|NVSwitch/i).first()).toBeVisible();
+  });
+
+  test('Coverage matrix now shows ≥22 cells filled', async ({ page }) => {
+    await page.goto('/playbooks/');
+    // 22/176 or higher
+    await expect(page.locator('text=/2[2-9]\\/176|[3-9][0-9]\\/176/i').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.16: 5 new operators + pipeline-stage cases + 2 more playbooks + 1 case', () => {
   test('LayerNorm operator visible (BERT-era ancestor of RMSNorm)', async ({ page }) => {
     await page.goto('/operators/layer-norm/');

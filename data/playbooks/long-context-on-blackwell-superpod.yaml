@@ -1,0 +1,96 @@
+id: long-context-on-blackwell-superpod
+name: 1M+ context 模型在 Blackwell 超节点部署 (Llama 4 Behemoth 10M / Gemini 1.5 / GLM-4-Long-1M on NVL72)
+model_archetype: long-context
+hardware_class: blackwell-superpod
+workload_profile: [long-context-rag, agent-multi-turn, high-throughput-batch]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 1M-10M context 模型 (Llama 4 Behemoth 10M, Gemini 1.5 Pro 2M, GLM-4-Long 1M,
+  Qwen 3 LongRunner, MiniMax-Text-01) 部署到 GB200 NVL72 / GB300 NVL36 superpod.
+  Blackwell super-pod 关键优势: NVLink-5 全互联到 72 卡让 Ring Attention 跨更大 scale-up 域,
+  + FP4 native 让权重 + KV 都激进量化.
+
+  **不适合**: 短 context (走 dense-llm-medium playbook); < 70 卡部署 (走 long-context × hopper-cluster);
+  reasoning long output (走 reasoning playbook, 优化方向不同).
+
+  ## 核心配方与 long-context × hopper-cluster 的差异
+
+  1. **TP=8 + Ring=8-72**: NVL72 全 NVLink-5 让 Ring Attention 跨整个 super-pod 不走 IB —
+     比 Hopper-cluster 跨节点 ring 的延迟降 5-10x
+  2. **FP4 native (NVFP4) for weights + INT8 KV cache**: Blackwell 原生 FP4 GEMM 把权重 4x 压缩;
+     1M context KV 仍是大头, INT8 KV 再省 2x
+  3. **Disaggregated 启用**: prefill 24 卡, decode 48 卡. Long context 1M+ 的 prefill 时间 8-20s,
+     不 disagg 会拖慢 decode QPS
+  4. **prefix-radix-cache 极重要**: 长 context RAG 场景 retrieved chunks 复用率 60-90%,
+     SGLang RadixAttention 大幅降 TTFT
+  5. **MoE + long-context 组合**: Llama 4 Behemoth 是 MoE+long-context, 同时启用 EP=72 + Ring + RAG cache
+
+recipe:
+  parallelism:
+    tp: '8 (intra-NVL8)'
+    ep: '72 (NVL72 super-pod) — full pod EP for MoE+long-context'
+    pp: '1'
+    sp: '8-72 (Ring sequence parallel — long context 关键)'
+    notes: 'NVL72 让 SP=72 (整个 super-pod) 走 NVLink-5; Ring 通信延迟降 5-10x vs Hopper-cluster IB'
+    disaggregated: true
+  quantization: fp4
+  engine_primary: sglang
+  engine_alternates: [vllm, tensorrt-llm]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-attn-sliding-window
+    - fused-moe-dispatch-deepep
+    - fused-radix-attention
+  patterns:
+    - flashattention-v3
+    - ring-attention-long-context
+    - sliding-window-attention
+    - prefix-radix-cache
+    - fp4-weight-only-quant
+    - kv-cache-int8
+    - disaggregated-prefill-decode
+  expected_perf:
+    decode_tok_s_per_gpu_min: 3200
+    decode_tok_s_per_gpu_max: 6500
+    prefill_throughput_min: 28000
+    prefill_throughput_max: 65000
+    ttft_ms_p50_min: 800
+    ttft_ms_p50_max: 4500
+    cost_per_million_tokens_usd_min: 0.6
+    cost_per_million_tokens_usd_max: 2.5
+    notes: 'Llama 4 Behemoth 10M context on NVL72 + RAG cache 命中率 70%: TTFT P50 ~1.2s; 命中率 90%: ~400ms. FP4 + INT8 KV 让 1M context per-card 内存 < 100GB 装下.'
+
+decision_points:
+  - scale: 'NVL36 GB300 (36-card, ≤ 1M context)'
+    guidance: 'TP=8 + Ring=4-8, FP4 + INT8 KV. 适合 dense long-context; MoE+long 走 NVL72.'
+  - scale: 'NVL72 GB200 (72-card, 1M-10M context)'
+    guidance: 'TP=8 + Ring=8-16 + EP=72 (MoE+long). Disagg P:D=1:2. Production long-context 旗舰.'
+  - scale: '2x NVL72 (144 卡, 10M+ context)'
+    guidance: 'Cross-superpod IB; Ring 主要 intra-pod, IB 只走 disagg + control plane. 罕见超大 context 部署.'
+
+not_for:
+  - 'Hopper / 早期硬件 (FP4 native 不可用; ring-attention 跨节点 latency 高)'
+  - '< 70 卡部署 (super-pod 投资浪费, 走 long-context × hopper-cluster)'
+  - '短 context (< 200K) — ring overhead 反而拖慢'
+  - 'Reasoning long output (走 reasoning playbook)'
+
+related_cases: []
+
+affects_stages: [acquire, quantize, compile, shard, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-long-blackwell-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.nvidia.com/en-us/data-center/gb200-nvl72/
+    accessed: '2026-04-30'
+    citation: 'Synthesized from GB200 NVL72 launch + Llama 4 Behemoth 10M context demo + early customer reports (CoreWeave, Lambda).'
+
+disclaimers:
+  - 'Status: experimental — Llama 4 Behemoth 10M + NVL72 是 2025-2026 cutting edge'
+  - 'TTFT 高度非线性 — context 翻倍 prefill 接近翻 4x 即使有 ring optimization'
+  - 'RAG 命中率是 long-context perf 的最大变量 — 命中率低于 30% 走标准 hopper-cluster playbook'

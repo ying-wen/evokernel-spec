@@ -1,0 +1,107 @@
+id: fused-tp-allreduce-residual
+name: Fused TP All-Reduce + Residual + Norm (zero-bubble TP path)
+category: communication
+summary: |
+  把 TP 跨卡 all-reduce + residual add + RMSNorm/LayerNorm 三步融合到一个 kernel pipeline.
+  关键创新: 把 all-reduce 拆成 reduce-scatter + all-gather, 让 reduce-scatter 阶段下游层
+  开始 compute, all-gather 阶段从 N-1 张卡 streaming 收集 — 通信和计算 overlap, 零气泡.
+
+description_md: |
+  ## 为什么 fuse all-reduce + residual + norm
+
+  Naive TP attention/FFN 输出后:
+  1. all-reduce 跨 TP rank 同步 hidden (~5-15% iteration time)
+  2. residual add (memory-bound)
+  3. RMSNorm/LayerNorm (memory-bound)
+  4. 下一层 GEMM input 准备
+
+  问题:
+  - All-reduce 是 sync barrier — N-1 次 ring step 期间 GPU 计算空闲
+  - Residual + Norm 各自 launch + HBM round-trip
+  - 中间 hidden state 写回 HBM 浪费 SMEM 复用
+
+  ## Fused 版本
+
+  - **AR = RS + AG split**: all-reduce 拆成 reduce-scatter + all-gather
+  - **Reduce-scatter inline**: 自己的 1/N chunk 完成后立刻送给下层 GEMM 开始
+  - **All-gather streaming**: 收齐其他 N-1 chunk 同时下层 compute 进行
+  - **Residual + Norm fused**: 与 AR 末端 in-kernel 完成, 不再独立 launch
+
+  典型 zero-bubble TP 整体收益: TP 通信开销从 ~15% 降到 ~3-5% iteration time.
+
+  ## NVIDIA SHARP 加速
+
+  NVSwitch Gen-3+ + ConnectX-7 支持 SHARP (in-network reduce). Fused kernel 走
+  SHARP path 时 AR 延迟再降 30-50%, 让 zero-bubble 在 TP=8 NVL8 节点几乎无 overhead.
+
+  ## 部署现状
+
+  - **vLLM 0.6+**: zero-bubble TP path 默认启用; RS+AG split 实现
+  - **TensorRT-LLM**: 集成 SHARP 加速 (Hopper+); 单 SM 完成 fused AR+norm
+  - **DeepSpeed Zero-Bubble**: 训练侧 zero-bubble pipeline parallelism 启发推理 fused kernel
+  - **HCCL (Ascend)**: HCCS-v2 内 in-fabric reduce, 与 SHARP 类似设计
+  - **RCCL (AMD)**: Infinity Fabric in-fabric reduce path; ROCm 6.2+ 支持
+
+fuses_operators: [all-reduce, reduce-scatter, all-gather, layer-norm, rmsnorm]
+why_fuse: |
+  TP 通信占 dense LLM iteration 5-15%, 是单纯 fuse residual+norm 之外最大 perf lever.
+  Naive AR sync barrier 让 GPU 大量空闲; Fused RS+AG + 下层 GEMM overlap 把通信开销
+  压到 3-5%. 配合 NVSwitch SHARP 进一步降至 <2%. 这是 TP=8 NVL8 节点 dense 70B 的关键优化.
+
+speedup:
+  - baseline: 'Naive separate AR + residual + norm (3 launches)'
+    multiplier_min: 1.15
+    multiplier_max: 1.35
+    notes: 'Iteration time -10-25%, 主要在 TP 通信占比高的 dense 70B-200B 模型'
+  - baseline: 'Fused AR+norm without RS+AG split (no overlap)'
+    multiplier_min: 1.05
+    multiplier_max: 1.15
+    notes: 'Kernel-fusion 单独贡献; 主要省 launch + HBM round-trip'
+
+implementations:
+  - name: vLLM zero-bubble TP comm
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/communication
+    notes: 'NCCL + custom RS+AG kernel; SHARP optional'
+  - name: TensorRT-LLM SHARP-accelerated all-reduce
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/
+    notes: 'NVSwitch Gen-3+ SHARP path; 单 SM AR + norm fused'
+  - name: SGLang TP comm
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+  - name: HCCL (Ascend HCCS reduce)
+    hardware_arch: [ascend-910b, ascend-910c, davinci-3]
+    url: https://www.hiascend.com/document
+    notes: 'HCCS-v2 in-fabric reduce; MindIE 2.0+ 集成'
+  - name: RCCL (AMD ROCm collective)
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/rccl
+    notes: 'Infinity Fabric in-fabric reduce; ROCm 6.2+'
+
+hardware_requires:
+  - 'NVLink-3+ (NVIDIA) / HCCS-v2 (Ascend) / Infinity Fabric (AMD) — high-bw fabric'
+  - 'Optional: NVSwitch SHARP / Hopper+ for in-network reduce'
+
+enables_patterns: []
+
+applies_at_stage: shard
+
+trade_offs:
+  - '需要 RS+AG split 调度支持 (vLLM 0.6+ / TRT-LLM); 老引擎 fall back to naive AR'
+  - 'Cross-node TP 收益较低 (IB/RoCE 不支持 SHARP) — TP > 8 时几乎不启用'
+  - 'Norm 数值稳定性: AR 后立即 norm 时 FP32 accumulator 必须 (BF16 累加易崩)'
+  - 'Hardware fabric heterogeneity (NVLink + IB) 时调度复杂度上升'
+
+references:
+  - title: 'Zero-Bubble Pipeline Parallelism (introduces RS+AG split)'
+    url: https://arxiv.org/abs/2401.10241
+    source_type: paper
+  - title: 'NVIDIA SHARP collective primitives'
+    url: https://docs.nvidia.com/networking/display/sharpv300
+    source_type: docs
+  - title: 'vLLM TP communication kernels'
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/communication
+    source_type: implementation

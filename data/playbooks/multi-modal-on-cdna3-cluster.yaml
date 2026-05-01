@@ -1,0 +1,95 @@
+id: multi-modal-on-cdna3-cluster
+name: 多模态 MoE 大模型在 AMD CDNA-3 集群部署 (Llama 4 Maverick / Qwen 2.5-VL 70B+ / Pixtral 124B+ on MI300X / MI325X 集群)
+model_archetype: multi-modal
+hardware_class: cdna3-cluster
+workload_profile: [low-latency-chat, agent-multi-turn, high-throughput-batch]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 大型多模态 MoE / dense 模型 (Llama 4 Maverick 400B-A17B MoE, Qwen 2.5-VL 72B+,
+  Pixtral 124B, GLM-V 大型多模态) 部署到 AMD MI300X / MI325X 集群 (16-128 卡). 关键
+  差异化: AMD HBM 容量 192-256GB/卡 让 multi-modal long vision context (高分辨率 + 多图)
+  + LLM backbone 都装下而无需激进 quant.
+
+  **不适合**: 单节点 multi-modal (走 multi-modal × cdna3-single-node playbook); NVIDIA-only
+  工具链团队 (TRT-LLM multi-modal kernels 不可用); video diffusion (走 long-context-vision playbook).
+
+  ## 核心配方与 hopper-cluster multi-modal 的差异
+
+  1. **TP=8 LLM + EP=8-32 + TP=1-2 vision encoder**: AMD 8-OAM + 跨节点 RoCE-400G; mixed-TP
+     在 vLLM ROCm 0.7+ 支持 (老版本 fall back to uniform TP=8 浪费 vision compute)
+  2. **BF16 优先 (HBM 容量)**: 192GB × 8 = 1.5TB 让 400B MoE BF16 + 高分辨率 vision context 装下;
+     不需 FP8 calibration 工作量 (vs Hopper 80GB 必须)
+  3. **vLLM ROCm 主栈**: SGLang ROCm multi-modal 路径未成熟; 不要用 TRT-LLM (NVIDIA-only)
+  4. **Image embedding cache 跨节点共享**: 多轮 chat 同 image 复用 vision encoder 输出, AMD ROCm
+     6.3+ 支持 cross-node KV cache routing (类似 Mooncake)
+  5. **Pattern stack**: 与 Hopper multi-modal 类似, 但 MoE-routing-on-domestic 主导
+
+recipe:
+  parallelism:
+    tp: '8 (LLM backbone, intra-OAM IF mesh)'
+    ep: '8-32 (MoE expert distribution)'
+    pp: '1'
+    sp: '0'
+    notes: 'mixed-TP for vision encoder (TP=1-2) requires vLLM ROCm 0.7+; older versions waste vision compute'
+    disaggregated: false
+  quantization: bf16
+  engine_primary: vllm
+  engine_alternates: [sglang]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+  patterns:
+    - flashattention-v3
+    - prefix-radix-cache
+    - paged-attention
+    - continuous-batching
+    - moe-expert-routing-on-domestic
+  expected_perf:
+    decode_tok_s_per_gpu_min: 2400
+    decode_tok_s_per_gpu_max: 4500
+    prefill_throughput_min: 12000
+    prefill_throughput_max: 28000
+    ttft_ms_p50_min: 450
+    ttft_ms_p50_max: 1100
+    cost_per_million_tokens_usd_min: 0.45
+    cost_per_million_tokens_usd_max: 1.2
+    notes: 'Llama 4 Maverick 400B MoE on MI325Xx16 ~3500 tok/s/GPU; TTFT 受 vision encoder + EP all2all 双重限制. AMD multi-modal MoE 比 Hopper $/token 低 15-25%.'
+
+decision_points:
+  - scale: '16 GPU MI325X (2 节点, Llama 4 Maverick 400B BF16)'
+    guidance: 'TP=8 + EP=16 + RoCE-400G. 2 TB HBM 让 400B MoE + 4 image vision context 装下.'
+  - scale: '32 GPU MI300X (4 节点, 中等 throughput)'
+    guidance: 'TP=8 + EP=32. 适合 < 200B multi-modal MoE; 跨节点 EP 通信开销 ~15%.'
+  - scale: '64+ GPU MI325X (8+ nodes, production multi-modal serving)'
+    guidance: 'EP=64+. 需启用 cross-node image embedding cache routing (ROCm 6.3+).'
+
+not_for:
+  - '单节点部署 (走 multi-modal × cdna3-single-node playbook)'
+  - 'NVIDIA-only stack (TRT-LLM multi-modal optimization 不可用)'
+  - 'Video / 长视频 multi-modal (走 long-context-vision playbook)'
+  - '低延迟严苛 (TTFT P99 < 400ms — IF mesh + vision encoder 双重 latency)'
+
+related_cases:
+  - case-llama4scout-mi325x-bf16-001
+  - case-qwen36plus-on-mi300x-vllm-rocm-001
+
+affects_stages: [acquire, convert, quantize, compile, shard, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-mm-cdna3-cluster-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://docs.vllm.ai/en/latest/getting_started/amd-installation.html
+    accessed: '2026-04-30'
+    citation: 'Synthesized from AMD MI325X multi-modal MoE benchmarks + vLLM ROCm 0.7+ mixed-TP support reports.'
+
+disclaimers:
+  - 'Multi-modal MoE 在 AMD 是新兴部署场景; 公开 benchmark 数据较少 (vs Hopper)'
+  - 'Mixed-TP 配置调优空间大; vision encoder TP=1 vs 2 取决于 image batch 分布'
+  - 'Cross-node image embedding cache routing 在 ROCm 仍 experimental'
