@@ -581,6 +581,49 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.38: /operators/fusion-graph/ — SVG bipartite graph view (complement to fusion-matrix)', () => {
+  test('/operators/fusion-graph/ renders header + 4 stat cards + SVG graph', async ({ page }) => {
+    await page.goto('/operators/fusion-graph/');
+    await expect(page.getByRole('heading', { name: /算子.*二分图|Bipartite|Fusion Graph/i }).first()).toBeVisible();
+    await expect(page.locator('[data-testid="fg-stat-edges"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="fg-stat-hubs"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="fg-stat-heavy"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="fusion-graph-svg"]').first()).toBeVisible();
+  });
+
+  test('SVG contains nodes for both operators and fused kernels with edges between', async ({ page }) => {
+    await page.goto('/operators/fusion-graph/');
+    const svg = page.locator('[data-testid="fusion-graph-svg"]').first();
+    const circles = svg.locator('circle');
+    expect(await circles.count()).toBeGreaterThanOrEqual(25);
+    const paths = svg.locator('path[d^="M "]');
+    expect(await paths.count()).toBeGreaterThanOrEqual(30);
+  });
+
+  test('Graph surfaces top hubs and heavy-fusion kernels with degree counts', async ({ page }) => {
+    await page.goto('/operators/fusion-graph/');
+    await expect(page.getByText(/算子 hubs/i).first()).toBeVisible();
+    await expect(page.getByText(/Heavy-fusion kernels/i).first()).toBeVisible();
+  });
+
+  test('Graph includes educational "how to read" section', async ({ page }) => {
+    await page.goto('/operators/fusion-graph/');
+    await expect(page.getByText(/如何读这张图/i).first()).toBeVisible();
+    await expect(page.getByText(/节点大小 = 度数/i).first()).toBeVisible();
+  });
+
+  test('Optimize dropdown contains the new fusion-graph link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="optimize"]').first();
+    await expect(dd.locator('a[href*="/operators/fusion-graph"]').first()).toHaveCount(1);
+  });
+
+  test('Existing fusion-matrix page cross-links to graph view', async ({ page }) => {
+    await page.goto('/operators/fusion-matrix/');
+    await expect(page.locator('a[href*="/operators/fusion-graph"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.37: 2 more tours (Kimi K2.6 reasoning B200 + GPT-OSS Atlas) — closes archetype combos', () => {
   test('Kimi K2.6 reasoning × 4× B200 tour visible (Blackwell + reasoning archetype)', async ({ page }) => {
     await page.goto('/learn/tours/kimi-k26-b200x4-trtllm-fp4/');

@@ -64,7 +64,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/pipeline/', labelKey: 'nav.pipeline', desc_zh: '7 阶段部署链路 · 决策点 · 失败模式', desc_en: '7-stage deployment chain · decisions · failure modes' },
       { path: '/patterns/', labelKey: 'nav.patterns', desc_zh: '21 个优化模式 · 加速倍数 · trade-off', desc_en: '21 optimization patterns · speedup × trade-off' },
       { path: '/operators/', labelKey: 'nav.operators', desc_zh: '25 个算子 · 模型映射 · 硬件适配度', desc_en: '25 operators · model mapping · hardware fitness' },
-      { path: '/fused-kernels/', labelKey: 'nav.fusedKernels', desc_zh: '22 个融合 kernel · 实现路径 · 引擎支持', desc_en: '22 fused kernels · implementations · engine support' },
+      { path: '/fused-kernels/', labelKey: 'nav.fusedKernels', desc_zh: '24 个融合 kernel · 实现路径 · 引擎支持', desc_en: '24 fused kernels · implementations · engine support' },
+      { path: '/operators/fusion-graph/', labelKey: 'nav.fusionGraph', desc_zh: '算子-Kernel 二分图 · 找 hub / heavy-fusion / 数据漂移', desc_en: 'Operator-Kernel bipartite graph · hubs / heavy-fusion / drift' },
       { path: '/quantizations/', labelKey: 'nav.quantizations', desc_zh: 'BF16 / FP8 / FP4 / INT8 / INT4 全谱', desc_en: 'BF16 / FP8 / FP4 / INT8 / INT4 spectrum' },
       { path: '/engines/', labelKey: 'nav.engines', desc_zh: 'vLLM · SGLang · TRT-LLM · MindIE · …', desc_en: 'vLLM · SGLang · TRT-LLM · MindIE · …' }
     ]

@@ -216,7 +216,8 @@ const orphanOps = sortedOps.filter((op) => (opCoverage.get(op.id) ?? 0) === 0);
           看具体 fused kernel 在哪些引擎里有实现, 浏览<a href={pathname('/fused-kernels/')} style="color: var(--color-accent);" class="hover:underline">融合算子目录</a>.
         </p>
         <div class="flex gap-3 flex-wrap">
-          <a href={pathname('/operators/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">{operators.length} 个算子 →</a>
+          <a href={pathname('/operators/fusion-graph/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">🕸️ 同样数据 · 二分图视图 →</a>
+          <a href={pathname('/operators/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">{operators.length} 个算子 →</a>
           <a href={pathname('/fused-kernels/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">{fusedKernels.length} 个融合算子 →</a>
           <a href={pathname('/learn/attention-variants/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">Attention 变体 →</a>
         </div>

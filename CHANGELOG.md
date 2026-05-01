@@ -6,17 +6,16 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.38+ horizon
+### v1.39+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
 **Tier 1 remaining**:
 - Citation PR onboarding (community work)
-- 1-2 more tours possible (video diffusion / Llama 4 Behemoth on NVL72 — but archetype coverage is now strong)
+- 1-2 more tours optional (video diffusion, Llama 4 Behemoth on NVL72)
 
 **Tier 2 (medium-leverage)**:
 - Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
-- Operator → fused-kernel DAG visualization (force-directed beyond the table)
 - Public submission portal (web-form-to-PR)
 - Citation auto-import (Twitter/X mentions, GitHub backlinks, arxiv)
 
@@ -25,6 +24,33 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.38.0] — 2026-05-02
+
+**`/operators/fusion-graph/`** — SVG bipartite graph view of operators ↔ fused-kernels. Complementary to v1.22's fusion-matrix table. Same data, different cognitive surface.
+
+### Added
+
+**`/operators/fusion-graph/`** (NEW visualization):
+- Pure server-rendered SVG, no JS dependency — 53 nodes (29 ops + 24 kernels) and 84 edges drawn as cubic Bezier curves
+- Operators on left column grouped by category, fused-kernels on right column grouped by category
+- Node radius scaled by degree (operators with more fused-kernel participation render bigger; kernels fusing more operators render bigger)
+- Edges colored by operator-category (attention=red-orange, mlp=green, normalization=blue, communication=violet, etc.) for visual pattern recognition
+- Side panel: top-5 operator hubs / top-5 heavy-fusion kernels / isolated nodes (degree 0) / data-drift edges (declared on only one side)
+
+**Data integrity surfacing**: edges are unioned from `operator.participates_in_fused_kernels` AND `fused-kernel.fuses_operators`. Edges declared on only one side render as red dashed lines and are listed in a "data drift" panel — these are PR opportunities.
+
+**Why both views**: tables are best for lookup ("given operator X, which kernels fuse it?"); graphs are best for structural questions ("which operators are hubs?", "which kernels are heavy-fusion?", "are there isolated operators — data gap or by design?").
+
+**Cross-linking**: existing `/operators/fusion-matrix/` now has a prominent "🕸️ 同样数据 · 二分图视图" CTA. Optimize nav dropdown gains the new link.
+
+### Stats
+- 413/413 site E2E pass (+6 new) · 36/36 unit pass
+- Build: 438 pages
+- 53 SVG nodes + 84 edges rendered server-side (no client JS)
+- Optimize dropdown count: 7 items (was 6)
 
 ---
 
