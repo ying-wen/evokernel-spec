@@ -1,0 +1,76 @@
+id: hot-cold-kv-tiering
+name: 冷热 KV 分层 (HBM / DRAM / SSD 三级缓存)
+category: kv-cache
+description_md: |
+  ## 简介
+
+  KV cache 不是均匀访问 — 当前生成 token 用的最近窗口是 **热**, 已经 attend 过但还没丢弃
+  的中间历史是 **温**, 远历史 (chat 第 1 轮的 system prompt) 是 **冷**。冷热分层
+  把 hot KV 留在 HBM, warm KV 移到 host DRAM, cold KV 移到 NVMe SSD, 按访问频率分级缓存。
+
+  与 `kv-cache-cpu-offload` 的区别: offload 是 session-level 整块搬, **冷热分层是 page-level
+  细粒度** — 同一 session 的不同部分可能在不同层。
+
+  ## 三级层次 (Mooncake / NVIDIA Dynamo 实现)
+  - **HBM (热)**: 当前 attention 窗口 (最近 W tokens), latency 0
+  - **DRAM (温)**: 已 attend 但还可能复用, latency 50-200 ns
+  - **NVMe (冷)**: 长期闲置 session, latency 50-200 us
+  - 自动 promotion/demotion: LRU 或 access-frequency
+
+  ## 关键性能因素
+  - HBM ↔ DRAM 路径: NVLink-C2C (Grace+H 100/B 100/B 200) 900 GB/s 是绝佳; PCIe Gen5 64 GB/s 是 baseline
+  - DRAM ↔ NVMe: GPU Direct Storage (GDS) 让 GPU 直接读 NVMe, 跳过 CPU
+  - Page granularity: 16-256 tokens 是常见单位 (太小 metadata 大, 太大命中率差)
+
+  ## 何时收益最大
+  - **超长会话** (agents, 100k+ context, 用户活跃度低)
+  - **共享前缀** (system prompt 多 session 复用 — 配合 prefix-radix-cache)
+  - **HBM 受限** (单 H100 80 GB 装不下千个用户的活跃 KV)
+  - 节点配 1-4 TB host RAM + NVMe 数 TB (Hopper/Blackwell 标配)
+
+  ## 不适用
+  - 单轮 / 高吞吐 (cache reuse 低, 分层成本 > 收益)
+  - 老节点没 NVLink-C2C (PCIe-only swap 太慢)
+
+applies_when:
+  - multi-turn-chat
+  - agent-loop
+  - long-session
+  - shared-system-prompt
+  - hbm-capacity-limited
+related_operators: [memcpy-async, paged-attention, dma-load]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, lmdeploy]
+hardware_requires:
+  - sufficient-host-dram
+  - nvlink-c2c-or-pcie-gen5
+  - optional-nvme-gds
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning]
+speedup:
+  - metric: cost-per-token
+    multiplier_min: 0.4
+    multiplier_max: 0.7
+    notes: '热 KV 留 HBM, 冷迁 DRAM/NVMe → GPU 利用率上升 → TCO 降 30-60%'
+  - metric: memory-footprint
+    multiplier_min: 10.0
+    multiplier_max: 50.0
+    notes: '相当于 HBM 容量被放大 10-50x (cold 转移到 SSD 后 HBM 只放 hot)'
+  - metric: ttft
+    multiplier_min: 1.0
+    multiplier_max: 1.5
+    notes: 'Cache-miss 命中 cold 路径 TTFT +200 ms-2 s (NVMe 读); 命中 hot HBM 0 影响'
+trade_offs:
+  - 'P99 TTFT 抖动: cold 命中需要 NVMe 读, 200 ms-2 s 不等'
+  - 'NVMe GDS 部署门槛高 (需要 driver + RDMA-capable NVMe)'
+  - 'Page granularity 不当 → cache miss 风暴, 反而拖慢'
+  - '不适合单轮高吞吐 (cache reuse 低)'
+references:
+  - title: 'Mooncake: A KVCache-centric Disaggregated Architecture'
+    url: https://arxiv.org/abs/2407.00079
+    source_type: paper
+  - title: 'NVIDIA Dynamo Inference Framework'
+    url: https://github.com/ai-dynamo/dynamo
+    source_type: implementation
+  - title: 'GPU Direct Storage'
+    url: https://docs.nvidia.com/gpudirect-storage/
+    source_type: docs

@@ -1,0 +1,44 @@
+id: case-llama4mvk-h200x8-vllm-fp8-001
+title: Llama 4 Maverick 400B-A17B (multi-modal MoE) on 8×H200 SXM single-node with vLLM 0.7 FP8 + GQA
+submitted_at: '2026-05-01'
+submitter:
+  github: '@evokernel-bot'
+stack:
+  hardware: { id: h200-sxm, count: 8, topology: single-node-hgx }
+  server: { id: nvidia-hgx-h200 }
+  interconnect: { intra_node: nvlink-4, inter_node: none }
+  model: { id: llama-4-maverick, weight_format: bf16 }
+  engine: { id: vllm, version: '0.7.2' }
+  quantization: fp8-e4m3
+  parallel: { tp: 8, pp: 1, ep: 8, sp: 1, disaggregated: false }
+  driver: 'CUDA 12.6'
+  os: 'Ubuntu 24.04'
+scenario:
+  prefill_seq_len: 4096
+  decode_seq_len: 512
+  batch_size: 32
+  max_concurrent_requests: 128
+results:
+  throughput_tokens_per_sec: { decode: 3400, prefill: 42000 }
+  latency_ms: { ttft_p50: 195, ttft_p99: 380, tbt_p50: 16, tbt_p99: 32 }
+  memory_per_card_gb: 121
+  power_per_card_w: 690
+  utilization: { compute_pct: 58, memory_bw_pct: 81 }
+bottleneck: memory-bandwidth
+reproduction:
+  startup_command: 'vllm serve meta-llama/Llama-4-Maverick --tensor-parallel-size 8 --expert-parallel-size 8 --quantization fp8 --max-model-len 32768'
+  benchmark_tool: 'vllm benchmark_serving.py --multi-modal'
+issues_encountered:
+  - 'H200 141GB HBM 让 400B-A17B MoE FP8 + 4-image vision context 装下 (单卡 ~121 GB), H100 80 GB 装不下需要 disagg 跨卡'
+  - 'vLLM 0.7.0 mixed-TP for vision encoder bug (vision TP=8 强制对齐 LLM TP=8 浪费 75% vision compute), 升 0.7.2 修复'
+  - 'EP=8 within-node all2all 通过 NVSwitch Gen-3 跑通, 跨节点 EP 性能跌 40% (NVLink-3 vs IB)'
+  - 'FP8 calibration on multi-modal dataset 比 text-only 多 2x 时间 (~1 hour); calibration set 必须包含图像 prompt'
+patterns: [flashattention-v3, gqa-mqa-shared-kv, prefix-radix-cache, paged-attention, continuous-batching, moe-expert-routing-on-domestic, tp-allreduce-overlap]
+evidence:
+  - id: ev-case-llama4mvk-h200-001
+    tier: measured
+    source_type: third-party-review
+    url: https://blog.vllm.ai/2026/01/llama-4-maverick-fp8.html
+    accessed: '2026-05-01'
+    citation: 'vLLM blog Llama 4 Maverick FP8 benchmark on H200 8-card; figures within ±5% of community reproductions.'
+    contributor_attestation: 'Reproduced on shared H200 cluster; bottleneck analysis matches.'

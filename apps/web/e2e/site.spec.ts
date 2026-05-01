@@ -576,6 +576,75 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.19: 4 new patterns + 2 playbooks + 2 cases + /learn/quantization-decision-tree/', () => {
+  test('GQA/MQA shared-KV pattern detail visible', async ({ page }) => {
+    await page.goto('/patterns/gqa-mqa-shared-kv/');
+    await expect(page.getByText(/GQA|MQA|共享 KV/i).first()).toBeVisible();
+    await expect(page.getByText(/Llama 3|Mistral|GPT-4o|Gemma/i).first()).toBeVisible();
+  });
+
+  test('Hot-cold KV tiering pattern detail visible', async ({ page }) => {
+    await page.goto('/patterns/hot-cold-kv-tiering/');
+    await expect(page.getByText(/HBM|DRAM|SSD|冷热分层/i).first()).toBeVisible();
+    await expect(page.getByText(/Mooncake|Dynamo/i).first()).toBeVisible();
+  });
+
+  test('TP All-Reduce overlap pattern detail visible', async ({ page }) => {
+    await page.goto('/patterns/tp-allreduce-overlap/');
+    await expect(page.getByText(/Tensor Parallelism|reduce-scatter|all-gather|RS/i).first()).toBeVisible();
+    await expect(page.getByText(/SHARP|NVSwitch|Megatron/i).first()).toBeVisible();
+  });
+
+  test('Quant-aware fine-tune (QAT) pattern detail visible', async ({ page }) => {
+    await page.goto('/patterns/quant-aware-finetune/');
+    await expect(page.getByText(/QAT|量化感知|fake-quant/i).first()).toBeVisible();
+    await expect(page.getByText(/LoRA|GPTQ|AutoRound/i).first()).toBeVisible();
+  });
+
+  test('Multi-modal × Blackwell super-pod playbook visible', async ({ page }) => {
+    await page.goto('/playbooks/multi-modal-on-blackwell-superpod/');
+    await expect(page.getByText(/GB200|GB300|NVL72|Llama 4 Maverick/i).first()).toBeVisible();
+    await expect(page.getByText(/FP4|NVFP4|disagg/i).first()).toBeVisible();
+  });
+
+  test('Reasoning × Ascend cluster playbook visible (国产替代)', async ({ page }) => {
+    await page.goto('/playbooks/reasoning-llm-on-ascend-cluster/');
+    await expect(page.getByText(/DeepSeek-R1|Atlas 800T|MindIE|国央企|MTP/i).first()).toBeVisible();
+    await expect(page.getByText(/INT8|reasoning|long CoT/i).first()).toBeVisible();
+  });
+
+  test('GLM-5 reasoning × Atlas 800T case visible', async ({ page }) => {
+    await page.goto('/cases/case-glm5-reasoning-atlas800t-mindie-001/');
+    await expect(page.getByText(/GLM-5|Atlas 800T|MindIE/i).first()).toBeVisible();
+    await expect(page.getByText(/INT8|MTP|reasoning/i).first()).toBeVisible();
+  });
+
+  test('Llama 4 Maverick × H200 8-card FP8 case visible', async ({ page }) => {
+    await page.goto('/cases/case-llama4mvk-h200x8-vllm-fp8-001/');
+    await expect(page.getByText(/Llama 4 Maverick|H200|FP8/i).first()).toBeVisible();
+    await expect(page.getByText(/multi-modal|vision|GQA/i).first()).toBeVisible();
+  });
+
+  test('/learn/quantization-decision-tree/ renders 3 decision branches', async ({ page }) => {
+    await page.goto('/learn/quantization-decision-tree/');
+    await expect(page.getByRole('heading', { name: /量化决策树|Quantization Decision Tree/i }).first()).toBeVisible();
+    // 3 branches: hardware / model size / workload
+    await expect(page.getByText(/Blackwell|Hopper|Ampere/i).first()).toBeVisible();
+    await expect(page.getByText(/70B|13-70B|13B/i).first()).toBeVisible();
+    await expect(page.getByText(/长会话|chatbot|agent/i).first()).toBeVisible();
+  });
+
+  test('/learn/quantization-decision-tree/ links to relevant patterns + cases', async ({ page }) => {
+    await page.goto('/learn/quantization-decision-tree/');
+    // Pattern cross-links
+    await expect(page.locator('a[href*="/patterns/fp4-weight-only-quant"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/patterns/quant-aware-finetune"]').first()).toBeVisible();
+    // Calculator + playbooks CTAs
+    await expect(page.locator('a[href*="/calculator/"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/playbooks/"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.18: impact metrics surface (GH stars + impact strip + /impact/ dashboard + citations)', () => {
   test('Nav shows live GitHub star button on every page', async ({ page }) => {
     await page.goto('/');

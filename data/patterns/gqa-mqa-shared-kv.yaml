@@ -1,0 +1,71 @@
+id: gqa-mqa-shared-kv
+name: GQA / MQA 共享 KV (Llama / Mistral / GPT-4o)
+category: kernel-fusion
+description_md: |
+  ## 简介
+
+  Multi-Head Attention (MHA) 给每个 query head 独立的 K/V head — KV cache 大小
+  正比于 head 数 (Llama 2 70B 64 head)。**Grouped-Query Attention (GQA)** 让多个
+  query head 共享一组 K/V head, KV 数量降到 group 数 (Llama 3 70B: 64 query / 8 kv group ⇒ 8x KV 减少)。
+  **Multi-Query Attention (MQA)** 是极端情况: 所有 query 共享 1 组 K/V (8x → 64x 减少)。
+
+  现代 frontier 模型几乎全部用 GQA 或 MQA: Llama 3/4, Mistral, Mixtral, Gemma, Qwen 3, GPT-4o,
+  Claude 3.5+. KV cache 减小直接转化为 long-context 上限提升和 batch size 上限提升。
+
+  ## GQA vs MQA vs MHA
+  | 设计 | KV head 数 | KV cache 大小 | 质量损失 |
+  |---|---|---|---|
+  | MHA (经典) | = query head | 1× (baseline) | 0 |
+  | GQA-8 | query / 8 | 1/8× | <0.5 pt MMLU |
+  | MQA | 1 | 1/H× (H = query 数) | 0.5-2 pt MMLU |
+
+  ## 实现关键
+  - 直接压缩 KV cache 形状: `(batch, seq, kv_head, head_dim)` 而非 `(batch, seq, query_head, head_dim)`
+  - Attention kernel 在 dot-product 阶段把 K/V broadcast 到 query group
+  - FlashAttention v2/v3 内置 GQA 支持; vLLM/SGLang 自动检测模型 config
+
+  ## 何时收益最大
+  - **长 context 推理**: 32K-1M context, KV 是主要 HBM 占用
+  - **高 batch 服务**: 单卡装下更多并发 session
+  - **小 GPU 推理**: 8B 模型在 8GB 卡跑长 context
+
+  ## 不适用
+  - MHA-trained 模型不能直接转 GQA (需要 group-pooling 微调)
+  - 极短 context 任务 (KV cache 不是瓶颈)
+applies_when:
+  - long-context
+  - kv-cache-bottleneck
+  - high-batch-serving
+  - modern-llm-architecture
+related_operators: [attention, flashattention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy, transformers, llama-cpp, mindie]
+hardware_requires: []
+model_archetypes: [dense-llm, moe-llm, long-context, multi-modal]
+speedup:
+  - metric: memory-footprint
+    multiplier_min: 4.0
+    multiplier_max: 64.0
+    notes: 'KV cache 压缩 N 倍 (Llama 3 70B GQA-8 ⇒ 8x; MQA ⇒ 64x). 直接转化为可装下的 batch / context.'
+  - metric: decode-throughput
+    multiplier_min: 1.3
+    multiplier_max: 2.5
+    notes: 'KV 读取 bandwidth 减少 → memory-bound decode 加速 1.3-2.5x'
+  - metric: quality
+    multiplier_min: 0.97
+    multiplier_max: 1.0
+    notes: 'GQA-8 几乎无损; MQA 跌 0.5-2 pt MMLU. 现代模型训练时即用 GQA, post-hoc 转 GQA 需要短训练恢复.'
+trade_offs:
+  - 'MHA-trained 模型不能 zero-shot 转 GQA, 需要 distill / group-pool 微调'
+  - 'MQA 极端压缩, 推理质量略降, 不是默认选择'
+  - '极短 context 服务 (chatbot 单 turn) KV 不是瓶颈, GQA 收益不显著'
+references:
+  - title: 'GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints'
+    url: https://arxiv.org/abs/2305.13245
+    source_type: paper
+  - title: 'Fast Transformer Decoding: One Write-Head is All You Need (MQA original)'
+    url: https://arxiv.org/abs/1911.02150
+    source_type: paper
+  - title: 'FlashAttention GQA support'
+    url: https://github.com/Dao-AILab/flash-attention
+    source_type: implementation

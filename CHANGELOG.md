@@ -6,13 +6,47 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.19+ horizon)
+### Planned (v1.20+ horizon)
 - Public submission portal (case YAML web form) — currently PR-only
 - Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - Compare-server view (super-pod vs super-pod, mirroring compare-hardware)
+- /learn/parallelism-cheatsheet/ + /learn/picking-engine/ guides
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
+
+---
+
+## [1.19.0] — 2026-05-01
+
+Continuing the operator/optimization gap (gap 2 of the user's 3-gap directive). 4 new optimization patterns + 2 new playbooks + 2 new cases + first /learn/ decision-tree guide.
+
+### Added
+
+**4 more optimization patterns** (15 → 19):
+- `gqa-mqa-shared-kv`: Grouped/Multi-Query Attention KV-cache reduction (Llama 3+, Mistral, GPT-4o, Gemma) — affects every modern LLM, 4-64× KV compression
+- `hot-cold-kv-tiering`: HBM/DRAM/NVMe three-tier KV-cache (Mooncake / NVIDIA Dynamo). Distinct from `kv-cache-cpu-offload` — page-level, not session-level
+- `tp-allreduce-overlap`: Strategy-layer TP communication/compute overlap (RS+AG split, async-tp, SHARP). Distinct from `fused-tp-allreduce-residual` (fused-kernel)
+- `quant-aware-finetune`: QAT recovery for PTQ quality loss. ~10× more time but <0.5 pt MMLU loss for small models. Critical for <13B + INT4
+
+**2 more playbooks** (22 → 24):
+- `multi-modal-on-blackwell-superpod`: Llama 4 Maverick / Pixtral 124B on GB200 NVL72 with FP4 LLM + BF16 vision encoder + disagg + NVLink-5 EP
+- `reasoning-llm-on-ascend-cluster`: DeepSeek-R1 / Qwen-QwQ / o1-style on Atlas 800T with INT8 + KV-INT8 + MTP + 国央企 替代 path
+
+**2 more cases** (27 → 29):
+- `case-llama4mvk-h200x8-vllm-fp8-001`: Llama 4 Maverick on 8×H200 single-node FP8, multi-modal MoE baseline before Blackwell super-pod
+- `case-glm5-reasoning-atlas800t-mindie-001`: GLM-5 Reasoning 32B on Atlas 800T A3 with MindIE 2.0 INT8 + MTP, real 国央企 reasoning POC
+
+**`/learn/quantization-decision-tree/`** (NEW educational guide):
+- 3-step decision tree: hardware × model size × workload
+- Each leaf links to a relevant pattern + example case
+- Pulls live data from data/patterns + data/cases — recommendations stay in sync with catalog
+- Standalone CTA card: calculator + playbooks + 19 patterns
+
+### Stats
+- 264/264 site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 29**, fused-kernel: 16, **playbook: 24**, **pattern: 19**, citation: 1
+- Build: 356 pages
 
 ---
 

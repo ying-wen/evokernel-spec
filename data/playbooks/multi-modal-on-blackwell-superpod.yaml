@@ -1,0 +1,101 @@
+id: multi-modal-on-blackwell-superpod
+name: 多模态 MoE 大模型在 Blackwell 超节点部署 (Llama 4 Maverick / Qwen 2.5-VL 72B+ / Pixtral 124B+ on GB200/GB300 NVL72)
+model_archetype: multi-modal
+hardware_class: blackwell-superpod
+workload_profile: [low-latency-chat, agent-multi-turn, high-throughput-batch]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: 大型多模态 MoE / dense 模型 (Llama 4 Maverick 400B-A17B MoE, Qwen 2.5-VL 72B+,
+  Pixtral 124B, GLM-V 大型多模态) 部署到 NVIDIA GB200 / GB300 NVL72 super-pod (36-72 卡).
+  Blackwell 关键差异化: NVLink-5 + native FP4 + Grace-Hopper-C2C 让 multi-modal 部署同时拿到
+  long vision context 容量 + 极致 decode 吞吐.
+
+  **不适合**: 中小规模 (走 multi-modal × hopper-single-node 或 cdna3-single-node);
+  非 NVIDIA 硬件团队 (走 cdna3-cluster); video diffusion (走 long-context-vision).
+
+  ## 核心配方与 hopper-cluster multi-modal 的差异
+
+  1. **TP=8 LLM + EP=8-72 + TP=1-2 vision encoder** + **disaggregated**: NVLink-5 全互联
+     让 EP 跨整个 super-pod 不走 IB, all2all latency 比 Hopper-cluster 跨节点降 5-10x.
+     mixed-TP for vision encoder 必备 (vLLM 0.8+ TRT-LLM 0.13+).
+  2. **FP4 (NVFP4) for LLM weights + BF16 vision encoder**: Blackwell native FP4 把 LLM 权重 4x 压缩;
+     vision encoder 单独 BF16 (vision quality 对 quant 更敏感, 跌 1-2 pt 不可接受).
+  3. **NVLink-C2C 共享 KV (image embedding cache)**: Grace+Hopper-C2C 让 image embeddings 在
+     CPU/GPU 间 zero-copy, 多轮 chat 同 image 复用 vision encoder 输出 = 跳过 ~30% 计算.
+  4. **TRT-LLM 主栈 + vLLM 备选**: Blackwell 早期 TRT-LLM 优化更激进 (FP4 GEMM kernel),
+     vLLM 0.8+ 跟上但 multi-modal kernels 仍滞后 1-2 个 release.
+  5. **Pattern stack**: FlashAttn-3 + FP4-W4-only + GQA/MQA + prefix-radix + MoE-EP-overlap
+
+recipe:
+  parallelism:
+    tp: '8 (LLM backbone, intra-NVL72 NVSwitch-5)'
+    ep: '8-72 (MoE expert distribution across full super-pod)'
+    pp: '1'
+    sp: '0'
+    notes: 'mixed-TP for vision encoder (TP=1-2). NVL72 让 EP=72 single-domain — 比 Hopper-cluster 跨 IB 简单很多.'
+    disaggregated: true
+  quantization: fp4
+  engine_primary: tensorrt-llm
+  engine_alternates: [vllm, sglang]
+  kernels:
+    - flash-attention-v3
+    - fused-mlp-silu
+    - fused-moe-dispatch-deepep
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+    - fused-tp-allreduce-residual
+  patterns:
+    - flashattention-v3
+    - fp4-weight-only-quant
+    - gqa-mqa-shared-kv
+    - prefix-radix-cache
+    - paged-attention
+    - continuous-batching
+    - tp-allreduce-overlap
+    - disaggregated-prefill-decode
+    - moe-expert-routing-on-domestic
+  expected_perf:
+    decode_tok_s_per_gpu_min: 5500
+    decode_tok_s_per_gpu_max: 9500
+    prefill_throughput_min: 28000
+    prefill_throughput_max: 65000
+    ttft_ms_p50_min: 280
+    ttft_ms_p50_max: 700
+    cost_per_million_tokens_usd_min: 0.55
+    cost_per_million_tokens_usd_max: 1.5
+    notes: 'Llama 4 Maverick 400B MoE on GB200 NVL72 ~7500 tok/s/GPU; TTFT 280-500ms 是 prefill-disagg + vision encoder fused 后实测. 比 Hopper-cluster 同 model 提升 2-3x decode, $/token 低 30-45%.'
+
+decision_points:
+  - scale: '36 GPU GB300 NVL36 (Llama 4 Maverick 400B FP4)'
+    guidance: 'TP=8 + EP=36 + disagg (12 prefill + 24 decode). NVL36 单 domain 简化部署, 适合 mid-throughput.'
+  - scale: '72 GPU GB200 NVL72 (production multi-modal serving)'
+    guidance: 'TP=8 + EP=72 + disagg (24 prefill + 48 decode). 全 super-pod 单 NVLink domain, 极致吞吐.'
+  - scale: '144 GPU 双 NVL72 (超大规模)'
+    guidance: '跨 super-pod 走 IB 200G, EP 跨 pod (容忍 5-10% 通信开销). 适合 1B+ tok/day 服务.'
+
+not_for:
+  - '单节点部署 (走 multi-modal × hopper-single-node 或 cdna3-single-node)'
+  - 'AMD-only / 国产-only stack (走 cdna3-cluster 或 ascend-cluster)'
+  - 'Video diffusion (走 long-context-vision playbook)'
+  - '< 200B 模型 (NVL72 部署成本太高, 单节点 H200/B200 更划算)'
+
+related_cases:
+  - case-llama4mvk-gb200-nvl72-001
+
+affects_stages: [acquire, convert, quantize, compile, shard, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-mm-blackwell-superpod-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://nvidia.github.io/TensorRT-LLM/
+    accessed: '2026-05-01'
+    citation: 'Synthesized from NVIDIA GB200 NVL72 launch material + Llama 4 Maverick FP4 benchmarks; figures projected from H100/H200 baselines × Blackwell FP4 multiplier.'
+
+disclaimers:
+  - 'Multi-modal × Blackwell 部署是 2026 新兴场景; 公开实测案例少 (~3 个).'
+  - 'FP4 vision quality 暂未充分验证 — 当前推荐 vision encoder 仍 BF16.'
+  - 'NVL72 全部域 EP 是新拓扑, 调度系统 (Dynamo / vLLM router) 仍在适配.'

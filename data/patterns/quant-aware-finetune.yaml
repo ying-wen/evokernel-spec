@@ -1,0 +1,82 @@
+id: quant-aware-finetune
+name: 量化感知微调 (QAT) — 恢复 PTQ 精度损失
+category: quantization
+description_md: |
+  ## 简介
+
+  Post-Training Quantization (PTQ) 直接把训练好的 FP16/BF16 权重转成 INT8/INT4/FP8/FP4 — 简单但
+  在 small model + 难任务 上跌 2-5 pt MMLU。**量化感知微调 (QAT)** 在微调阶段就插入 fake-quant
+  节点, 让模型学会适应低精度, 量化后质量损失降到 ≤ 0.5 pt — 几乎无损。
+
+  与 PTQ 的关键区别: PTQ 是**离线一次性**, QAT 需要**有监督微调** (典型 ~1-3% 训练 token 量),
+  但收益在 < 13B 模型 + 极端低 bit (INT4 / FP4) 时 dramatic。
+
+  ## QAT vs PTQ 对照
+  | 方法 | 数据需求 | 时间 | 质量损失 (Llama 7B INT4) |
+  |---|---|---|---|
+  | PTQ-AWQ | 128 校准 sample | 5 min | 1.5-3 pt |
+  | PTQ-GPTQ | 128 校准 sample | 30 min | 1-2 pt |
+  | **QAT (LoRA)** | 100K-1M token | 4-12 GPU hour | **0.2-0.5 pt** |
+  | **QAT (full)** | 1B+ token | 数天 | **<0.2 pt** |
+
+  ## 实现关键
+  - **Fake-quant nodes**: forward pass quantize → dequantize (保持梯度), backward 用 STE (straight-through estimator)
+  - **LoRA + QAT**: 只训 LoRA, 量化 base 权重 — 节省内存, 70B 模型可在 1× H100 跑
+  - **Calibration set 选择**: PTQ 校准 ≠ QAT 数据 — QAT 需要任务相关数据 (chat / code / math)
+  - **学习率**: QAT 用 PTQ baseline 的 0.1-1% LR, 否则破坏量化结构
+
+  ## 何时收益最大
+  - **小模型 (≤ 13B)** + **极端低 bit** (INT4 / FP4) — PTQ 损失 > 1 pt 的场景
+  - **特定任务** (code / math / 中文) — generic PTQ 校准 set 不够好
+  - **超精度敏感产品** (医疗 / 金融 / 法务 — 0.5 pt 不能接受)
+  - **MoE 模型 expert 量化** — expert 权重压缩, QAT 几乎必选
+
+  ## 不适用
+  - 大模型 ≥ 70B + 高精度 (FP8/BF16-int8): PTQ 已经 < 0.5 pt, QAT 多余
+  - 资源受限 (GPU hour 紧张) — PTQ 一次性出量化模型, QAT 多花一个数量级时间
+  - 通用 chatbot (Llama 3 70B INT8 PTQ 已经 fine)
+
+  ## 引擎 / 工具
+  - **bitsandbytes**: PEFT LoRA-QAT, 入门门槛低
+  - **GPTQModel + LoRA**: 最常用 QAT 工具链
+  - **NVIDIA TensorRT Model Optimizer**: 自动 QAT pipeline (从 FP16 模型 → 出 INT4 engine)
+  - **AutoRound**: Intel + AMD 联合开发, 单卡 QAT 工具
+
+applies_when:
+  - small-model-13b-or-less
+  - extreme-low-bit
+  - quality-critical
+  - moe-expert-compression
+related_operators: [matmul, gemm, dequantize, fake-quant]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy, transformers]
+hardware_requires:
+  - tensor-cores-int4-or-fp4
+model_archetypes: [dense-llm, moe-llm, reasoning, multi-modal]
+speedup:
+  - metric: quality
+    multiplier_min: 0.99
+    multiplier_max: 1.0
+    notes: 'QAT 7B INT4 ≈ FP16 quality (跌 < 0.5 pt MMLU); PTQ 同模型跌 1.5-3 pt'
+  - metric: cost-per-token
+    multiplier_min: 0.4
+    multiplier_max: 0.6
+    notes: '低 bit + 高质量 = 部署成本降 40-60% 且不掉线'
+trade_offs:
+  - '需要训练数据 + GPU hour (4-12 hour for 7B LoRA-QAT)'
+  - 'Calibration / training data 选不好, 反向偏移导致跑分掉'
+  - '> 70B 大模型已经 PTQ-friendly, QAT ROI 低'
+  - '维护成本: 模型升级要重新 QAT, 不像 PTQ 一次出多版本'
+references:
+  - title: 'Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference'
+    url: https://arxiv.org/abs/1712.05877
+    source_type: paper
+  - title: 'GPTQModel + LoRA-QAT'
+    url: https://github.com/ModelCloud/GPTQModel
+    source_type: implementation
+  - title: 'NVIDIA TensorRT Model Optimizer'
+    url: https://github.com/NVIDIA/TensorRT-Model-Optimizer
+    source_type: implementation
+  - title: 'Intel AutoRound'
+    url: https://github.com/intel/auto-round
+    source_type: implementation

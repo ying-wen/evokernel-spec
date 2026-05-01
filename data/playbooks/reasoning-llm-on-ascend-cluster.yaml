@@ -1,0 +1,103 @@
+id: reasoning-llm-on-ascend-cluster
+name: Reasoning 大模型在昇腾集群部署 (DeepSeek-R1 / Qwen-QwQ / OpenAI-o1-style on Atlas 800T 集群)
+model_archetype: reasoning-llm
+hardware_class: ascend-cluster
+workload_profile: [reasoning-tot, agent-multi-turn, low-latency-chat]
+
+summary_md: |
+  ## 何时用此 playbook
+
+  **适合**: Reasoning / chain-of-thought 大模型 (DeepSeek-R1 671B-A37B MoE, Qwen-QwQ 70B,
+  OpenAI-o1 / o3 风格 long-CoT 模型) 部署到华为 Atlas 800T 集群 (8-256 卡).
+  关键场景: 国央企 / 政企 reasoning 应用要求国产替代 + 长 CoT 输出 + 高 throughput.
+
+  **不适合**: 短 output 任务 (chat / code 走 dense-llm-medium); 端侧 (走 dense-llm-small);
+  H100/H200 已部署团队 (走 reasoning × hopper-cluster); < 32B 模型 (Atlas 800T 单节点更优).
+
+  ## 核心配方与 reasoning × hopper-cluster 的差异
+
+  1. **TP=8 + EP=8-32 + 长 PP=2 (decode-heavy)**: 华为 HCCS-v2 单 server 内 8 卡全互联,
+     跨节点 RoCE-200G. Reasoning 任务 decode token 量 (5K-50K CoT) 远大于 prefill input,
+     PP=2 让 decode 阶段 micro-batch overlap.
+  2. **INT8 (W8A8) + KV-cache INT8**: CANN 8.0+ 提供 INT8 GEMM, decode 1.6-2x 提升;
+     reasoning 长 CoT KV cache 是主要 HBM 占用, KV INT8 再省 2x.
+     不上 FP8: 910C 没 native FP8 (910D 有但成本高).
+  3. **MindIE 主栈 + vllm-ascend 备选**: MindIE 2.0 对长 CoT decode 调优最深 (continuous batching + MTP);
+     vllm-ascend 适合开发期, 生产推荐 MindIE.
+  4. **MTP head 强烈推荐**: DeepSeek V3/R1 训练时即含 MTP, 接受率 80-90% — 长 CoT 场景累积加速 2-3x,
+     对 P50 latency 影响极大.
+  5. **Pattern stack**: MTP + GQA + KV-INT8 + prefix-radix + continuous-batching + MoE-routing-domestic.
+  6. **国央企部署考虑**: 信创认证, MindIE 是已认证栈; CANN 9.0+ 推荐 (910C 同时支持 9.0 / 8.x).
+
+recipe:
+  parallelism:
+    tp: '8 (intra-server HCCS-v2)'
+    ep: '8-32 (DeepSeek MoE expert distribution; 跨节点 RoCE)'
+    pp: '2 (decode-heavy, micro-batch overlap)'
+    sp: '0'
+    notes: 'PP=2 for reasoning decode-heavy workload; dense-llm 一般 PP=1.'
+    disaggregated: false
+  quantization: int8
+  engine_primary: mindie
+  engine_alternates: [vllm-ascend]
+  kernels:
+    - flash-attention-v2
+    - fused-mlp-silu
+    - fused-moe-dispatch-domestic
+    - fused-rmsnorm-residual
+    - fused-rope-qkv
+    - fused-spec-decode
+    - fused-quantized-attention
+  patterns:
+    - mtp-multi-token-prediction
+    - gqa-mqa-shared-kv
+    - kv-cache-int8
+    - prefix-radix-cache
+    - paged-attention
+    - continuous-batching
+    - moe-expert-routing-on-domestic
+    - quant-aware-finetune
+  expected_perf:
+    decode_tok_s_per_gpu_min: 1200
+    decode_tok_s_per_gpu_max: 2400
+    prefill_throughput_min: 8000
+    prefill_throughput_max: 18000
+    ttft_ms_p50_min: 380
+    ttft_ms_p50_max: 1200
+    cost_per_million_tokens_usd_min: 0.7
+    cost_per_million_tokens_usd_max: 2.0
+    notes: 'DeepSeek-R1 671B MoE on Atlas 800T x32 ~1800 tok/s/GPU; 长 CoT 场景 decode 占 80%+ 时间, MTP 接受率 ~85% 让累积 throughput 提升 2-3x. Cost 比 hopper-cluster 高 40-60% (HBM bandwidth ratio + 国产 chip premium), 但满足国央企 信创 要求.'
+
+decision_points:
+  - scale: '8 GPU Atlas 800T 单节点 (DeepSeek-R1-Distill-70B INT8)'
+    guidance: 'TP=8 + EP=1 + PP=1. 单节点 Atlas 800T 跑 70B distilled reasoning 模型, MindIE 默认配置即可.'
+  - scale: '32 GPU Atlas 800T x4 (DeepSeek-R1 671B MoE INT8)'
+    guidance: 'TP=8 + EP=32 + PP=2. 跨 4 节点 RoCE-200G, 启用 MTP + KV-INT8 + 长 CoT 优化.'
+  - scale: '128+ GPU CloudMatrix 384 / Atlas 900 SuperPoD A2'
+    guidance: '使用 CloudMatrix-384 super-pod 全光纤 fabric 替代 RoCE 跨节点; EP 跨整个 super-pod.'
+
+not_for:
+  - '短 output 任务 (chat / code summarization 走 dense-llm-medium-on-ascend-cluster)'
+  - '端侧 / 边缘部署 (Atlas 800T 是机柜级, 走 dense-llm-small playbook)'
+  - 'NVIDIA-only 已锁定 (走 reasoning × hopper-cluster)'
+  - '< 32B reasoning 模型 (单节点 Atlas 800T 4-8 卡足够, 不需要集群)'
+
+related_cases:
+  - case-dsr1-on-ascend-910b-x16-mindie-001
+  - case-glm5-reasoning-atlas800t-mindie-001
+
+affects_stages: [acquire, convert, quantize, compile, shard, serve]
+status: experimental
+
+evidence:
+  - id: ev-pb-reasoning-ascend-cluster-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.hiascend.com/document/detail/zh/mindie
+    accessed: '2026-05-01'
+    citation: 'Synthesized from MindIE 2.0 documentation + DeepSeek-R1 / Qwen-QwQ on Atlas 800T benchmark reports; figures projected from 910C INT8 baselines × MTP acceptance rate.'
+
+disclaimers:
+  - 'Reasoning + 国央企部署是 2025-2026 主流场景, 公开实测仍以 DeepSeek-R1 为主导 (单一 model 数据点).'
+  - 'MTP 接受率因任务而异: math/code reasoning 80-85%, open-ended dialogue ~70%.'
+  - '910D 即将商用 (FP8 native), 此 playbook 假设 910C 部署; 910D 后续可全 FP8 路径.'
