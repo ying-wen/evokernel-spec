@@ -1,0 +1,77 @@
+id: dsv4pro-cloudmatrix-384-mindie
+title: 'DeepSeek V4 Pro × CloudMatrix 384'
+context_zh: '国央企 reasoning · 384 卡 Ascend super-pod · MindIE BF16 · TP=16 × PP=4 × EP=6'
+case_id: case-dsv4pro-cm384-mindie-001
+playbook_id: moe-llm-large-on-ascend-cluster
+display_order: 30
+why_it_matters: |
+  国央企 / 信创合规 reasoning 场景, 全 Ascend 栈, 当前 671B 大 MoE 模型最大规模 production deployment.
+  与 Hopper / Blackwell tour 是不同硬件、引擎、量化的对照, 但 7 阶段框架是一致的.
+
+stages:
+  - stage_id: acquire
+    decision: 'deepseek-ai/DeepSeek-V4-Pro — HuggingFace safetensors'
+    rationale: |
+      DeepSeek V4 Pro 671B-A37B MoE, BF16 weights ~1.34 TB total.
+      CloudMatrix 384 集群拉权重走 OBS (华为云对象存储) 镜像源, 比 hf-mirror.com 快约 3x.
+    pitfall: |
+      License: DeepSeek 系商业 license 允许部署. CloudMatrix 384 集群部署需要先 ModelArts 注册 model card.
+
+  - stage_id: convert
+    decision: 'safetensors → MindIE checkpoint (CANN 8.1 native format)'
+    rationale: |
+      MindIE 不直接读 HF safetensors — 需要 mindie-convert 转成 MindIE 内部 .pt 格式 (~30 min, 单节点完成).
+      vLLM-ascend fork 支持 safetensors 直读但 MindIE 路径吞吐高 ~25%.
+    pitfall: |
+      CANN 8.1 与 8.0 的 checkpoint 格式不兼容 — 升级 CANN 后必须重转, 否则 model load 报错.
+
+  - stage_id: quantize
+    decision: 'BF16 (no quantization yet) — 384 卡 + EP-shard 让单卡 102 GB 不超 64 GB HBM'
+    rationale: |
+      671B BF16 + EP=6 让每卡只装 1/6 expert + shared backbone ≈ 102 GB / 卡 (memory_per_card_gb=102 from case).
+      910C 单卡 64 GB HBM 不够, 实际靠 EP=6 + TP=16 分布.
+      不上 INT8 因为: (1) 910D FP8 路径成熟前 INT8 calibration MindIE 1.0 仍 experimental;
+      (2) reasoning 场景对量化敏感.
+    involves_patterns: [memory-bound-decode-prefer-int8]
+    pitfall: |
+      BF16 + 384 卡 HBM 占用 71% 高位. INT8 在 910D / MindIE 2.0+ 上线后, 此 deployment 升级路径明确.
+
+  - stage_id: compile
+    decision: 'CANN 8.1 graph compiler + AscendC kernels (FlashAttn-2 + fused MoE dispatch)'
+    rationale: |
+      MindIE 1.0 走 CANN graph 离线 compile (类似 TRT-LLM trtllm-build), engine 缓存到 disk.
+      384 卡 cluster 用 NPU-aware schedule 让 FA2 + MoE dispatch 各自融合.
+    involves_operators: [scaled-dot-product-attention, matmul, rmsnorm, silu, swiglu, moe-gate, all2all]
+    involves_kernels: [flash-attention-v3, fused-mlp-silu, fused-rmsnorm-residual, fused-rope-qkv, fused-moe-dispatch-deepep]
+    involves_patterns: [flashattention-v3, gqa-mqa-shared-kv, moe-expert-routing-on-domestic]
+    pitfall: |
+      910C 没 TMA-equivalent, FlashAttn-3 path 走 emulation, 性能比 H100 Hopper 低 30-40% — bottleneck 在 attention 阶段.
+
+  - stage_id: shard
+    decision: 'TP=16 (intra-cabinet) × PP=4 (cross-cabinet) × EP=6 — 16 × 4 × 6 = 384 卡'
+    rationale: |
+      CloudMatrix 384 单 cabinet 16 卡 HCCS-v2 全互联. 跨 cabinet 走 lingqu 灵衢 optical fabric.
+      TP=16 利用单 cabinet bandwidth; PP=4 跨 4 cabinet 容忍较低 lingqu latency; EP=6 让 16 expert MoE 沿设备分布.
+    involves_patterns: [tp-allreduce-overlap, moe-expert-routing-on-domestic]
+    pitfall: |
+      EP=6 expert 路由首跑负载不均 (case 实测 issue) — 用 router warmup batch 在前 3000 step 内做均衡.
+      不 warmup 导致冷启动 P99 latency 比 P50 高 4-6x.
+
+  - stage_id: serve
+    decision: 'MindIE 1.0 + continuous batching + paged-attention (Ascend 实现)'
+    rationale: |
+      MindIE 是昇腾唯一 production-grade 推理栈; CANN 9.0 之前没 disagg 支持.
+      Continuous batching 在 384 卡 + max_concurrent_requests=256 上线性扩展.
+    involves_kernels: [paged-attention-decode]
+    involves_patterns: [continuous-batching, paged-attention]
+    pitfall: |
+      信创合规: MindIE + CANN 是已认证栈; vllm-ascend fork 在 信创 招标中 不被接受. 国央企 部署必走 MindIE.
+
+  - stage_id: observe
+    decision: 'MindStudio metrics + npu-smi + 华为云监控'
+    rationale: |
+      Ascend 没有 nvidia-smi 等价物 — 用 npu-smi (华为提供).
+      MindStudio 集成 MindIE 内部 trace, 看 per-step latency / KV cache 占用率.
+    pitfall: |
+      Lingqu 跨柜延迟比单柜 HCCS 高约 18% (case 实测 issue) —
+      监控时要分柜内 / 跨柜 latency, 否则跨柜 P99 抖动会被柜内数据稀释.

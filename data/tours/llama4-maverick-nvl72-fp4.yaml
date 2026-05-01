@@ -1,0 +1,82 @@
+id: llama4-maverick-nvl72-fp4
+title: 'Llama 4 Maverick × GB200 NVL72'
+context_zh: '前沿多模态 + 全 Blackwell · 72 卡 super-pod · vLLM FP4 · EP=72 · disagg prefill/decode'
+case_id: case-llama4mvk-gb200-nvl72-001
+playbook_id: multi-modal-on-blackwell-superpod
+display_order: 50
+why_it_matters: |
+  前沿规模多模态 MoE — 看 frontier deployment 长什么样.
+  GB200 NVL72 全 NVLink-5 让 EP=72 单 domain, native FP4 + disaggregated prefill/decode 是 2026 production frontier.
+
+stages:
+  - stage_id: acquire
+    decision: 'meta-llama/Llama-4-Maverick — HuggingFace safetensors (~ 800GB BF16)'
+    rationale: |
+      Llama 4 Maverick 400B-A17B 多模态 MoE. 权重 BF16 ~800GB;
+      预先 download 到 NVMe NVLink-C2C 共享存储, 不要每次冷启动重下.
+    pitfall: |
+      License gating: Maverick 商业部署需要先在 Meta 注册 → 拿到 access token → 在 HF Hub 显式接受 LICENSE-AGREEMENT.
+      CI 自动化部署常忘这一步.
+
+  - stage_id: convert
+    decision: 'BF16 safetensors → vLLM 0.7+ 自动加载'
+    rationale: |
+      vLLM 0.7+ 直读 HF safetensors. 权重通过 NVMe 拉到 GB200 NVL72 后, vLLM-native loader 走 NVLink-C2C 直接搬到 HBM
+      (CPU host RAM 是 Grace, 与 GPU coherent).
+    pitfall: |
+      Llama 4 Maverick 的 vision tower 与 LLM backbone 是 separate state-dict —
+      加载时 transformers 4.50+ 才识别新 layout, 老版本只 load LLM 部分静默失败.
+
+  - stage_id: quantize
+    decision: 'FP4 (NVFP4 W4-only) for LLM backbone + BF16 for vision encoder'
+    rationale: |
+      Blackwell native FP4 tensor core: decode 1.8-2.5x BF16, HBM 占用 4x 减少.
+      Maverick 400B FP4 ≈ 200 GB. Vision encoder 单独 BF16 — vision quality 对 W4 量化敏感, 跌 1-2 pt 不可接受.
+    involves_patterns: [fp4-weight-only-quant]
+    pitfall: |
+      FP4 calibration on multi-modal dataset 比 text-only 多 2x 时间 (~1 hour);
+      calibration set 必须包含图像 prompt 否则 vision-text alignment 崩.
+
+  - stage_id: compile
+    decision: 'CUDA Graph capture + FlashAttention-3 (Blackwell path) + GQA + fused MoE dispatch'
+    rationale: |
+      vLLM 0.7+ 默认 CUDA Graph 捕获多个 batch size.
+      Blackwell sm_100 上 FA3 + WGMMA + TMA 全启用. MoE dispatch 用 DeepEP fused kernel 把 all2all + routing fuse 成单 kernel.
+    involves_operators: [scaled-dot-product-attention, matmul, rmsnorm, rope, silu, swiglu, moe-gate, all2all, conv2d]
+    involves_kernels: [flash-attention-v3, fused-mlp-silu, fused-rmsnorm-residual, fused-rope-qkv, fused-moe-dispatch-deepep, fused-conv-norm-act, fused-tp-allreduce-residual]
+    involves_patterns: [flashattention-v3, fp4-weight-only-quant, gqa-mqa-shared-kv, tp-allreduce-overlap]
+    pitfall: |
+      Vision encoder mixed-TP (TP=1-2) bug 在 vLLM 0.7.0 — 强制对齐 LLM TP=8 浪费 75% vision compute.
+      升级 0.7.2+ 修复.
+
+  - stage_id: shard
+    decision: 'TP=8 LLM × EP=72 (full NVL72 single-domain) × disagg (24 prefill + 48 decode 分开)'
+    rationale: |
+      GB200 NVL72 全 NVLink-5 让 EP=72 单 domain — 比 Hopper-cluster 跨 IB 简单很多.
+      Disagg 把 prefill (compute-bound) 与 decode (memory-bw-bound) 分开调度:
+      24 prefill + 48 decode 把 P50 TTFT 降到 95ms.
+    involves_patterns: [disaggregated-prefill-decode, moe-expert-routing-on-domestic, tp-allreduce-overlap]
+    pitfall: |
+      EP=72 cross-pod (跨 NVL72) 走 IB 200G, 性能跌 40%;
+      部署初期容易误把 EP 跨 pod 配置, 必须确认 EP rank 在同 NVL domain.
+
+  - stage_id: serve
+    decision: 'vLLM 0.7 + Dynamo router + RadixAttention prefix cache + PagedAttention'
+    rationale: |
+      NVIDIA Dynamo 是 GB200 NVL72 推荐 router (vLLM 内置 router 在 super-pod 级别 not yet ready).
+      Dynamo + vLLM-engine 组合让 multi-tenant routing + KV cache routing 都自动化.
+    involves_kernels: [paged-attention-decode, fused-radix-attention]
+    involves_patterns: [continuous-batching, paged-attention, prefix-radix-cache, hot-cold-kv-tiering]
+    pitfall: |
+      Dynamo 与 vLLM 的 health-check 协议在 0.7.x 仍在演进 — 早期 release 偶发 router 误判 engine 故障导致流量黑洞.
+      监控 router metrics 比监控 engine metrics 更早发现.
+
+  - stage_id: observe
+    decision: 'NVIDIA Dynamo + Prometheus + DCGM + Grafana'
+    rationale: |
+      Dynamo 暴露 router-level metrics (per-tenant TTFT/TBT). DCGM 提供 per-GPU NVLink-5 利用率.
+      关键关注: NVLink-5 实际 bw 利用率 (理论 1.8 TB/s/GPU 但 EP=72 + disagg 通常 60-70%),
+      prefill/decode 节点队列深度均衡.
+    pitfall: |
+      只看 GPU utilization 会错过 NVLink congestion 问题 —
+      跨 NVL72 EP all2all 在某些 message size 下打满 NVSwitch port queue, GPU compute 看似空闲但实际等通信.

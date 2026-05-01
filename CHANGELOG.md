@@ -6,15 +6,56 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.24+ horizon)
+### Planned (v1.25+ horizon)
 - Public submission portal (case YAML web form) — currently PR-only
 - Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
 - Server-compare client-side filter island (real querystring parsing in SSG)
-- Refactor tours to data-driven (data/tours/*.yaml + dynamic /learn/tours/[slug])
-- More tours: Qwen 3 7B on Jetson Orin (edge); Llama 4 Behemoth on NVL72 (when released)
+- More tours via the new data-driven path (Llama 4 Behemoth on NVL72; SD3 / Flux on Hopper)
+- Tour authoring guide for contributors
+
+---
+
+## [1.24.0] — 2026-05-01
+
+Tour infrastructure refactor + 1 new tour completing the deployment spectrum (edge → super-pod) + 2 more cases. The hand-coded tour pages from v1.22-v1.23 are now data-driven — adding a new tour goes from ~250 lines of astro to ~80 lines of YAML.
+
+### Added
+
+**Tour data schema** (`schemas/tour.ts`):
+- Tour entity with id, title, context_zh, case_id, optional playbook_id, why_it_matters, display_order, and 7-stage narratives array
+- Per-stage narrative: stage_id, decision, rationale, involves_operators / involves_kernels / involves_patterns, optional pitfall
+- Validates via existing `pnpm validate` pipeline
+
+**4 YAML tours** (`data/tours/`):
+- `llama4-scout-h200-vllm-fp8` — extracted from v1.22 hand-coded `/learn/end-to-end-tour/`
+- `dsv4pro-cloudmatrix-384-mindie` — extracted from v1.23 hand-coded `/learn/tour-dsv4pro-cloudmatrix-384/`
+- `llama4-maverick-nvl72-fp4` — extracted from v1.23 hand-coded `/learn/tour-llama4-maverick-nvl72/`
+- **`qwen25-7b-jetson-orin-edge` (NEW)** — edge deployment, completes spectrum. Walks Qwen 2.5 7B on Jetson Orin with llama.cpp Q4_K_M INT4: pre-quantized GGUF download, no convert step, single-chip TP=1, thermal throttling pitfalls
+
+**Dynamic route** (`/learn/tours/[slug]/`):
+- One astro file renders any tour given its slug
+- `getStaticPaths` enumerates all tours from data
+- Sibling tours surface in footer for cross-navigation
+- Index page (`/learn/tours/`) reads from data; tour matrix table + cards both auto-update on YAML add
+
+**Legacy URL redirects**:
+- `/learn/end-to-end-tour/` → `/learn/tours/llama4-scout-h200-vllm-fp8/`
+- `/learn/tour-dsv4pro-cloudmatrix-384/` → `/learn/tours/dsv4pro-cloudmatrix-384-mindie/`
+- `/learn/tour-llama4-maverick-nvl72/` → `/learn/tours/llama4-maverick-nvl72-fp4/`
+- meta-refresh + canonical link preserves SEO + external links from blog posts / social media
+
+**2 more cases** (32 → 34):
+- `case-kimi-k26-h100x8-sglang-fp8-001`: Moonshot Kimi K2.6 agent MoE on H100x8 with SGLang FP8 + RadixAttention. Documents 73% prefix-cache hit rate on agent multi-turn workload — closes-the-loop with `/learn/picking-engine/` agent recommendation
+- `case-minimax-m27-trillium-pod-001`: MiniMax M2.7 hybrid SSM/attention on Google Trillium 64-chip TPU pod with JAX/SGLang. First TPU + JAX case in the catalog, surfaces TPU-specific gotchas (no nvidia-smi, XLA cold-compile time)
+
+### Stats
+- 307/307 site E2E pass (+8 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 34**, fused-kernel: 21, playbook: 24, pattern: 20, operator: 25, citation: 1, **tour: 4**
+- Build: 393 pages
+- New tours add cost: ~80 lines of YAML each (vs ~250 lines astro)
 
 ---
 

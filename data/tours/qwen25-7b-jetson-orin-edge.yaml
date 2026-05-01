@@ -1,0 +1,75 @@
+id: qwen25-7b-jetson-orin-edge
+title: 'Qwen 2.5 7B × Jetson Orin'
+context_zh: '边缘端侧 · Jetson Orin AGX 64GB · llama.cpp Q4_K_M INT4 · CPU+GPU mixed'
+case_id: case-qwen25-7b-jetson-orin-001
+display_order: 5
+why_it_matters: |
+  端侧 / 边缘部署的 reference. 与 8 卡 H200 / 384 卡 super-pod 相反端 — 单芯片, INT4 量化必须,
+  Q4_K_M GGUF 格式, llama.cpp 主栈. 完成 deployment 谱系 (edge → single-node → super-pod).
+
+stages:
+  - stage_id: acquire
+    decision: 'Qwen/Qwen2.5-7B-Instruct-GGUF - HuggingFace pre-quantized GGUF Q4_K_M'
+    rationale: |
+      Jetson Orin 64GB 装不下 BF16 (~14 GB weights + activation OOM); 直接拉 community GGUF Q4_K_M
+      (~ 4.5 GB) 跳过 PTQ 步骤. HF 上 unsloth / bartowski 几个 maintainer 都发 GGUF.
+    pitfall: |
+      Edge 设备 OTA 升级 model 时, 网络不稳要 resume download; llama.cpp 默认不带 resume,
+      用 huggingface-cli download --resume-download.
+
+  - stage_id: convert
+    decision: 'GGUF Q4_K_M as-is — no conversion needed'
+    rationale: |
+      llama.cpp 直读 GGUF, 不需要任何转换. GGUF 是 llama.cpp 自带 file format —
+      meta-data + tensors 在同一文件, mmap-friendly.
+    pitfall: |
+      不要混淆 GGUF (新版) 和 GGML (旧版) — GGML 已弃用. llama.cpp 0.4+ 只支持 GGUF.
+
+  - stage_id: quantize
+    decision: 'INT4 Q4_K_M — pre-quantized in GGUF'
+    rationale: |
+      Q4_K_M 是 llama.cpp 端侧主流: 4-bit + per-group scale (group_size=32),
+      比 Q4_0 准确率高 0.5 pt MMLU, 比 Q5_K_M 体积小 25%.
+      Qwen 2.5 7B Q4_K_M 跌 ~0.8 pt MMLU 相比 BF16 — 端侧产品可接受.
+    pitfall: |
+      < 7B 模型 Q4_K_M 质量明显跌 (1.5-3 pt MMLU); 端侧若用 < 7B 建议升 Q5_K_M 或 Q6_K.
+
+  - stage_id: compile
+    decision: 'llama.cpp Metal/CUDA backend + Q4_K_M optimized kernels'
+    rationale: |
+      Jetson Orin 是 Ampere arch (sm_87), llama.cpp 走 CUDA backend. CUDA 11.4+ 标配 Jetson.
+      Q4_K_M kernel 在 Ampere 上有 INT4 GEMM 优化, decode 比 BF16 快 ~2.5x.
+    involves_operators: [matmul, scaled-dot-product-attention, rmsnorm, swiglu, rope]
+    involves_kernels: [flash-attention-v3, fused-rmsnorm-residual, fused-rope-qkv]
+    involves_patterns: [flashattention-v3, gqa-mqa-shared-kv]
+    pitfall: |
+      Jetson Orin 没 Hopper TMA — FA3 退化到 FA2 路径, 性能差 1.5-2x. 长 context 端侧不要追求 FA3 速度.
+
+  - stage_id: shard
+    decision: 'TP=1, PP=1 — single-chip serial'
+    rationale: |
+      Jetson Orin 是 SoC (CPU + GPU + DRAM 在同一 die), 没有多卡互联. 模型必须装下单 device 显存.
+      Q4_K_M 量化让 7B 模型 4.5 GB 装下 64 GB 共享 RAM (CPU + GPU 共享).
+    pitfall: |
+      Jetson 共享 RAM 是 unified memory — GPU 计算时 CPU 也可能用同一 RAM, OS 后台进程
+      (浏览器 / VS Code) 会偷 GPU 可用 RAM. 部署时关掉非必要进程.
+
+  - stage_id: serve
+    decision: 'llama.cpp server (HTTP) + dynamic batching disabled'
+    rationale: |
+      llama.cpp 自带 HTTP server (llama-server). 端侧通常单用户, batch=1 — 不需要 dynamic batching.
+      启用 prefix caching 让多轮 chat 共享 system prompt.
+    involves_kernels: [paged-attention-decode]
+    involves_patterns: [continuous-batching, prefix-caching]
+    pitfall: |
+      端侧场景 P99 latency 受 thermal throttling 影响大 — 持续负载 30 min 后 GPU clock 自动降 ~15%.
+      部署时考虑功耗预算, MAXN 模式吞吐高但温度高.
+
+  - stage_id: observe
+    decision: 'tegrastats + llama.cpp built-in metrics'
+    rationale: |
+      Jetson 没有 nvidia-smi, 用 tegrastats (NVIDIA 提供) 看 GPU/CPU 利用率 + 温度 + 内存.
+      llama.cpp server 暴露 /metrics 端点 (prometheus-compatible).
+    pitfall: |
+      监控温度比监控利用率重要 — 端侧 thermal 是真实瓶颈.
+      tegrastats GPU温度 > 75°C 时性能开始降, > 85°C 触发 throttle.

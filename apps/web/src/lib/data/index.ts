@@ -2,11 +2,11 @@ import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
-  PlaybookSchema, CitationSchema,
+  PlaybookSchema, CitationSchema, TourSchema,
   type Vendor, type Hardware, type Server, type Interconnect,
   type Operator, type Engine, type Quantization, type ParallelStrategy,
   type Model, type Case, type Pattern, type PipelineStage, type FusedKernel,
-  type Playbook, type Citation
+  type Playbook, type Citation, type Tour
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
@@ -70,6 +70,10 @@ export async function getPlaybooks(): Promise<Playbook[]> {
 }
 export async function getCitations(): Promise<Citation[]> {
   return loadAll('citations/*.yaml', CitationSchema);
+}
+export async function getTours(): Promise<Tour[]> {
+  const tours = await loadAll('tours/*.yaml', TourSchema);
+  return tours.sort((a, b) => a.display_order - b.display_order || a.id.localeCompare(b.id));
 }
 
 export async function getResolvedHardware(): Promise<ResolvedHardware[]> {

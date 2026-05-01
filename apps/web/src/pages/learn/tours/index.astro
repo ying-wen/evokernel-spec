@@ -2,56 +2,21 @@
 /**
  * /learn/tours/ — index page listing all end-to-end deployment tours.
  *
- * Each tour walks one concrete (model × hardware × engine × quant) deployment
- * through all 7 pipeline stages with hand-curated stage-level decisions,
- * involved operators / kernels / patterns, and per-stage pitfalls.
+ * Reads from data/tours/*.yaml. Each tour walks one concrete deployment
+ * through all 7 pipeline stages.
  *
- * As of v1.23: 3 tours covering single-node H200, 国央企 super-pod, and
- * frontier Blackwell super-pod — span the deployment spectrum.
+ * Refactored in v1.24 from hand-coded list to data-driven — adding a tour
+ * is now just dropping a YAML file in data/tours/.
  */
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
 import { pathname } from '~/lib/i18n';
-import { getResolvedCases } from '~/lib/data';
+import { getTours, getResolvedCases } from '~/lib/data';
 
-const cases = await getResolvedCases();
+const [tours, cases] = await Promise.all([
+  getTours(), getResolvedCases()
+]);
 const casesById = new Map(cases.map((c) => [c.id, c]));
-
-interface TourEntry {
-  href: string;
-  title: string;
-  case_id: string;
-  scope: string;
-  scope_zh: string;
-  why_it_matters: string;
-}
-
-const TOURS: TourEntry[] = [
-  {
-    href: '/learn/end-to-end-tour/',
-    title: 'Tour: Llama 4 Scout × 8×H200',
-    case_id: 'case-llama4-scout-h100x8-vllm-001',
-    scope: 'Single-node Hopper · vLLM FP8 · MoE EP=8',
-    scope_zh: '单节点 Hopper · vLLM FP8 · MoE EP=8',
-    why_it_matters: '中等 MoE 模型在标准 8-OAM 节点上的生产部署 baseline. 大部分 production 推理 SaaS 走类似配方.'
-  },
-  {
-    href: '/learn/tour-dsv4pro-cloudmatrix-384/',
-    title: 'Tour: DeepSeek V4 Pro × CloudMatrix 384',
-    case_id: 'case-dsv4pro-cm384-mindie-001',
-    scope: '384 卡 Ascend super-pod · MindIE BF16 · TP=16 × PP=4 × EP=6',
-    scope_zh: '384 卡昇腾超节点 · MindIE BF16 · TP=16 × PP=4 × EP=6',
-    why_it_matters: '国央企 / 信创合规 reasoning 场景, 全 Ascend 栈, 当前 671B 大 MoE 模型最大规模 production deployment.'
-  },
-  {
-    href: '/learn/tour-llama4-maverick-nvl72/',
-    title: 'Tour: Llama 4 Maverick × GB200 NVL72',
-    case_id: 'case-llama4mvk-gb200-nvl72-001',
-    scope: '72 卡 Blackwell super-pod · vLLM FP4 · EP=72 · disagg prefill/decode',
-    scope_zh: '72 卡 Blackwell 超节点 · vLLM FP4 · EP=72 · 解耦 prefill/decode',
-    why_it_matters: '前沿规模多模态 MoE, FP4 native + NVLink-5 全互联. 看 frontier deployment 长什么样.'
-  }
-];
 ---
 <BaseLayout title="部署 Tour 索引 / End-to-End Tours Index">
   <Container width="wide">
@@ -68,7 +33,7 @@ const TOURS: TourEntry[] = [
         Decision-tree 给抽象矩阵, tour 给具体故事.
       </p>
       <div class="mt-6 flex gap-6 text-sm flex-wrap">
-        <div><span style="color: var(--color-text-muted);">现有 Tour: </span><strong>{TOURS.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">现有 Tour: </span><strong>{tours.length}</strong></div>
         <div><span style="color: var(--color-text-muted);">实测案例: </span><strong>{cases.length}</strong></div>
         <div><span style="color: var(--color-text-muted);">每个 Tour 阶段: </span><strong>7</strong></div>
       </div>
@@ -76,15 +41,15 @@ const TOURS: TourEntry[] = [
 
     <section class="py-6 border-t" style="border-color: var(--color-border);">
       <div class="grid lg:grid-cols-3 gap-4">
-        {TOURS.map((tour) => {
+        {tours.map((tour) => {
           const c = casesById.get(tour.case_id);
           return (
-            <a href={pathname(tour.href)} class="block rounded-lg border p-5 transition-transform hover:-translate-y-0.5"
+            <a href={pathname(`/learn/tours/${tour.id}/`)}
+               class="block rounded-lg border p-5 transition-transform hover:-translate-y-0.5"
                style="border-color: var(--color-border); background: var(--color-surface-raised); color: var(--color-text);"
                data-testid={`tour-card-${tour.case_id}`}>
               <h2 class="text-lg font-semibold mb-2" style="color: var(--color-accent);">{tour.title}</h2>
-              <div class="text-xs font-mono mb-2" style="color: var(--color-text-muted);">{tour.scope}</div>
-              <div class="text-xs mb-3" style="color: var(--color-text);">{tour.scope_zh}</div>
+              <div class="text-xs font-mono mb-3" style="color: var(--color-text-muted);">{tour.context_zh}</div>
               <p class="text-sm" style="color: var(--color-text-muted);">{tour.why_it_matters}</p>
               {c && (
                 <div class="mt-3 text-xs flex gap-2 flex-wrap" style="color: var(--color-text-muted);">
@@ -100,41 +65,36 @@ const TOURS: TourEntry[] = [
     <section class="py-8 border-t" style="border-color: var(--color-border);">
       <h2 class="text-2xl font-semibold mb-4">Tour 矩阵</h2>
       <p class="text-sm mb-4" style="color: var(--color-text-muted);">
-        当前 3 个 tour 跨硬件代际 + 部署规模 + 厂商生态 — 提供互相对比的 reference points:
+        当前 {tours.length} 个 tour 跨硬件代际 + 部署规模 + 厂商生态 — 提供互相对比的 reference points:
       </p>
       <div class="overflow-x-auto">
         <table class="w-full text-sm" style="border-collapse: collapse;" data-testid="tour-matrix">
           <thead>
             <tr style="border-bottom: 2px solid var(--color-border);">
               <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">Tour</th>
-              <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">规模</th>
-              <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">量化</th>
-              <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">引擎</th>
-              <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">部署语境</th>
+              <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">语境</th>
+              <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">Case</th>
             </tr>
           </thead>
           <tbody>
-            <tr style="border-bottom: 1px solid var(--color-border);">
-              <td class="py-3 px-3 align-top text-xs"><a href={pathname('/learn/end-to-end-tour/')} class="hover:underline" style="color: var(--color-accent);">Llama 4 Scout × H200</a></td>
-              <td class="py-3 px-3 align-top text-xs">8 卡 (单节点)</td>
-              <td class="py-3 px-3 align-top text-xs">FP8</td>
-              <td class="py-3 px-3 align-top text-xs">vLLM</td>
-              <td class="py-3 px-3 align-top text-xs">Production SaaS baseline</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--color-border);">
-              <td class="py-3 px-3 align-top text-xs"><a href={pathname('/learn/tour-dsv4pro-cloudmatrix-384/')} class="hover:underline" style="color: var(--color-accent);">DeepSeek V4 Pro × CM384</a></td>
-              <td class="py-3 px-3 align-top text-xs">384 卡 (super-pod)</td>
-              <td class="py-3 px-3 align-top text-xs">BF16</td>
-              <td class="py-3 px-3 align-top text-xs">MindIE</td>
-              <td class="py-3 px-3 align-top text-xs">国央企 / 信创合规</td>
-            </tr>
-            <tr>
-              <td class="py-3 px-3 align-top text-xs"><a href={pathname('/learn/tour-llama4-maverick-nvl72/')} class="hover:underline" style="color: var(--color-accent);">Llama 4 Maverick × NVL72</a></td>
-              <td class="py-3 px-3 align-top text-xs">72 卡 (super-pod)</td>
-              <td class="py-3 px-3 align-top text-xs">FP4</td>
-              <td class="py-3 px-3 align-top text-xs">vLLM + Dynamo</td>
-              <td class="py-3 px-3 align-top text-xs">前沿多模态 + 全 Blackwell</td>
-            </tr>
+            {tours.map((t) => {
+              const c = casesById.get(t.case_id);
+              return (
+                <tr style="border-bottom: 1px solid var(--color-border);" data-testid={`tour-row-${t.id}`}>
+                  <td class="py-3 px-3 align-top text-xs">
+                    <a href={pathname(`/learn/tours/${t.id}/`)} class="hover:underline font-semibold" style="color: var(--color-accent);">{t.title}</a>
+                  </td>
+                  <td class="py-3 px-3 align-top text-xs" style="color: var(--color-text-muted);">{t.context_zh}</td>
+                  <td class="py-3 px-3 align-top text-xs">
+                    {c ? (
+                      <a href={pathname(`/cases/${c.id}/`)} class="hover:underline" style="color: var(--color-text);">→ {c.title.length > 50 ? c.title.slice(0, 48) + '…' : c.title}</a>
+                    ) : (
+                      <span style="color: var(--color-text-muted);">{t.case_id}</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -144,9 +104,10 @@ const TOURS: TourEntry[] = [
       <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
         <h3 class="text-lg font-semibold mb-2">想给特定 (model × hardware) 写 Tour?</h3>
         <p class="text-sm mb-4" style="color: var(--color-text-muted);">
-          每个 tour 是一份 hand-curated narrative, 基于实测 case 数据.
-          PR 加新 tour: 复制 <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">apps/web/src/pages/learn/tour-*.astro</code> 模板, 选目标 case_id, 填 7 阶段叙述.
-          也可以先提交 case 数据 (<a href={pathname('/contribute/')} style="color: var(--color-accent);" class="hover:underline">贡献指南</a>) — 我们会优先选高质量 case 写 tour.
+          Tour 现在是 data-driven (v1.24+) — 创建新 tour 只需:
+          (1) 在 <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">data/tours/&lt;slug&gt;.yaml</code> 里复制现有 tour 模板;
+          (2) 改 <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">case_id</code> + 7 stage narratives;
+          (3) PR 即可. 推荐先提交 case 数据 (<a href={pathname('/contribute/')} style="color: var(--color-accent);" class="hover:underline">贡献指南</a>) 再写 tour.
         </p>
         <div class="flex gap-3 flex-wrap">
           <a href={pathname('/cases/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">{cases.length} 个实测案例 →</a>

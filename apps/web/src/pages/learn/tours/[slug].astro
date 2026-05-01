@@ -1,0 +1,174 @@
+---
+/**
+ * /learn/tours/[slug]/ — dynamic tour renderer.
+ *
+ * Loads a tour from data/tours/<slug>.yaml and walks the reader through all
+ * 7 pipeline stages. Replaces the hand-coded tour pages from v1.22-v1.23 —
+ * those still exist as redirects for link stability.
+ *
+ * Each new tour is now ~80 lines of YAML instead of ~250 lines of astro,
+ * which is the entire point of the v1.24 refactor.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import {
+  getTours, getResolvedCases, getPipelineStages, getPlaybooks,
+  getOperators, getFusedKernels, getPatterns
+} from '~/lib/data';
+
+export async function getStaticPaths() {
+  const tours = await getTours();
+  return tours.map((tour) => ({ params: { slug: tour.id }, props: { tour } }));
+}
+
+const { slug } = Astro.params as { slug: string };
+const { tour } = Astro.props as { tour: Awaited<ReturnType<typeof getTours>>[number] };
+
+const [resolvedCases, pipelineStages, playbooks, operators, fusedKernels, patterns, allTours] = await Promise.all([
+  getResolvedCases(), getPipelineStages(), getPlaybooks(), getOperators(),
+  getFusedKernels(), getPatterns(), getTours()
+]);
+
+const tourCase = resolvedCases.find((c) => c.id === tour.case_id);
+const playbook = tour.playbook_id ? playbooks.find((p) => p.id === tour.playbook_id) : undefined;
+
+const operatorsById = new Map(operators.map((o) => [o.id, o]));
+const kernelsById = new Map(fusedKernels.map((k) => [k.id, k]));
+const patternsById = new Map(patterns.map((p) => [p.id, p]));
+
+const orderedStages = [...pipelineStages].sort((a, b) => a.order - b.order);
+
+// Sibling tours for "see also" footer links
+const siblingTours = allTours.filter((t) => t.id !== tour.id);
+---
+<BaseLayout title={`Tour: ${tour.title} / ${tour.context_zh}`}>
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · TOUR · {tour.context_zh.split('·')[0]?.trim()}
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        Tour: {tour.title}
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);" data-testid="tour-context">
+        {tour.context_zh}
+      </p>
+      <p class="text-base mt-3 max-w-3xl" style="color: var(--color-text-muted);">
+        {tour.why_it_matters}
+      </p>
+
+      <div class="mt-6 rounded-lg border p-4" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, transparent);">
+        <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--color-accent);">本次 Tour 选的例子</div>
+        {tourCase ? (
+          <>
+            <h2 class="text-lg font-semibold mb-1">
+              <a href={pathname(`/cases/${tourCase.id}/`)} class="hover:underline" style="color: var(--color-text);">{tourCase.title}</a>
+            </h2>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              Model: <strong>{tourCase.resolved.model.name}</strong> · Hardware: <strong>{tourCase.resolved.hardware.name} ×{tourCase.stack.hardware.count}</strong> ·
+              Engine: <strong>{tourCase.resolved.engine.name} {tourCase.stack.engine.version}</strong> · Quant: <strong>{tourCase.stack.quantization}</strong>
+            </p>
+            {playbook && (
+              <p class="text-xs mt-2" style="color: var(--color-text-muted);">
+                匹配 playbook: <a href={pathname(`/playbooks/${playbook.id}/`)} class="hover:underline" style="color: var(--color-accent);">→ {playbook.id}</a>
+              </p>
+            )}
+          </>
+        ) : (
+          <p class="text-sm" style="color: var(--color-text-muted);">案例 <code>{tour.case_id}</code> 未找到 — tour 数据可能已过期, 请联系维护者.</p>
+        )}
+      </div>
+    </section>
+
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="tour-stages-heading">
+      <h2 id="tour-stages-heading" class="text-2xl font-semibold mb-4">7 阶段部署链路</h2>
+      <div class="space-y-4">
+        {orderedStages.map((stage) => {
+          const narrative = tour.stages.find((n) => n.stage_id === stage.id);
+          if (!narrative) return null;
+          return (
+            <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`tour-stage-${stage.id}`}>
+              <div class="flex items-baseline gap-2 mb-3">
+                <span class="text-sm font-mono px-2 py-0.5 rounded" style="background: var(--color-bg); color: var(--color-text-muted);">{stage.order}/7</span>
+                <h3 class="text-lg font-semibold">
+                  <a href={pathname(`/pipeline/${stage.id}/`)} class="hover:underline" style="color: var(--color-text);">{stage.name_zh}</a>
+                  <span class="text-sm font-normal ml-2" style="color: var(--color-text-muted);">/ {stage.name_en}</span>
+                </h3>
+              </div>
+
+              <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-accent);">本次 tour 的决定</div>
+              <div class="text-sm font-mono mb-2 px-3 py-1.5 rounded inline-block" style="background: var(--color-bg); color: var(--color-text);">{narrative.decision}</div>
+              <p class="text-sm mb-3" style="color: var(--color-text-muted);">{narrative.rationale}</p>
+
+              {(narrative.involves_operators.length > 0 || narrative.involves_kernels.length > 0 || narrative.involves_patterns.length > 0) && (
+                <div class="grid sm:grid-cols-3 gap-3 text-xs mb-3">
+                  {narrative.involves_operators.length > 0 && (
+                    <div>
+                      <div class="font-semibold mb-1" style="color: var(--color-text-muted);">涉及算子 ({narrative.involves_operators.length})</div>
+                      <ul class="space-y-1">
+                        {narrative.involves_operators.map((id) => {
+                          const op = operatorsById.get(id);
+                          return op ? (
+                            <li><a href={pathname(`/operators/${id}/`)} class="hover:underline" style="color: var(--color-text);">⚙ {op.name}</a></li>
+                          ) : null;
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                  {narrative.involves_kernels.length > 0 && (
+                    <div>
+                      <div class="font-semibold mb-1" style="color: var(--color-text-muted);">涉及 kernel ({narrative.involves_kernels.length})</div>
+                      <ul class="space-y-1">
+                        {narrative.involves_kernels.map((id) => {
+                          const k = kernelsById.get(id);
+                          return k ? (
+                            <li><a href={pathname(`/fused-kernels/${id}/`)} class="hover:underline" style="color: var(--color-accent);">🧩 {k.name.length > 28 ? k.name.slice(0, 26) + '…' : k.name}</a></li>
+                          ) : null;
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                  {narrative.involves_patterns.length > 0 && (
+                    <div>
+                      <div class="font-semibold mb-1" style="color: var(--color-text-muted);">涉及 pattern ({narrative.involves_patterns.length})</div>
+                      <ul class="space-y-1">
+                        {narrative.involves_patterns.map((id) => {
+                          const p = patternsById.get(id);
+                          return p ? (
+                            <li><a href={pathname(`/patterns/${id}/`)} class="hover:underline" style="color: var(--color-text);">⭐ {p.name.length > 28 ? p.name.slice(0, 26) + '…' : p.name}</a></li>
+                          ) : null;
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {narrative.pitfall && (
+                <div class="rounded p-2.5 text-xs" style="background: color-mix(in oklch, oklch(70% 0.18 50) 8%, transparent); border-left: 3px solid oklch(70% 0.18 50);">
+                  <span class="font-semibold" style="color: oklch(60% 0.18 50);">⚠️ Pitfall:</span>
+                  <span class="ml-1" style="color: var(--color-text-muted);">{narrative.pitfall}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">看其他 Tour</h3>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/tours/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">全部 {allTours.length} 个 Tour →</a>
+          {siblingTours.slice(0, 3).map((t) => (
+            <a href={pathname(`/learn/tours/${t.id}/`)} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">
+              Tour: {t.title} →
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

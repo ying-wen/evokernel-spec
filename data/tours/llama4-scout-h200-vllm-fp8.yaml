@@ -1,0 +1,68 @@
+id: llama4-scout-h200-vllm-fp8
+title: 'Llama 4 Scout × 8×H200'
+context_zh: 'Production SaaS baseline · 单节点 Hopper · vLLM FP8 · MoE EP=8'
+case_id: case-llama4-scout-h100x8-vllm-001
+playbook_id: moe-llm-medium-on-hopper-single-node
+display_order: 10
+why_it_matters: |
+  中等 MoE 模型在标准 8-OAM 节点上的生产部署 baseline. 大部分 production 推理 SaaS 走类似配方 — 如果你只看一个 tour, 看这个.
+
+stages:
+  - stage_id: acquire
+    decision: 'meta-llama/Llama-4-Scout — HuggingFace safetensors'
+    rationale: |
+      Llama 4 Scout 109B-A17B MoE 是 Meta 官方 release. 用 HF Hub 自动 download 而非自部署 weight server (~ 220GB BF16 weights).
+    pitfall: |
+      License gating: 部署前确认 Llama 4 license 允许商业使用; 国内拉取走 hf-mirror.com 镜像加速.
+
+  - stage_id: convert
+    decision: 'BF16 safetensors as-is (HF format)'
+    rationale: |
+      现代 vLLM/SGLang 直接读 safetensors, 无需手动转 GGUF/onnx/engine. Format 路径见 /learn/picking-quantization-format/.
+    pitfall: |
+      老脚本可能需要 transformers 4.45+ 才认识 Llama 4 architecture.
+
+  - stage_id: quantize
+    decision: 'FP8 W8A8 (E4M3) — Hopper native path'
+    rationale: |
+      H200 有 native FP8 tensor core, decode 1.5-2x BF16. Llama 4 Scout 109B 体量适合 FP8 (跌 < 0.3 pt).
+      FP4 收益要等 Blackwell, 这代不上.
+    involves_patterns: [memory-bound-decode-prefer-int8]
+    pitfall: |
+      FP8 calibration ~30 分钟, 首次启动有冷等待. 校准 set 选 chat-style + multi-language 数据避免单领域偏置.
+
+  - stage_id: compile
+    decision: 'CUDA Graph capture + FlashAttention-3 + GQA fast path'
+    rationale: |
+      vLLM 0.6+ 默认 CUDA Graph 捕获多个 batch size; H200 上 FlashAttn-3 + GQA-8 是默认 attention path.
+    involves_operators: [scaled-dot-product-attention, matmul, rmsnorm, rope, silu, swiglu]
+    involves_kernels: [flash-attention-v3, fused-mlp-silu, fused-rmsnorm-residual, fused-rope-qkv]
+    involves_patterns: [flashattention-v3, gqa-mqa-shared-kv]
+    pitfall: |
+      CUDA Graph capture 不喜欢 dynamic shape — 需要预 capture 几个常用 batch size 备用; 否则运行时变 shape 触发 recapture.
+
+  - stage_id: shard
+    decision: 'TP=8 + EP=8, no PP, no Ring (single-node fits 109B BF16)'
+    rationale: |
+      H200 8-OAM (1.13 TB total HBM) 装下 109B FP8 (~110 GB) + 16 expert MoE EP. 不需要跨节点. EP=8 让 16 experts 沿 GPU 分布.
+    involves_patterns: [tp-allreduce-overlap, moe-expert-routing-on-domestic]
+    pitfall: |
+      EP all2all 跨 NVSwitch Gen-3, 单节点 NVLink-4 内 latency 5-10us; 跨节点跌 5x.
+
+  - stage_id: serve
+    decision: 'vLLM 0.7 continuous batching + PagedAttention + prefix-radix cache'
+    rationale: |
+      vLLM 是 multi-model 兼容性最好的栈; continuous batching 让 decode 吞吐随 batch 线性升;
+      PagedAttention KV cache 降碎片化 ~15%.
+    involves_kernels: [paged-attention-decode, fused-radix-attention]
+    involves_patterns: [continuous-batching, paged-attention, prefix-radix-cache]
+    pitfall: |
+      生产部署不要忘加 --enable-prefix-caching; 多轮 chat 场景 TTFT 直接降 5-10x.
+
+  - stage_id: observe
+    decision: 'vLLM Prometheus metrics + nvidia-smi + Grafana dashboard'
+    rationale: |
+      vLLM 暴露 /metrics 给 Prometheus. 监控关键指标: gpu_utilization, time_to_first_token, time_per_output_token, kv_cache_usage.
+      P99 latency 异常优先看 KV cache 占用率.
+    pitfall: |
+      只看平均 latency 会错过 P99 抖动 — 长 prompt + cache miss 路径会让 P99 比 P50 高 3-5x.
