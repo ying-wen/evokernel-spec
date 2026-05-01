@@ -1,0 +1,295 @@
+---
+/**
+ * Picking a quantization format — distinct from /learn/quantization-decision-tree/.
+ *
+ * The decision-tree picks STRATEGY (FP8 vs INT4 vs QAT). This page picks
+ * FORMAT (the on-disk file format + framework loader contract): GGUF Q4_K_M,
+ * AWQ-INT4, GPTQ-INT4, FP8-native (NVFP8), MXFP4, etc. These two axes are
+ * orthogonal but often confused.
+ *
+ * Pulls live data from data/quantizations + data/cases + data/engines.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getQuantizations, getCases, getEngines } from '~/lib/data';
+
+const [quantizations, cases, engines] = await Promise.all([
+  getQuantizations(), getCases(), getEngines()
+]);
+
+// Count case-uses per quantization (tied to data/cases/.../*.stack.quantization)
+const useCountByQuant = new Map<string, number>();
+for (const c of cases) {
+  useCountByQuant.set(c.stack.quantization, (useCountByQuant.get(c.stack.quantization) ?? 0) + 1);
+}
+
+interface FormatProfile {
+  format_id: string; // matches a quantization id
+  display: string;
+  full_zh: string;
+  best_for: string;
+  not_for: string;
+  framework_loader: string;
+  per_group_scale: string;
+  example_models: string[];
+  representative_engines: string[];
+}
+
+const FORMATS: FormatProfile[] = [
+  {
+    format_id: 'fp8-e4m3',
+    display: 'FP8 native (NVFP8 / E4M3)',
+    full_zh: 'Hopper / Blackwell 原生 FP8',
+    best_for: 'Hopper (H100/H200) 及 Blackwell (B100/B200/GB200) 生产部署. Calibration 走 NVIDIA Transformer Engine, 几乎无质量损失 (< 0.3 pt MMLU).',
+    not_for: 'Ampere (A100) 及更老 — 没 FP8 tensor core, fallback 到 INT8/AWQ. 国产芯片暂只 910D (FP8 native).',
+    framework_loader: 'TransformerEngine + cuBLASLt FP8 path; vLLM/SGLang/TRT-LLM 全自动检测',
+    per_group_scale: 'Per-tensor scale (scalar) 或 per-channel scale (vector); 默认 per-tensor 简单稳定',
+    example_models: ['deepseek-v4-pro', 'deepseek-v4-flash', 'llama-4-scout', 'llama-4-maverick'],
+    representative_engines: ['vllm', 'sglang', 'tensorrt-llm']
+  },
+  {
+    format_id: 'fp4',
+    display: 'FP4 native (NVFP4 / MXFP4)',
+    full_zh: 'Blackwell / Rubin 原生 FP4',
+    best_for: 'Blackwell (B100+/B200/GB200) 生产部署 + 70B+ 大模型. Decode 吞吐 1.8-2.5x BF16; HBM 占用 4x 减少. 大模型量化 robust.',
+    not_for: '< 13B 小模型 (FP4 跌 1-3 pt MMLU); Hopper 及更老 (无 native FP4 tensor core, emulate 收益减半).',
+    framework_loader: 'TRT-LLM Model Optimizer + Blackwell tensor core; vLLM 0.7+ MXFP4 / NVFP4 path',
+    per_group_scale: 'Per-block scale (16 元素 block / NVFP4, 32 元素 / MXFP4); 复杂但精度更好',
+    example_models: ['llama-4-maverick', 'llama-4-behemoth-100m'],
+    representative_engines: ['tensorrt-llm', 'vllm']
+  },
+  {
+    format_id: 'int8',
+    display: 'INT8 (W8A8)',
+    full_zh: '8-bit 整数量化',
+    best_for: 'Ampere/Ada 部署; 国产芯片 (910C / MLU590 / BR104 / MI300X) 通用. 现代 LLM (70B+) 几乎无质量损失. 最广兼容.',
+    not_for: 'Blackwell 上 FP8 性能更好 — 没必要降到 INT8; 长 context KV-cache 单独 INT8 (走 kv-cache-int8 pattern).',
+    framework_loader: 'cuBLAS/cuDNN INT8 GEMM (cu version); vLLM SmoothQuant; LMDeploy AWQ-INT8 path',
+    per_group_scale: 'Per-tensor (简单) 或 per-token-and-channel (SmoothQuant, 质量更好)',
+    example_models: ['deepseek-r1', 'glm-5-reasoning', 'qwen-3'],
+    representative_engines: ['vllm', 'mindie', 'lmdeploy', 'tensorrt-llm']
+  },
+  {
+    format_id: 'int4-awq',
+    display: 'AWQ-INT4 (W4A16)',
+    full_zh: 'Activation-aware 4-bit 量化',
+    best_for: '大模型 (70B+) decode 主导工作负载, HBM 容量受限. AWQ 校准 30 min, 跌 0.5-1 pt MMLU. AWQ 比 GPTQ 推理速度快 ~10%.',
+    not_for: 'Vision / multi-modal (vision encoder 对低 bit 敏感, 跌质量); 单轮高吞吐 prefill (FP8 更快).',
+    framework_loader: 'AutoAWQ + vLLM/SGLang AWQ kernel; LMDeploy TurboMind AWQ-INT4',
+    per_group_scale: 'Per-group scale (group_size=128, 每 128 个权重一个 scale); activation FP16 不量化',
+    example_models: ['llama-4-scout', 'qwen-3-72b', 'mixtral-8x22b'],
+    representative_engines: ['vllm', 'lmdeploy', 'sglang']
+  },
+  {
+    format_id: 'int4-gptq',
+    display: 'GPTQ-INT4 (W4A16)',
+    full_zh: 'Hessian-based 4-bit 量化',
+    best_for: '大模型 (70B+); 比 AWQ 慢约 30 min calibration, 但质量略好 (跌 0.3-0.8 pt MMLU). 学术 / 科研 benchmark 主流选择.',
+    not_for: 'Production 生产部署 (AWQ inference 更快); GPTQ 多 GPU calibration 不友好.',
+    framework_loader: 'GPTQModel + vLLM/Transformers; HuggingFace 默认 GPTQ checkpoint',
+    per_group_scale: 'Per-group scale + zero-point (int) 配合 Hessian 加权重排',
+    example_models: ['llama-3-1-405b', 'qwen-3-72b'],
+    representative_engines: ['vllm', 'transformers', 'sglang']
+  },
+  {
+    format_id: 'w4a16',
+    display: 'W4A16 (general 4-bit weight, FP16 activation)',
+    full_zh: '通用 4-bit 仅权重量化',
+    best_for: 'AWQ 和 GPTQ 的统一抽象; vLLM "weight_loader" abstraction. 程序员视角看一致接口, 实际背后是 AWQ 或 GPTQ 之一.',
+    not_for: '具体生产部署 — 选 AWQ 或 GPTQ 之一即可; W4A16 是抽象 spec.',
+    framework_loader: 'vLLM weight loader; TransformerEngine W4A16 path (Hopper+)',
+    per_group_scale: '取决于具体 backend (AWQ per-group 128, GPTQ Hessian-weighted)',
+    example_models: ['(see AWQ / GPTQ entries)'],
+    representative_engines: ['vllm']
+  },
+  {
+    format_id: 'bf16',
+    display: 'BF16 baseline',
+    full_zh: '16-bit 浮点基准',
+    best_for: '原始训练精度; vision encoder / multi-modal 部分 layer (对量化敏感的部分); calibration set 不充分时的 fallback.',
+    not_for: '生产部署 (内存浪费 2-4x vs FP8/INT8); 长 context (KV cache 太大).',
+    framework_loader: 'PyTorch 默认; 几乎所有 engine 默认 baseline',
+    per_group_scale: '不需要 (无量化)',
+    example_models: ['(几乎所有原始 release)'],
+    representative_engines: ['vllm', 'sglang', 'tensorrt-llm', 'mindie', 'lmdeploy']
+  }
+];
+
+// "GGUF" is a file format (not a quantization scheme) — it's distinct enough
+// to deserve its own row even though it doesn't have a /quantizations/<id>.
+interface ContainerFormat {
+  display: string;
+  full_zh: string;
+  underlying_quants: string[];
+  best_for: string;
+  not_for: string;
+  framework_loader: string;
+}
+
+const CONTAINER_FORMATS: ContainerFormat[] = [
+  {
+    display: 'GGUF (llama.cpp file format)',
+    full_zh: 'llama.cpp / MLC-LLM / MNN 端侧通用',
+    underlying_quants: ['Q2_K', 'Q3_K_M', 'Q4_K_M', 'Q5_K_M', 'Q8_0', 'F16'],
+    best_for: '端侧 (Jetson / Apple M / Phone / CPU). Q4_K_M 是 4-bit 端侧主流, 跑在 8GB+ RAM 设备.',
+    not_for: '数据中心 GPU (vLLM/SGLang/TRT-LLM 不读 GGUF; 走 AWQ/GPTQ/FP8 路径).',
+    framework_loader: 'llama.cpp (CPU + Metal + CUDA + Vulkan 后端); MLC-LLM (TVM 编译); MNN (端侧)'
+  },
+  {
+    display: 'safetensors (HuggingFace standard)',
+    full_zh: 'HuggingFace 标准 checkpoint 格式',
+    underlying_quants: ['BF16', 'FP16', 'AWQ-INT4', 'GPTQ-INT4', 'FP8'],
+    best_for: '数据中心 GPU 部署 — vLLM/SGLang/TRT-LLM/transformers 默认载入格式. 安全 (无 pickle 漏洞).',
+    not_for: '端侧 (体积大, 不带 quantization tooling).',
+    framework_loader: 'transformers + safetensors crate; vLLM/SGLang 自动加载'
+  },
+  {
+    display: 'NVIDIA TensorRT engine (.engine)',
+    full_zh: 'TRT 离线编译产物',
+    underlying_quants: ['FP16', 'BF16', 'FP8', 'INT8', 'INT4', 'FP4'],
+    best_for: 'Production 极致部署 — engine build 5-30 min 一次, 推理时直接 load. 同 GPU arch (sm_90/sm_100) 锁定.',
+    not_for: '跨硬件部署 (engine 不能跨 sm_xx); 频繁切 model.',
+    framework_loader: 'TRT-LLM trtllm-build; Triton Inference Server / Dynamo serving'
+  }
+];
+
+const quantsById = new Map(quantizations.map((q) => [q.id, q]));
+const enginesById = new Map(engines.map((e) => [e.id, e]));
+---
+<BaseLayout title="量化格式选型 / Picking a Quantization Format">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · QUANTIZATION FORMAT
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        量化格式选型 · Format Picker
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        两个常被混淆的轴: <strong>策略</strong> (FP8 vs INT4 vs QAT — 见 <a href={pathname('/learn/quantization-decision-tree/')} style="color: var(--color-accent);" class="hover:underline">量化决策树</a>)
+        vs <strong>格式</strong> (NVFP8 / AWQ-INT4 / GPTQ-INT4 / GGUF Q4_K_M — 本页). 策略决定 bit 数,
+        格式决定 on-disk layout + framework loader. 都需要选对.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">Spec 中的精度: </span><strong>{quantizations.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">实测案例: </span><strong>{cases.length}</strong></div>
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="formats-heading">
+      <h2 id="formats-heading" class="text-2xl font-semibold mb-4">{FORMATS.length} 个权重精度格式</h2>
+      <div class="space-y-4">
+        {FORMATS.map((f) => {
+          const q = quantsById.get(f.format_id);
+          const useCount = useCountByQuant.get(f.format_id) ?? 0;
+          return (
+            <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`format-${f.format_id}`}>
+              <div class="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+                <h3 class="text-lg font-semibold flex items-center gap-2">
+                  {q ? (
+                    <a href={pathname(`/quantizations/${f.format_id}/`)} class="hover:underline" style="color: var(--color-text);">{f.display}</a>
+                  ) : (
+                    <span style="color: var(--color-text);">{f.display}</span>
+                  )}
+                </h3>
+                <div class="text-xs flex gap-3" style="color: var(--color-text-muted);">
+                  {q && <span>{q.bits_per_weight}-bit</span>}
+                  <span><strong style="color: var(--color-accent);">{useCount}</strong> 个案例使用</span>
+                </div>
+              </div>
+              <p class="text-sm font-medium mb-3" style="color: var(--color-text-muted);">{f.full_zh}</p>
+
+              <div class="grid lg:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <div class="font-semibold mb-1" style="color: oklch(70% 0.15 145);">最适合</div>
+                  <p style="color: var(--color-text-muted);">{f.best_for}</p>
+                </div>
+                <div>
+                  <div class="font-semibold mb-1" style="color: oklch(70% 0.18 30);">不适合</div>
+                  <p style="color: var(--color-text-muted);">{f.not_for}</p>
+                </div>
+              </div>
+
+              <div class="mt-3 grid lg:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <div class="font-semibold mb-1" style="color: var(--color-accent);">Framework loader</div>
+                  <p style="color: var(--color-text-muted);">{f.framework_loader}</p>
+                </div>
+                <div>
+                  <div class="font-semibold mb-1" style="color: var(--color-text-muted);">Per-group scale</div>
+                  <p style="color: var(--color-text-muted);">{f.per_group_scale}</p>
+                </div>
+              </div>
+
+              {f.representative_engines.length > 0 && (
+                <div class="mt-3 text-xs flex gap-2 flex-wrap">
+                  <span style="color: var(--color-text-muted);">推荐引擎:</span>
+                  {f.representative_engines.map((eId) => {
+                    const e = enginesById.get(eId);
+                    return e ? (
+                      <a href={pathname(`/engines/${eId}/`)} class="px-2 py-0.5 rounded hover:underline" style="background: var(--color-bg); color: var(--color-text);">{e.name}</a>
+                    ) : null;
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="containers-heading">
+      <h2 id="containers-heading" class="text-2xl font-semibold mb-4">{CONTAINER_FORMATS.length} 个容器 / 文件格式</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        权重精度 + 文件格式是两件事. 同一个 INT4-AWQ 可以在 safetensors / gguf / TRT engine 三种容器里. 容器决定 framework 兼容性.
+      </p>
+      <div class="space-y-3">
+        {CONTAINER_FORMATS.map((cf, idx) => (
+          <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`container-${idx}`}>
+            <h3 class="text-base font-semibold mb-1">{cf.display}</h3>
+            <p class="text-xs font-medium mb-3" style="color: var(--color-text-muted);">{cf.full_zh}</p>
+            <div class="text-xs grid lg:grid-cols-2 gap-4">
+              <div>
+                <div class="font-semibold mb-1" style="color: oklch(70% 0.15 145);">最适合</div>
+                <p style="color: var(--color-text-muted);">{cf.best_for}</p>
+              </div>
+              <div>
+                <div class="font-semibold mb-1" style="color: oklch(70% 0.18 30);">不适合</div>
+                <p style="color: var(--color-text-muted);">{cf.not_for}</p>
+              </div>
+            </div>
+            <div class="mt-3 text-xs">
+              <span class="font-semibold" style="color: var(--color-accent);">Loader: </span>
+              <span style="color: var(--color-text-muted);">{cf.framework_loader}</span>
+            </div>
+            {cf.underlying_quants.length > 0 && (
+              <div class="mt-2 text-xs flex gap-2 flex-wrap">
+                <span style="color: var(--color-text-muted);">承载精度:</span>
+                {cf.underlying_quants.map((u) => (
+                  <span class="px-2 py-0.5 rounded" style="background: var(--color-bg); color: var(--color-text);">{u}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          决定了精度 + 格式后, 看具体 (model × hardware × engine × quant) 部署 <a href={pathname('/playbooks/')} style="color: var(--color-accent);" class="hover:underline">playbook</a>
+          和真实 <a href={pathname('/cases/')} style="color: var(--color-accent);" class="hover:underline">案例</a>.
+          回到<a href={pathname('/learn/quantization-decision-tree/')} style="color: var(--color-accent);" class="hover:underline">策略层决策</a> 看 bit 数选择.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/quantization-decision-tree/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">量化策略决策 →</a>
+          <a href={pathname('/quantizations/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">{quantizations.length} 个精度详情 →</a>
+          <a href={pathname('/cases/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">{cases.length} 个实测案例 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

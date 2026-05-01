@@ -1,0 +1,226 @@
+---
+/**
+ * Operator × Fused-Kernel cross-reference matrix.
+ *
+ * Surfaces the bipartite graph that's implicit in the data:
+ *   - Each operator has `participates_in_fused_kernels`
+ *   - Each fused-kernel has `fuses_operators`
+ *
+ * Both sides should agree. This page renders both views side-by-side so
+ * readers can: (1) see at a glance which kernels exist for a given op, and
+ * (2) catch data gaps where an op is fused by a kernel but doesn't list it
+ * (or vice versa).
+ *
+ * Closes a long-standing gap-2 ask: "operator/fusion info is incomplete" was
+ * partly about catalog density (now 25 ops × 20 kernels) and partly about
+ * relational visibility — this page makes the relations explicit.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getOperators, getFusedKernels } from '~/lib/data';
+
+const [operators, fusedKernels] = await Promise.all([
+  getOperators(), getFusedKernels()
+]);
+
+// Sort operators by category (groups related ops together visually)
+const sortedOps = [...operators].sort((a, b) => {
+  const catCmp = a.category.localeCompare(b.category);
+  if (catCmp !== 0) return catCmp;
+  return a.name.localeCompare(b.name);
+});
+
+// Sort kernels by category, then by id
+const sortedKernels = [...fusedKernels].sort((a, b) => {
+  const catCmp = (a.category ?? 'misc').localeCompare(b.category ?? 'misc');
+  if (catCmp !== 0) return catCmp;
+  return a.id.localeCompare(b.id);
+});
+
+// Build the bipartite graph from BOTH sides — so we can detect inconsistencies.
+// `forwardLinks[opId]` = set of kernels listing the op.
+// `reverseLinks[opId]` = set of kernels the op claims to participate in.
+const forwardLinks = new Map<string, Set<string>>();   // op → kernels (from kernel.fuses_operators)
+const reverseLinks = new Map<string, Set<string>>();   // op → kernels (from operator.participates_in_fused_kernels)
+
+for (const op of operators) {
+  reverseLinks.set(op.id, new Set(op.participates_in_fused_kernels ?? []));
+  forwardLinks.set(op.id, new Set());
+}
+for (const k of fusedKernels) {
+  for (const opId of k.fuses_operators ?? []) {
+    if (!forwardLinks.has(opId)) forwardLinks.set(opId, new Set());
+    forwardLinks.get(opId)!.add(k.id);
+  }
+}
+
+// Cell state per (op, kernel):
+//   'both'        — both directions agree
+//   'forward'     — kernel says yes, op doesn't list it (data gap on op side)
+//   'reverse'     — op says yes, kernel doesn't list it (data gap on kernel side)
+//   '—'           — neither
+function cellState(opId: string, kernelId: string): 'both' | 'forward' | 'reverse' | '—' {
+  const fwd = forwardLinks.get(opId)?.has(kernelId) ?? false;
+  const rev = reverseLinks.get(opId)?.has(kernelId) ?? false;
+  if (fwd && rev) return 'both';
+  if (fwd) return 'forward';
+  if (rev) return 'reverse';
+  return '—';
+}
+
+// Stats — coverage and inconsistencies
+let bothCount = 0;
+let forwardOnlyCount = 0;
+let reverseOnlyCount = 0;
+const opCoverage = new Map<string, number>();
+const kernelCoverage = new Map<string, number>();
+for (const op of sortedOps) {
+  let count = 0;
+  for (const k of sortedKernels) {
+    const state = cellState(op.id, k.id);
+    if (state === 'both') {
+      bothCount++;
+      count++;
+      kernelCoverage.set(k.id, (kernelCoverage.get(k.id) ?? 0) + 1);
+    } else if (state === 'forward') {
+      forwardOnlyCount++;
+      count++;
+      kernelCoverage.set(k.id, (kernelCoverage.get(k.id) ?? 0) + 1);
+    } else if (state === 'reverse') {
+      reverseOnlyCount++;
+      count++;
+    }
+  }
+  opCoverage.set(op.id, count);
+}
+
+const totalCells = sortedOps.length * sortedKernels.length;
+const filledCells = bothCount + forwardOnlyCount + reverseOnlyCount;
+const consistencyPct = filledCells === 0 ? 100 : Math.round((bothCount * 100) / filledCells);
+
+// Top 5 isolated operators (no fused kernels) — opportunities
+const orphanOps = sortedOps.filter((op) => (opCoverage.get(op.id) ?? 0) === 0);
+---
+<BaseLayout title="算子 × 融合算子矩阵 / Operator × Fused-Kernel Matrix">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        OPERATORS · FUSION MATRIX
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        算子 × 融合算子矩阵 · Fusion Matrix
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        {operators.length} 个 <a href={pathname('/operators/')} style="color: var(--color-accent);" class="hover:underline">算子</a> ×
+        {fusedKernels.length} 个 <a href={pathname('/fused-kernels/')} style="color: var(--color-accent);" class="hover:underline">融合算子</a>
+        的关系矩阵. ✓ = 该融合 kernel 包含此 op; ⚠️ = 数据不一致 (op 和 kernel 互相未声明). 用于快速找到
+        "这个 op 走哪条 fused 路径" 或 "这个 fused kernel 包含什么".
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{bothCount}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">双向一致 ✓</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums" style={(forwardOnlyCount + reverseOnlyCount) > 0 ? 'color: oklch(70% 0.18 50);' : ''}>{forwardOnlyCount + reverseOnlyCount}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">需补 ⚠️</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{consistencyPct}%</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">一致率</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{orphanOps.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">孤立算子 (无 fused kernel)</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="matrix-table-heading">
+      <h2 id="matrix-table-heading" class="text-lg font-semibold mb-3">交叉矩阵</h2>
+      <div class="overflow-x-auto">
+        <table class="text-xs" style="border-collapse: collapse; min-width: max-content;" data-testid="fusion-matrix">
+          <thead>
+            <tr>
+              <th class="text-left py-2 px-3 font-semibold sticky left-0 z-10" style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); border-right: 2px solid var(--color-border); min-width: 220px;">
+                Operator ↓ / Kernel →
+              </th>
+              {sortedKernels.map((k) => (
+                <th class="px-1 py-2 font-medium align-bottom" style="border-bottom: 2px solid var(--color-border); writing-mode: vertical-rl; text-orientation: mixed; height: 180px; max-width: 28px;">
+                  <a href={pathname(`/fused-kernels/${k.id}/`)} class="hover:underline whitespace-nowrap" style="color: var(--color-accent);">{k.name.length > 30 ? k.name.slice(0, 28) + '…' : k.name}</a>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sortedOps.map((op) => (
+              <tr style="border-bottom: 1px solid var(--color-border);" data-testid={`fusion-row-${op.id}`}>
+                <td class="py-2 px-3 sticky left-0" style="background: var(--color-bg); border-right: 2px solid var(--color-border);">
+                  <a href={pathname(`/operators/${op.id}/`)} class="hover:underline" style="color: var(--color-text);">
+                    {op.name.length > 32 ? op.name.slice(0, 30) + '…' : op.name}
+                  </a>
+                  <div class="text-[10px] uppercase tracking-wider mt-0.5" style="color: var(--color-text-muted);">{op.category}</div>
+                </td>
+                {sortedKernels.map((k) => {
+                  const state = cellState(op.id, k.id);
+                  const symbol = state === 'both' ? '✓' : state === 'forward' || state === 'reverse' ? '⚠️' : '·';
+                  const cellStyle = state === 'both'
+                    ? 'background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent); font-weight: 600;'
+                    : state === 'forward' || state === 'reverse'
+                    ? 'background: color-mix(in oklch, oklch(70% 0.18 50) 18%, transparent); color: oklch(60% 0.18 50);'
+                    : 'color: var(--color-text-muted); opacity: 0.4;';
+                  const title = state === 'both'
+                    ? `${op.id} ✕ ${k.id}: 双向一致`
+                    : state === 'forward'
+                    ? `${k.id} 声明融合 ${op.id}, 但 ${op.id} 未列 — kernel-side OK, op data gap`
+                    : state === 'reverse'
+                    ? `${op.id} 声明参与 ${k.id}, 但 ${k.id} 未列 — op-side OK, kernel data gap`
+                    : `${op.id} 与 ${k.id} 无关联`;
+                  return (
+                    <td class="text-center align-middle" style={`width: 28px; height: 28px; ${cellStyle}`} title={title}>
+                      {symbol}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {orphanOps.length > 0 && (
+      <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="orphan-heading">
+        <h2 id="orphan-heading" class="text-lg font-semibold mb-3">⚠️ 孤立算子 ({orphanOps.length})</h2>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          这些算子没在任何融合 kernel 里出现 — 可能是 op-only operations (例如 dropout / cross-entropy 不参与 fusion),
+          或者是数据 gap. 如果你知道某个 fused kernel 实际上包含某个 orphan op, PR 加上即可.
+        </p>
+        <ul class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-sm">
+          {orphanOps.map((op) => (
+            <li class="rounded border p-2" style="border-color: var(--color-border);">
+              <a href={pathname(`/operators/${op.id}/`)} class="hover:underline" style="color: var(--color-text);">{op.name}</a>
+              <span class="text-[10px] ml-2 uppercase tracking-wider" style="color: var(--color-text-muted);">{op.category}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          看具体算子如何在不同硬件上跑, 浏览<a href={pathname('/operators/')} style="color: var(--color-accent);" class="hover:underline">算子目录</a>;
+          看具体 fused kernel 在哪些引擎里有实现, 浏览<a href={pathname('/fused-kernels/')} style="color: var(--color-accent);" class="hover:underline">融合算子目录</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/operators/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">{operators.length} 个算子 →</a>
+          <a href={pathname('/fused-kernels/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">{fusedKernels.length} 个融合算子 →</a>
+          <a href={pathname('/learn/attention-variants/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">Attention 变体 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

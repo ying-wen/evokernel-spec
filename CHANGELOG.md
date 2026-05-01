@@ -6,15 +6,51 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.22+ horizon)
+### Planned (v1.23+ horizon)
 - Public submission portal (case YAML web form) — currently PR-only
 - Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
-- /learn/picking-quantization-format/ (GGUF vs AWQ vs GPTQ vs FP8 native)
-- Operator × fused-kernel cross-reference matrix
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
 - Server-compare client-side filter island (real querystring parsing in SSG)
+- More end-to-end tours (Llama 4 Behemoth on NVL72; DeepSeek V3 on Atlas 800T)
+
+---
+
+## [1.22.0] — 2026-05-01
+
+Cross-cutting integration: surfaces the bipartite operator↔fused-kernel graph as an explicit matrix, distinguishes quantization strategy from format, and walks one concrete deployment through every pipeline stage. Closes the "data is correct but spread across separate sections" complaint behind gap (3).
+
+### Added
+
+**`/operators/fusion-matrix/`** (NEW cross-reference page):
+- 25 operators × 20 fused-kernels truth-table — every cell is ✓ (both sides agree), ⚠️ (one-sided declaration — data gap), or · (no relation)
+- Per-row + per-column coverage stats; consistency % surfaced
+- Orphan-operator section lists ops not in any fused kernel (legitimate or contribution opportunity)
+- Closes gap-2 ask: "operator/fusion info incomplete" was partly catalog density, partly relational visibility — this page makes the relations explicit
+
+**`/learn/picking-quantization-format/`** (NEW educational guide):
+- Distinguishes **strategy** (FP8 vs INT4 vs QAT — see `/learn/quantization-decision-tree/`) from **format** (NVFP8 / AWQ-INT4 / GPTQ-INT4 / GGUF Q4_K_M)
+- 7 weight-precision format profiles + 3 container format profiles (GGUF / safetensors / TRT engine)
+- Per-format: best-for / not-for / framework loader / per-group scale / case usage count
+- Closes a frequent confusion in the deployment chain: "AWQ" and "INT4" are not the same axis
+
+**`/learn/end-to-end-tour/`** (NEW narrative guide):
+- Walks ONE concrete case (Llama 4 Scout on H200x8 with vLLM FP8) through all 7 pipeline stages
+- Each stage shows: actual decision, rationale, involved operators / kernels / patterns, and a known pitfall
+- Pulls from existing data — case + playbook + pipeline + operator + kernel + pattern catalogs
+- Bottom CTA links all 6 `/learn/` guides
+- Closes gap-3 "deployment optimization chain unclear" by showing what a complete chain looks like in one specific story
+
+**2 more cases** (29 → 31):
+- `case-mistral-large-3-mi355x-sglang-001`: Mistral Large 3 on 8×MI355X with SGLang ROCm INT8 + GQA. AMD MI355X (288 GB HBM3e) deployment with full-context capacity
+- `case-qwen-coder-l40s-trtllm-awq-001`: Qwen 2.5-Coder 32B on 4×L40s PCIe with TRT-LLM AWQ-INT4. Surfaces PCIe-TP gotcha (no NVLink → 36× slower all-reduce vs H100) and code-specific calibration
+
+### Stats
+- 292/292 site E2E pass (+8 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 31**, fused-kernel: 20, playbook: 24, pattern: 19, operator: 25, citation: 1
+- Build: 378 pages
+- `/learn/` tour: 6 guides (attention-variants, quantization-decision-tree, picking-quantization-format, parallelism-cheatsheet, picking-engine, deployment-failures) + end-to-end-tour
 
 ---
 

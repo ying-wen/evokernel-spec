@@ -576,6 +576,76 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.22: /operators/fusion-matrix/ + /learn/picking-quantization-format/ + /learn/end-to-end-tour/ + 2 cases', () => {
+  test('/operators/fusion-matrix/ renders cross-tab matrix', async ({ page }) => {
+    await page.goto('/operators/fusion-matrix/');
+    await expect(page.getByRole('heading', { name: /算子 × 融合算子矩阵|Fusion Matrix/i }).first()).toBeVisible();
+    // The matrix table itself
+    await expect(page.getByTestId('fusion-matrix').first()).toBeVisible();
+    // Some specific operator rows
+    await expect(page.getByTestId('fusion-row-matmul').first()).toBeVisible();
+    await expect(page.getByTestId('fusion-row-attention').first()).toBeVisible();
+  });
+
+  test('/operators/fusion-matrix/ shows consistency stats + orphan list', async ({ page }) => {
+    await page.goto('/operators/fusion-matrix/');
+    await expect(page.getByText(/双向一致|一致率/i).first()).toBeVisible();
+    // Either orphan section visible OR no orphans
+    const matrix = page.getByTestId('fusion-matrix').first();
+    await expect(matrix).toBeVisible();
+  });
+
+  test('/learn/picking-quantization-format/ renders format profiles', async ({ page }) => {
+    await page.goto('/learn/picking-quantization-format/');
+    await expect(page.getByRole('heading', { name: /量化格式选型|Format Picker/i }).first()).toBeVisible();
+    // Per-format cards
+    await expect(page.getByTestId('format-fp8-e4m3').first()).toBeVisible();
+    await expect(page.getByTestId('format-int4-awq').first()).toBeVisible();
+    await expect(page.getByTestId('format-fp4').first()).toBeVisible();
+  });
+
+  test('/learn/picking-quantization-format/ distinguishes from quantization-decision-tree', async ({ page }) => {
+    await page.goto('/learn/picking-quantization-format/');
+    // Cross-link to the strategy-level guide
+    await expect(page.locator('a[href*="/learn/quantization-decision-tree"]').first()).toBeVisible();
+    // Container formats section (GGUF / safetensors / TRT engine)
+    await expect(page.getByTestId('container-0').first()).toBeVisible();
+  });
+
+  test('/learn/end-to-end-tour/ walks through all 7 pipeline stages', async ({ page }) => {
+    await page.goto('/learn/end-to-end-tour/');
+    await expect(page.getByRole('heading', { name: /端到端部署|E2E Walkthrough/i }).first()).toBeVisible();
+    // Each stage gets its own narrative card
+    await expect(page.getByTestId('tour-stage-acquire').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-quantize').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-compile').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-shard').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-serve').first()).toBeVisible();
+  });
+
+  test('/learn/end-to-end-tour/ links to all 6 /learn/ guides at bottom', async ({ page }) => {
+    await page.goto('/learn/end-to-end-tour/');
+    await expect(page.locator('a[href*="/learn/attention-variants"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/quantization-decision-tree"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/picking-quantization-format"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/parallelism-cheatsheet"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/picking-engine"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/deployment-failures"]').first()).toBeVisible();
+  });
+
+  test('Mistral Large 3 × MI355X case visible', async ({ page }) => {
+    await page.goto('/cases/case-mistral-large-3-mi355x-sglang-001/');
+    await expect(page.getByText(/Mistral Large 3|MI355X|SGLang ROCm/i).first()).toBeVisible();
+    await expect(page.getByText(/INT8|GQA|RadixAttention/i).first()).toBeVisible();
+  });
+
+  test('Qwen 2.5-Coder × L40s case visible (PCIe TP gotcha)', async ({ page }) => {
+    await page.goto('/cases/case-qwen-coder-l40s-trtllm-awq-001/');
+    await expect(page.getByText(/Qwen 2\.5-Coder|L40s|TRT-LLM/i).first()).toBeVisible();
+    await expect(page.getByText(/AWQ|PCIe|HumanEval/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.21: /learn/attention-variants/ + /servers/compare/ + 3 ops + 2 fused-kernels', () => {
   test('/learn/attention-variants/ renders 5 variants table', async ({ page }) => {
     await page.goto('/learn/attention-variants/');
