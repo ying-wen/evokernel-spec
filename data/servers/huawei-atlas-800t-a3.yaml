@@ -34,6 +34,17 @@ power_distribution:
   sustained_kw: 4.5
   peak_kw: 5.5
   voltage: '220V'
+host_cpu:
+  name: '华为鲲鹏 920 (Kunpeng 920, 48-core)'
+  vendor: huawei
+  architecture: arm-kunpeng
+  cores_per_node: 96
+  sockets_per_node: 2
+  pcie_gen: 4
+  pcie_lanes_per_node: 80
+  host_ram_gb: 768
+  has_coherent_gpu_link: false
+  notes: 'Atlas 800T A3 是 Atlas 800 系列的训推一体节点, host CPU 也是鲲鹏 920 (与 CloudMatrix 384 一致, 但 48-core 版本). PCIe Gen4 + HCCS 互联. 信创合规栈核心.'
 cabinet_layout_md: |
   ## Atlas 800T A3 机箱布局 / Chassis layout
 

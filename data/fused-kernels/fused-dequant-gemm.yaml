@@ -1,0 +1,115 @@
+id: fused-dequant-gemm
+name: Fused Dequant + GEMM (W4A16 / AWQ-INT4 hot path)
+category: mlp
+fuses_operators: [matmul, quantize-dequantize]
+summary: |
+  把权重 dequantization 与 GEMM 合并到同一个 kernel — INT4-AWQ / GPTQ / W4A16 类
+  weight-only quantization 的核心 hot path. 不 fuse 时 weights 必须先从 INT4 dequant
+  到 BF16 再做 GEMM, 中间 BF16 tensor 浪费 HBM bandwidth + 内存. Fused 版本让
+  dequant 在 register / SMEM 内完成, HBM 只读 4-bit weight, 写 BF16 output.
+
+description_md: |
+  ## 为什么这个 fusion 关键
+
+  W4A16 / AWQ-INT4 推理 forward 大致是:
+  ```
+  W_int4 = load(...)              # 4-bit weight tile
+  W_bf16 = dequant(W_int4, scale, zero_point)   # 中间 BF16 tensor, 4x bigger
+  output = W_bf16 @ x             # GEMM
+  ```
+
+  不 fuse 时:
+  - HBM 读 4-bit weight (节省 bandwidth — 这是 INT4 量化的核心收益)
+  - dequant 中间 BF16 tensor 写 HBM (浪费 4x bandwidth — 抵消 INT4 收益的一半)
+  - GEMM 读 BF16 weight + activation, 写 output
+
+  Fused dequant-GEMM 让 dequant 在 epilogue 寄存器内完成, 中间 BF16 不落 HBM:
+  - HBM 只读 4-bit weight + activation, 写 output
+  - 寄存器内 dequant: 每个 tile load 后立刻 dequant, 然后 MMA
+  - 有效内存带宽节省 = 4x (vs un-fused dequant)
+
+  这是 AWQ / GPTQ 推理实际跑得快的根因 — 没有 fused dequant-GEMM, INT4 量化的
+  bandwidth 优势会被中间 BF16 抹掉. 现代 GPU INT4 GEMM 内核 (cuBLASLt INT4_AWQ
+  path / Marlin / ExLlamaV2) 全部 fused dequant.
+
+  ## 实现层次
+
+  - **Marlin kernel** (vLLM/llama.cpp): Triton-style INT4 GEMM, support AWQ / GPTQ. 现代 vLLM AWQ-INT4 default path
+  - **ExLlamaV2**: 手写 CUDA kernel, INT4 GEMM 速度顶尖 (但 PyTorch/CUDA 11+ 才能编)
+  - **TRT-LLM W4A16 plugin**: 离线 build, 兼容 AWQ/GPTQ 格式
+  - **cuBLASLt INT4_AWQ epilogue**: cuBLASLt 12.0+ 内置 path, 适合标准 layout
+  - **lmdeploy TurboMind W4A16**: InternLM 优化路径, 中文模型场景顶尖
+  - **rocBLAS INT4 GEMM** (AMD ROCm 6.2+): AMD 路径, 比 NVIDIA 落后约 1-2 个 release
+
+  ## 应用场景
+
+  - **70B+ 大模型 INT4 推理**: AWQ-INT4 + fused dequant-GEMM 让 70B 模型在 24GB 单 GPU 上推理 (HBM 装得下 weights)
+  - **Edge 部署**: 端侧 (Jetson, RTX 5090, Apple M) 跑 Llama 3.3 70B 必须 INT4 + fused dequant
+  - **Cost-sensitive production**: AWQ-INT4 vs FP8 选择, INT4 在 70B+ 模型上 quality 损失 < 1 pt 但 bandwidth 节省 50%
+
+why_fuse: |
+  Dequant 中间 tensor 是 4x 原 INT4 大小, 物化到 HBM 抹掉量化 bandwidth 优势. Fuse 进 GEMM
+  epilogue 让 dequant 留在寄存器, HBM I/O 只读 INT4 weight + activation, 写 output.
+
+speedup:
+  - baseline: PyTorch eager (separate dequant + GEMM)
+    multiplier_min: 2.0
+    multiplier_max: 4.0
+    notes: 'Decode 阶段 W4A16 GEMM, fused dequant-GEMM vs un-fused: 2-4x throughput. 这是 INT4 量化的核心 enabler.'
+  - baseline: BF16 GEMM (no quantization)
+    multiplier_min: 1.4
+    multiplier_max: 2.5
+    notes: '相对 BF16 baseline, INT4 + fused dequant 在 memory-bound decode 上加速 1.4-2.5x'
+
+implementations:
+  - name: vLLM Marlin kernel (AWQ-INT4)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/IST-DASLab/marlin
+    notes: 'vLLM 0.4+ 默认 AWQ-INT4 path; Marlin 是 IST-DASLab 开源的 SOTA INT4 kernel'
+  - name: ExLlamaV2 INT4 GEMM
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/turboderp/exllamav2
+    notes: '手写 CUDA, 单 GPU INT4 推理速度顶尖'
+  - name: TRT-LLM W4A16 plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/reference/precision.html
+  - name: lmdeploy TurboMind W4A16
+    engine_id: lmdeploy
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/InternLM/lmdeploy
+    notes: 'InternLM/Qwen 系模型 INT4 优化路径'
+  - name: cuBLASLt INT4_AWQ epilogue
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/cuda/cublas/
+    notes: 'cuBLASLt 12.0+ 内置 path'
+  - name: rocBLAS INT4 GEMM
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/rocBLAS
+    notes: 'AMD ROCm 6.2+ INT4 GEMM, 与 cuBLASLt 对应'
+
+hardware_requires:
+  - 'Tensor cores with INT4 GEMM support (Ampere sm_80+)'
+  - 'CUDA 11+ / ROCm 6.2+'
+
+enables_patterns: [memory-bound-decode-prefer-int8]
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Per-group scale (group_size=128) load increases register pressure; 调参不当导致 spill 抹掉收益'
+  - 'AWQ vs GPTQ kernel 不通用 — 切换 calibration 算法需要重 build kernel'
+  - 'BF16 / FP8 模型不需要这条 path — 不要在已经 BF16 的 model 上启用 W4A16 fallback'
+  - '部分老硬件 (V100 sm_70) 无 INT4 tensor core, fall back 到 sw dequant 性能崩'
+
+references:
+  - title: 'Marlin: Mixed Auto-Regressive Linear kernel'
+    url: https://github.com/IST-DASLab/marlin
+    source_type: implementation
+  - title: 'AWQ paper'
+    url: https://arxiv.org/abs/2306.00978
+    source_type: paper
+  - title: 'cuBLASLt INT4_AWQ'
+    url: https://docs.nvidia.com/cuda/cublas/index.html
+    source_type: docs

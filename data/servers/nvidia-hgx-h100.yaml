@@ -37,6 +37,17 @@ power_distribution:
   sustained_kw: 8.5
   peak_kw: 10.2
   voltage: '240V'
+host_cpu:
+  name: 'Intel Xeon Platinum 8480+ (Sapphire Rapids, 56-core)'
+  vendor: intel
+  architecture: x86-sapphire-rapids
+  cores_per_node: 112
+  sockets_per_node: 2
+  pcie_gen: 5
+  pcie_lanes_per_node: 160
+  host_ram_gb: 2048
+  has_coherent_gpu_link: false
+  notes: 'HGX H100 标配 dual Sapphire Rapids host. PCIe Gen5 提供足够 lanes 给 8 H100 + 8 ConnectX-7 NIC. 没有 GPU-coherent 链路 (走 PCIe), 与 GB200 NVL72 (Grace+NVLink-C2C) 是关键代际差异. AMD EPYC Genoa-Bergamo 是常见替代 host.'
 cabinet_layout_md: |
   ## HGX H100 8-GPU 机箱布局 / Chassis layout
 

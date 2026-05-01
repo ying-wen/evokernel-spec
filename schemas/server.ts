@@ -26,6 +26,39 @@ const SwitchChipSchema = z.object({
 });
 
 /**
+ * Host CPU detail per node — the CPU choice often constrains:
+ *   - PCIe lanes available to GPUs (Gen4 vs Gen5)
+ *   - Coherent links (NVLink-C2C on Grace, Infinity Fabric on EPYC, CXL)
+ *   - NUMA topology (1S vs 2S layout)
+ *   - Total host RAM ceiling (Grace 480GB unified vs EPYC 9654 12TB max)
+ *
+ * Captured at the cluster level since the same node design propagates
+ * across the entire super-pod / pod.
+ */
+const HostCpuSchema = z.object({
+  /** CPU model name, e.g. "NVIDIA Grace 72-core", "AMD EPYC 9654". */
+  name: z.string().min(1),
+  /** Vendor — "nvidia", "amd", "intel", "huawei", "ampere-computing". */
+  vendor: z.string().min(1),
+  /** Architecture: "arm-neoverse-v2", "x86-zen4", "x86-sapphire-rapids". */
+  architecture: z.string().min(1),
+  /** Total cores per node (sum across sockets). */
+  cores_per_node: z.number().int().positive(),
+  /** Socket count per node (1S, 2S, etc.). */
+  sockets_per_node: z.number().int().positive(),
+  /** PCIe generation exposed to GPUs. */
+  pcie_gen: z.number().int().min(3).max(7).optional(),
+  /** Total PCIe lanes per node (sum across sockets). */
+  pcie_lanes_per_node: z.number().int().positive().optional(),
+  /** Host DRAM capacity per node in GB. */
+  host_ram_gb: z.number().positive().optional(),
+  /** Whether the CPU has GPU-coherent link (NVLink-C2C, Infinity Fabric, CXL). */
+  has_coherent_gpu_link: z.boolean().optional(),
+  /** Free-text notes — typically the unique selling point of this CPU choice. */
+  notes: z.string().optional()
+});
+
+/**
  * Power-distribution detail at the rack/super-pod level. Sustained vs
  * peak matters because real datacenter PUE budgets live on sustained
  * draw, not the spec-sheet peak.
@@ -77,6 +110,10 @@ export const ServerSchema = z.object({
   /** Power distribution detail. */
   power_distribution: PowerDistributionSchema.optional(),
 
+  /** Host CPU detail. v1.26+: lets readers compare Grace vs EPYC vs
+   *  Kunpeng across super-pods via /servers/host-cpu-matrix/. */
+  host_cpu: HostCpuSchema.optional(),
+
   /** Free-form markdown describing rack/cabinet layout. */
   cabinet_layout_md: z.string().optional(),
 
@@ -88,3 +125,4 @@ export const ServerSchema = z.object({
 export type Server = z.infer<typeof ServerSchema>;
 export type SwitchChip = z.infer<typeof SwitchChipSchema>;
 export type PowerDistribution = z.infer<typeof PowerDistributionSchema>;
+export type HostCpu = z.infer<typeof HostCpuSchema>;

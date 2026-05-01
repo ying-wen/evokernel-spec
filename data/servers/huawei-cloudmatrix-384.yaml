@@ -31,6 +31,17 @@ power_distribution:
   sustained_kw: 480
   peak_kw: 600
   voltage: '380V 3-phase + 48V DC bus'
+host_cpu:
+  name: '华为鲲鹏 920 (Kunpeng 920, 64-core ARMv8.2)'
+  vendor: huawei
+  architecture: arm-kunpeng
+  cores_per_node: 128
+  sockets_per_node: 2
+  pcie_gen: 4
+  pcie_lanes_per_node: 80
+  host_ram_gb: 1024
+  has_coherent_gpu_link: false
+  notes: '鲲鹏 920 是华为自研 ARM 服务器 CPU, 信创合规栈核心组件. PCIe Gen4 (vs NVL72 Gen5) 限制 host-GPU bandwidth, 但 Ascend 910C 单卡只用 16 lanes 不构成瓶颈. HCCS 互联是 GPU 间通信主路径, 不依赖 PCIe. 这是国央企部署唯一全国产化路径.'
 cabinet_layout_md: |
   ## CloudMatrix 384 多机柜布局 / Multi-cabinet layout
 

@@ -39,6 +39,17 @@ power_distribution:
   sustained_kw: 8.5
   peak_kw: 10.2
   voltage: '240V'
+host_cpu:
+  name: 'Intel Xeon Platinum 8568Y+ (Emerald Rapids, 48-core) or AMD EPYC 9554'
+  vendor: intel
+  architecture: x86-emerald-rapids
+  cores_per_node: 96
+  sockets_per_node: 2
+  pcie_gen: 5
+  pcie_lanes_per_node: 160
+  host_ram_gb: 2048
+  has_coherent_gpu_link: false
+  notes: 'H200 上的 host 选择与 H100 类似 (Sapphire / Emerald Rapids 或 EPYC Genoa). H200 的差异在 GPU 端 (HBM3e 141GB), host 一致. 部分 OEM 走 EPYC 9654 路径 (96 cores/socket → 192 cores/node) 适合长 context 大 batch 工作负载.'
 cabinet_layout_md: |
   ## HGX H200 8-GPU 机箱布局 / Chassis layout
 

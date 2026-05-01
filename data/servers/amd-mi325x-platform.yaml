@@ -34,6 +34,17 @@ power_distribution:
   sustained_kw: 11
   peak_kw: 13
   voltage: '240V'
+host_cpu:
+  name: 'AMD EPYC 9654 (Genoa, 96-core Zen 4)'
+  vendor: amd
+  architecture: x86-zen4
+  cores_per_node: 192
+  sockets_per_node: 2
+  pcie_gen: 5
+  pcie_lanes_per_node: 256
+  host_ram_gb: 3072
+  has_coherent_gpu_link: false
+  notes: 'AMD MI325X Platform 几乎都配 EPYC Genoa (同厂软硬一体). 192 cores per node 让 vLLM/SGLang router + KV cache 处理 host-side 任务时不卡 — 跟 Sapphire Rapids 同代但 core 数更多. 没有 GPU-coherent 链路 — Infinity Fabric 在 GPU 之间, 不延伸到 host.'
 cabinet_layout_md: |
   ## AMD MI325X 8-OAM Platform 布局 / Baseboard layout
 

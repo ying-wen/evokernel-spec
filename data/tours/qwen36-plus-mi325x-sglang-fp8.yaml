@@ -1,0 +1,76 @@
+id: qwen36-plus-mi325x-sglang-fp8
+title: 'Qwen 3.6 Plus × 8×MI325X'
+context_zh: 'AMD CDNA-3 单节点 · 8 OAM Infinity Fabric · SGLang ROCm + FP8'
+case_id: case-qwen36-mi325x8-sglang-001
+playbook_id: dense-llm-medium-on-cdna3-single-node
+display_order: 15
+why_it_matters: |
+  AMD MI325X 是 NVIDIA H200 之外最重要的单节点高端推理卡 — 256GB HBM3e 让大模型 BF16/FP8 无需激进 quant.
+  这条 tour 显示 ROCm 生态在 production 部署上已经接近 NVIDIA 路径成熟度.
+  与 Hopper/Blackwell 路径对照, AMD 是 NVIDIA-lock 之外的第二条全栈选项.
+
+stages:
+  - stage_id: acquire
+    decision: 'Qwen/Qwen3.6-Plus — HuggingFace safetensors'
+    rationale: |
+      Qwen 3.6 Plus 是阿里开源 frontier model. HF 直拉权重, 国内走 ModelScope 镜像加速.
+      AMD 节点没有 NVIDIA-specific 权重格式, safetensors 通用.
+    pitfall: |
+      Qwen 3.6 license 允许商业部署, 但需要确认 model card 条款.
+
+  - stage_id: convert
+    decision: 'BF16 safetensors as-is — vLLM/SGLang ROCm 直读'
+    rationale: |
+      ROCm 6.2+ 上 vLLM/SGLang weight loader 与 CUDA 路径几乎对称.
+      不需要任何额外 conversion (与 Gaudi 的 SynapseAI 转换相比, ROCm 更接近 NVIDIA 体验).
+    pitfall: |
+      老的 GGUF / AWQ checkpoint 在 AMD 上要走 hipify-perl 转换 — 现代 production 直接走 safetensors 跳过这步.
+
+  - stage_id: quantize
+    decision: 'FP8 E4M3 — MI325X 原生 FP8 tensor core'
+    rationale: |
+      MI325X (CDNA 3) 有 native FP8 (与 H100/H200 同代设计), decode 1.4-1.8x BF16 加速.
+      ROCm 6.2 的 FP8 path 与 NVIDIA TransformerEngine 对应; calibration 工具链不同但结果可比.
+    involves_patterns: [memory-bound-decode-prefer-int8]
+    pitfall: |
+      MI300X (CDNA 3 上一代) 没 FP8 native — 必须 INT8 / BF16. 混用 MI300X / MI325X 集群时统一 BF16 避免兼容性问题.
+
+  - stage_id: compile
+    decision: 'HIP Graph capture + ROCm FlashAttention + GQA fast path'
+    rationale: |
+      ROCm 6.2+ 支持 HIP Graph (类似 CUDA Graph), capture 多个 batch size.
+      FlashAttn-3 ROCm port 在 MI325X 上跑 ~80% of theoretical peak — 比 NVIDIA H200 略低 5-10% 但接近.
+    involves_operators: [scaled-dot-product-attention, matmul, rmsnorm, rope, silu, swiglu]
+    involves_kernels: [flash-attention-v3, fused-mlp-silu, fused-rmsnorm-residual, fused-rope-qkv]
+    involves_patterns: [flashattention-v3, gqa-mqa-shared-kv, compile-time-graph-optimization]
+    pitfall: |
+      HIP Graph 在 ROCm 6.0/6.1 上有 race condition; 6.2 才生产 ready. 早期 release 走 eager fallback.
+
+  - stage_id: shard
+    decision: 'TP=8 — 单节点 Infinity Fabric 全互联, 无需 PP/EP'
+    rationale: |
+      MI325X 8-OAM 节点内 Infinity Fabric 4 全互联 (不需要 NVSwitch 等价物 — fabric 直接 8-way mesh).
+      256GB × 8 = 2 TB total HBM 让 Qwen 3.6 Plus 整个模型 BF16 装下, 不需要跨节点 PP.
+    involves_patterns: [tp-allreduce-overlap]
+    pitfall: |
+      Infinity Fabric all-reduce 性能比 NVLink-4 略低 ~15-20%; TP=8 大模型部署时 attention 阶段比 H100 慢, decode 几乎相同.
+
+  - stage_id: serve
+    decision: 'SGLang ROCm 0.4 + RadixAttention + continuous batching'
+    rationale: |
+      SGLang ROCm 0.4 是 AMD 上最成熟的 inference engine. RadixAttention + continuous batching 路径与 NVIDIA 路径功能对齐.
+      vLLM ROCm 是另一选择, SGLang 在 agent / multi-turn 场景吞吐高 10-20%.
+    involves_kernels: [paged-attention-decode, fused-radix-attention]
+    involves_patterns: [continuous-batching, paged-attention, prefix-radix-cache]
+    pitfall: |
+      MI325X 上 PagedAttention 的 page size 默认 64 (vs NVIDIA 16) — 大 page 减少 metadata overhead 但浪费 KV cache.
+      长 context 部署考虑切到 32 优化容量.
+
+  - stage_id: observe
+    decision: 'rocm-smi + Habana metrics + Grafana ROCm dashboard'
+    rationale: |
+      rocm-smi 是 AMD 等价 nvidia-smi. 暴露 GPU 利用率 / HBM / 温度.
+      ROCm metrics exporter 提供 Prometheus endpoint, 与 NVIDIA DCGM 类似设计.
+    pitfall: |
+      ROCm ecosystem third-party 监控工具支持比 NVIDIA 滞后 — Grafana dashboard 模板少, 大部分要从 rocm-smi-exporter 自定义.
+      生产部署预留 1-2 周 dashboard build time.

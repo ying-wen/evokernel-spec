@@ -1,0 +1,219 @@
+---
+/**
+ * /servers/host-cpu-matrix/ — host CPU comparison across super-pods.
+ *
+ * Closes a long-standing gap-1 ask: cluster-internal info wasn't detailed
+ * enough. Specifically, host CPU choice (Grace, EPYC, Sapphire Rapids,
+ * Kunpeng) often constrains PCIe lanes, GPU-coherent links, NUMA topology,
+ * and host RAM ceiling — but until v1.26 these were scattered across
+ * server YAML files with no comparative view.
+ *
+ * Reads from data/servers/*.yaml (any server with host_cpu populated).
+ * Surfaces the architecture diversity (arm-neoverse-v2 / x86-zen4 /
+ * x86-sapphire-rapids / arm-kunpeng) so readers can pick host platform
+ * by use case (信创 / coherent links / max cores / etc.).
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getServers } from '~/lib/data';
+
+const allServers = await getServers();
+const serversWithCpu = allServers.filter((s) => s.host_cpu).sort((a, b) => {
+  // Group by has_coherent_gpu_link first (coherent first), then by vendor for stable order
+  if (a.host_cpu!.has_coherent_gpu_link !== b.host_cpu!.has_coherent_gpu_link) {
+    return a.host_cpu!.has_coherent_gpu_link ? -1 : 1;
+  }
+  return a.host_cpu!.vendor.localeCompare(b.host_cpu!.vendor) || a.id.localeCompare(b.id);
+});
+
+interface Row {
+  label_zh: string;
+  label_en: string;
+  format: (s: typeof serversWithCpu[number]) => string;
+  highlight?: 'max' | 'min';
+}
+
+const ROWS: Row[] = [
+  { label_zh: 'CPU 型号', label_en: 'Model', format: (s) => s.host_cpu!.name },
+  { label_zh: '架构', label_en: 'Architecture', format: (s) => s.host_cpu!.architecture },
+  { label_zh: '总核数', label_en: 'Cores per node', format: (s) => `${s.host_cpu!.cores_per_node}`, highlight: 'max' },
+  { label_zh: '插槽数', label_en: 'Sockets per node', format: (s) => `${s.host_cpu!.sockets_per_node}` },
+  { label_zh: 'PCIe 版本', label_en: 'PCIe gen', format: (s) => s.host_cpu!.pcie_gen ? `Gen${s.host_cpu!.pcie_gen}` : '—', highlight: 'max' },
+  { label_zh: 'PCIe lanes', label_en: 'PCIe lanes', format: (s) => s.host_cpu!.pcie_lanes_per_node ? `${s.host_cpu!.pcie_lanes_per_node}` : '—', highlight: 'max' },
+  { label_zh: 'Host RAM (GB)', label_en: 'Host RAM', format: (s) => s.host_cpu!.host_ram_gb ? `${s.host_cpu!.host_ram_gb} GB` : '—', highlight: 'max' },
+  { label_zh: 'GPU-coherent 链路', label_en: 'Coherent GPU link', format: (s) => s.host_cpu!.has_coherent_gpu_link ? '✓' : '—' },
+  { label_zh: '关联 GPU', label_en: 'Paired GPU', format: (s) => `${s.card_count}× ${s.card}` },
+  { label_zh: 'Notes', label_en: 'Notes', format: (s) => s.host_cpu!.notes ?? '—' }
+];
+
+function extractNumber(s: string): number | null {
+  const match = s.match(/^Gen?(\d+(?:\.\d+)?)/) ?? s.match(/^([\d.]+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function findHighlightId(row: Row): string | null {
+  if (!row.highlight) return null;
+  const nums = serversWithCpu.map((s) => ({ id: s.id, n: extractNumber(row.format(s)) }));
+  const valid = nums.filter((x) => x.n !== null);
+  if (valid.length === 0) return null;
+  const winner = valid.reduce((best, cur) => {
+    if (best.n === null) return cur;
+    if (cur.n === null) return best;
+    if (row.highlight === 'max' && cur.n > best.n) return cur;
+    if (row.highlight === 'min' && cur.n < best.n) return cur;
+    return best;
+  });
+  return winner.id;
+}
+
+// Architecture distribution stats
+const archCounts = new Map<string, number>();
+for (const s of serversWithCpu) {
+  archCounts.set(s.host_cpu!.architecture, (archCounts.get(s.host_cpu!.architecture) ?? 0) + 1);
+}
+const totalServers = allServers.length;
+const populated = serversWithCpu.length;
+const coherentCount = serversWithCpu.filter((s) => s.host_cpu!.has_coherent_gpu_link).length;
+---
+<BaseLayout title="超节点 Host CPU 对照 / Host-CPU Matrix">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        SERVERS · HOST CPU MATRIX
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        Host CPU 对照矩阵
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        Host CPU 选择决定 PCIe lanes / GPU-coherent 链路 / NUMA / host RAM ceiling.
+        Grace + Hopper / Blackwell 是唯一带 GPU-coherent 链路的设计 (NVLink-C2C).
+        EPYC / Sapphire / Emerald Rapids 走 PCIe Gen5; 鲲鹏 920 走 PCIe Gen4 + 信创合规.
+        每行 <span style="color: var(--color-accent);">★</span> 标记最大值.
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{populated}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">已有 host_cpu / {totalServers} 总数</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{archCounts.size}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">不同 CPU 架构</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{coherentCount}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">含 GPU-coherent 链路</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{ROWS.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">对比维度</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="arch-distribution-heading">
+      <h2 id="arch-distribution-heading" class="text-lg font-semibold mb-3">CPU 架构分布</h2>
+      <div class="flex flex-wrap gap-2 text-xs">
+        {Array.from(archCounts.entries()).sort((a, b) => b[1] - a[1]).map(([arch, count]) => (
+          <span class="px-3 py-1.5 rounded border" style="border-color: var(--color-border); background: var(--color-surface-raised); color: var(--color-text);">
+            <strong style="color: var(--color-accent);">{arch}</strong>
+            <span class="ml-2" style="color: var(--color-text-muted);">×{count}</span>
+          </span>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="matrix-heading">
+      <h2 id="matrix-heading" class="text-lg font-semibold mb-3">Host CPU 详情对照</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" style="border-collapse: collapse; min-width: 720px;" data-testid="host-cpu-matrix">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--color-border);">
+              <th class="text-left py-3 px-3 font-semibold sticky left-0" style="color: var(--color-text-muted); background: var(--color-bg);">维度 / Axis</th>
+              {serversWithCpu.map((s) => (
+                <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text); min-width: 220px;">
+                  <a href={pathname(`/servers/${s.id}/`)} class="hover:underline" style="color: var(--color-accent);">{s.name}</a>
+                  <div class="text-xs font-normal mt-0.5" style="color: var(--color-text-muted);">{s.id}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ROWS.map((row) => {
+              const winnerId = findHighlightId(row);
+              return (
+                <tr style="border-bottom: 1px solid var(--color-border);" data-testid={`host-cpu-row-${row.label_en.toLowerCase().replace(/\s+/g, '-')}`}>
+                  <td class="py-2.5 px-3 align-top text-xs sticky left-0" style="background: var(--color-bg);">
+                    <div class="font-semibold" style="color: var(--color-text);">{row.label_zh}</div>
+                    <div class="font-normal" style="color: var(--color-text-muted);">{row.label_en}</div>
+                  </td>
+                  {serversWithCpu.map((s) => {
+                    const isWinner = winnerId === s.id;
+                    return (
+                      <td class="py-2.5 px-3 align-top text-xs" style={isWinner
+                        ? 'color: var(--color-accent); font-weight: 600; background: color-mix(in oklch, var(--color-accent) 5%, transparent);'
+                        : 'color: var(--color-text);'}>
+                        {row.format(s)}
+                        {isWinner && <span class="ml-1" aria-label="best in this row">★</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="why-heading">
+      <h2 id="why-heading" class="text-lg font-semibold mb-3">为什么 host CPU 重要</h2>
+      <div class="grid lg:grid-cols-2 gap-4 text-sm">
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">1. PCIe 带宽决定 host-side 速度</h3>
+          <p style="color: var(--color-text-muted);">
+            PCIe Gen4 vs Gen5 让 host-GPU 数据搬运速度差 2x. 端到端推理中, weight load + KV cache offload + tokenizer 等 host-bound 任务直接受 PCIe 限制.
+            Gen5 标配 (HGX/MI325X/NVL72) 是 2024+ deployment 的最低要求.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">2. GPU-coherent 链路是分水岭</h3>
+          <p style="color: var(--color-text-muted);">
+            NVLink-C2C (Grace+Hopper / Grace+Blackwell) 让 host RAM 成为 GPU 的 tier-2 HBM, zero-copy 访问. 没有 coherent 链路的设计 (HGX, MI325X) 必须 explicit memcpy + double-buffering.
+            <a href={pathname('/patterns/hot-cold-kv-tiering/')} class="hover:underline" style="color: var(--color-accent);">hot-cold KV 分层</a> 这条 pattern 在 Grace 系上效率高数倍.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">3. 信创合规的关键</h3>
+          <p style="color: var(--color-text-muted);">
+            国央企 信创 招标必须全栈国产 — 鲲鹏 920 (ARM) + Ascend 910C/910D + 麒麟/openEuler.
+            Intel/AMD x86 host + NVIDIA GPU 路径在国央企不可用.
+            <a href={pathname('/learn/tours/dsv4pro-cloudmatrix-384-mindie/')} class="hover:underline" style="color: var(--color-accent);">国央企 reasoning tour</a> 走的是这条 host CPU.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">4. 总核数影响 router / KV cache</h3>
+          <p style="color: var(--color-text-muted);">
+            vLLM/SGLang router + KV cache offload 在 host CPU 上跑. 大 batch + 长 context 部署中, 96 核 (Sapphire) vs 192 核 (Genoa) 让 host-side 吞吐差 ~30%.
+            EPYC 9654 等高核数 CPU 是 throughput-heavy 部署的优选.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          看具体超节点详情, 浏览 <a href={pathname('/servers/')} style="color: var(--color-accent);" class="hover:underline">超节点目录</a>;
+          看 cluster-internal 完整对比, 走 <a href={pathname('/servers/compare/')} style="color: var(--color-accent);" class="hover:underline">/servers/compare/</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/servers/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">浏览全部 {totalServers} 超节点 →</a>
+          <a href={pathname('/servers/compare/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">超节点 cluster 对比 →</a>
+          <a href={pathname('/patterns/hot-cold-kv-tiering/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">Hot-cold KV 分层 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

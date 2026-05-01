@@ -38,6 +38,17 @@ power_distribution:
   sustained_kw: 5.5
   peak_kw: 6.5
   voltage: '208V'
+host_cpu:
+  name: 'AMD EPYC 7742 (Rome, 64-core Zen 2) — DGX A100 reference config'
+  vendor: amd
+  architecture: x86-zen2
+  cores_per_node: 128
+  sockets_per_node: 2
+  pcie_gen: 4
+  pcie_lanes_per_node: 128
+  host_ram_gb: 1024
+  has_coherent_gpu_link: false
+  notes: 'DGX A100 是首个用 AMD EPYC (vs DGX-1/2 用 Intel) 的 NVIDIA 旗舰服务器 — 选 EPYC 是因为 PCIe Gen4 lanes 数比当时 Intel Cascade Lake 多. 历史意义大: 之后 HGX 一直保留 AMD/Intel 双栈选择.'
 cabinet_layout_md: |
   ## DGX A100 8-GPU 机箱布局 / Chassis layout
 

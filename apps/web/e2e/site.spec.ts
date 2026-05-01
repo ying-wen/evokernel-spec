@@ -576,6 +576,65 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.26: host_cpu schema + /servers/host-cpu-matrix/ + AMD tour + 2 cases + 1 fused-kernel', () => {
+  test('/servers/host-cpu-matrix/ renders matrix with all 6 populated super-pods', async ({ page }) => {
+    await page.goto('/servers/host-cpu-matrix/');
+    await expect(page.getByRole('heading', { name: /Host CPU 对照|Host-CPU Matrix/i }).first()).toBeVisible();
+    await expect(page.getByTestId('host-cpu-matrix').first()).toBeVisible();
+    // Architecture distribution + GPU-coherent count
+    await expect(page.getByText(/GPU-coherent|架构|含 GPU-coherent/i).first()).toBeVisible();
+  });
+
+  test('Host CPU matrix shows architecture diversity (Grace / EPYC / Sapphire / Kunpeng)', async ({ page }) => {
+    await page.goto('/servers/host-cpu-matrix/');
+    // At least 3 distinct architectures visible
+    await expect(page.getByText(/arm-neoverse|arm-kunpeng|x86-zen|x86-sapphire|x86-emerald/i).first()).toBeVisible();
+    // Grace 显示 (NVL72)
+    await expect(page.getByText(/Grace|NVLink-C2C/i).first()).toBeVisible();
+    // 鲲鹏 显示 (CloudMatrix)
+    await expect(page.getByText(/Kunpeng|鲲鹏/i).first()).toBeVisible();
+  });
+
+  test('Host CPU matrix surfaces "why host CPU matters" educational section', async ({ page }) => {
+    await page.goto('/servers/host-cpu-matrix/');
+    await expect(page.getByText(/为什么 host CPU 重要|PCIe 带宽|GPU-coherent 链路|信创合规/i).first()).toBeVisible();
+    // Cross-link to hot-cold KV tiering
+    await expect(page.locator('a[href*="/patterns/hot-cold-kv-tiering"]').first()).toBeVisible();
+  });
+
+  test('AMD CDNA-3 tour visible (Qwen 3.6 × MI325X via YAML)', async ({ page }) => {
+    await page.goto('/learn/tours/qwen36-plus-mi325x-sglang-fp8/');
+    await expect(page.getByText(/MI325X|Infinity Fabric|ROCm/i).first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-quantize').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-shard').first()).toBeVisible();
+    // AMD-specific content
+    await expect(page.getByText(/HIP Graph|rocm-smi|hipify/i).first()).toBeVisible();
+  });
+
+  test('Tours index now shows 7 tours (data-driven scales)', async ({ page }) => {
+    await page.goto('/learn/tours/');
+    await expect(page.getByTestId('tour-row-qwen36-plus-mi325x-sglang-fp8').first()).toBeVisible();
+  });
+
+  test('Fused dequant + GEMM kernel visible (W4A16 / AWQ-INT4)', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-dequant-gemm/');
+    await expect(page.getByText(/Fused Dequant|W4A16|AWQ-INT4/i).first()).toBeVisible();
+    await expect(page.getByText(/Marlin|ExLlamaV2|cuBLASLt/i).first()).toBeVisible();
+  });
+
+  test('Qwen 3.6 × H200 case visible (NVIDIA vs AMD comparison reference)', async ({ page }) => {
+    await page.goto('/cases/case-qwen36-plus-h200x8-vllm-fp8-001/');
+    await expect(page.getByText(/Qwen 3\.6 Plus|H200|FP8/i).first()).toBeVisible();
+    await expect(page.getByText(/NVIDIA|MI325X|comparison/i).first()).toBeVisible();
+  });
+
+  test('MiniMax M2.7 × B200 case visible (hybrid SSM + FP4)', async ({ page }) => {
+    await page.goto('/cases/case-minimax-m27-b200x8-trtllm-fp4-001/');
+    await expect(page.getByText(/MiniMax M2\.7|B200|FP4|hybrid/i).first()).toBeVisible();
+    await expect(page.getByText(/Mamba2|SSM|TRT-LLM/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.25: 2 more tours via YAML + tour authoring guide + 2 cases + 1 pattern', () => {
   test('Gaudi 3 GPT-OSS tour visible (Intel stack via YAML)', async ({ page }) => {
     await page.goto('/learn/tours/gptoss-gaudi3-vllm-fp8/');

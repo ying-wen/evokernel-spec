@@ -6,14 +6,68 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.26+ horizon)
-- Public submission portal (case YAML web form) — currently PR-only
-- Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
+### Planned (v1.27+ horizon)
+- Display host_cpu on per-server detail pages (currently only matrix view)
+- Populate host_cpu on remaining 8 super-pods (covers 6/14 in v1.26)
+- Public submission portal (case YAML web form)
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
+- More tours: SD3 / Flux on Hopper (diffusion — needs schema work for non-LLM models)
+- Auto-translated vendor doc summaries via build-time API
 - "What's new this week" RSS / changelog feed
-- /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
-- Server-compare client-side filter island (real querystring parsing in SSG)
-- More tours: SD3 / Flux on Hopper (diffusion); Llama 4 Behemoth on NVL72 (when released)
+- /impact/ → citation auto-import
+
+---
+
+## [1.26.0] — 2026-05-01
+
+Hits gap (1) cluster details directly: server schema gains `host_cpu` field exposing the often-overlooked CPU choice (Grace / EPYC / Sapphire Rapids / Kunpeng). New `/servers/host-cpu-matrix/` makes architecture diversity comparable. Plus 1 more tour, 2 cases, 1 fused-kernel.
+
+### Added
+
+**Server `host_cpu` schema field** (`schemas/server.ts`):
+- `name`, `vendor`, `architecture`, `cores_per_node`, `sockets_per_node`
+- `pcie_gen`, `pcie_lanes_per_node`, `host_ram_gb`
+- `has_coherent_gpu_link` (Grace+Hopper / Grace+Blackwell only set this)
+- `notes` for free-form context (信创合规 / OEM choice / etc.)
+
+**6 super-pods populated with host_cpu**:
+- NVIDIA GB200 NVL72 — Grace 72-core Neoverse V2 (the only coherent design)
+- NVIDIA HGX H100/H200 — Sapphire / Emerald Rapids dual-socket (PCIe Gen5)
+- NVIDIA DGX A100 — AMD EPYC 7742 Rome (NVIDIA's first AMD-host platform)
+- AMD MI325X Platform — EPYC 9654 Genoa dual-socket (192 cores/node)
+- Huawei CloudMatrix 384 — 鲲鹏 920 (the 信创合规 ARM path)
+- Huawei Atlas 800T A3 — 鲲鹏 920 48-core variant
+
+**`/servers/host-cpu-matrix/`** (NEW comparison view):
+- Side-by-side table of all 10 dimensions (model, arch, cores, PCIe, lanes, RAM, coherent link, paired GPU, notes)
+- Architecture distribution chips (counts per arch family)
+- Per-row best-value highlighting
+- "Why host CPU matters" educational section with 4 trade-off cards
+- Cross-links to `hot-cold-kv-tiering` pattern (NVLink-C2C dependency) + 国央企 tour (Kunpeng-host context)
+
+**1 more tour** (6 → 7) — completing the single-node spectrum:
+- `qwen36-plus-mi325x-sglang-fp8`: AMD CDNA-3 single-node tour. Qwen 3.6 Plus on MI325X with SGLang ROCm + HIP Graph + FP8. Pairs with the new H200 case for direct NVIDIA-vs-AMD comparison
+
+**2 more cases** (36 → 38):
+- `case-qwen36-plus-h200x8-vllm-fp8-001`: Qwen 3.6 Plus on 8×H200 with vLLM FP8. Direct NVIDIA baseline vs the new AMD MI325X tour — same model, same quant, comparable numbers (NVIDIA ~17% faster decode, ~25% higher $/token)
+- `case-minimax-m27-b200x8-trtllm-fp4-001`: MiniMax M2.7 hybrid SSM/attention on 8×B200 with TRT-LLM FP4 + Mamba2 kernels. First Blackwell + hybrid SSM case, surfaces 64K long-context decode 4-5× speedup over H100 BF16
+
+**1 more fused-kernel** (21 → 22):
+- `fused-dequant-gemm`: W4A16 / AWQ-INT4 hot path. Fuses INT4 → BF16 dequant into GEMM epilogue — without this, INT4 quantization's bandwidth advantage is wasted on intermediate BF16 tensor write-back. Marlin / ExLlamaV2 / cuBLASLt INT4_AWQ all implement this
+
+### Stats
+- 323/323 site E2E pass (+8 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14 (6 with host_cpu), model: 19, **case: 38**, **fused-kernel: 22**, playbook: 24, pattern: 21, operator: 25, citation: 1, **tour: 7**
+- Build: 408 pages
+
+### Tour spectrum (7 tours = full deployment span):
+- 端侧/edge: Qwen 2.5 7B × Jetson Orin
+- 单节点 NVIDIA: Llama 4 Scout × H200
+- 单节点 AMD: Qwen 3.6 Plus × MI325X (NEW)
+- 单节点 Intel: GPT-OSS × Gaudi 3
+- 跨节点 Hopper: DSv4 Flash disagg × H100/H200
+- 国央企 super-pod: DSv4 Pro × CloudMatrix 384
+- Frontier super-pod: Llama 4 Maverick × NVL72
 
 ---
 

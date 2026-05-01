@@ -37,6 +37,17 @@ power_distribution:
   sustained_kw: 100
   peak_kw: 132
   voltage: '415V 3-phase'
+host_cpu:
+  name: 'NVIDIA Grace CPU Superchip (72-core Neoverse V2)'
+  vendor: nvidia
+  architecture: arm-neoverse-v2
+  cores_per_node: 72
+  sockets_per_node: 1
+  pcie_gen: 5
+  pcie_lanes_per_node: 128
+  host_ram_gb: 480
+  has_coherent_gpu_link: true
+  notes: 'NVLink-C2C 让 Grace CPU 与 Blackwell GPU 在同一 cache-coherent 域 (900 GB/s 双向). 这是 NVL72 区别 Hopper HGX 的关键 — Grace + Blackwell 一起 packaged, host RAM 实际可被 GPU 当作 tier-2 HBM 用 (zero-copy hot-cold KV tiering 走这条).'
 cabinet_layout_md: |
   ## NVL72 机柜布局 / Cabinet layout
 
