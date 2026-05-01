@@ -576,6 +576,53 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.33: /servers/cluster-internals/ — unified per-pod 3-axis view (gap-1 capstone)', () => {
+  test('/servers/cluster-internals/ renders with header + 5 stats cards + per-pod rows', async ({ page }) => {
+    await page.goto('/servers/cluster-internals/');
+    await expect(page.getByRole('heading', { name: /集群内部架构总览|Cluster Internals/i }).first()).toBeVisible();
+    // 5 stat cards: total / coherent / sharp / gds / all-three
+    for (const id of ['stat-total', 'stat-coherent', 'stat-sharp', 'stat-gds', 'stat-all-three']) {
+      await expect(page.locator(`[data-testid="${id}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('Per-pod rows present for all 14 super-pods, each linking to detail page', async ({ page }) => {
+    await page.goto('/servers/cluster-internals/');
+    const slugs = [
+      'nvidia-hgx-h100', 'nvidia-hgx-h200', 'nvidia-gb200-nvl72', 'nvidia-gb300-nvl72',
+      'nvidia-dgx-a100', 'amd-mi325x-platform', 'amd-mi300a-supercomputer',
+      'aws-trn2-ultraserver', 'huawei-cloudmatrix-384', 'huawei-atlas-900-superpod',
+      'huawei-atlas-800t-a3', 'cambricon-mlu590-pod', 'cambricon-x8-server',
+      'moore-threads-kuae'
+    ];
+    for (const slug of slugs) {
+      await expect(page.locator(`[data-testid="pod-row-${slug}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('NVL72 row highlights all three axis badges (coherent / SHARP / GDS / 三轴全)', async ({ page }) => {
+    await page.goto('/servers/cluster-internals/');
+    const row = page.locator('[data-testid="pod-row-nvidia-gb200-nvl72"]').first();
+    await expect(row).toContainText(/coherent/);
+    await expect(row).toContainText(/SHARP/);
+    await expect(row).toContainText(/GDS/);
+    await expect(row).toContainText(/三轴全/);
+  });
+
+  test('Page cross-links to all 3 per-axis matrices', async ({ page }) => {
+    await page.goto('/servers/cluster-internals/');
+    await expect(page.locator('a[href*="/servers/host-cpu-matrix"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/servers/network-topology-matrix"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/servers/storage-matrix"]').first()).toBeVisible();
+  });
+
+  test('Tools dropdown contains the new cluster-internals link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="tools"]').first();
+    await expect(dd.locator('a[href*="/servers/cluster-internals"]').first()).toHaveCount(1);
+  });
+});
+
 test.describe('v1.32: interactive capacity-planner calculator (turns v1.31 math into form-based tool)', () => {
   test('/calculator/capacity-planner/ renders with default Llama 4 Scout × H200 selection', async ({ page }) => {
     await page.goto('/calculator/capacity-planner/');

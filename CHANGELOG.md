@@ -6,14 +6,13 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.33+ horizon
+### v1.34+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
 **Tier 1 remaining (high-leverage, low-effort)**:
 - Citation PR onboarding (real external citations to populate /impact/)
 - "What's new this week" RSS feed (auto-from git log)
-- /servers/cluster-internals/ unified view (the trilogy on one page)
 - More tours (SD3/Flux diffusion, Kimi K2.6 on B200, GPT-OSS on Atlas)
 
 **Tier 2 (medium-leverage)**:
@@ -28,6 +27,35 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.33.0] — 2026-05-02
+
+**Capstone: unified `/servers/cluster-internals/` view.** v1.27/28/29 built per-axis matrices for compute / fabric / storage. Those are good for *per-axis* analytical queries ("rank all super-pods by bisection bandwidth"). But they don't answer the *per-pod* orientation question ("show me everything cluster-internal about NVL72 in one row"). v1.33 adds that view as the gap-1 capstone.
+
+### Added
+
+**`/servers/cluster-internals/`** (NEW unified view):
+- 5 stat cards highlighting architectural dividers: total / GPU-coherent host / SHARP-class fabric / GDS-capable storage / **all-three (顶级架构)**
+- 14 per-pod rows, each with 3 card sections (compute / fabric / storage)
+- Each section surfaces 3-4 highest-signal fields, with accent-border + chip badge when the pod has the flagship feature on that axis (coherent / SHARP / GDS)
+- Special "三轴全 ✓" red border highlight for super-pods with all three flagship features (currently 2: NVL72 / GB300 NVL72)
+- Cross-links to all 3 per-axis matrices for deeper analytical drill-down
+- Sorted: coherent-host pods first, then by card_count desc
+
+**Nav wiring**: Tools dropdown gains an 8th item — Cluster internals overview (alongside compare / 3 matrices / capacity-planner / pricing / showcase).
+
+### Why both views (per-axis matrices + per-pod unified)
+- **Per-axis matrices** (`/servers/host-cpu-matrix/` etc.): optimize for analytical queries. "Show me all super-pods sorted by latency."
+- **Per-pod unified** (`/servers/cluster-internals/`): optimize for orientation. "Show me NVL72's full architecture in one row."
+
+Same data, two access patterns. The user's mental model picks one.
+
+### Stats
+- 386/386 site E2E pass (+5 new) · 36/36 unit pass
+- Build: 424 pages
+- Tools dropdown count: 8 items (was 7)
 
 ---
 

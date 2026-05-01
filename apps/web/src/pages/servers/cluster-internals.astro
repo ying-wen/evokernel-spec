@@ -1,0 +1,253 @@
+---
+/**
+ * /servers/cluster-internals/ — unified view of the v1.27/28/29 trilogy.
+ *
+ * Three matrix pages (host-cpu / network-topology / storage) optimize for
+ * **per-axis** comparison ("show me all super-pods on the storage axis").
+ * This page optimizes for **per-pod** comparison ("show me the full
+ * architectural picture of NVL72 in one row").
+ *
+ * One row per super-pod, three card sections per row (compute / fabric / storage).
+ * Each section surfaces 3-4 highest-signal fields. Click-through to per-server
+ * detail page for the rest.
+ *
+ * Why both views: the analytical user wants per-axis ranking; the orientation
+ * user wants per-pod summary. Different mental models, same data.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getServers } from '~/lib/data';
+
+const allServers = await getServers();
+// Sort: GPU-coherent host first (architectural divider), then by total cards descending
+const servers = allServers
+  .filter((s) => s.host_cpu || s.network_topology || s.storage_architecture)
+  .sort((a, b) => {
+    const aCoherent = a.host_cpu?.has_coherent_gpu_link ?? false;
+    const bCoherent = b.host_cpu?.has_coherent_gpu_link ?? false;
+    if (aCoherent !== bCoherent) return aCoherent ? -1 : 1;
+    return (b.card_count ?? 0) - (a.card_count ?? 0);
+  });
+
+// Architecture divider stats — surfaces "how many super-pods sit on each side
+// of the major architectural splits."
+const stats = {
+  total: servers.length,
+  coherent_host: servers.filter((s) => s.host_cpu?.has_coherent_gpu_link).length,
+  in_network_reduction: servers.filter((s) => s.network_topology?.in_network_reduction).length,
+  gds_capable: servers.filter((s) => s.storage_architecture?.gpu_direct_storage).length,
+  all_three: servers.filter(
+    (s) =>
+      s.host_cpu?.has_coherent_gpu_link &&
+      s.network_topology?.in_network_reduction &&
+      s.storage_architecture?.gpu_direct_storage
+  ).length
+};
+
+const archLabel: Record<string, string> = {
+  'arm-neoverse-v2': 'ARM Neoverse V2',
+  'arm-kunpeng': 'ARM Kunpeng',
+  'arm-graviton': 'ARM Graviton',
+  'x86-zen4': 'x86 Zen 4',
+  'x86-zen5': 'x86 Zen 5',
+  'x86-zen-licensed': 'x86 Zen (licensed)',
+  'x86-sapphire-rapids': 'x86 Sapphire Rapids',
+  'x86-emerald-rapids': 'x86 Emerald Rapids',
+  'x86-granite-rapids': 'x86 Granite Rapids',
+  'risc-v': 'RISC-V'
+};
+const topoLabel: Record<string, string> = {
+  'fat-tree': 'Fat-Tree',
+  'fat-tree-rail-optimized': 'Fat-Tree (rail-opt)',
+  'dragonfly-plus': 'Dragonfly+',
+  'full-mesh': 'Full-Mesh',
+  '2d-torus': '2D-Torus',
+  '3d-torus': '3D-Torus',
+  'optical-fabric': 'Optical Fabric',
+  'hierarchical-mesh': 'Hierarchical Mesh',
+  'single-switch': 'Single-Switch',
+  'star-burst': 'Star-Burst',
+  'slim-fly': 'Slim-Fly'
+};
+const fsLabel: Record<string, string> = {
+  'lustre': 'Lustre',
+  'gpfs-spectrum-scale': 'GPFS',
+  'weka': 'Weka',
+  'daos': 'DAOS',
+  'object-store-s3-compat': 'S3-compat',
+  'cloud-managed': 'Cloud-managed',
+  'none': '—',
+  'other': 'Other / 厂商专有'
+};
+const ckptLabel: Record<string, string> = {
+  'local-nvme': 'Local NVMe',
+  'parallel-fs': 'Parallel FS',
+  'object-store': 'Object Store',
+  'hybrid': 'Hybrid',
+  'unknown': '—'
+};
+---
+<BaseLayout title="超节点集群内部架构 / Cluster Internals">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        SERVERS · CLUSTER INTERNALS
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        集群内部架构总览
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        把 v1.27–v1.29 的三个架构轴 (compute / fabric / storage) 在单页内每行
+        per-pod 摘要呈现. <strong>3 个独立矩阵适合 per-axis 分析</strong> ("对比所有
+        super-pod 的网络拓扑"); <strong>这个统一视图适合 per-pod 速览</strong> ("NVL72
+        的完整集群内部架构是怎样的"). 关键架构分水岭在 stats 卡里高亮.
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+        <div class="rounded-lg border p-3" data-testid="stat-total" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{stats.total}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">超节点总数</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="stat-coherent" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-surface-raised));">
+          <div class="text-2xl font-semibold tabular-nums" style="color: var(--color-accent);">{stats.coherent_host}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">GPU-coherent host</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="stat-sharp" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-surface-raised));">
+          <div class="text-2xl font-semibold tabular-nums" style="color: var(--color-accent);">{stats.in_network_reduction}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">In-network reduction (SHARP)</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="stat-gds" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-surface-raised));">
+          <div class="text-2xl font-semibold tabular-nums" style="color: var(--color-accent);">{stats.gds_capable}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">GPU Direct Storage</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="stat-all-three" style="border-color: var(--color-china); background: color-mix(in oklch, var(--color-china) 5%, var(--color-surface-raised));">
+          <div class="text-2xl font-semibold tabular-nums" style="color: var(--color-china);">{stats.all_three}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">三轴全 ✓ (顶级架构)</div>
+        </div>
+      </div>
+      <p class="text-xs mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        <strong style="color: var(--color-china);">三轴全 ✓</strong> 的超节点同时具备
+        coherent host 链路 (compute 轴) + SHARP-class in-network reduction (fabric 轴) + GDS
+        (storage 轴). 这是 2026 当下"完整架构封顶"的最高门槛.
+      </p>
+    </section>
+
+    <!-- Cross-link to per-axis matrices -->
+    <section class="py-6 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-base font-semibold mb-3">三个 per-axis 深度矩阵</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        想看完整 per-axis 排序对比 (例如 "所有 super-pod 按 bisection bandwidth 排序") — 走对应矩阵.
+      </p>
+      <div class="flex gap-3 flex-wrap text-sm">
+        <a href={pathname('/servers/host-cpu-matrix/')} class="px-3 py-2 rounded border hover:opacity-80" style="border-color: var(--color-border); color: var(--color-text);">
+          🖥️ Host CPU 矩阵
+        </a>
+        <a href={pathname('/servers/network-topology-matrix/')} class="px-3 py-2 rounded border hover:opacity-80" style="border-color: var(--color-border); color: var(--color-text);">
+          🌐 网络拓扑矩阵
+        </a>
+        <a href={pathname('/servers/storage-matrix/')} class="px-3 py-2 rounded border hover:opacity-80" style="border-color: var(--color-border); color: var(--color-text);">
+          💾 存储架构矩阵
+        </a>
+      </div>
+    </section>
+
+    <!-- Main: one row per super-pod, three card columns -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-4">每个超节点的三轴速览</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        每行一个超节点, 左 → 右 = compute / fabric / storage 三轴. 高亮 (accent border)
+        = 该轴具备旗舰特性 (coherent / SHARP / GDS).
+      </p>
+
+      <div class="space-y-4">
+        {servers.map((s) => {
+          const cpu = s.host_cpu;
+          const net = s.network_topology;
+          const storage = s.storage_architecture;
+          const allThree = cpu?.has_coherent_gpu_link && net?.in_network_reduction && storage?.gpu_direct_storage;
+          return (
+            <article class="rounded-lg border" data-testid={`pod-row-${s.id}`} style={`border-color: ${allThree ? 'var(--color-china)' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+              <header class="flex items-baseline gap-3 flex-wrap px-5 py-4 border-b" style="border-color: var(--color-border);">
+                <a href={pathname(`/servers/${s.id}/`)} class="text-lg font-semibold hover:underline" style="color: var(--color-text);">{s.name}</a>
+                <span class="text-xs font-mono" style="color: var(--color-text-muted);">{s.id}</span>
+                <Badge>{s.card_count}× {s.card}</Badge>
+                {allThree && <Badge variant="china">三轴全 ✓</Badge>}
+              </header>
+              <div class="grid md:grid-cols-3 gap-0">
+                <!-- Compute axis -->
+                <div class="p-4 border-b md:border-b-0 md:border-r" style={`border-color: var(--color-border); ${cpu?.has_coherent_gpu_link ? 'background: color-mix(in oklch, var(--color-accent) 4%, transparent);' : ''}`}>
+                  <div class="flex items-baseline gap-2 mb-2">
+                    <span class="text-xs uppercase tracking-wider font-semibold" style="color: var(--color-text-muted);">🖥️ Compute</span>
+                    {cpu?.has_coherent_gpu_link && <span class="text-[10px] px-1.5 py-0.5 rounded" style="background: var(--color-accent); color: white;">coherent</span>}
+                  </div>
+                  {cpu ? (
+                    <div class="space-y-1 text-xs">
+                      <div style="color: var(--color-text);"><strong>{cpu.name}</strong></div>
+                      <div style="color: var(--color-text-muted);">{archLabel[cpu.architecture] ?? cpu.architecture}</div>
+                      <div style="color: var(--color-text-muted);">{cpu.cores_per_node} cores · PCIe Gen {cpu.pcie_gen ?? '?'}{cpu.host_ram_gb ? ` · ${cpu.host_ram_gb} GB RAM` : ''}</div>
+                    </div>
+                  ) : (
+                    <div class="text-xs" style="color: var(--color-text-muted);">—</div>
+                  )}
+                </div>
+
+                <!-- Fabric axis -->
+                <div class="p-4 border-b md:border-b-0 md:border-r" style={`border-color: var(--color-border); ${net?.in_network_reduction ? 'background: color-mix(in oklch, var(--color-accent) 4%, transparent);' : ''}`}>
+                  <div class="flex items-baseline gap-2 mb-2">
+                    <span class="text-xs uppercase tracking-wider font-semibold" style="color: var(--color-text-muted);">🌐 Fabric</span>
+                    {net?.in_network_reduction && <span class="text-[10px] px-1.5 py-0.5 rounded" style="background: var(--color-accent); color: white;">SHARP</span>}
+                  </div>
+                  {net ? (
+                    <div class="space-y-1 text-xs">
+                      <div style="color: var(--color-text);"><strong>{topoLabel[net.topology] ?? net.topology}</strong></div>
+                      {net.diameter_hops !== undefined && <div style="color: var(--color-text-muted);">直径 {net.diameter_hops} 跳{net.switch_count !== undefined ? ` · ${net.switch_count} switch` : ''}</div>}
+                      {net.bisection_bandwidth_gbps_per_node !== undefined && <div style="color: var(--color-text-muted);">{net.bisection_bandwidth_gbps_per_node} GB/s/节点 bisection</div>}
+                      {net.latency_us_p99_inter_node !== undefined && <div style="color: var(--color-text-muted);">跨节点 p99 {net.latency_us_p99_inter_node} μs</div>}
+                    </div>
+                  ) : (
+                    <div class="text-xs" style="color: var(--color-text-muted);">—</div>
+                  )}
+                </div>
+
+                <!-- Storage axis -->
+                <div class="p-4" style={`${storage?.gpu_direct_storage ? 'background: color-mix(in oklch, var(--color-accent) 4%, transparent);' : ''}`}>
+                  <div class="flex items-baseline gap-2 mb-2">
+                    <span class="text-xs uppercase tracking-wider font-semibold" style="color: var(--color-text-muted);">💾 Storage</span>
+                    {storage?.gpu_direct_storage && <span class="text-[10px] px-1.5 py-0.5 rounded" style="background: var(--color-accent); color: white;">GDS</span>}
+                  </div>
+                  {storage ? (
+                    <div class="space-y-1 text-xs">
+                      <div style="color: var(--color-text);"><strong>{storage.parallel_fs_family ? (fsLabel[storage.parallel_fs_family] ?? storage.parallel_fs_family) : '—'}</strong>{storage.parallel_fs_pb ? ` · ${storage.parallel_fs_pb} PB` : ''}</div>
+                      {storage.checkpoint_strategy && <div style="color: var(--color-text-muted);">Checkpoint: {ckptLabel[storage.checkpoint_strategy] ?? storage.checkpoint_strategy}</div>}
+                      {storage.local_nvme_per_node_tb !== undefined && <div style="color: var(--color-text-muted);">{storage.local_nvme_per_node_tb} TB local NVMe/节点</div>}
+                      {storage.aggregate_read_bandwidth_gbps !== undefined && <div style="color: var(--color-text-muted);">聚合读 {storage.aggregate_read_bandwidth_gbps} GB/s</div>}
+                    </div>
+                  ) : (
+                    <div class="text-xs" style="color: var(--color-text-muted);">—</div>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          单 super-pod 详情看 <a href={pathname('/servers/')} style="color: var(--color-accent);" class="hover:underline">/servers/&lt;id&gt;/</a>;
+          per-axis 排序对比走上面 3 个矩阵; 部署优化路径走
+          <a href={pathname('/learn/')} style="color: var(--color-accent);" class="hover:underline">/learn/</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/servers/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">浏览 14 个超节点 →</a>
+          <a href={pathname('/servers/compare/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">完整 cluster 对比 →</a>
+          <a href={pathname('/learn/capacity-planning/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">容量规划 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>
