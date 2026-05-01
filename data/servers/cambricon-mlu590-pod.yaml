@@ -35,6 +35,17 @@ power_distribution:
   sustained_kw: 48
   peak_kw: 60
   voltage: '380V 3-phase'
+host_cpu:
+  name: '海光 C86 7390 (Hygon Dhyana, 64-core Zen-derived) 或鲲鹏 920'
+  vendor: hygon
+  architecture: x86-zen-licensed
+  cores_per_node: 128
+  sockets_per_node: 2
+  pcie_gen: 4
+  pcie_lanes_per_node: 128
+  host_ram_gb: 1024
+  has_coherent_gpu_link: false
+  notes: '思元 590 集群 host CPU 选择多元: 部分国央企部署用海光 C86 (Zen 架构 license), 部分用鲲鹏 920 (ARM). 选海光走 x86 ABI 兼容, 选鲲鹏走全 ARM 国产化路径. PCIe Gen4 + MLU-Link-v2 互联. 与 Ascend 路径相比, 思元生态更小但 PyTorch / vLLM-MLU 兼容性更直接.'
 cabinet_layout_md: |
   ## 思元 590 集群布局 / 16-node pod layout
 

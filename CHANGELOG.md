@@ -6,15 +6,69 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.27+ horizon)
-- Display host_cpu on per-server detail pages (currently only matrix view)
-- Populate host_cpu on remaining 8 super-pods (covers 6/14 in v1.26)
+### Planned (v1.28+ horizon)
+- Cambricon MLU590 tour (China stack diversification)
 - Public submission portal (case YAML web form)
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - More tours: SD3 / Flux on Hopper (diffusion — needs schema work for non-LLM models)
 - Auto-translated vendor doc summaries via build-time API
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import
+
+---
+
+## [1.27.0] — 2026-05-01
+
+**Information architecture overhaul.** User feedback: 超节点/集群、部署链路、优化模式、算子目录、融合 kernel、关于、学习中心、精选发现、数据质量 — all hard to find. v1.27 fixes the IA at the source.
+
+### Added
+
+**`apps/web/src/lib/nav-groups.ts` — single source of truth for site IA**:
+- `NAV_GROUPS` defines 5 groups (browse / optimize / learn / tools / about), each with 4-7 items
+- Both Nav header dropdowns and homepage sections consume the same data — they cannot drift
+- Each item has `path`, `labelKey` (i18n), `desc_zh`, `desc_en`, optional `theme`
+- Adding a new page = 1 edit to add it to both surfaces
+
+**Nav redesign — top bar + 4 grouped dropdowns**:
+- Top: 硬件 · 超节点 (NEW prominent) · 模型 · 案例 · Playbook · 学习 ↓ · 部署优化 ↓ · 工具 ↓ · 国产 · 关于 ↓
+- Each dropdown shows label + 1-line description per item (50 zh char / 80 en char budget)
+- Hover-to-open + click-to-lock + Esc-to-close + click-outside-to-close
+- Mobile collapses to native `<details>` accordion (free keyboard accessibility)
+- Single inline script for click-lock; CSS handles hover
+
+**Homepage redesign — 5 grouped sections mirroring nav IA**:
+- Browse (6 cards): hardware / **servers** / models / cases / playbooks / vendors
+- Optimize (6 cards): **pipeline** / **patterns** / **operators** / **fused-kernels** / quantizations / engines
+- Learn (7 cards): /learn/ overview + tours + 5 decision-tree guides
+- Tools (6 cards): calculator / compare / **servers/compare** / **host-cpu-matrix** / pricing / showcase
+- About (4 cards): quality / impact / contribute / about
+- Each section header includes a dynamic count (e.g. "21 模式 · 25 算子 · 22 融合")
+- Hero gains a third CTA: 学习中心 alongside 计算器 + 国产专题
+- Stats grid expands 4 → 6 numbers (adds servers + playbooks)
+
+**`host_cpu` populated on remaining 8 super-pods (now 14/14, 100%)**:
+- nvidia-gb300-nvl72 — Grace 72-core (sibling to GB200 NVL72; only other GPU-coherent design)
+- amd-mi300a-supercomputer — APU (24 Zen-4 cores per APU, in-package, GPU-coherent unified-memory)
+- aws-trn2-ultraserver — Graviton4 96-core (cloud-only, NeuronLink isn't GPU-coherent)
+- huawei-atlas-900-superpod — Kunpeng 920 dual-socket (信创合规)
+- cambricon-mlu590-pod — Hygon C86 / Kunpeng 920 (multi-vendor host)
+- cambricon-x8-server — Hygon C86 / Intel Xeon (mid-range single-node)
+- moore-threads-kuae — Hygon C86 / Intel Xeon (PCIe Gen5)
+
+**Per-server detail page surfaces host_cpu**:
+- New "Host CPU" card alongside switch_chips, power, scale-out
+- Accent border when `has_coherent_gpu_link === true` (visual encoding for the architectural divider)
+- All 10 host_cpu fields rendered: vendor / arch / cores / sockets / PCIe / lanes / RAM / coherent link / notes
+- Cross-link to /servers/host-cpu-matrix/ at the card footer
+
+### Fixed
+- Mobile menu now uses `<details>` for each dropdown group (was previously a flat list of all top-level links — would have grown unwieldy with new entries)
+- Top-level nav `lg:hidden` → keeps the menu collapse threshold appropriate for 9 top items + 4 dropdowns
+
+### Stats
+- 335/335 site E2E pass (+12 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14 (**14 with host_cpu**), model: 19, case: 38, fused-kernel: 22, playbook: 24, pattern: 21, operator: 25, citation: 1, tour: 7
+- Build: 408 pages
 
 ---
 

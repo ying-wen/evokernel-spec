@@ -39,6 +39,17 @@ power_distribution:
   sustained_kw: 160
   peak_kw: 200
   voltage: '380V 3-phase'
+host_cpu:
+  name: '华为鲲鹏 920 (Kunpeng 920, 64-core ARMv8.2)'
+  vendor: huawei
+  architecture: arm-kunpeng
+  cores_per_node: 128
+  sockets_per_node: 2
+  pcie_gen: 4
+  pcie_lanes_per_node: 80
+  host_ram_gb: 1024
+  has_coherent_gpu_link: false
+  notes: 'Atlas 900 SuperPoD A2 与 CloudMatrix 384 走同款 host CPU (鲲鹏 920) — 信创合规栈. 区别在 GPU fabric: Atlas 900 是 8 cabinet × 32 卡 = 256 卡 HCCS-v2 + 跨柜 RoCE-400G; CloudMatrix 384 是 lingqu 全光纤 fabric.'
 cabinet_layout_md: |
   ## Atlas 900 SuperPoD A2 机柜布局 / 8-cabinet layout
 

@@ -36,6 +36,17 @@ power_distribution:
   sustained_kw: 48
   peak_kw: 60
   voltage: '380V 3-phase'
+host_cpu:
+  name: '海光 C86 7490 (Hygon Dhyana, 64-core) 或 Intel Xeon Platinum (信创非强制场景)'
+  vendor: hygon
+  architecture: x86-zen-licensed
+  cores_per_node: 128
+  sockets_per_node: 2
+  pcie_gen: 5
+  pcie_lanes_per_node: 128
+  host_ram_gb: 1024
+  has_coherent_gpu_link: false
+  notes: '摩尔线程 KUAE 集群 host 通常配海光 (信创预算友好) 或 Intel (兼容性优先). MTLink 是 GPU 间 fabric, 不依赖 host CPU. PCIe Gen5 路径在 KUAE 2024 release 后逐渐普及, 老配置仍是 Gen4.'
 cabinet_layout_md: |
   ## 摩尔线程 KUAE 集群布局 / 8-node KUAE pod layout
 

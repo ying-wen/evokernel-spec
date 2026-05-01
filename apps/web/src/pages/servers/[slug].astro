@@ -27,7 +27,23 @@ const hasClusterDetail = (server.switch_chips?.length ?? 0) > 0
   || server.power_distribution
   || server.oversubscription_ratio !== undefined
   || server.bisection_bandwidth_tbs
+  || server.host_cpu
   || cabinetMd;
+const hostCpu = server.host_cpu;
+// Architecture label kept short for chip; full description shown in row.
+const archLabelMap: Record<string, string> = {
+  'arm-neoverse-v2': 'ARM Neoverse V2',
+  'arm-kunpeng': 'ARM Kunpeng',
+  'arm-graviton': 'ARM Graviton',
+  'x86-zen4': 'x86 Zen 4',
+  'x86-zen5': 'x86 Zen 5',
+  'x86-zen-licensed': 'x86 Zen (licensed)',
+  'x86-sapphire-rapids': 'x86 Sapphire Rapids',
+  'x86-emerald-rapids': 'x86 Emerald Rapids',
+  'x86-granite-rapids': 'x86 Granite Rapids',
+  'risc-v': 'RISC-V',
+  'other': 'Other'
+};
 ---
 <BaseLayout title={server.name}>
   <Container>
@@ -140,6 +156,38 @@ const hasClusterDetail = (server.switch_chips?.length ?? 0) > 0
                 {server.scale_out_nics_per_node && <SpecRow label="Scale-out NIC / 节点">{server.scale_out_nics_per_node}</SpecRow>}
                 {server.scale_out_bandwidth_gbps_per_nic && <SpecRow label="Per-NIC 带宽">{server.scale_out_bandwidth_gbps_per_nic} GB/s</SpecRow>}
                 {server.oversubscription_ratio !== undefined && <SpecRow label="Scale-out 过订比">{server.oversubscription_ratio.toFixed(1)}× {server.oversubscription_ratio === 1 ? '(full bisection)' : `(${server.oversubscription_ratio}:1)`}</SpecRow>}
+              </div>
+            </div>
+          )}
+
+          {hostCpu && (
+            <div class="rounded-lg border" data-testid="host-cpu-card" style={`border-color: ${hostCpu.has_coherent_gpu_link ? 'var(--color-accent)' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+              <div class="px-4 py-3 border-b" style="border-color: var(--color-border);">
+                <h4 class="text-sm font-semibold flex items-center gap-2">
+                  Host CPU
+                  {hostCpu.has_coherent_gpu_link && <Badge variant="default">GPU-coherent</Badge>}
+                </h4>
+                <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  {hostCpu.name}
+                </p>
+              </div>
+              <div>
+                <SpecRow label="厂商">{hostCpu.vendor}</SpecRow>
+                <SpecRow label="架构">{archLabelMap[hostCpu.architecture] ?? hostCpu.architecture}</SpecRow>
+                {hostCpu.cores_per_node && <SpecRow label="核心 / 节点">{hostCpu.cores_per_node}{hostCpu.sockets_per_node ? ` (${hostCpu.sockets_per_node} sockets)` : ''}</SpecRow>}
+                {hostCpu.host_ram_gb && <SpecRow label="Host RAM">{hostCpu.host_ram_gb} GB</SpecRow>}
+                {hostCpu.pcie_gen && <SpecRow label="PCIe">Gen {hostCpu.pcie_gen}{hostCpu.pcie_lanes_per_node ? ` × ${hostCpu.pcie_lanes_per_node} lanes` : ''}</SpecRow>}
+                <SpecRow label="GPU-coherent 链路">{hostCpu.has_coherent_gpu_link ? '✓ NVLink-C2C / Infinity-Fabric / 类似' : '— PCIe-only'}</SpecRow>
+              </div>
+              {hostCpu.notes && (
+                <div class="px-4 py-3 border-t text-xs" style="border-color: var(--color-border); color: var(--color-text-muted); line-height: 1.6;">
+                  {hostCpu.notes}
+                </div>
+              )}
+              <div class="px-4 py-2 border-t text-xs" style="border-color: var(--color-border);">
+                <a href={pathname('/servers/host-cpu-matrix/')} class="hover:underline" style="color: var(--color-accent);">
+                  → 14/14 super-pod host CPU 对照矩阵
+                </a>
               </div>
             </div>
           )}

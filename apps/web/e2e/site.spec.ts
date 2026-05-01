@@ -576,6 +576,113 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.27: IA redesign — Nav dropdowns + homepage sections + host_cpu on per-server detail', () => {
+  test('Nav exposes 4 grouped dropdowns (learn / optimize / tools / about)', async ({ page }) => {
+    await page.goto('/');
+    // Each dropdown has data-dropdown-id; all 4 must be present.
+    for (const id of ['learn', 'optimize', 'tools', 'about']) {
+      await expect(page.locator(`[data-dropdown-id="${id}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('Optimize dropdown contains pipeline / patterns / operators / fused-kernels / quantizations / engines', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="optimize"]').first();
+    // Items are in the panel; we use .toContainText since the panel is in DOM
+    // (just visually hidden via CSS opacity until hover/click).
+    for (const path of ['/pipeline', '/patterns', '/operators', '/fused-kernels', '/quantizations', '/engines']) {
+      await expect(dd.locator(`a[href*="${path}"]`).first()).toHaveCount(1);
+    }
+  });
+
+  test('Learn dropdown contains tours + 5 /learn/ guides', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="learn"]').first();
+    for (const path of ['/learn/tours', '/learn/quantization-decision-tree', '/learn/parallelism-cheatsheet', '/learn/picking-engine', '/learn/attention-variants', '/learn/deployment-failures']) {
+      await expect(dd.locator(`a[href*="${path}"]`).first()).toHaveCount(1);
+    }
+  });
+
+  test('Tools dropdown contains calculator + compare + servers/compare + host-cpu-matrix + pricing + showcase', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="tools"]').first();
+    for (const path of ['/calculator', '/compare', '/servers/compare', '/servers/host-cpu-matrix', '/pricing', '/showcase']) {
+      await expect(dd.locator(`a[href*="${path}"]`).first()).toHaveCount(1);
+    }
+  });
+
+  test('About dropdown contains quality + impact + contribute + about', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="about"]').first();
+    for (const path of ['/quality', '/impact', '/contribute', '/about']) {
+      await expect(dd.locator(`a[href*="${path}"]`).first()).toHaveCount(1);
+    }
+  });
+
+  test('Top nav surfaces 超节点 prominently (was hard to find)', async ({ page }) => {
+    await page.goto('/');
+    // 超节点 link in the top nav (not in a dropdown)
+    const navServers = page.locator('header nav ul li a[href*="/servers"]').first();
+    await expect(navServers).toBeVisible();
+    await expect(navServers).toContainText(/超节点|Super-pods/);
+  });
+
+  test('Homepage renders 5 entry sections (browse / optimize / learn / tools / about)', async ({ page }) => {
+    await page.goto('/');
+    for (const id of ['browse', 'optimize', 'learn', 'tools', 'about']) {
+      await expect(page.locator(`[data-testid="home-section-${id}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('Homepage Optimize section links to all 6 deployment-optimization pages', async ({ page }) => {
+    await page.goto('/');
+    const sec = page.locator('[data-testid="home-section-optimize"]').first();
+    for (const path of ['/pipeline', '/patterns', '/operators', '/fused-kernels', '/quantizations', '/engines']) {
+      await expect(sec.locator(`a[href*="${path}"]`).first()).toHaveCount(1);
+    }
+  });
+
+  test('Homepage Learn section links to /learn/ overview + tours + 5 guides', async ({ page }) => {
+    await page.goto('/');
+    const sec = page.locator('[data-testid="home-section-learn"]').first();
+    for (const path of ['/learn/quantization-decision-tree', '/learn/deployment-failures', '/learn/tours']) {
+      await expect(sec.locator(`a[href*="${path}"]`).first()).toHaveCount(1);
+    }
+  });
+
+  test('Per-server detail page surfaces host_cpu card on GB200 NVL72 (Grace, GPU-coherent)', async ({ page }) => {
+    await page.goto('/servers/nvidia-gb200-nvl72/');
+    const card = page.locator('[data-testid="host-cpu-card"]').first();
+    await expect(card).toBeVisible();
+    // Grace + NVLink-C2C + GPU-coherent badge all visible
+    await expect(card).toContainText(/Grace/);
+    await expect(card).toContainText(/GPU-coherent/);
+    // Cross-link to host-cpu-matrix
+    await expect(card.locator('a[href*="/servers/host-cpu-matrix"]')).toHaveCount(1);
+  });
+
+  test('Per-server detail page shows host_cpu on Atlas 800T A3 (Kunpeng, 信创)', async ({ page }) => {
+    await page.goto('/servers/huawei-atlas-800t-a3/');
+    const card = page.locator('[data-testid="host-cpu-card"]').first();
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(/Kunpeng|鲲鹏/);
+  });
+
+  test('All 14 super-pods now have host_cpu rendered (100%)', async ({ page }) => {
+    const slugs = [
+      'nvidia-hgx-h100', 'nvidia-hgx-h200', 'nvidia-gb200-nvl72', 'nvidia-gb300-nvl72',
+      'nvidia-dgx-a100', 'amd-mi325x-platform', 'amd-mi300a-supercomputer',
+      'aws-trn2-ultraserver', 'huawei-cloudmatrix-384', 'huawei-atlas-900-superpod',
+      'huawei-atlas-800t-a3', 'cambricon-mlu590-pod', 'cambricon-x8-server',
+      'moore-threads-kuae'
+    ];
+    for (const slug of slugs) {
+      await page.goto(`/servers/${slug}/`);
+      await expect(page.locator('[data-testid="host-cpu-card"]').first()).toBeVisible();
+    }
+  });
+});
+
 test.describe('v1.26: host_cpu schema + /servers/host-cpu-matrix/ + AMD tour + 2 cases + 1 fused-kernel', () => {
   test('/servers/host-cpu-matrix/ renders matrix with all 6 populated super-pods', async ({ page }) => {
     await page.goto('/servers/host-cpu-matrix/');

@@ -39,6 +39,17 @@ power_distribution:
   sustained_kw: 110
   peak_kw: 152
   voltage: '415V 3-phase'
+host_cpu:
+  name: 'NVIDIA Grace CPU Superchip (72-core Neoverse V2, refreshed for GB300)'
+  vendor: nvidia
+  architecture: arm-neoverse-v2
+  cores_per_node: 72
+  sockets_per_node: 1
+  pcie_gen: 5
+  pcie_lanes_per_node: 128
+  host_ram_gb: 480
+  has_coherent_gpu_link: true
+  notes: 'GB300 沿用 GB200 同款 Grace + Blackwell 封装设计 — host CPU 没有改动, 升级在 GPU 端 (B300 vs B200). NVLink-C2C 仍是 900 GB/s, 让 hot-cold KV tiering 直接用 host RAM 当 tier-2 HBM.'
 cabinet_layout_md: |
   ## GB300 NVL72 机柜布局 / Cabinet layout
 

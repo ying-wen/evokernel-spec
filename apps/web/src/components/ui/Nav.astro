@@ -4,22 +4,35 @@ import ThemeToggle from './ThemeToggle.astro';
 import GitHubStarButton from '~/components/impact/GitHubStarButton.tsx';
 import '~/components/impact/GitHubStarButton.css';
 import { t, localePath, type Locale } from '~/lib/i18n';
+import { NAV_TOP_LINKS, NAV_DROPDOWNS, NAV_CHINA_LINK } from '~/lib/nav-groups';
 
 interface Props { locale?: Locale }
 const { locale = 'zh' } = Astro.props as Props;
 
-const links = [
-  { href: localePath(locale, '/hardware'), label: t(locale, 'nav.hardware') },
-  { href: localePath(locale, '/compare'), label: t(locale, 'nav.compare') },
-  { href: localePath(locale, '/models'), label: t(locale, 'nav.models') },
-  { href: localePath(locale, '/cases'), label: t(locale, 'nav.cases') },
-  { href: localePath(locale, '/calculator'), label: t(locale, 'nav.calculator') },
-  { href: localePath(locale, '/pricing'), label: t(locale, 'nav.pricing') },
-  { href: localePath(locale, '/china'), label: t(locale, 'nav.china'), accent: true }
-];
+// Strip trailing slash on data paths so they match how Astro generates them
+// in Static Site Generation. We then re-locale-prefix via localePath() which
+// also handles the deploy base prefix (/evokernel-spec/).
+const navTop = NAV_TOP_LINKS.map((l) => ({
+  href: localePath(locale, l.path.replace(/\/$/, '')),
+  label: t(locale, l.labelKey),
+  theme: l.theme
+}));
 
-// Build "switch locale" target: keep current path, swap locale prefix.
-//
+const navDropdowns = NAV_DROPDOWNS.map((g) => ({
+  id: g.id,
+  label: t(locale, g.labelKey),
+  items: g.items.map((it) => ({
+    href: localePath(locale, it.path.replace(/\/$/, '')),
+    label: t(locale, it.labelKey),
+    desc: locale === 'en' ? (it.desc_en ?? '') : (it.desc_zh ?? ''),
+    theme: it.theme
+  }))
+}));
+
+const chinaHref = localePath(locale, NAV_CHINA_LINK.path.replace(/\/$/, ''));
+const chinaLabel = t(locale, NAV_CHINA_LINK.labelKey);
+
+// --- locale switch href ---------------------------------------------------
 // Astro.url.pathname includes the deploy base (e.g. /evokernel-spec/hardware/),
 // so we strip the base, swap the locale prefix on the bare path, then
 // re-prepend the base. Otherwise zh → en on a project-page deploy produces
@@ -32,14 +45,17 @@ const stripNavBase = (p: string) => (NAV_BASE && p.startsWith(NAV_BASE) ? p.slic
 const bare = stripNavBase(currentPath);
 const localeSwitchHref = (() => {
   if (locale === 'zh') {
-    // zh → en: prepend /en (then base)
     if (bare === '/') return NAV_BASE + '/en/';
     return NAV_BASE + '/en' + (bare.startsWith('/') ? bare : '/' + bare);
   }
-  // en → zh: strip /en prefix (then base)
   if (bare === '/en' || bare === '/en/') return NAV_BASE + '/';
   return NAV_BASE + (bare.replace(/^\/en/, '') || '/');
 })();
+
+const themeColor = (theme?: 'accent' | 'china') =>
+  theme === 'china' ? 'var(--color-china)'
+    : theme === 'accent' ? 'var(--color-accent)'
+    : 'var(--color-text-muted)';
 ---
 <header class="border-b sticky top-0 z-30" style="border-color: var(--color-border); background: color-mix(in oklch, var(--color-surface) 92%, transparent); backdrop-filter: blur(8px);">
   <nav class="flex items-center justify-between py-3 px-6 max-w-7xl mx-auto" aria-label="Main navigation">
@@ -48,15 +64,44 @@ const localeSwitchHref = (() => {
       EvoKernel<span style="color: var(--color-accent);">·Spec</span>
     </a>
 
-    <ul class="hidden md:flex gap-6 items-center">
-      {links.map((l) => (
+    <ul class="hidden lg:flex gap-5 items-center text-sm">
+      {navTop.map((l) => (
         <li>
-          <a href={l.href} class="text-sm transition-opacity hover:opacity-80"
-             style={`color: ${l.accent ? 'var(--color-china)' : 'var(--color-text-muted)'}; font-weight: ${l.accent ? '600' : '400'};`}>
+          <a href={l.href} class="transition-opacity hover:opacity-80"
+             style={`color: ${themeColor(l.theme)}; font-weight: ${l.theme ? '600' : '400'};`}>
             {l.label}
           </a>
         </li>
       ))}
+
+      {navDropdowns.map((g) => (
+        <li class="nav-dropdown" data-dropdown-id={g.id}>
+          <button type="button" class="dropdown-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls={`dd-${g.id}`}>
+            {g.label}
+            <span class="dropdown-caret" aria-hidden="true">▾</span>
+          </button>
+          <div id={`dd-${g.id}`} class="dropdown-panel" role="menu">
+            <ul>
+              {g.items.map((it) => (
+                <li>
+                  <a href={it.href} role="menuitem" class="dropdown-item"
+                     style={it.theme ? `color: ${themeColor(it.theme)};` : ''}>
+                    <span class="dropdown-item-label">{it.label}</span>
+                    {it.desc && <span class="dropdown-item-desc">{it.desc}</span>}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </li>
+      ))}
+
+      <li>
+        <a href={chinaHref} class="transition-opacity hover:opacity-80"
+           style={`color: ${themeColor(NAV_CHINA_LINK.theme)}; font-weight: 600;`}>
+          {chinaLabel}
+        </a>
+      </li>
     </ul>
 
     <div class="flex items-center gap-2">
@@ -66,37 +111,176 @@ const localeSwitchHref = (() => {
         {otherLocale === 'en' ? 'EN' : '中'}
       </a>
       <span class="hidden sm:inline-flex"><GitHubStarButton client:only="react" /></span>
-      <button id="menu-toggle" type="button" class="md:hidden px-2 py-1 rounded border text-sm" style="border-color: var(--color-border); color: var(--color-text);" aria-label={t(locale, 'nav.menu')} aria-expanded="false">
+      <button id="menu-toggle" type="button" class="lg:hidden px-2 py-1 rounded border text-sm" style="border-color: var(--color-border); color: var(--color-text);" aria-label={t(locale, 'nav.menu')} aria-expanded="false">
         ≡
       </button>
     </div>
   </nav>
 
-  <ul id="mobile-menu" class="md:hidden hidden flex-col gap-2 px-6 pb-4 border-t" style="border-color: var(--color-border);">
-    {links.map((l) => (
+  <!-- Mobile menu: flat, all groups expanded -->
+  <div id="mobile-menu" class="lg:hidden hidden flex-col gap-3 px-6 pb-4 border-t" style="border-color: var(--color-border);">
+    <ul class="flex flex-col gap-1 pt-3">
+      {navTop.map((l) => (
+        <li>
+          <a href={l.href} class="block py-2 text-sm"
+             style={`color: ${l.theme === 'china' ? 'var(--color-china)' : l.theme === 'accent' ? 'var(--color-accent)' : 'var(--color-text)'}; font-weight: ${l.theme ? '600' : '400'};`}>
+            {l.label}
+          </a>
+        </li>
+      ))}
       <li>
-        <a href={l.href} class="block py-2 text-sm"
-           style={`color: ${l.accent ? 'var(--color-china)' : 'var(--color-text)'}; font-weight: ${l.accent ? '600' : '400'};`}>
-          {l.label}
+        <a href={chinaHref} class="block py-2 text-sm" style="color: var(--color-china); font-weight: 600;">
+          {chinaLabel}
         </a>
       </li>
+    </ul>
+
+    {navDropdowns.map((g) => (
+      <details class="border-t pt-2" style="border-color: var(--color-border);">
+        <summary class="text-xs uppercase tracking-wider font-semibold cursor-pointer py-1" style="color: var(--color-text-muted);">{g.label}</summary>
+        <ul class="flex flex-col gap-0.5 pt-2 pb-1 pl-2">
+          {g.items.map((it) => (
+            <li>
+              <a href={it.href} class="block py-1.5 text-sm"
+                 style={`color: ${it.theme ? themeColor(it.theme) : 'var(--color-text)'};`}>
+                {it.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </details>
     ))}
-    <li>
-      <a href="https://github.com/ying-wen/evokernel-spec" class="block py-2 text-sm" style="color: var(--color-text-muted);">GitHub ↗</a>
-    </li>
-  </ul>
+
+    <a href="https://github.com/ying-wen/evokernel-spec" class="block py-2 text-sm border-t pt-3" style="border-color: var(--color-border); color: var(--color-text-muted);">GitHub ↗</a>
+  </div>
 </header>
+
+<style>
+  /* Desktop dropdown menus. CSS hover + focus-within handles open state for
+     keyboard + mouse; the inline script below additionally toggles aria-expanded
+     and locks the menu open on click for click-and-walk navigation. */
+  .nav-dropdown {
+    position: relative;
+  }
+  .dropdown-trigger {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--color-text-muted);
+    font-size: inherit;
+    font-weight: 400;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: opacity var(--duration-fast) var(--ease-out-expo);
+  }
+  .dropdown-trigger:hover,
+  .dropdown-trigger[aria-expanded="true"] {
+    opacity: 0.85;
+    color: var(--color-text);
+  }
+  .dropdown-caret {
+    font-size: 0.625rem;
+    line-height: 1;
+    transition: transform var(--duration-fast) var(--ease-out-expo);
+  }
+  .dropdown-trigger[aria-expanded="true"] .dropdown-caret {
+    transform: rotate(180deg);
+  }
+  .dropdown-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-4px);
+    min-width: 280px;
+    max-width: 360px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    box-shadow: 0 12px 28px -8px rgba(0,0,0,0.18), 0 4px 8px -4px rgba(0,0,0,0.12);
+    padding: 0.5rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-fast) var(--ease-out-expo),
+                transform var(--duration-fast) var(--ease-out-expo);
+    z-index: 40;
+  }
+  .nav-dropdown:hover > .dropdown-panel,
+  .nav-dropdown:focus-within > .dropdown-panel,
+  .dropdown-trigger[aria-expanded="true"] + .dropdown-panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+  }
+  .dropdown-panel ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+  .dropdown-item {
+    display: block;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.375rem;
+    text-decoration: none;
+    color: var(--color-text);
+    transition: background var(--duration-fast) var(--ease-out-expo);
+  }
+  .dropdown-item:hover,
+  .dropdown-item:focus-visible {
+    background: var(--color-surface-raised);
+    outline: none;
+  }
+  .dropdown-item-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .dropdown-item-desc {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: 0.125rem;
+  }
+</style>
 
 <script is:inline>
   document.addEventListener('DOMContentLoaded', () => {
+    // Mobile hamburger toggle
     const btn = document.getElementById('menu-toggle');
     const menu = document.getElementById('mobile-menu');
-    if (!btn || !menu) return;
-    btn.addEventListener('click', () => {
-      const open = !menu.classList.contains('hidden');
-      menu.classList.toggle('hidden');
-      menu.classList.toggle('flex');
-      btn.setAttribute('aria-expanded', String(!open));
+    if (btn && menu) {
+      btn.addEventListener('click', () => {
+        const open = !menu.classList.contains('hidden');
+        menu.classList.toggle('hidden');
+        menu.classList.toggle('flex');
+        btn.setAttribute('aria-expanded', String(!open));
+      });
+    }
+
+    // Desktop dropdown click-to-lock-open behavior. Hover already opens via
+    // CSS; click locks aria-expanded so the menu stays open as the user moves
+    // between items, and clicking outside closes.
+    const triggers = document.querySelectorAll('.dropdown-trigger');
+    const closeAll = (except) => {
+      triggers.forEach((t) => {
+        if (t !== except) t.setAttribute('aria-expanded', 'false');
+      });
+    };
+    triggers.forEach((trigger) => {
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wasOpen = trigger.getAttribute('aria-expanded') === 'true';
+        closeAll(wasOpen ? null : trigger);
+        trigger.setAttribute('aria-expanded', String(!wasOpen));
+      });
+    });
+    document.addEventListener('click', () => closeAll(null));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeAll(null);
     });
   });
 </script>

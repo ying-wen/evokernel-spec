@@ -35,6 +35,17 @@ power_distribution:
   sustained_kw: 3.5
   peak_kw: 4.0
   voltage: '208V'
+host_cpu:
+  name: '海光 C86 7285 (Hygon Dhyana, 32-core) 或 Intel Xeon Gold (mid-range)'
+  vendor: hygon
+  architecture: x86-zen-licensed
+  cores_per_node: 64
+  sockets_per_node: 2
+  pcie_gen: 4
+  pcie_lanes_per_node: 80
+  host_ram_gb: 512
+  has_coherent_gpu_link: false
+  notes: '思元 X8 单节点 server 是中型部署 (vs 思元 590 集群 16 节点). Host CPU 选择更广 — 单节点训推可以用 Intel Xeon (兼容性优先), 集群部署多用海光 (信创考虑). 4U 标准机箱, 风冷, 部署门槛低.'
 cabinet_layout_md: |
   ## 思元 X8 Server 布局 / 8-card chassis layout
 

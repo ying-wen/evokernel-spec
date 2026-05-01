@@ -40,6 +40,17 @@ power_distribution:
   sustained_kw: 80
   peak_kw: 100
   voltage: '208V'
+host_cpu:
+  name: 'AWS Graviton4 (96-core Neoverse V2) — UltraServer custom controller'
+  vendor: aws
+  architecture: arm-neoverse-v2
+  cores_per_node: 96
+  sockets_per_node: 1
+  pcie_gen: 5
+  pcie_lanes_per_node: 128
+  host_ram_gb: 768
+  has_coherent_gpu_link: false
+  notes: 'AWS Trn2 UltraServer 是云专属设计 — host 是 Graviton4 (AWS 自研 ARM 服务器 CPU), 与 Trainium 2 通过 NeuronLink-v3 互联. 不能在 EC2 之外购买. Graviton 架构与 Grace 同代但没有 GPU-coherent 链路 (NeuronLink 只在 Trainium 之间).'
 cabinet_layout_md: |
   ## Trn2 UltraServer 布局 / Layout
 

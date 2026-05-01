@@ -1,38 +1,65 @@
 ---
+/**
+ * Homepage — primary discovery surface. Mirrors the Nav IA exactly via
+ * `NAV_GROUPS` so that "I can't find X" is solved in one place.
+ *
+ * Section structure:
+ *   1. Hero (tagline + CTAs + latest cases sidebar)
+ *   2. ImpactStrip (live GH stars + project heartbeat)
+ *   3. Quick stats (6 numbers)
+ *   4. Five entry sections — browse / optimize / learn / tools / about
+ *      Each section header includes a count and links to the index page if
+ *      applicable; cards show `desc` from nav-groups.ts.
+ */
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
 import ImpactStrip from '~/components/impact/ImpactStrip.astro';
-import { getResolvedHardware, getModels, getCases, getVendors, getPlaybooks } from '~/lib/data';
-import { pathname } from '~/lib/i18n';
+import {
+  getResolvedHardware, getModels, getCases, getVendors, getPlaybooks,
+  getServers, getOperators, getFusedKernels, getPatterns
+} from '~/lib/data';
+import { pathname, t, type Locale } from '~/lib/i18n';
+import { NAV_GROUPS } from '~/lib/nav-groups';
 
-const hardware = await getResolvedHardware();
+const locale: Locale = 'zh';
+
+const [hardware, models, cases, vendors, playbooks, servers, operators, fusedKernels, patterns] = await Promise.all([
+  getResolvedHardware(), getModels(), getCases(), getVendors(),
+  getPlaybooks(), getServers(), getOperators(), getFusedKernels(), getPatterns()
+]);
+
 const cnHardware = hardware.filter((h) => h.vendor.country === 'CN');
-const models = await getModels();
-const cases = await getCases();
-const vendors = await getVendors();
-const playbooks = await getPlaybooks();
 const latestCases = [...cases].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at)).slice(0, 5);
 
-const entries = [
-  { href: '/hardware', title: '硬件目录', desc: `${hardware.length} 张加速卡, 含 ${cnHardware.length} 张国产` },
-  { href: '/models', title: '模型目录', desc: `${models.length} 个 frontier 开源模型` },
-  { href: '/cases', title: '部署案例', desc: `${cases.length} 条 + 排行榜 + 散点图` },
-  { href: '/playbooks', title: '部署 Playbook', desc: `${playbooks.length} 条 (model × hardware) 配方`, accent: true },
-  { href: '/calculator', title: '计算器', desc: 'Tier 0 实测 + Tier 1 校准上界' },
-  { href: '/showcase', title: '精选发现', desc: '从数据自动计算的洞察', emphasize: true },
-  { href: '/china', title: '国产芯片专题', desc: '热力图 · 谱系 · 生态对照', accent: true }
+// Quick stats. Six numbers — the headline counts that establish "this is a
+// real catalog" at a glance.
+const stats = [
+  { v: hardware.length, l: '加速卡', sub: `含 ${cnHardware.length} 张国产` },
+  { v: servers.length, l: '超节点', sub: '14/14 含 host CPU' },
+  { v: models.length, l: '模型', sub: 'Frontier 开源' },
+  { v: cases.length, l: '部署案例', sub: '实测 + 复现' },
+  { v: playbooks.length, l: 'Playbook', sub: '配方' },
+  { v: vendors.length, l: '厂商', sub: 'NVIDIA · AMD · 国产 · …' }
 ];
 
-const stats = [
-  { v: hardware.length, l: '加速卡' },
-  { v: models.length, l: '模型' },
-  { v: cases.length, l: '部署案例' },
-  { v: vendors.length, l: '厂商' }
-];
+// Map group id → optional dynamic count appended to section header.
+// Why hand-coded: the group's items come from nav-groups.ts (which doesn't
+// know about data shape); the dynamic count is a homepage-only enrichment.
+const sectionCounts: Record<string, string> = {
+  optimize: `${patterns.length} 模式 · ${operators.length} 算子 · ${fusedKernels.length} 融合`,
+  learn: '7 巡游 · 6 指南'
+};
+
+const themeBg = (theme?: 'accent' | 'china') =>
+  theme === 'china' ? 'var(--color-china)'
+    : theme === 'accent' ? 'var(--color-accent)'
+    : null;
 ---
-<BaseLayout title="首页">
+<BaseLayout title={t(locale, 'home.section.browse').replace(/^首页$/, '首页')}>
   <Container>
     <ImpactStrip caseCount={cases.length} hardwareCount={hardware.length} playbookCount={playbooks.length} />
+
+    <!-- Hero -->
     <section class="grid lg:grid-cols-[1.5fr,1fr] gap-12 items-end pt-16 pb-12">
       <div>
         <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">EvoKernel · Spec</div>
@@ -43,9 +70,10 @@ const stats = [
         <p class="text-lg mt-6 max-w-xl" style="color: var(--color-text-muted);">
           AI 推理硬件、模型和部署案例的开源知识资产。每个数字带 evidence 引证。国产芯片覆盖最全。
         </p>
-        <div class="flex gap-3 mt-8">
-          <a href={pathname('/calculator')} class="px-5 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">打开计算器 →</a>
-          <a href={pathname('/china')} class="px-5 py-2 rounded-md font-medium border" style="border-color: var(--color-china); color: var(--color-china);">国产专题 →</a>
+        <div class="flex gap-3 mt-8 flex-wrap">
+          <a href={pathname('/calculator/')} class="px-5 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">打开计算器 →</a>
+          <a href={pathname('/learn/')} class="px-5 py-2 rounded-md font-medium border" style="border-color: var(--color-accent); color: var(--color-accent);">学习中心 →</a>
+          <a href={pathname('/china/')} class="px-5 py-2 rounded-md font-medium border" style="border-color: var(--color-china); color: var(--color-china);">国产专题 →</a>
         </div>
       </div>
       <aside class="text-xs space-y-2 self-start mt-4 lg:mt-0">
@@ -53,7 +81,7 @@ const stats = [
         <ul class="space-y-2">
           {latestCases.map((c) => (
             <li>
-              <a href={pathname(`/cases/${c.id}`)} class="block hover:opacity-80">
+              <a href={pathname(`/cases/${c.id}/`)} class="block hover:opacity-80">
                 <div class="text-sm" style="color: var(--color-text);">{c.title}</div>
                 <div class="text-xs font-mono mt-0.5" style="color: var(--color-text-muted);">{c.submitted_at}</div>
               </a>
@@ -63,26 +91,71 @@ const stats = [
       </aside>
     </section>
 
-    <section class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 py-8">
-      {entries.map((it) => {
-        const themeColor = it.accent ? 'var(--color-china)' : it.emphasize ? 'var(--color-accent)' : null;
-        return (
-          <a href={pathname(it.href)} class="block p-5 rounded-lg border h-full transition-transform hover:-translate-y-0.5"
-             style={`border-color: ${themeColor ?? 'var(--color-border)'}; background: ${themeColor ? `color-mix(in oklch, ${themeColor} 6%, var(--color-bg))` : 'var(--color-surface-raised)'};`}>
-            <div class="font-semibold mb-1" style={`color: ${themeColor ?? 'var(--color-text)'};`}>{it.title}</div>
-            <div class="text-xs" style="color: var(--color-text-muted);">{it.desc}</div>
-          </a>
-        );
-      })}
-    </section>
-
-    <section class="grid grid-cols-2 md:grid-cols-4 gap-3 py-8">
+    <!-- Quick stats: 6 numbers -->
+    <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 py-6">
       {stats.map((s) => (
-        <div class="rounded-lg p-5 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
-          <div class="text-3xl font-semibold tabular-nums">{s.v}</div>
-          <div class="text-xs mt-1" style="color: var(--color-text-muted);">{s.l}</div>
+        <div class="rounded-lg p-4 border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums" style="color: var(--color-text);">{s.v}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text);">{s.l}</div>
+          {s.sub && <div class="text-[10px] mt-1" style="color: var(--color-text-muted);">{s.sub}</div>}
         </div>
       ))}
+    </section>
+
+    <!-- Five entry sections — sourced from nav-groups.ts (single IA SOT) -->
+    {NAV_GROUPS.map((group) => (
+      <section class="py-8 border-t" style="border-color: var(--color-border);" data-testid={`home-section-${group.id}`}>
+        <div class="flex items-baseline justify-between gap-4 flex-wrap mb-1">
+          <h2 class="text-2xl font-semibold" style="color: var(--color-text);">{t(locale, group.labelKey)}</h2>
+          {sectionCounts[group.id] && (
+            <span class="text-xs font-mono" style="color: var(--color-text-muted);">{sectionCounts[group.id]}</span>
+          )}
+        </div>
+        <p class="text-sm max-w-3xl mb-5" style="color: var(--color-text-muted);">{group.blurb_zh}</p>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {group.items.map((item) => {
+            const accent = themeBg(item.theme);
+            return (
+              <a
+                href={pathname(item.path)}
+                class="block p-4 rounded-lg border h-full transition-transform hover:-translate-y-0.5"
+                data-testid={`home-card-${item.path.replace(/\//g, '-').replace(/^-|-$/g, '') || 'root'}`}
+                style={`border-color: ${accent ?? 'var(--color-border)'}; background: ${accent ? `color-mix(in oklch, ${accent} 6%, var(--color-bg))` : 'var(--color-surface-raised)'};`}
+              >
+                <div class="text-sm font-semibold mb-1" style={`color: ${accent ?? 'var(--color-text)'};`}>
+                  {t(locale, item.labelKey)}
+                </div>
+                {item.desc_zh && (
+                  <div class="text-xs" style="color: var(--color-text-muted);">{item.desc_zh}</div>
+                )}
+              </a>
+            );
+          })}
+        </div>
+      </section>
+    ))}
+
+    <!-- Standalone CTA — emphasize the project's contribute path -->
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border flex flex-wrap items-center gap-4 justify-between"
+           style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <div>
+          <h3 class="text-base font-semibold mb-1">想看到自己的部署 case 进来?</h3>
+          <p class="text-sm" style="color: var(--color-text-muted);">
+            Case YAML、playbook、citation、tour 都可以 PR 提交 — 每条贡献都让其他工程师省半天.
+          </p>
+        </div>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/contribute/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">
+            贡献指南 →
+          </a>
+          <a href="https://github.com/ying-wen/evokernel-spec" target="_blank" rel="noopener noreferrer" class="text-sm px-4 py-2 rounded-md font-medium border"
+             style="border-color: var(--color-border); color: var(--color-text);">
+            GitHub ↗
+          </a>
+        </div>
+      </div>
     </section>
   </Container>
 </BaseLayout>

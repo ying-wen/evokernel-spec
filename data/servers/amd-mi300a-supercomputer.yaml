@@ -34,6 +34,17 @@ power_distribution:
   sustained_kw: 24
   peak_kw: 30
   voltage: '480V 3-phase'
+host_cpu:
+  name: 'AMD EPYC 9004 (Zen 4) host — but MI300A APU has 24 Zen-4 cores in-package'
+  vendor: amd
+  architecture: x86-zen4
+  cores_per_node: 96
+  sockets_per_node: 4
+  pcie_gen: 5
+  pcie_lanes_per_node: 128
+  host_ram_gb: 512
+  has_coherent_gpu_link: true
+  notes: 'HPE Cray EX255a (El Capitan blade) 是 4× MI300A APU per blade — 每个 APU 内部已含 24 Zen-4 cores + CDNA-3 GPU + 128 GB unified HBM3. 没有 separate x86 host CPU; 等价 host RAM = 4 × 128 GB unified = 512 GB. 这是唯一 GPU-CPU 同 die / unified-memory 的数据中心设计 (vs Grace+Hopper 是 NVLink-C2C 跨封装 coherent). El Capitan 用这个设计达到 > 2 ExaFLOPS.'
 cabinet_layout_md: |
   ## HPE Cray EX255a 节点布局 / Blade layout
 
