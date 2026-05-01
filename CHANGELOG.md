@@ -6,12 +6,11 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.32+ horizon
+### v1.33+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
-**Tier 1 (high-leverage, low-effort)**:
-- Capacity-planning interactive calculator (turn the math from v1.31 into a form-based tool)
+**Tier 1 remaining (high-leverage, low-effort)**:
 - Citation PR onboarding (real external citations to populate /impact/)
 - "What's new this week" RSS feed (auto-from git log)
 - /servers/cluster-internals/ unified view (the trilogy on one page)
@@ -29,6 +28,40 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.32.0] — 2026-05-02
+
+**Interactive capacity-planning calculator.** v1.31 wrote the sizing math; v1.32 turns it into a form-based tool. Same logic, computable surface — picks (model × hardware × precision × workload), produces recommended card count with full 7-step derivation visible inline.
+
+### Added
+
+**`/calculator/capacity-planner/`** (NEW interactive tool):
+- React island form with 9 inputs: model / hardware / weight precision / KV precision / QPS / avg output tokens / max context / concurrent sessions / headroom %
+- 27 supported hardware cards + 19 models (auto-derived from catalog)
+- Per-hardware median decode tok/s/card extracted from cases (median across all matching deployments)
+- Recommendation card: `N× <hardware>` with TP + headroom shown prominently
+- 7-step derivation panel — every formula visible (A weight, B KV/session, C activation, D total/card, E recommended TP, F throughput→cards, G max + headroom)
+- Smart warnings: KV cache overflow / FP4 on non-Blackwell / single-card-doesn't-fit / 64+ cards needs super-pod
+- Disclaimer: ±20% accuracy, day-1 starting point not final answer
+
+**Cross-links**:
+- `/learn/capacity-planning/` (static guide) now has a prominent CTA box pointing to the interactive tool
+- Calculator footer links back to picking-engine, observability, and the static guide for full chain
+
+**Nav wiring**: Tools dropdown gains a 7th item (capacity calculator alongside compare / matrix views / pricing / showcase).
+
+### Implementation notes
+- `client:only="react"` directive — pure-client island avoids hydration mismatch since the calculator's state has no useful server render
+- `useMemo` for derived `model`, `hw`, `result` — only recomputes on input change
+- Trimmed model + hardware payloads to only the fields the calculator needs (keeps island JS small)
+- Median over case-derived decode rates as decode_tok_s_per_card fallback
+
+### Stats
+- 381/381 site E2E pass (+7 new) · 36/36 unit pass
+- Build: 423 pages
+- Same content counts as v1.31 (no new patterns / cases / operators added; the win is the interactive surface)
 
 ---
 

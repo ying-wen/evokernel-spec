@@ -1,0 +1,127 @@
+---
+/**
+ * /calculator/capacity-planner/ — interactive capacity planning calculator.
+ *
+ * Turns the static math from /learn/capacity-planning/ into a form-based tool.
+ * Picks (model + hardware), enters (QPS + context + concurrent + SLO), gets
+ * recommended card count + TP + warnings.
+ *
+ * All math is client-side React (no backend) — this is a "computable spec"
+ * the user can audit. Each output line shows the formula explicitly.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import CapacityPlanner from '~/components/capacity-planner/CapacityPlanner.tsx';
+import '~/components/capacity-planner/CapacityPlanner.css';
+import { pathname } from '~/lib/i18n';
+import { getModels, getResolvedHardware, getCases } from '~/lib/data';
+
+const [models, hardware, cases] = await Promise.all([
+  getModels(),
+  getResolvedHardware(),
+  getCases()
+]);
+
+// Build per-hardware median decode tok/s/card from cases (fallback when missing)
+const decodeRateById = new Map<string, number[]>();
+for (const c of cases) {
+  const hwId = c.stack.hardware.id;
+  const decode = c.results.throughput_tokens_per_sec?.decode;
+  const cardCount = c.stack.hardware.count ?? 1;
+  if (decode && cardCount > 0) {
+    const perCard = decode / cardCount;
+    if (!decodeRateById.has(hwId)) decodeRateById.set(hwId, []);
+    decodeRateById.get(hwId)!.push(perCard);
+  }
+}
+
+function median(arr: number[]): number | undefined {
+  if (arr.length === 0) return undefined;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+// Trim model + hardware data down to the fields the calculator actually needs.
+// Keeping payload small reduces island JS size.
+const modelSummaries = models
+  .filter((m) => m.architecture?.total_params_b && m.architecture.layers)
+  .map((m) => ({
+    id: m.id,
+    name: m.name,
+    total_params_b: m.architecture!.total_params_b!,
+    active_params_b: m.architecture!.active_params_b ?? undefined,
+    layers: m.architecture!.layers!,
+    hidden_size: m.architecture!.hidden_size ?? undefined,
+    num_kv_heads: m.architecture!.num_kv_heads ?? undefined,
+    head_dim: m.architecture!.head_dim ?? undefined,
+    attention_type: m.architecture!.attention_type ?? undefined
+  }))
+  .sort((a, b) => b.total_params_b - a.total_params_b);
+
+const hardwareSummaries = hardware
+  .filter((h) => h.memory?.capacity_gb?.value)
+  .map((h) => ({
+    id: h.id,
+    name: h.name,
+    hbm_gb: h.memory!.capacity_gb!.value,
+    hbm_bandwidth_tbs: h.memory?.bandwidth_gbps?.value ? h.memory.bandwidth_gbps.value / 1000 : undefined,
+    vendor: h.vendor.id,
+    decode_tok_s_per_card: median(decodeRateById.get(h.id) ?? [])
+  }))
+  // Hide cards we have no decode data for AND no spec basis to estimate
+  .filter((h) => h.hbm_gb && h.hbm_gb > 0)
+  .sort((a, b) => b.hbm_gb - a.hbm_gb);
+---
+<BaseLayout title="容量规划计算器 / Capacity Planning Calculator">
+  <Container width="wide">
+    <section class="pt-12 pb-6">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        CALCULATOR · CAPACITY PLANNER
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        容量规划计算器 · Interactive Capacity Planner
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        把
+        <a href={pathname('/learn/capacity-planning/')} style="color: var(--color-accent);" class="hover:underline">/learn/capacity-planning/</a>
+        的 7-step sizing 数学转成 form 输入. 选 (模型 × 硬件 × 工作负载 × 量化) →
+        立即得到推荐卡数 + TP + warnings. 所有公式公开, 每行都可审计.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">支持模型: </span><strong>{modelSummaries.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">支持硬件: </span><strong>{hardwareSummaries.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">含实测 decode: </span><strong>{hardwareSummaries.filter((h) => h.decode_tok_s_per_card).length}</strong></div>
+      </div>
+    </section>
+
+    <section class="py-6">
+      <CapacityPlanner client:only="react" models={modelSummaries} hardware={hardwareSummaries} />
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">这个估算的局限</h3>
+        <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+          推导的 sizing 是 <strong>day-1 起点</strong>, 不是终点. 真实部署会受以下因素影响 (±20%):
+        </p>
+        <ul class="text-sm space-y-1.5 mb-4" style="color: var(--color-text);">
+          <li>· <strong>引擎选择</strong>: vLLM / SGLang / TRT-LLM 等同模型 throughput 差异 10-25%</li>
+          <li>· <strong>量化校准</strong>: PTQ vs QAT 影响质量与吞吐 trade-off</li>
+          <li>· <strong>调度策略</strong>: continuous batching / chunked prefill / disagg 等启用与否</li>
+          <li>· <strong>Cluster 网络</strong>: RoCE vs IB vs NVLink 跨节点 all-reduce 性能差几倍</li>
+          <li>· <strong>实际请求分布</strong>: P99 input length 比 P50 长很多时 prefill 压力暴涨</li>
+        </ul>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          上线后用真实 metric (TTFT / TBT / GPU util / HBM 占用) 校准, 见
+          <a href={pathname('/learn/observability/')} style="color: var(--color-accent);" class="hover:underline">/learn/observability/</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/capacity-planning/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">完整 sizing 指南 →</a>
+          <a href={pathname('/calculator/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">部署计算器 (Tier 0/1) →</a>
+          <a href={pathname('/learn/picking-engine/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">下一步: 选引擎 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

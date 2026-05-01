@@ -200,6 +200,16 @@ const totalCases = cases.length;
         别人的部署方案, 然后 day 1 就被 OOM / SLO 违反惊醒. 这里覆盖 4 类必备 input + 7 步
         sizing 公式 + 6 条常见错误, 每条都用 catalog 里实际硬件的具体数字.
       </p>
+      <div class="mt-6 p-4 rounded-lg border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 6%, var(--color-bg));">
+        <div class="flex items-baseline gap-3 flex-wrap">
+          <span class="text-xs font-mono px-2 py-0.5 rounded" style="background: var(--color-accent); color: white;">⚡ 交互工具</span>
+          <p class="text-sm" style="color: var(--color-text);">
+            想直接试? 用
+            <a href={pathname('/calculator/capacity-planner/')} class="font-semibold hover:underline" style="color: var(--color-accent);">/calculator/capacity-planner/</a>
+            把这套数学转成 form 输入 — 选 (模型 × 硬件 × 工作负载), 立即得到推荐卡数 + warnings.
+          </p>
+        </div>
+      </div>
       <div class="mt-6 flex gap-6 text-sm flex-wrap">
         <div><span style="color: var(--color-text-muted);">必备 input: </span><strong>4 类</strong></div>
         <div><span style="color: var(--color-text-muted);">Sizing 公式: </span><strong>{SIZING_FORMULAS.length} 步</strong></div>

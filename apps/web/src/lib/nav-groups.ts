@@ -94,6 +94,7 @@ export const NAV_GROUPS: NavGroup[] = [
     blurb_en: 'Put the data to work — calculator, compares, host-CPU matrix, pricing.',
     items: [
       { path: '/calculator/', labelKey: 'nav.calculator', desc_zh: 'Tier-0 实测查表 + Tier-1 Roofline 上界', desc_en: 'Tier-0 lookup + Tier-1 Roofline ceiling' },
+      { path: '/calculator/capacity-planner/', labelKey: 'home.entry.capacityCalculator', desc_zh: '容量规划计算器 · 选模型/硬件 → 推荐卡数', desc_en: 'Capacity planner · pick (model × hw) → recommended cards' },
       { path: '/compare/', labelKey: 'nav.compare', desc_zh: '硬件对比 · 雷达图 / 表格 / Roofline 叠加', desc_en: 'Hardware compare · radar / table / Roofline overlay' },
       { path: '/servers/compare/', labelKey: 'nav.serversCompare', desc_zh: '超节点对比 · NVL72 vs Atlas vs CM384', desc_en: 'Compare super-pods · NVL72 vs Atlas vs CM384' },
       { path: '/servers/host-cpu-matrix/', labelKey: 'nav.hostCpuMatrix', desc_zh: 'Host CPU 矩阵 · 14/14 super-pod 全填', desc_en: 'Host-CPU matrix · 14/14 super-pods covered' },

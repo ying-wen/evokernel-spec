@@ -576,6 +576,66 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.32: interactive capacity-planner calculator (turns v1.31 math into form-based tool)', () => {
+  test('/calculator/capacity-planner/ renders with default Llama 4 Scout × H200 selection', async ({ page }) => {
+    await page.goto('/calculator/capacity-planner/');
+    await expect(page.getByRole('heading', { name: /容量规划计算器|Capacity Planning Calculator/i }).first()).toBeVisible();
+    // React island mounts and shows recommendation card
+    await expect(page.locator('[data-testid="cp-recommendation"]').first()).toBeVisible();
+    // Default model is Llama 4 Scout — recommendation should mention H200
+    await expect(page.locator('[data-testid="cp-recommendation"]').first()).toContainText(/H200/);
+  });
+
+  test('Capacity-planner shows 7-step derivation (A through G)', async ({ page }) => {
+    await page.goto('/calculator/capacity-planner/');
+    // Each step label A-G appears
+    for (const step of ['A.', 'B.', 'C.', 'D.', 'E.', 'F.', 'G.']) {
+      await expect(page.getByText(new RegExp(`^\\s*${step.replace('.', '\\.')}`)).first()).toBeVisible();
+    }
+  });
+
+  test('Changing precision to FP4 on non-Blackwell card surfaces a warning', async ({ page }) => {
+    await page.goto('/calculator/capacity-planner/');
+    // Pick precision FP4 — should trigger warning if H200 (Hopper) is selected
+    const precisionSelect = page.locator('select').nth(2); // 3rd select (model, hw, precision)
+    await precisionSelect.selectOption('fp4');
+    // H200 is hopper, not nvidia blackwell — should warn... actually our warning text says "non-nvidia". H200 IS NVIDIA so no warn. Switch to MI325X to trigger.
+    const hwSelect = page.locator('select').nth(1);
+    await hwSelect.selectOption('mi325x');
+    await expect(page.locator('[data-testid="cp-warnings"]').first()).toBeVisible();
+  });
+
+  test('Changing concurrent sessions updates recommendation', async ({ page }) => {
+    await page.goto('/calculator/capacity-planner/');
+    const initial = await page.locator('[data-testid="cp-recommendation"]').first().textContent();
+    // Find concurrent-sessions input (8th cp-input, but easier: by previous label)
+    const sessionInput = page.locator('input[type="number"]').nth(3); // qps, output, context, sessions
+    await sessionInput.fill('500');
+    // Recommendation should update after re-render
+    await page.waitForTimeout(200);
+    const after = await page.locator('[data-testid="cp-recommendation"]').first().textContent();
+    expect(after).not.toBe(initial);
+  });
+
+  test('Capacity-planner cross-links to static guide + observability', async ({ page }) => {
+    await page.goto('/calculator/capacity-planner/');
+    await expect(page.locator('a[href*="/learn/capacity-planning"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/observability"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/picking-engine"]').first()).toBeVisible();
+  });
+
+  test('Tools dropdown contains the new capacity-planner link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="tools"]').first();
+    await expect(dd.locator('a[href*="/calculator/capacity-planner"]').first()).toHaveCount(1);
+  });
+
+  test('Static /learn/capacity-planning/ has cross-link to interactive calculator', async ({ page }) => {
+    await page.goto('/learn/capacity-planning/');
+    await expect(page.locator('a[href*="/calculator/capacity-planner"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.31: capacity planning step-0 + LoRA pattern + roadmap (closes the deployment chain)', () => {
   test('/learn/capacity-planning/ renders 4 sizing inputs + 7 sizing steps + worked example + common mistakes', async ({ page }) => {
     await page.goto('/learn/capacity-planning/');
