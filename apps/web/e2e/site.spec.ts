@@ -581,6 +581,46 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.35: FLUX.1 [dev] diffusion tour (closes diffusion archetype gap, schema generalizes to non-LLM)', () => {
+  test('FLUX.1 [dev] model detail page renders without crash (diffusion-family)', async ({ page }) => {
+    await page.goto('/models/flux-1-dev/');
+    await expect(page.getByText(/FLUX|black-forest/i).first()).toBeVisible();
+    await expect(page.getByText(/diffusion/i).first()).toBeVisible();
+    // 12B params shown
+    await expect(page.getByText(/12/).first()).toBeVisible();
+  });
+
+  test('Diffusion tour visible at /learn/tours/flux-1-dev-h200-fp8/', async ({ page }) => {
+    await page.goto('/learn/tours/flux-1-dev-h200-fp8/');
+    await expect(page.getByText(/FLUX|DiT|denoising|Diffusion/i).first()).toBeVisible();
+    // Each pipeline stage rendered
+    await expect(page.locator('[data-testid="tour-stage-acquire"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="tour-stage-quantize"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="tour-stage-shard"]').first()).toBeVisible();
+  });
+
+  test('FLUX case detail page visible (case-flux-1-dev-h200x1-fp8-001)', async ({ page }) => {
+    await page.goto('/cases/case-flux-1-dev-h200x1-fp8-001/');
+    await expect(page.getByText(/FLUX|H200|FP8/i).first()).toBeVisible();
+    await expect(page.getByText(/diffusion|denoising|images\/sec/i).first()).toBeVisible();
+  });
+
+  test('Tours index now shows 9 tours including the diffusion archetype', async ({ page }) => {
+    await page.goto('/learn/tours/');
+    const tourRows = page.locator('[data-testid^="tour-row-"]');
+    expect(await tourRows.count()).toBeGreaterThanOrEqual(9);
+    await expect(page.locator('[data-testid="tour-row-flux-1-dev-h200-fp8"]').first()).toBeVisible();
+  });
+
+  test('Capacity planner excludes diffusion models from picker (KV math does not apply)', async ({ page }) => {
+    await page.goto('/calculator/capacity-planner/');
+    // Get the model select dropdown content; flux-1-dev should NOT appear
+    const modelSelect = page.locator('select').first();
+    const options = await modelSelect.locator('option').allTextContents();
+    expect(options.some((o) => o.toLowerCase().includes('flux'))).toBe(false);
+  });
+});
+
 test.describe('v1.34: /changelog/ public page + /feed.xml RSS feed', () => {
   test('/changelog/ renders with stats card + month TOC + recent releases', async ({ page }) => {
     await page.goto('/changelog/');

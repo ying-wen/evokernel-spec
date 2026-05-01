@@ -5,7 +5,10 @@ import SectionHeader from '~/components/ui/SectionHeader.astro';
 import CalculatorIsland from '~/components/calculator/Calculator.tsx';
 import { getHardware, getModels, getCases, getEngines } from '~/lib/data';
 
-const models = await getModels();
+// Calculator KV-cache math assumes LLM autoregressive decode (uses
+// num_kv_heads, head_dim, max_context_length). Filter diffusion / non-LLM
+// models out of the picker — they don't expose those fields.
+const models = (await getModels()).filter((m) => m.architecture.family !== 'diffusion');
 const hardware = await getHardware();
 const cases = await getCases();
 const engines = await getEngines();

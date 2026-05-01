@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const Slug = z.string().regex(/^[a-z0-9.-]+$/);
 
-export const ModelFamilySchema = z.enum(['dense', 'moe', 'hybrid']);
+export const ModelFamilySchema = z.enum(['dense', 'moe', 'hybrid', 'diffusion']);
 
 const MoEConfigSchema = z.object({
   num_experts: z.number().int().positive(),
@@ -11,6 +11,9 @@ const MoEConfigSchema = z.object({
   shared_experts: z.number().int().nonnegative().default(0)
 });
 
+// LLM-specific fields (vocab_size, num_attention_heads, etc.) are required
+// for transformer-decoder family models but don't apply to diffusion (UNet/DiT).
+// Make those optional and refine: require them iff family is dense/moe/hybrid.
 const ArchitectureSchema = z
   .object({
     family: ModelFamilySchema,
@@ -18,12 +21,12 @@ const ArchitectureSchema = z
     active_params_b: z.number().positive(),
     layers: z.number().int().positive(),
     hidden_size: z.number().int().positive(),
-    ffn_size: z.number().int().positive(),
-    num_attention_heads: z.number().int().positive(),
-    num_kv_heads: z.number().int().positive(),
-    head_dim: z.number().int().positive(),
-    vocab_size: z.number().int().positive(),
-    max_context_length: z.number().int().positive(),
+    ffn_size: z.number().int().positive().optional(),
+    num_attention_heads: z.number().int().positive().optional(),
+    num_kv_heads: z.number().int().positive().optional(),
+    head_dim: z.number().int().positive().optional(),
+    vocab_size: z.number().int().positive().optional(),
+    max_context_length: z.number().int().positive().optional(),
     moe: MoEConfigSchema.optional(),
     attention_type: z.string().min(1),
     rope_theta: z.number().positive().optional()
@@ -35,7 +38,24 @@ const ArchitectureSchema = z
   .refine((a) => a.family !== 'moe' || a.moe !== undefined, {
     message: 'family=moe requires moe config',
     path: ['moe']
-  });
+  })
+  // For LLM-class families (dense/moe/hybrid), vocab_size + num_attention_heads
+  // + max_context_length are required. Diffusion models can omit them.
+  .refine(
+    (a) =>
+      a.family === 'diffusion' ||
+      (a.vocab_size !== undefined &&
+        a.num_attention_heads !== undefined &&
+        a.num_kv_heads !== undefined &&
+        a.head_dim !== undefined &&
+        a.ffn_size !== undefined &&
+        a.max_context_length !== undefined),
+    {
+      message:
+        'LLM-class family (dense/moe/hybrid) requires vocab_size, num_attention_heads, num_kv_heads, head_dim, ffn_size, max_context_length',
+      path: ['family']
+    }
+  );
 
 const OperatorBreakdownSchema = z.object({
   operator: Slug,

@@ -45,7 +45,9 @@ function median(arr: number[]): number | undefined {
 // Trim model + hardware data down to the fields the calculator actually needs.
 // Keeping payload small reduces island JS size.
 const modelSummaries = models
-  .filter((m) => m.architecture?.total_params_b && m.architecture.layers)
+  // Capacity planner's KV math assumes LLM autoregressive decode. Diffusion
+  // models have a different sizing model (no KV cache, iterative denoising).
+  .filter((m) => m.architecture?.total_params_b && m.architecture.layers && m.architecture.family !== 'diffusion')
   .map((m) => ({
     id: m.id,
     name: m.name,

@@ -1,0 +1,92 @@
+id: flux-1-dev-h200-fp8
+title: 'FLUX.1 [dev] 12B × 1× H200 SXM (Diffusion)'
+context_zh: 'Diffusion 单卡部署 · text-to-image · diffusers + FP8 · 1024×1024 / 20 NFE / 2.5s'
+case_id: case-flux-1-dev-h200x1-fp8-001
+playbook_id: diffusion-on-hopper-single-node
+display_order: 19
+why_it_matters: |
+  Diffusion 是 LLM 之外最重要的模型 archetype — 全部 8 个其他 tour 都是 LLM/MoE 派系.
+  Diffusion 部署轮廓完全不同: 没有 KV cache, 没有 prefill/decode 二分, 工作流是
+  iterative denoising. 这条 tour 走 FLUX.1 [dev] 12B (Black Forest Labs 旗舰开源 t2i)
+  在单 H200 上 FP8 部署, 强调与 LLM tour 的对照差异. 是 schema/tour 框架"能不能
+  generalize 到非 LLM 模型"的真实测试.
+
+stages:
+  - stage_id: acquire
+    decision: 'black-forest-labs/FLUX.1-dev 通过 HuggingFace 拉取 (含 T5-XXL 编码器 + VAE)'
+    rationale: |
+      FLUX.1 [dev] 是 12B DiT (Diffusion Transformer) — 不是经典 UNet. 拉取时除主模型还要
+      下载 T5-XXL text encoder (~10 GB BF16) 和 VAE decoder (~340 MB). 国内部署走 ModelScope
+      镜像加速 5-10x.
+      License 注意: FLUX.1 [dev] 是 non-commercial — 商用必须切到 FLUX.1 [pro] 或 FLUX.1 [schnell].
+    pitfall: |
+      License 限制 — production 商用必须 FLUX.1 [pro] (闭源 API only) 或 [schnell] (Apache 2).
+      [dev] 仅限研究/开发; 生产用错版本是合规事故.
+
+  - stage_id: convert
+    decision: 'Safetensors as-is — diffusers 0.31 直读, 不需要转换'
+    rationale: |
+      Diffusers library 是 HuggingFace 维护的 diffusion 推理标准, 与 transformers 库平行.
+      FLUX.1 在 diffusers 0.31+ 原生支持 (FluxPipeline). 不像 LLM 还要 vLLM/SGLang 转换 —
+      diffusers 一站式.
+    pitfall: |
+      Diffusers 不是 high-throughput inference engine — 没有 continuous batching / paged-attention
+      等 LLM 优化. 高并发场景需要自己做 request queue / batch coalescing.
+
+  - stage_id: quantize
+    decision: 'FP8 E4M3 weight + FP16 activation + FP32 sampler'
+    rationale: |
+      Diffusion 量化与 LLM 不同 — sampler (rectified flow / DDIM) 必须 FP32 否则数值不稳.
+      Text encoder (T5-XXL) 与 transformer block 走 FP8 weight + FP16 activation 是当前
+      production sweet spot. VAE decoder 走 FP16 (FP8 在 VAE 上 color tone 漂移明显).
+      FP4 (Blackwell native) 在 12B diffusion 上质量损失 1-2 pt FID — 不推荐除非 Blackwell.
+    involves_patterns: [memory-bound-decode-prefer-int8]
+    pitfall: |
+      FP8 calibration set 选不好 — color tone / contrast 漂移. 必须用 (text prompt, image)
+      pair 校准, 不像 LLM 用 instruction-following dataset. 部署前必视觉 A/B (人眼比对 100+ images).
+
+  - stage_id: compile
+    decision: 'torch.compile + CUDA Graph + Hopper FlashAttention-3'
+    rationale: |
+      DiT 里的 attention block 走 FlashAttention-3 (Hopper sm_90 优化), 与 LLM 同 kernel.
+      torch.compile 把整个 denoising loop 编译成单 graph, decode-loop 启动 overhead 0.
+      diffusers 0.31+ 内置 torch.compile path (`pipe.transformer = torch.compile(...)`).
+      首次 forward warmup ~2 min — production 启动后预热.
+    involves_kernels: [flash-attention-v3, fused-rmsnorm-residual, fused-rmsnorm-residual-quantize]
+    pitfall: |
+      torch.compile 在 dynamic image resolution 上 recompile — production 部署锁定 1024 / 768 / 512
+      三种 resolution, 不允许任意 resolution. 否则每次新 resolution 都重 compile 浪费时间.
+
+  - stage_id: shard
+    decision: 'TP=1 (单卡) — 多卡为 batch (DP=N), 不为单 image 切分'
+    rationale: |
+      Diffusion 单 image 不需要 TP — 单 H200 80GB 装下 12B FP8 + T5-XXL + VAE 还有富余.
+      多卡场景 = 多 image 并行 (DP), 而非单 image TP. 与 LLM (TP=8 单卡装不下 405B) 形成
+      鲜明对比. 8× H200 = 8× throughput at same latency, 不是 latency 缩短.
+    involves_patterns: []
+    pitfall: |
+      尝试 TP=2 切 DiT block 会 NCCL hang — diffusers 没有 LLM-style TP 集成,
+      cross-attention 张量切分不对齐. 多卡走 DP 是当前 production 路径.
+
+  - stage_id: serve
+    decision: 'diffusers FluxPipeline + custom request queue + batch coalescing'
+    rationale: |
+      Diffusers 单进程支持单 batch — production 高并发需要外层 request queue.
+      Coalesce batch=4-8 请求一起跑 denoising loop, throughput 3-5x. 关键: 同 batch 内 prompts
+      可以不同, 但 resolution / NFE 必须一致 (否则 padding 浪费).
+    involves_kernels: [flash-attention-v3]
+    involves_patterns: [continuous-batching]
+    pitfall: |
+      Batch size > 8 时 VAE decoder 阶段 OOM — VAE 一次性把整个 latent batch 转 image,
+      bs=8 / 1024×1024 占 ~30 GB transient memory. 需要 chunked VAE decode (社区 patch 已有).
+
+  - stage_id: observe
+    decision: 'nvidia-smi + diffusers internal metrics + 视觉 A/B sampler'
+    rationale: |
+      LLM observability stack (TTFT/TBT/throughput) 不直接适用 — diffusion 主指标是
+      <strong>images/sec/card</strong> + <strong>视觉质量 (FID / human eval)</strong>.
+      DCGM + nvidia-smi 标准 GPU monitoring. 质量监控走视觉 A/B canary — 同 prompt
+      跑新旧 checkpoint, 人眼比对 (或 CLIP score 自动比对).
+    pitfall: |
+      Diffusion 质量退化最常见原因不是 GPU 故障, 而是 quantization drift / sampler config drift.
+      Visual A/B canary 必备 — 单纯看 GPU metric 看不到色调漂移.

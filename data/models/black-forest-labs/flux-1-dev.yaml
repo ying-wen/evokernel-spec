@@ -1,0 +1,29 @@
+id: flux-1-dev
+name: FLUX.1 [dev]
+lab: black-forest-labs
+release_date: 2024-08-01
+license: FLUX-1-dev-Non-Commercial-License
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: diffusion
+  total_params_b: 12.0
+  active_params_b: 12.0
+  # FLUX.1 is a flow-matching transformer (DiT, not classic UNet) with
+  # 19 double-stream + 38 single-stream blocks. Counted as "layers" here.
+  layers: 57
+  hidden_size: 3072
+  attention_type: cross-attention
+  notes_arch: |
+    DiT (Diffusion Transformer) — 19 double-stream MMDiT blocks (image+text joint
+    attention) + 38 single-stream blocks (image-only). Text encoders: T5-XXL (4.7 B)
+    + CLIP-L (~120 M). VAE: 84 M params. Sampler: rectified flow with 20-50 NFE.
+modalities: [text, vision]
+weight_format: bf16
+hf_url: https://huggingface.co/black-forest-labs/FLUX.1-dev
+github_url: https://github.com/black-forest-labs/flux
+notes: |
+  FLUX.1 [dev] 是 Black Forest Labs 2024 Q3 发布的旗舰开源 text-to-image diffusion
+  模型, 12B 参数 DiT 架构. 部署轮廓与 LLM 完全不同 — 没有 KV cache, 没有 prefill/decode
+  二分, 主要工作流是 50-step iterative denoising. 单 H100 80GB 上 1024×1024 图像约
+  2-4 秒 (20 NFE) / 5-10 秒 (50 NFE).

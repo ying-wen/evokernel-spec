@@ -70,7 +70,11 @@ const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '�
         <KpiCard label="Total params"><span style="font-size: 1.5rem;">{arch.total_params_b}<span class="text-base opacity-60"> B</span></span></KpiCard>
         <KpiCard label="Active params"><span style="font-size: 1.5rem;">{arch.active_params_b}<span class="text-base opacity-60"> B</span></span></KpiCard>
         <KpiCard label="Layers"><span style="font-size: 1.5rem;">{arch.layers}</span></KpiCard>
-        <KpiCard label="Context"><span style="font-size: 1.5rem;">{(arch.max_context_length / 1024).toFixed(0)}<span class="text-base opacity-60"> k</span></span></KpiCard>
+        {arch.max_context_length !== undefined ? (
+          <KpiCard label="Context"><span style="font-size: 1.5rem;">{(arch.max_context_length / 1024).toFixed(0)}<span class="text-base opacity-60"> k</span></span></KpiCard>
+        ) : (
+          <KpiCard label="Family"><span style="font-size: 1.25rem;">{arch.family}</span></KpiCard>
+        )}
       </div>
     </section>
 
@@ -78,11 +82,11 @@ const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '�
       <h3 class="text-lg font-semibold mb-3">详细规格</h3>
       <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
         <SpecRow label="Hidden size">{arch.hidden_size}</SpecRow>
-        <SpecRow label="FFN size">{arch.ffn_size}</SpecRow>
-        <SpecRow label="Attention heads">{arch.num_attention_heads}</SpecRow>
-        <SpecRow label="KV heads">{arch.num_kv_heads}</SpecRow>
-        <SpecRow label="Head dim">{arch.head_dim}</SpecRow>
-        <SpecRow label="Vocab size">{arch.vocab_size}</SpecRow>
+        {arch.ffn_size !== undefined && <SpecRow label="FFN size">{arch.ffn_size}</SpecRow>}
+        {arch.num_attention_heads !== undefined && <SpecRow label="Attention heads">{arch.num_attention_heads}</SpecRow>}
+        {arch.num_kv_heads !== undefined && <SpecRow label="KV heads">{arch.num_kv_heads}</SpecRow>}
+        {arch.head_dim !== undefined && <SpecRow label="Head dim">{arch.head_dim}</SpecRow>}
+        {arch.vocab_size !== undefined && <SpecRow label="Vocab size">{arch.vocab_size}</SpecRow>}
         <SpecRow label="Attention type">{arch.attention_type}</SpecRow>
         {arch.moe && (<>
           <SpecRow label="MoE experts">{arch.moe.num_experts}</SpecRow>

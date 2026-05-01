@@ -6,13 +6,13 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.35+ horizon
+### v1.36+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
-**Tier 1 remaining (high-leverage, low-effort)**:
-- Citation PR onboarding (real external citations to populate /impact/)
-- More tours (SD3/Flux diffusion, Kimi K2.6 on B200, GPT-OSS on Atlas)
+**Tier 1 remaining**:
+- Citation PR onboarding (community work)
+- More tours (Kimi K2.6 reasoning on B200, GPT-OSS on Atlas, SD3/Flux video)
 
 **Tier 2 (medium-leverage)**:
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE)
@@ -26,6 +26,56 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.35.0] — 2026-05-02
+
+**Diffusion archetype tour** — closes the missing model archetype in the tour spectrum (8 tours were all LLM/MoE; now 9 with FLUX.1 [dev] 12B DiT). Stress-tests whether the schema/tour framework generalizes beyond LLMs.
+
+### Added
+
+**Schema extension — `family: 'diffusion'`**:
+- `ModelFamilySchema` enum gains `'diffusion'` (was `dense | moe | hybrid`)
+- `ArchitectureSchema` LLM-specific fields (`vocab_size`, `num_attention_heads`, `num_kv_heads`, `head_dim`, `ffn_size`, `max_context_length`) are now optional
+- New refine: those fields are required iff `family !== 'diffusion'` — preserves strictness for LLM-class models
+
+**FLUX.1 [dev] model entry** (`data/models/black-forest-labs/flux-1-dev.yaml`):
+- 12B params · DiT architecture (19 double-stream + 38 single-stream blocks)
+- T5-XXL text encoder + VAE decoder noted in arch description
+- `domain: vision` · `workload_kind: forward-only-batch`
+- License: FLUX-1-dev Non-Commercial (commercial path = FLUX.1 [pro] / [schnell])
+
+**Diffusion case** (`case-flux-1-dev-h200x1-fp8-001`):
+- 1× H200 SXM, FP8, 1024×1024 / 20 NFE, ~2.5 s end-to-end
+- LLM-style metric mapping documented in `notes_md`: decode "tok/s" = images/sec × 1000, prefill = T5-XXL throughput, TTFT = text encode + first denoising step, TBT = ms/denoising-step
+- 4 production gotchas captured: FP8 color tone drift / T5-XXL precision constraint / CFG compute doubling / VAE batch=8 OOM
+
+**Diffusion tour** (`/learn/tours/flux-1-dev-h200-fp8/`):
+- All 7 pipeline stages adapted for diffusion (acquire / convert / quantize / compile / shard / serve / observe)
+- Each stage explicitly contrasts with LLM tours: no KV cache, no prefill/decode binary, iterative denoising loop, sampler must stay FP32, VAE chunked decode required for batch
+- Plays the existing `diffusion-on-hopper-single-node` playbook
+
+### Defensive integration changes
+- **`/calculator/`**: filters out `family: diffusion` from model picker (KV math doesn't apply to UNet/DiT)
+- **`/calculator/capacity-planner/`**: same filter (sizing math is LLM-specific)
+- **`/models/[slug]/`**: optional fields wrapped in conditional render — diffusion model detail page no longer breaks on missing `vocab_size` / `num_attention_heads` / etc. Context KPI swaps to "Family" badge when `max_context_length` is undefined.
+
+### Stats
+- 397/397 site E2E pass (+5 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, **model: 20** (+1 FLUX), **case: 39** (+1), fused-kernel: 24, playbook: 24, pattern: 24, operator: 29, citation: 1, **tour: 9** (+1 diffusion)
+- Build: 430 pages
+
+### Tour spectrum (now 9-wide):
+- 端侧: Qwen 2.5 7B × Jetson Orin
+- 单节点 NVIDIA: Llama 4 Scout × H200
+- 单节点 AMD: Qwen 3.6 Plus × MI325X
+- 单节点 Intel: GPT-OSS × Gaudi 3
+- 跨节点 Hopper: DSv4 Flash disagg × H100/H200
+- 国央企 super-pod (Ascend): DSv4 Pro × CloudMatrix 384
+- 国央企 alt path (Cambricon): Kimi K2.6 × MLU590 × 16
+- Frontier super-pod: Llama 4 Maverick × NVL72
+- **Diffusion (NEW): FLUX.1 [dev] 12B × H200**
 
 ---
 
