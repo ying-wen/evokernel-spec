@@ -1,0 +1,84 @@
+id: compile-time-graph-optimization
+name: 编译期图优化 (CUDA Graph / TRT engine / XLA / SynapseAI)
+category: kernel-fusion
+description_md: |
+  ## 简介
+
+  Eager-mode PyTorch 每次 forward 都重新走 dispatcher → kernel launch 一次,
+  累积 launch overhead 在 decode 阶段尤其昂贵 (单 token 100+ kernel 调用).
+  **编译期图优化** 把整个 forward graph 静态化, 一次性 launch 一个 graph,
+  消除 dispatcher overhead + 让 compiler 跨 op 做 fusion / 选 kernel.
+
+  这是部署链路 stage 4 (compile) 的核心机制 — 不同硬件用不同实现:
+  - NVIDIA: **CUDA Graph** (capture + replay) 或 **TRT engine** (offline build)
+  - AMD: **HIP Graph** (rocm 6.2+)
+  - Intel Gaudi: **SynapseAI graph** (offline)
+  - Google TPU: **XLA HLO** (JIT compile)
+  - Ascend: **CANN graph** (offline + cache)
+  - Apple M: **MPSGraph** (CoreML 路径)
+
+  ## 共通收益
+
+  - **2-5x decode 吞吐**: kernel launch overhead 消除
+  - **30-60% TTFT 降**: prefill 阶段 GEMM 和 attention 走 fused path
+  - **更稳定的 latency**: 静态图 = 确定执行路径, P99 抖动降
+
+  ## 不同实现的 trade-offs
+
+  - **CUDA Graph (动态 capture)**: warmup 30 秒, batch size 切换需要 recapture
+    多个 graph; vLLM/SGLang 默认走这条
+  - **TRT engine (offline build)**: 5-30 分钟 build 时间, GPU-arch 锁定 (sm_90 vs sm_100),
+    但运行时是最快路径 (10-25% over CUDA Graph)
+  - **XLA HLO (TPU)**: JIT compile 12-28 分钟首次启动, cache 后续 30s; 跨 TPU 代际
+    需要重 compile (不像 CUDA Graph 部分 portable)
+  - **SynapseAI / CANN**: 与 TRT 类似, 离线 compile 路径为主
+  - **HIP Graph**: ROCm 6.2+ 才生产 ready, 早期 release 还不如 eager
+
+  ## 何时启用
+
+  - **Production deployment** (任何): 必备 — eager 是开发期 only
+  - **Frequent model swap** (multi-tenant 场景): TRT engine 切换成本高, 走 CUDA Graph
+  - **Single model long-running**: TRT / SynapseAI 离线 engine 是最佳
+
+  ## 关键陷阱
+
+  - **Dynamic shape**: CUDA Graph capture 要 batch size 一致; 否则 fall back 到 eager
+    或预 capture 多个 graph. vLLM 默认捕获 8 个常用 batch size.
+  - **Cold start**: TRT engine build 时间长, CI 必须 cache 到 disk; XLA HLO 同理 (cache 到 GCS)
+  - **GPU arch lock**: TRT engine 不能跨 sm_xx 部署; 多 arch cluster 需要 build matrix
+applies_when:
+  - production-deployment
+  - decode-bottleneck
+  - low-latency-target
+related_operators: [matmul, scaled-dot-product-attention, all-reduce]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, mindie, lmdeploy]
+hardware_requires: []
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning, multi-modal]
+speedup:
+  - metric: decode-throughput
+    multiplier_min: 2.0
+    multiplier_max: 5.0
+    notes: '相对 eager-mode baseline; decode 阶段 kernel launch overhead 消除最显著'
+  - metric: ttft
+    multiplier_min: 0.4
+    multiplier_max: 0.7
+    notes: 'TTFT 降 30-60% (取决于实现选择)'
+trade_offs:
+  - 'Build / capture 时间长 (5-30 分钟 TRT, 12-28 分钟 XLA, 30 秒 CUDA Graph)'
+  - 'Dynamic shape 不友好 — batch size 变化触发 recompile'
+  - 'GPU arch / TPU generation lock — TRT engine 不能跨硬件部署'
+  - 'Debug 困难 — 静态图后单步 trace 比 eager 难得多'
+references:
+  - title: 'NVIDIA CUDA Graphs'
+    url: https://developer.nvidia.com/blog/cuda-graphs/
+    source_type: docs
+  - title: 'TensorRT-LLM trtllm-build'
+    url: https://nvidia.github.io/TensorRT-LLM/
+    source_type: docs
+  - title: 'JAX XLA HLO compilation'
+    url: https://openxla.org/xla
+    source_type: docs
+  - title: 'Habana SynapseAI graph compiler'
+    url: https://docs.habana.ai/en/latest/PyTorch/PyTorch_User_Guide/Graph_Compiler.html
+    source_type: docs

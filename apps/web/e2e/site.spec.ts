@@ -576,6 +576,68 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.25: 2 more tours via YAML + tour authoring guide + 2 cases + 1 pattern', () => {
+  test('Gaudi 3 GPT-OSS tour visible (Intel stack via YAML)', async ({ page }) => {
+    await page.goto('/learn/tours/gptoss-gaudi3-vllm-fp8/');
+    await expect(page.getByText(/GPT-OSS|Gaudi 3|SynapseAI/i).first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-quantize').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-shard').first()).toBeVisible();
+    // Intel-specific content
+    await expect(page.getByText(/HPU|hl-smi|Habana/i).first()).toBeVisible();
+  });
+
+  test('Hopper mixed-pool disagg tour visible (Mooncake KV transfer)', async ({ page }) => {
+    await page.goto('/learn/tours/dsv4flash-disagg-h100-h200-mooncake/');
+    await expect(page.getByText(/DeepSeek V4 Flash|disagg|Mooncake/i).first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-shard').first()).toBeVisible();
+    // Disagg-specific content
+    await expect(page.getByText(/prefill|decode|GPUDirect|RDMA/i).first()).toBeVisible();
+  });
+
+  test('/learn/tours/ index now shows 6 tours (data-driven scales)', async ({ page }) => {
+    await page.goto('/learn/tours/');
+    // All 6 tours present
+    await expect(page.getByTestId('tour-row-llama4-scout-h200-vllm-fp8').first()).toBeVisible();
+    await expect(page.getByTestId('tour-row-qwen25-7b-jetson-orin-edge').first()).toBeVisible();
+    await expect(page.getByTestId('tour-row-gptoss-gaudi3-vllm-fp8').first()).toBeVisible();
+    await expect(page.getByTestId('tour-row-dsv4flash-disagg-h100-h200-mooncake').first()).toBeVisible();
+    await expect(page.getByTestId('tour-row-dsv4pro-cloudmatrix-384-mindie').first()).toBeVisible();
+    await expect(page.getByTestId('tour-row-llama4-maverick-nvl72-fp4').first()).toBeVisible();
+  });
+
+  test('Tour authoring guide at /contribute/authoring-tours/ visible', async ({ page }) => {
+    await page.goto('/contribute/authoring-tours/');
+    await expect(page.getByRole('heading', { name: /贡献 Tour|Authoring Guide/i }).first()).toBeVisible();
+    await expect(page.getByText(/YAML 文件结构|从 0 到 PR|stage_id|case_id/i).first()).toBeVisible();
+    // Lists all valid stage IDs
+    await expect(page.getByText(/acquire|convert|quantize|compile|shard|serve|observe/i).first()).toBeVisible();
+  });
+
+  test('Tour authoring guide links to GitHub source', async ({ page }) => {
+    await page.goto('/contribute/authoring-tours/');
+    await expect(page.locator('a[href*="github.com/ying-wen/evokernel-spec/tree/main/data/tours"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/tours/"]').first()).toBeVisible();
+  });
+
+  test('Compile-time graph optimization pattern visible', async ({ page }) => {
+    await page.goto('/patterns/compile-time-graph-optimization/');
+    await expect(page.getByText(/编译期图优化|CUDA Graph|TRT engine/i).first()).toBeVisible();
+    await expect(page.getByText(/XLA|SynapseAI|HIP Graph|MPSGraph/i).first()).toBeVisible();
+  });
+
+  test('Gemma 4 × TPU v5p case visible (TPU + JAX + SWA)', async ({ page }) => {
+    await page.goto('/cases/case-gemma-4-tpu-v5p-pod-001/');
+    await expect(page.getByText(/Gemma 4|TPU v5p|JAX/i).first()).toBeVisible();
+    await expect(page.getByText(/SWA|sliding-window|XLA|ICI/i).first()).toBeVisible();
+  });
+
+  test('Mistral Small 4 × B200 case visible (FP4 + chunked prefill)', async ({ page }) => {
+    await page.goto('/cases/case-mistral-small-4-b200x4-vllm-fp4-001/');
+    await expect(page.getByText(/Mistral Small 4|B200|FP4/i).first()).toBeVisible();
+    await expect(page.getByText(/chunked|HBM3e|over-provisioned/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.24: tours refactored to data-driven + edge tour + 2 cases', () => {
   test('Dynamic /learn/tours/[slug] route renders extracted Llama 4 Scout tour', async ({ page }) => {
     await page.goto('/learn/tours/llama4-scout-h200-vllm-fp8/');
@@ -660,10 +722,10 @@ test.describe('v1.23: 2 more end-to-end tours + tours index + 1 pattern + 1 fuse
 
   test('Tour: DeepSeek V4 Pro tour links to sibling tours', async ({ page }) => {
     await page.goto('/learn/tours/dsv4pro-cloudmatrix-384-mindie/');
-    // Links to other tours via the new dynamic-route footer
-    await expect(page.locator('a[href*="/learn/tours/llama4-scout-h200-vllm-fp8"]').first()).toBeVisible();
-    await expect(page.locator('a[href*="/learn/tours/llama4-maverick-nvl72-fp4"]').first()).toBeVisible();
+    // Links to /learn/tours/ index (always visible)
     await expect(page.locator('a[href*="/learn/tours/"]').first()).toBeVisible();
+    // At least one sibling tour link visible (footer shows top 3 by display_order)
+    await expect(page.locator('a[href*="/learn/tours/llama4-scout-h200-vllm-fp8"]').first()).toBeVisible();
   });
 
   test('Tour: Llama 4 Maverick × NVL72 walks 7 stages', async ({ page }) => {

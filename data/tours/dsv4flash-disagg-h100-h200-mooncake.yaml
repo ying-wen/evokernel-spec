@@ -1,0 +1,84 @@
+id: dsv4flash-disagg-h100-h200-mooncake
+title: 'DeepSeek V4 Flash × Hopper disagg (H100 prefill + H200 decode)'
+context_zh: 'Hopper 跨型号 disaggregated · SGLang + Mooncake KV transfer · 32 卡 mixed cluster'
+case_id: case-dsv4flash-disagg-h100-h200-001
+playbook_id: long-context-on-hopper-cluster
+display_order: 25
+why_it_matters: |
+  Disagg prefill/decode 在 mixed-Hopper 集群上的最优解:
+  prefill 跑 H100 (80GB / 3.35TB/s, compute-friendly), decode 跑 H200 (141GB / 4.8TB/s, memory-bw-friendly).
+  Mooncake KV 传输让两 pool 异步生产消费, 经济性比同型号集群好 25-40%.
+
+stages:
+  - stage_id: acquire
+    decision: 'deepseek-ai/DeepSeek-V4-Flash — HuggingFace safetensors'
+    rationale: |
+      DeepSeek V4 Flash 是 V4 系的 distilled 版本 — 比 V4 Pro 小, 适合 mid-size production.
+      预先 download 到 cluster 共享 NFS, 32 卡 mixed pool 共享同一 weight cache.
+    pitfall: |
+      Mixed-Hopper cluster 中 prefill / decode 两 pool 必须用同一 model checkpoint —
+      version skew 会导致 KV 格式不兼容, Mooncake transfer 直接报错.
+
+  - stage_id: convert
+    decision: 'BF16 safetensors as-is — SGLang 自动加载'
+    rationale: |
+      SGLang 0.4+ 直读 HF safetensors. 关键 trick: prefill 节点和 decode 节点
+      load 同一个 checkpoint 的不同 (prefill / decode-only) 切片以省 HBM.
+    pitfall: |
+      SGLang disagg KV protocol 在 0.4 之前不稳; 0.4.0+ 才生产 ready.
+
+  - stage_id: quantize
+    decision: 'FP8 W8A8 (E4M3) — H100 + H200 native FP8'
+    rationale: |
+      Both H100 and H200 have FP8 tensor cores (Hopper 同代). FP8 calibration 一次,
+      两个 pool 用同一份 quantized weights — 无需 mixed-precision scheme.
+    involves_patterns: [memory-bound-decode-prefer-int8]
+    pitfall: |
+      FP8 calibration set 必须含长 prompt 样本 (8K+) — 短样本校准在 prefill 8K context 时
+      attention scores 偏离 BF16 baseline, MMLU 跌 0.8 pt.
+
+  - stage_id: compile
+    decision: 'CUDA Graph capture + FlashAttention-3 + GQA + DeepEP MoE'
+    rationale: |
+      SGLang 0.4 走 Triton compile path; FA3 + WGMMA 在 H100/H200 上同代支持.
+      DeepEP fused kernel 把 MoE all2all + dispatch 合并 — disagg 场景下尤其重要,
+      因为 prefill pool 的 EP 通信发生在节点内, decode pool 同样.
+    involves_operators: [scaled-dot-product-attention, matmul, rmsnorm, rope, silu, swiglu, moe-gate, all2all]
+    involves_kernels: [flash-attention-v3, fused-mlp-silu, fused-rmsnorm-residual, fused-rope-qkv, fused-moe-dispatch-deepep]
+    involves_patterns: [flashattention-v3, gqa-mqa-shared-kv, mtp-multi-token-prediction]
+    pitfall: |
+      Mixed H100/H200 上 CUDA Graph capture 必须分别在每 pool 做 — 不能跨 pool 共享 graph.
+      sm_90 vs sm_90 (同 arch 但不同 SKU) 偶有 PTX 兼容性边角问题.
+
+  - stage_id: shard
+    decision: 'TP=8 × PP=2 × disagg (16 H100 prefill + 16 H200 decode)'
+    rationale: |
+      Prefill pool: 2 nodes × 8 H100, TP=8 intra-node, PP=2 cross-node — 长 prompt 8K+
+      compute 重, PP=2 让 micro-batch overlap.
+      Decode pool: 2 nodes × 8 H200, TP=8 intra-node — H200 大 HBM 让 KV 不溢出.
+      Pool 间 KV 通过 Mooncake 传输 (RDMA over IB-NDR), 24-32GB/s 实测.
+    involves_patterns: [disaggregated-prefill-decode, tp-allreduce-overlap, moe-expert-routing-on-domestic]
+    pitfall: |
+      Mooncake KV transfer 是 disagg 关键链路 — IB-NDR bandwidth 不够 (< 200Gb/s)
+      会让 decode 节点 stall 等 KV. 必备 GPUDirect RDMA + SHARP.
+
+  - stage_id: serve
+    decision: 'SGLang 0.4 + Mooncake KV cache + RadixAttention prefix cache'
+    rationale: |
+      SGLang 是当前 disagg + RadixAttention 集成最深的 engine.
+      Mooncake KV-store 让 prefix cache 跨 pool 共享: 多轮 chat 场景下,
+      decode pool 可直接复用 prefill pool 算过的 system-prompt KV.
+    involves_kernels: [paged-attention-decode, fused-radix-attention, mooncake-kv-disaggregation]
+    involves_patterns: [continuous-batching, paged-attention, prefix-radix-cache, disaggregated-prefill-decode, hot-cold-kv-tiering]
+    pitfall: |
+      Mooncake KV-store 的 transport layer 在 0.4 升级到 RDMA 后比 TCP 路径
+      latency 降 5x, 但要求所有节点都启用 GPUDirect — 漏配一台 falls back to TCP, 整集群慢.
+
+  - stage_id: observe
+    decision: 'SGLang Prometheus + Mooncake metrics + DCGM + Grafana per pool'
+    rationale: |
+      Disagg cluster 监控复杂度比单 pool 高 2-3x: 必须同时看 prefill / decode 两 pool
+      + 中间 Mooncake KV transfer latency. Grafana dashboard 分三层 (pool / KV / engine).
+    pitfall: |
+      只监控 throughput 会错过 Mooncake transfer 阻塞 — KV transfer P99 > 100ms 时
+      decode pool 会饿. 必须有 transfer-latency alerting.

@@ -1,0 +1,78 @@
+id: gptoss-gaudi3-vllm-fp8
+title: 'GPT-OSS × 8×Gaudi 3'
+context_zh: 'Intel 替代路径 · 单节点 Gaudi 3 OAM · vLLM HPU FP8'
+case_id: case-gptoss-gaudi3x8-001
+display_order: 20
+why_it_matters: |
+  Intel Gaudi 3 是 NVIDIA H100 + AMD MI300X 之外的第三条数据中心推理路径.
+  Habana SynapseAI + vLLM HPU plugin 让 PyTorch 模型几乎零代码移植.
+  GPT-OSS 这条 tour 显示 Intel 栈 production-ready 程度.
+
+stages:
+  - stage_id: acquire
+    decision: 'openai/gpt-oss — HuggingFace safetensors'
+    rationale: |
+      GPT-OSS 是 OpenAI 公开 release 的 open-weight model. HF Hub 直接 download.
+      Habana 节点配 Habana NIC + 100Gb 网络, weight pull 速度与 NVIDIA 相当.
+    pitfall: |
+      OpenAI license 限制商业用途的部分 — 部署前确认目标场景符合 model card 条款.
+
+  - stage_id: convert
+    decision: 'BF16 safetensors → vLLM HPU 自动加载 (无显式转换)'
+    rationale: |
+      vLLM 0.6+ HPU plugin (vllm-fork-hpu) 直接读 HF safetensors. Habana 框架
+      底层用 PyTorch HPU 后端 (torch_hpu), 与 CUDA 路径几乎对称.
+    pitfall: |
+      Gaudi 不能直接读 GGUF — 端侧 / llama.cpp 路径不可用. 数据中心 deployment OK.
+
+  - stage_id: quantize
+    decision: 'FP8 E4M3 — Gaudi 3 原生 FP8 tensor core'
+    rationale: |
+      Gaudi 3 有 native FP8 (与 Hopper 同代设计), decode 吞吐 1.4-1.8x BF16.
+      Habana FP8 calibration 通过 hpu_fp8 工具链, 类似 NVIDIA TransformerEngine.
+    involves_patterns: [memory-bound-decode-prefer-int8]
+    pitfall: |
+      Gaudi 2 没 FP8, 只能上 INT8/BF16; Gaudi 3 是 Intel 第一代有 FP8 的 device.
+      混用 Gaudi 2/3 集群时统一上 BF16 避免 calibration 兼容性问题.
+
+  - stage_id: compile
+    decision: 'SynapseAI graph compiler + Habana FlashAttn-2 kernel'
+    rationale: |
+      SynapseAI 把 PyTorch 计算图编译成 HPU 静态图 (类似 TRT-LLM trtllm-build).
+      Gaudi 3 上 FlashAttn-2 是 Habana 自实现 — 没 v3 (无 TMA-equivalent).
+    involves_operators: [scaled-dot-product-attention, matmul, rmsnorm, swiglu]
+    involves_kernels: [flash-attention-v3, fused-mlp-silu, fused-rmsnorm-residual, fused-rope-qkv]
+    involves_patterns: [flashattention-v3, gqa-mqa-shared-kv]
+    pitfall: |
+      首次 compile 5-8 分钟 (graph 编译 + kernel select); 后续启动从 SynapseAI cache
+      load engine ~30 秒. CI deployments 要 cache disk 否则每次冷启动都重编.
+
+  - stage_id: shard
+    decision: 'TP=8 + EP=4, no PP — 单节点 8 OAM 通过 RoCE-v2'
+    rationale: |
+      Gaudi 3 节点内 8 OAM 通过 21 个 100GbE port + RoCE-v2 全互联 (没有 NVLink/Infinity Fabric).
+      TP=8 + EP=4 让 GPT-OSS MoE 沿 expert 分布. 跨节点 RoCE bandwidth 比 NVLink-4 低 ~3-4x.
+    involves_patterns: [moe-expert-routing-on-domestic, tp-allreduce-overlap]
+    pitfall: |
+      Gaudi RoCE 网络拓扑不同于 NVSwitch — all-reduce 性能取决于 RoCE switch 配置;
+      默认 mesh 不一定最优, 需要 SynapseAI hl-smi 工具 profile fabric.
+
+  - stage_id: serve
+    decision: 'vLLM HPU + continuous batching + paged-attention HPU'
+    rationale: |
+      vLLM HPU 0.6+ 支持 continuous batching + paged-attention HPU 实现 (不是 CUDA port).
+      KV cache 管理与 NVIDIA 路径一致, API 兼容性好.
+    involves_kernels: [paged-attention-decode]
+    involves_patterns: [continuous-batching, paged-attention]
+    pitfall: |
+      RadixAttention / prefix-caching 在 HPU 路径仍 experimental — agent 多轮场景
+      考虑用 NVIDIA 路径或等 vLLM HPU 0.7+.
+
+  - stage_id: observe
+    decision: 'hl-smi + Habana metrics exporter + Grafana'
+    rationale: |
+      hl-smi 是 Gaudi 等价 nvidia-smi (Habana Labs SMI). 暴露 device 利用率 + HBM + 温度.
+      Habana metrics exporter 提供 Prometheus endpoint, 与 NVIDIA DCGM 类似设计.
+    pitfall: |
+      Habana ecosystem 比 NVIDIA 小, third-party 监控工具支持滞后;
+      Grafana dashboard 需要从 Habana 官方 templates fork, 不能直接套 NVIDIA 模板.

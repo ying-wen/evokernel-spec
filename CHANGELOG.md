@@ -6,15 +6,51 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.25+ horizon)
+### Planned (v1.26+ horizon)
 - Public submission portal (case YAML web form) — currently PR-only
 - Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
 - Server-compare client-side filter island (real querystring parsing in SSG)
-- More tours via the new data-driven path (Llama 4 Behemoth on NVL72; SD3 / Flux on Hopper)
-- Tour authoring guide for contributors
+- More tours: SD3 / Flux on Hopper (diffusion); Llama 4 Behemoth on NVL72 (when released)
+
+---
+
+## [1.25.0] — 2026-05-01
+
+Validating the v1.24 tour refactor. Adds 2 more YAML tours (Intel + Hopper disagg), tour authoring guide for contributors, 2 cases, and 1 pattern. Each new tour was ~80 lines of YAML with no astro/TypeScript changes — confirms data-driven approach pays off at scale.
+
+### Added
+
+**2 more YAML tours** (4 → 6) covering the deployment spectrum:
+- `gptoss-gaudi3-vllm-fp8`: Intel stack — single-node Gaudi 3 OAM via SynapseAI graph compiler + vLLM HPU + FP8 native. Documents the Habana ecosystem (hl-smi, RoCE-v2 fabric) for users evaluating Intel as third-path beyond NVIDIA/AMD
+- `dsv4flash-disagg-h100-h200-mooncake`: Mixed-Hopper disaggregated cluster — H100 prefill pool + H200 decode pool + Mooncake KV transfer over IB-NDR. Documents the disagg + RDMA + GPUDirect requirement chain
+
+**`/contribute/authoring-tours/`** (NEW guide):
+- Format reference for `data/tours/*.yaml` schema with full YAML template
+- "When to write a tour" checklist (✓ vs ✗ scenarios)
+- Valid ID quick-reference (7 stage_ids + live cases/operators/kernels/patterns counts pulled from data)
+- 5-step from 0 to PR workflow (cp template → edit → validate → preview → submit)
+- Links to existing 6 tours as worked examples
+- Closes the v1.25 horizon item
+
+**1 more pattern** (20 → 21):
+- `compile-time-graph-optimization`: cross-vendor view of the compile stage. CUDA Graph (NVIDIA) vs TRT engine (NVIDIA offline) vs HIP Graph (AMD) vs SynapseAI (Intel) vs XLA HLO (TPU) vs CANN (Ascend) vs MPSGraph (Apple). Trade-offs (warmup time, GPU-arch lock, dynamic-shape friendliness) made explicit.
+
+**2 more cases** (34 → 36):
+- `case-gemma-4-tpu-v5p-pod-001`: Gemma 4 27B on TPU v5p 32-chip pod with JAX/SGLang. First Gemma 4 case + first SP=4 (sequence parallel) example + Gemma's hybrid sliding-window attention (5 SWA + 1 global)
+- `case-mistral-small-4-b200x4-vllm-fp4-001`: Mistral Small 4 24B on 4×B200 with vLLM FP4 + chunked prefill. Documents the over-provisioned-compute pattern (24B model on 4× B200 = 62% utilization → 2× B200 or 4× H200 might be cheaper)
+
+### Stats
+- 315/315 site E2E pass (+8 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 36**, fused-kernel: 21, playbook: 24, **pattern: 21**, operator: 25, citation: 1, **tour: 6**
+- Build: 401 pages
+- Tour spectrum: edge (Jetson) · single-node (H200, Gaudi 3, B200) · cluster mixed (H100/H200 disagg) · super-pod (CloudMatrix 384, NVL72) · TPU pod
+
+### Validated
+- v1.24 data-driven tour infrastructure scales: each new tour was pure YAML, no astro/TypeScript changes needed
+- Tours index auto-discovered the 2 new entries with no code changes
 
 ---
 
