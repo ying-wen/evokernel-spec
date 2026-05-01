@@ -1,0 +1,91 @@
+id: index-put
+name: Index-Put (KV cache write — the unsung hero of paged attention)
+category: memory
+
+flops_formula: '0 (pure memory write)'
+bytes_formula: 'batch * num_heads * head_dim * 2 (one write per K, one per V)'
+arithmetic_intensity_formula: '0 (pure bandwidth)'
+arithmetic_intensity_typical:
+  min: 0.0001
+  max: 0.001
+  notes: 'Pure memory store. Critical for understanding paged attention performance — page-table overhead lives here.'
+
+description: |
+  Index-Put is the kernel that **writes new KV cache entries** during decode.
+  At each generation step, the model produces 1 new (K, V) per layer per head;
+  these need to land in the right slot in the paged KV cache so subsequent
+  attention can find them.
+
+  Sounds trivial — it's not. Index-Put performance dominates decode throughput
+  for several reasons:
+
+  ## Why this op matters
+
+  1. **Page table indirection**: PagedAttention stores KV in non-contiguous
+     pages (typically 16-256 token blocks). Index-Put has to look up the
+     page-table to find where to write — an extra random access per token.
+
+  2. **Strided writes**: K and V layouts (NHD vs HND vs paged-block-major)
+     determine whether writes are coalesced or scattered. Wrong layout → 50%
+     bandwidth penalty.
+
+  3. **Quantization on write**: when KV cache is INT8 or FP8, Index-Put must
+     also quantize the BF16 K/V to the cache format. This is fused as
+     `fused-kv-quant` in production.
+
+  4. **Concurrent decode**: continuous batching has many sessions writing KV
+     simultaneously. Each session writes to its own page sequence — write
+     contention is rare but does happen at very high concurrency.
+
+  ## Companion: Index-Select
+
+  Reading from the KV cache during attention is `index-select`: gather the
+  right K/V slices given the page table. We don't catalog index-select as a
+  separate op because it's almost always fused into attention kernels
+  (FlashAttn-3 / FlashMLA / PagedAttention all subsume the gather).
+
+  ## Performance characteristics
+
+  - **Decode hot path**: every layer × every step does 1 index-put per head.
+    For 70B model with 32 layers × 8 KV heads, that's 256 writes per token.
+    Aggregate bandwidth: ~50-100 MB per token at BF16; ~25-50 MB at INT8.
+  - **HBM bandwidth utilization**: poorly-implemented index-put leaves 30-40%
+    HBM bandwidth on the table. vLLM/SGLang / TRT-LLM all spend significant
+    engineering on this kernel.
+
+variants: [contiguous-write, paged-write, paged-write-quantized, scattered-multi-session]
+
+fusion_targets: [quantize-dequantize, paged-attention]
+participates_in_fused_kernels:
+  - paged-attention-decode
+  - fused-kv-quant
+  - mooncake-kv-disaggregation
+
+engine_implementations:
+  - name: vLLM PagedAttention writer
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm
+  - name: TRT-LLM paged KV cache writer
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+  - name: SGLang Flashinfer KV cache
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: MindIE Ascend paged KV writer
+    engine_id: mindie
+    hardware_arch: [ascend-910c, ascend-910d]
+    url: https://www.hiascend.com/document/detail/zh/mindie
+
+precision_support: [bf16, fp16, fp8-e4m3, int8, int4-awq]
+
+related_patterns: [paged-attention, kv-cache-int8, hot-cold-kv-tiering]
+
+references:
+  - title: 'PagedAttention paper (vLLM, 2023)'
+    url: https://arxiv.org/abs/2309.06180
+    source_type: paper
+  - title: 'vLLM PagedAttention implementation'
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/cache_kernels.cu
+    source_type: implementation

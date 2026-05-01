@@ -1,0 +1,91 @@
+id: online-softmax
+name: Online Softmax (numerically stable streaming softmax — FlashAttention building block)
+category: attention
+
+flops_formula: '5 * N (1 max + 1 exp + 1 div + 2 sum, all per-element)'
+bytes_formula: 'N (one read + one write streaming)'
+arithmetic_intensity_formula: '5'
+arithmetic_intensity_typical:
+  min: 0.5
+  max: 4.0
+  notes: 'Memory-bound. The whole point of online softmax is to fuse with attention so this op never materializes inputs to HBM.'
+
+description: |
+  Online softmax is the algorithmic core of FlashAttention. Standard softmax
+  needs 3 passes over the input array (find max, exponentiate-and-sum, divide),
+  which means materializing the full QK^T attention matrix (size O(N²)) to HBM.
+  For N=8K context, that's 64M elements × 4 bytes = 256 MB per attention head —
+  unacceptable.
+
+  **Online softmax** computes softmax in **a single streaming pass** by
+  tracking running (max, sum) state as it sees each element. The math:
+  ```
+  m_new = max(m_old, x)
+  s_new = s_old * exp(m_old - m_new) + exp(x - m_new)
+  ```
+  This lets attention be computed **tile-by-tile** without ever materializing
+  the full attention matrix — the FlashAttention memory savings come from this
+  algorithmic property, not from kernel fusion alone.
+
+  ## Why this matters
+
+  - **Without online softmax**: attention is O(N²) HBM-bound, prefill on long
+    context is dominated by softmax I/O, not compute.
+  - **With online softmax** (FlashAttn): attention is compute-bound (HBM I/O =
+    O(N) instead of O(N²)). 100K context becomes deployable.
+
+  ## Numerical stability
+
+  The "max subtraction" trick (subtract running max before exp) is what makes
+  online softmax numerically stable. Without it, exp(x) overflows for x > ~89
+  in FP32, much earlier in FP16/BF16. Online algorithm preserves this property
+  while streaming.
+
+  ## In FP8 / FP4 attention
+
+  Online softmax in FlashAttn-3 keeps **softmax statistics (m, s) in FP32** even
+  when QK^T is computed in FP8. This is the "FP8 attention with FP32 softmax
+  accumulator" trick — preserves accuracy while still getting FP8 GEMM speed
+  for the dot products.
+
+variants: [classic-online, log-sum-exp, fp8-with-fp32-stat]
+
+fusion_targets: [attention, scaled-dot-product-attention]
+participates_in_fused_kernels:
+  - flash-attention-v3
+  - flash-decoding
+  - flash-mla
+  - paged-attention-decode
+  - fused-attn-sliding-window
+  - fused-quantized-attention
+
+engine_implementations:
+  - name: FlashAttention-3 (Hopper-optimized, async TMA)
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/Dao-AILab/flash-attention
+    notes: 'Online softmax in FP32, QK^T in FP8 — best-of-both numerical / speed tradeoff'
+  - name: FlashAttention-2 (Ampere/Ada)
+    hardware_arch: [ampere, ada]
+    url: https://github.com/Dao-AILab/flash-attention
+  - name: xFormers memory-efficient attention
+    hardware_arch: [ampere, ada, hopper]
+    url: https://github.com/facebookresearch/xformers
+  - name: Flashinfer
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://github.com/flashinfer-ai/flashinfer
+    notes: 'SGLang backend; particularly tuned for paged attention + decode'
+
+precision_support: [bf16, fp16, fp32, fp8-e4m3]
+
+related_patterns: [flashattention-v3, ring-attention-long-context]
+
+references:
+  - title: 'Self-attention does not need O(n²) memory (Rabe & Staats, 2021)'
+    url: https://arxiv.org/abs/2112.05682
+    source_type: paper
+  - title: 'FlashAttention paper (Dao et al., 2022) — online softmax adapted to GPUs'
+    url: https://arxiv.org/abs/2205.14135
+    source_type: paper
+  - title: 'FlashAttention-3 with FP8'
+    url: https://arxiv.org/abs/2407.08608
+    source_type: paper

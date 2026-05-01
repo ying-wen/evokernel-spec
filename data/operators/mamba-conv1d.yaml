@@ -1,0 +1,99 @@
+id: mamba-conv1d
+name: Mamba Causal 1D Convolution (companion to selective-scan in SSM models)
+category: misc
+
+flops_formula: '2 * batch * seq * d_model * conv_kernel_size'
+bytes_formula: 'batch * seq * d_model * 3 (x, conv weights, output)'
+arithmetic_intensity_formula: '2 * conv_kernel_size / 3'
+arithmetic_intensity_typical:
+  min: 1.0
+  max: 4.0
+  notes: 'Conv kernel size in Mamba is typically 4 (very narrow). Memory-bound at this size — far less compute than attention but more than RMSNorm.'
+
+description: |
+  Mamba and other state-space models (SSMs) replace transformer attention with
+  two paired operators: **selective-scan** (the recurrent state update, see
+  `selective-scan` in this catalog) and **causal 1D convolution** (a small
+  local-context filter applied to the input before the scan).
+
+  ## What it does
+
+  For each input vector `x[t]` in a sequence, conv1d outputs:
+  ```
+  y[t] = sum(W[k] * x[t - k] for k in 0..K-1)
+  ```
+  where K is the convolution kernel size (typically 4 in Mamba), and the
+  causality constraint ensures `y[t]` depends only on `x[t], x[t-1], ..., x[t-K+1]`.
+
+  Conceptually, this gives the SSM a *local* receptive field on top of its
+  *global* recurrent state. Without conv1d, Mamba would have similar
+  generalization issues to a pure RNN (no local feature extraction). With
+  conv1d, it captures n-gram-style local patterns plus long-range state.
+
+  ## Performance characteristics
+
+  - **Per-step compute**: 2 × d_model × kernel_size FLOPs per token
+    (~33K FLOPs/token for d_model=4096, K=4). This is ~1000x less than
+    attention but still nontrivial.
+  - **Memory pattern**: streaming read of past K-1 input vectors + new input.
+    During decode, this becomes a small ring buffer (O(K) state per layer).
+  - **Fusion opportunities**: typically fused with the SiLU activation that
+    follows it in Mamba blocks (`fused-conv-norm-act` covers the general
+    pattern). Some implementations also fuse with the projection that feeds
+    selective-scan.
+
+  ## In hybrid models
+
+  MiniMax M2.7, Jamba, Zamba, and other hybrid SSM/attention models still use
+  conv1d in their SSM blocks. Hybrid blocks typically share one conv1d per SSM
+  block; attention blocks don't have it. Profiling-wise, conv1d shows up
+  proportional to the SSM/attention ratio.
+
+  ## Related: `selective-scan`
+
+  Conv1d alone does not make a Mamba block — it pairs with selective-scan
+  which integrates the conv-filtered features into the recurrent state. See
+  the `selective-scan` operator entry for the recurrent half. The two ops are
+  almost always profiled together.
+
+variants: [causal-1d, depthwise-1d, hybrid-block-conv]
+
+fusion_targets: [silu, swiglu, layer-norm, rmsnorm]
+participates_in_fused_kernels:
+  - fused-conv-norm-act
+  - fused-selective-scan
+
+engine_implementations:
+  - name: Mamba reference implementation
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/state-spaces/mamba
+    notes: 'Original Mamba paper + reference CUDA kernels'
+  - name: vLLM Mamba support
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.vllm.ai/en/latest/models/supported_models.html
+    notes: 'Mamba / Mamba2 / Jamba supported in vLLM 0.6+'
+  - name: TRT-LLM hybrid SSM
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/
+    notes: 'TRT-LLM 0.13+ has hybrid SSM/attention path for MiniMax M-series'
+  - name: Causal-conv1d CUDA library
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/Dao-AILab/causal-conv1d
+    notes: "Tri Dao's optimized causal-1D conv kernel — used by Mamba reference impl"
+
+precision_support: [bf16, fp16, fp8-e4m3, fp32]
+
+related_patterns: [sliding-window-attention]
+
+references:
+  - title: 'Mamba: Linear-Time Sequence Modeling with Selective State Spaces'
+    url: https://arxiv.org/abs/2312.00752
+    source_type: paper
+  - title: 'Mamba-2: Transformers are SSMs'
+    url: https://arxiv.org/abs/2405.21060
+    source_type: paper
+  - title: 'Jamba: A Hybrid Transformer-Mamba Model'
+    url: https://arxiv.org/abs/2403.19887
+    source_type: paper

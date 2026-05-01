@@ -1,0 +1,98 @@
+id: block-quantize
+name: Block Quantize (FP8/FP4 block-scaling — the granularity that makes low-bit work)
+category: misc
+
+flops_formula: '2 * N (1 max + 1 div per element, per block)'
+bytes_formula: 'N + N / block_size'
+arithmetic_intensity_formula: '2'
+arithmetic_intensity_typical:
+  min: 0.1
+  max: 1.0
+  notes: 'Memory-bound. Almost always fused with the upstream op (RMSNorm, GEMM epilogue) — never run standalone.'
+
+description: |
+  Block quantization is the *quantization granularity* that makes FP8 / FP4 /
+  INT8 actually work for transformer inference. Tensor-wide quantization (one
+  scale for the whole tensor) loses too much precision; per-element scales add
+  too much metadata. **Per-block scales** (typically 32 or 128 elements per
+  scale) is the sweet spot.
+
+  ## The math
+
+  For a block of K elements:
+  ```
+  scale = max(|x_i|) / max_representable_value
+  x_quant_i = round(x_i / scale)  # in FP4/FP8/INT8 representation
+  ```
+  Stored format: `[K quantized values][1 scale value]`. Scale is typically FP8
+  (NVFP4 path) or FP32 (INT8 path). Decode reverses with `x = x_quant * scale`.
+
+  ## Why blocks (not per-tensor or per-element)
+
+  - **Per-tensor (1 scale total)**: outliers blow up the scale, most elements
+    get rounded to 0. MMLU drops 5-10 points on 7B models with FP8 per-tensor.
+  - **Per-element (1 scale each)**: 100% memory overhead, defeats purpose of
+    quantization.
+  - **Per-block (1 scale per K=32 or K=128 elements)**: outliers stay in their
+    own block; ~3% memory overhead. Quality matches BF16 within 0.3 pt MMLU.
+
+  ## Format families
+
+  - **NVFP4** (NVIDIA, Blackwell native): block_size=16, scale in FP8 E4M3
+  - **MXFP4** (OCP standard): block_size=32, scale in 8-bit power-of-2
+  - **MXFP8**: block_size=32, FP8 E4M3 elements, FP8 E5M2 scale
+  - **GPTQ-INT4**: block_size=128 (group size), per-group scale + zero-point
+  - **AWQ-INT4**: same shape as GPTQ but different calibration
+
+  ## Standalone vs fused
+
+  Block-quantize is almost never run as a standalone kernel — it's fused with
+  the upstream op (RMSNorm output, GEMM epilogue, attention output projection).
+  Standalone quant pass adds an extra HBM round-trip that defeats the point of
+  quantizing in the first place.
+
+variants: [nvfp4, mxfp4, mxfp8, gptq-int4, awq-int4, per-token, per-channel]
+
+fusion_targets: [matmul, rmsnorm, layer-norm, attention, scaled-dot-product-attention]
+participates_in_fused_kernels:
+  - fused-rmsnorm-residual-quantize
+  - fused-quantized-attention
+  - fused-dequant-gemm
+  - fused-kv-quant
+
+engine_implementations:
+  - name: NVIDIA TransformerEngine (FP8 / NVFP4)
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://github.com/NVIDIA/TransformerEngine
+    notes: 'Most-used FP8 quantization path; tight Hopper/Blackwell tensor-core integration'
+  - name: vLLM AWQ-INT4 / GPTQ-INT4 path
+    engine_id: vllm
+    hardware_arch: [hopper, blackwell, ada, ampere, cdna3]
+    url: https://docs.vllm.ai/en/latest/quantization/index.html
+  - name: TRT-LLM W4A16 / FP4 plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/reference/precision.html
+  - name: MindIE INT8 calibration toolkit
+    engine_id: mindie
+    hardware_arch: [ascend-910c, ascend-910d]
+    url: https://www.hiascend.com/document/detail/zh/canncommercial/
+  - name: AutoRound (Intel + AMD)
+    hardware_arch: [hopper, ada, cdna3, blackwell]
+    url: https://github.com/intel/auto-round
+    notes: 'Calibration-free per-channel quantization'
+
+precision_support: [fp4, fp8-e4m3, fp8-e5m2, int8, int4-awq, int4-gptq]
+
+related_patterns: [fp4-weight-only-quant, kv-cache-int8, memory-bound-decode-prefer-int8, quant-aware-finetune]
+
+references:
+  - title: 'OCP Microscaling (MX) Format Specification'
+    url: https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
+    source_type: docs
+  - title: 'AWQ: Activation-aware Weight Quantization'
+    url: https://arxiv.org/abs/2306.00978
+    source_type: paper
+  - title: 'GPTQ: Accurate Post-Training Quantization'
+    url: https://arxiv.org/abs/2210.17323
+    source_type: paper

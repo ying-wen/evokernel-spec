@@ -1,0 +1,82 @@
+id: lora-bgmv
+name: LoRA BGMV (Batched Grouped Matrix-Vector for multi-tenant LoRA serving)
+category: matmul
+
+flops_formula: '2 * batch * rank * (input_dim + output_dim)'
+bytes_formula: 'batch * (input_dim + output_dim) + active_loras * 2 * rank * (input_dim + output_dim)'
+arithmetic_intensity_formula: 'rank * 2 / (1 + active_loras / batch)'
+arithmetic_intensity_typical:
+  min: 1.0
+  max: 16.0
+  notes: 'Bandwidth-bound for typical rank=8-64 + ~16 active LoRAs per batch. Bigger rank or fewer LoRAs → more compute-bound.'
+
+description: |
+  BGMV (Batched Grouped Matrix-Vector) is the kernel that makes multi-tenant
+  LoRA serving fast. The naive approach to serving N LoRAs on a single base
+  model is to either (a) run N separate inference passes, or (b) merge each
+  LoRA into base weights (which destroys the multiplexing benefit).
+
+  BGMV instead **batches requests with different LoRAs** in a single forward
+  pass. For each token in the batch, it does:
+  ```
+  output[i] = base_weight @ input[i] + lora_B[adapter_id[i]] @ (lora_A[adapter_id[i]] @ input[i])
+  ```
+  Different rows of `output` may use different LoRA adapters. The kernel uses
+  `gather`-style indexing into a stacked LoRA tensor (shape: [num_loras, rank, hidden_dim])
+  so each token gets its assigned adapter at near-zero overhead.
+
+  ## Why BGMV is the key
+
+  Without BGMV: serving 100 LoRAs requires either 100 separate batches (3-5%
+  GPU utilization each) or 100 separate model copies (impossible at scale).
+
+  With BGMV (Punica / S-LoRA / vLLM 0.6+): all 100 LoRAs share the base model
+  HBM, requests with different LoRAs batch together, GPU stays at 60-80% util.
+
+  ## Performance characteristics
+
+  - **Bandwidth-bound** for typical workloads (rank=8-64, 16 active LoRAs in batch).
+    HBM reads: base weights once, then for each token gather rank-sized LoRA slice.
+  - **Compute scaling**: BGMV adds ~5-10% throughput overhead vs single-LoRA serving.
+    At 100+ active LoRAs, throughput penalty grows but is still cheaper than separate models.
+  - **Cold LoRA swap**: when an adapter not in HBM is needed, ~50-200 ms swap from
+    host RAM. Production systems keep top-K most-recently-used in HBM.
+
+variants: [punica, s-lora, vllm-multi-lora]
+
+fusion_targets: [matmul]
+participates_in_fused_kernels: []
+
+engine_implementations:
+  - name: vLLM multi-LoRA path
+    engine_id: vllm
+    hardware_arch: [hopper, ada, blackwell, ampere, cdna3]
+    url: https://docs.vllm.ai/en/latest/features/lora.html
+    notes: 'Default BGMV implementation; --enable-lora --max-loras N --max-lora-rank R'
+  - name: Punica (NeurIPS 2024 reference impl)
+    hardware_arch: [hopper, ada]
+    url: https://github.com/punica-ai/punica
+    notes: 'Original BGMV kernel; CUDA-only, single GPU optimized'
+  - name: S-LoRA
+    hardware_arch: [hopper, ada]
+    url: https://github.com/S-LoRA/S-LoRA
+    notes: 'Extends Punica to thousands of LoRAs with LRU cache eviction'
+  - name: SGLang LoRA
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://docs.sglang.ai/
+
+precision_support: [bf16, fp16, int8]
+
+related_patterns: [lora-adapter-multiplexing]
+
+references:
+  - title: 'Punica: Multi-Tenant LoRA Serving (NeurIPS 2024)'
+    url: https://arxiv.org/abs/2310.18547
+    source_type: paper
+  - title: 'S-LoRA: Serving Thousands of Concurrent LoRA Adapters'
+    url: https://arxiv.org/abs/2311.03285
+    source_type: paper
+  - title: 'vLLM multi-LoRA documentation'
+    url: https://docs.vllm.ai/en/latest/features/lora.html
+    source_type: docs

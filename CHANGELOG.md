@@ -6,7 +6,7 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.41+ horizon
+### v1.42+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
@@ -23,6 +23,33 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.41.0] — 2026-05-02
+
+**5 more operators** filling specific gaps where existing patterns / fused-kernels / playbooks reference building-block ops that didn't have explicit catalog entries. Operator count: 29 → 34.
+
+### Added
+
+**`lora-bgmv`** — Batched Grouped Matrix-Vector. The kernel that makes Punica / S-LoRA / vLLM multi-LoRA serving fast. Referenced by `lora-adapter-multiplexing` pattern (v1.31) but had no catalog entry until now.
+
+**`online-softmax`** — The numerically-stable streaming softmax that's the algorithmic core of FlashAttention. Explains *why* FlashAttn-3 is fast (single-pass tile-by-tile, vs 3-pass standard softmax). Critical for understanding long-context attention.
+
+**`block-quantize`** — Block-wise scaling (per K=16/32/128 elements) that makes FP4/FP8/INT8 quantization actually work. Tensor-wide scales lose precision; per-element adds metadata; per-block is the sweet spot. Documents NVFP4 / MXFP4 / GPTQ-INT4 / AWQ-INT4 format families.
+
+**`index-put`** — KV cache write primitive. Underappreciated — page-table indirection + strided writes + quantization-on-write make this op a real production bottleneck. Catalog entry explains why decode-stage HBM bandwidth utilization correlates with index-put kernel quality.
+
+**`mamba-conv1d`** — Companion to `selective-scan` for SSM/Mamba models. Causal 1D convolution with kernel size ~4 captures local features; selective-scan handles global state. Both ops together = a Mamba block. Now hybrid SSM/attention models (MiniMax M2.7, Jamba, Zamba) have proper operator decomposition.
+
+### Why these specifically
+Each was *referenced* by existing surfaces (patterns, fused-kernels, playbooks, model architecture docs) but didn't have its own catalog entry. The fusion-graph (v1.38) was specifically designed to surface these data-completeness gaps via "single-direction declarations" — running it after this iteration shows fewer red dashed edges.
+
+### Stats
+- 434/434 site E2E pass (+7 new) · 36/36 unit pass
+- Build: 445 pages
+- **Operator count: 34 (was 29)**
+- Fusion graph nodes: 58 (was 53), edges: 99 (was 84)
 
 ---
 

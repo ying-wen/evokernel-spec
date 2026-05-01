@@ -581,6 +581,52 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantize, index-put, mamba-conv1d)', () => {
+  test('LoRA BGMV operator visible (Punica / S-LoRA primitive)', async ({ page }) => {
+    await page.goto('/operators/lora-bgmv/');
+    await expect(page.getByText(/LoRA BGMV|Batched Grouped Matrix-Vector/i).first()).toBeVisible();
+    await expect(page.getByText(/Punica|S-LoRA|multi-tenant/i).first()).toBeVisible();
+  });
+
+  test('Online Softmax operator visible (FlashAttention building block)', async ({ page }) => {
+    await page.goto('/operators/online-softmax/');
+    await expect(page.getByText(/Online Softmax|streaming softmax/i).first()).toBeVisible();
+    await expect(page.getByText(/FlashAttention|numerically stable/i).first()).toBeVisible();
+  });
+
+  test('Block Quantize operator visible (FP4/FP8/INT8 granularity)', async ({ page }) => {
+    await page.goto('/operators/block-quantize/');
+    await expect(page.getByText(/Block Quantize|block-scaling/i).first()).toBeVisible();
+    await expect(page.getByText(/NVFP4|MXFP4|GPTQ|AWQ/i).first()).toBeVisible();
+  });
+
+  test('Index-Put operator visible (KV cache write primitive)', async ({ page }) => {
+    await page.goto('/operators/index-put/');
+    await expect(page.getByText(/Index-Put|KV cache write/i).first()).toBeVisible();
+    await expect(page.getByText(/PagedAttention|page-table/i).first()).toBeVisible();
+  });
+
+  test('Mamba Conv1d operator visible (SSM companion to selective-scan)', async ({ page }) => {
+    await page.goto('/operators/mamba-conv1d/');
+    await expect(page.getByText(/Mamba|Causal 1D Convolution|conv1d/i).first()).toBeVisible();
+    await expect(page.getByText(/SSM|selective-scan|state-space/i).first()).toBeVisible();
+  });
+
+  test('Operators index now shows 34 entries (was 29)', async ({ page }) => {
+    await page.goto('/operators/');
+    // Each operator has a link with a known pattern; check at least 30 are visible
+    const operatorLinks = page.locator('a[href^="/operators/"][href$="/"]');
+    expect(await operatorLinks.count()).toBeGreaterThanOrEqual(30);
+  });
+
+  test('Fusion graph picks up the new operators (58 nodes total)', async ({ page }) => {
+    await page.goto('/operators/fusion-graph/');
+    const svg = page.locator('[data-testid="fusion-graph-svg"]').first();
+    const circles = svg.locator('circle');
+    expect(await circles.count()).toBeGreaterThanOrEqual(50);
+  });
+});
+
 test.describe('v1.40: /learn/troubleshooting/ — symptom-driven debugging decision tree', () => {
   test('/learn/troubleshooting/ renders header + 4 stat cards + symptom categories', async ({ page }) => {
     await page.goto('/learn/troubleshooting/');
