@@ -6,8 +6,44 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
+### Planned (v1.18: impact metrics surface)
+- GitHub stars button (client-side fetch, one-click star from site)
+- Visitor analytics (privacy-friendly, no cookies — Plausible-style)
+- Adoption metrics: cases submitted, playbooks used, last contributor
+- Public metrics dashboard at /impact/
+- Citation tracker: papers/blogs that link to the site
+
+---
+
+## [1.17.0] — 2026-05-01
+
+Failure-modes drilldown — surfaces production gotchas as a quick-lookup guide organized by 7-stage pipeline. + Coverage matrix density push.
+
 ### Added
-- (next iteration TBD)
+
+**`/learn/deployment-failures/` failure-modes guide** (NEW educational page):
+- Aggregates `issues_encountered` from all **27 cases** organized by 7-stage pipeline (acquire → convert → quantize → compile → shard → serve → observe)
+- Stage-keyword classifier maps each issue to the most-likely stage by content
+- Cross-links: each stage → relevant playbooks; each issue → source case + bottleneck + hardware
+- Contribute CTA explains how to PR `issues_encountered` into existing case YAMLs
+- Closes a long-standing UX gap: "what should I worry about going wrong?" was scattered across 27 case-detail pages; now one queryable index
+
+**3 more playbooks** (19 → 22, coverage matrix density up):
+- `multi-modal-on-cdna3-cluster`: Llama 4 Maverick on MI300X/MI325X with mixed-TP + vision-encoder fusion
+- `long-context-on-blackwell-superpod`: 10M context Behemoth on GB200/GB300 NVL72 with Ring-attention + FP4 weights
+- `dense-llm-medium-on-ascend-cluster`: 70B-class on Atlas 800T (910C/910D), MindIE 2.0, 国央企 国产替代 path
+
+**2 more cases** (25 → 27):
+- `llama4-maverick-on-gb200-nvl72`: compute-bound on Blackwell FP4 + disaggregated prefill/decode
+- `qwen25-7b-on-jetson-orin`: edge deployment, llama.cpp Q4_K_M INT4 — pushes the deployment story to Jetson-class hardware
+
+**1 more fused-kernel** (15 → 16):
+- `fused-tp-allreduce-residual`: zero-bubble RS+AG (reduce-scatter overlapped with all-gather) with SHARP/NVSwitch in-network reduction. Closes the TP-comm-overlap gap that limited multi-GPU dense scaling.
+
+### Stats
+- 246/246 site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 27**, fused-kernel: 16, **playbook: 22**, pattern: 21
+- Build: 344 pages
 
 ---
 
