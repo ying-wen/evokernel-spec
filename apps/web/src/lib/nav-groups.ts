@@ -102,6 +102,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/servers/storage-matrix/', labelKey: 'nav.storageMatrix', desc_zh: '存储架构矩阵 · GDS / Lustre / Weka / OceanStor', desc_en: 'Storage matrix · GDS / Lustre / Weka / OceanStor' },
       { path: '/servers/cluster-internals/', labelKey: 'nav.clusterInternals', desc_zh: '集群内部架构总览 · 三轴 per-pod 速览 (compute/fabric/storage)', desc_en: 'Cluster internals overview · 3-axis per-pod summary' },
       { path: '/pricing/', labelKey: 'nav.pricing', desc_zh: '$ / M tokens 排名 · 自动从案例计算', desc_en: '$/M tokens ranking · auto-computed from cases' },
+      { path: '/pricing/by-engine/', labelKey: 'nav.pricingByEngine', desc_zh: '按引擎对照成本 · vLLM vs SGLang vs MindIE on same hw', desc_en: 'Pricing by engine · vLLM vs SGLang vs MindIE on same hw' },
       { path: '/showcase/', labelKey: 'nav.showcase', desc_zh: '精选发现 · 数据告诉我们什么', desc_en: 'Showcase · what the data tells us', theme: 'accent' }
     ]
   },

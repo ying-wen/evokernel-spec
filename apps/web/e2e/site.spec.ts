@@ -581,6 +581,44 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.36: /pricing/by-engine/ — per-engine cost calibration matrix', () => {
+  test('/pricing/by-engine/ renders header + 4 stat cards + engine summary + h2h matrix', async ({ page }) => {
+    await page.goto('/pricing/by-engine/');
+    await expect(page.getByRole('heading', { name: /按引擎对照成本|Pricing by Engine/i }).first()).toBeVisible();
+    await expect(page.locator('[data-testid="bye-stat-engines"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="bye-stat-cells"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="bye-stat-multi"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="engine-summary"]').first()).toBeVisible();
+  });
+
+  test('Engine summary table ranks at least 3 engines (vLLM + SGLang + …) by median $/M tok', async ({ page }) => {
+    await page.goto('/pricing/by-engine/');
+    const ranks = page.locator('[data-testid^="engine-rank-"]');
+    expect(await ranks.count()).toBeGreaterThanOrEqual(3);
+    // vLLM should be among them given how many cases use it
+    await expect(page.locator('[data-testid="engine-rank-vllm"]').first()).toBeVisible();
+  });
+
+  test('Engine summary first row marked with ★ (cheapest median)', async ({ page }) => {
+    await page.goto('/pricing/by-engine/');
+    const summary = page.locator('[data-testid="engine-summary"]').first();
+    await expect(summary).toContainText(/★/);
+  });
+
+  test('Tools dropdown contains the new pricing/by-engine link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="tools"]').first();
+    await expect(dd.locator('a[href*="/pricing/by-engine"]').first()).toHaveCount(1);
+  });
+
+  test('Page educates on why engine choice affects cost (4 trade-off cards)', async ({ page }) => {
+    await page.goto('/pricing/by-engine/');
+    await expect(page.getByText(/为什么引擎选择影响成本/i).first()).toBeVisible();
+    await expect(page.getByText(/PagedAttention|RadixAttention|TRT-LLM/).first()).toBeVisible();
+    await expect(page.getByText(/国产硬件|MindIE/).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.35: FLUX.1 [dev] diffusion tour (closes diffusion archetype gap, schema generalizes to non-LLM)', () => {
   test('FLUX.1 [dev] model detail page renders without crash (diffusion-family)', async ({ page }) => {
     await page.goto('/models/flux-1-dev/');

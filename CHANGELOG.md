@@ -6,7 +6,7 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.36+ horizon
+### v1.37+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
@@ -15,9 +15,8 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - More tours (Kimi K2.6 reasoning on B200, GPT-OSS on Atlas, SD3/Flux video)
 
 **Tier 2 (medium-leverage)**:
-- Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE)
 - Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
-- Operator → fused-kernel DAG visualization
+- Operator → fused-kernel DAG visualization (force-directed beyond the table)
 - Public submission portal (web-form-to-PR)
 - Citation auto-import (Twitter/X mentions, GitHub backlinks, arxiv)
 
@@ -26,6 +25,32 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.36.0] — 2026-05-02
+
+**Per-engine cost calibration matrix** — `/pricing/` ranks (model × hardware) cells globally. v1.36 adds engine as the third axis: "is SGLang cheaper than vLLM on H200 for Llama 4 Scout?" The data already exists per-case; this view reorganizes it for engine-comparison decisions.
+
+### Added
+
+**`/pricing/by-engine/`** (NEW comparison view):
+- 4 stat cards: engines covered / (model × hw) cells / cells with ≥2 engines / total cases
+- **Engine cost ranking table**: ranks each engine by median $/M tokens across covered cells, shows lowest-cost case per engine. ★ marks the cheapest median.
+- **Head-to-head matrix**: cells where ≥2 engines have data. For each (model × hw) cell, shows side-by-side cards per engine with $/M tok + case counts + ★ on the cheapest.
+- 4 educational cards explaining why engine choice affects cost (kernel optimization depth, scheduling strategy, quantization maturity, 国产 hardware lock-in)
+- Reuses the same TCO formula as `/pricing/` (HW rent + power × PUE / token throughput) — comparable numbers
+- Empty-cells case: surfaces the "single-engine cells" problem as a contribution opportunity
+
+**Nav wiring**: Tools dropdown gains a 9th item — Pricing by engine (alongside calculator / capacity-planner / compare / 3 matrices / cluster-internals / pricing / showcase).
+
+### Why this is needed
+Most production deployers pick an engine for non-cost reasons (familiarity, ecosystem fit, support contracts). But cost differences are real (10-30% in observed cases) and previously invisible. v1.36 surfaces the comparison; readers can audit whether their engine choice is paying a cost premium they don't need to.
+
+### Stats
+- 402/402 site E2E pass (+5 new) · 36/36 unit pass
+- Build: 431 pages
+- Tools dropdown count: 9 items (was 8)
 
 ---
 

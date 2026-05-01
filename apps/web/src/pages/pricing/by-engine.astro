@@ -1,0 +1,345 @@
+---
+/**
+ * /pricing/by-engine/ — per-engine cost calibration matrix.
+ *
+ * /pricing/ ranks (model × hardware) cells globally. This page adds engine
+ * as the third axis — answering "is SGLang cheaper than vLLM on H200 for
+ * Llama 4 Scout?" The data comes from the same case corpus; this surface
+ * groups it differently.
+ *
+ * Layout: rows = engine, columns = (model × hardware) cell. Each cell shows
+ * $/M tokens median across cases on that combo. Empty cells = no case data
+ * yet (encourages contribution).
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getResolvedHardware, getCases, getEngines, getModels } from '~/lib/data';
+
+const [hardware, cases, engines, models] = await Promise.all([
+  getResolvedHardware(), getCases(), getEngines(), getModels()
+]);
+
+// TCO knobs identical to /pricing/ — keeps the math comparable
+const HW_RENT_USD_PER_HOUR_PER_CARD = 2.5;
+const POWER_USD_PER_KWH = 0.10;
+const PUE = 1.3;
+
+interface CellEntry {
+  caseId: string;
+  caseTitle: string;
+  costPerM: number;
+  precision: string;
+  decodeTokSCard: number;
+}
+
+// Map: "engineId|modelId|hwId" → list of CellEntry
+const rawCells = new Map<string, CellEntry[]>();
+for (const c of cases) {
+  const hw = hardware.find((h) => h.id === c.stack.hardware.id);
+  if (!hw) continue;
+  const decodePerCard = c.results.throughput_tokens_per_sec.decode / Math.max(c.stack.hardware.count, 1);
+  if (decodePerCard <= 0) continue;
+  const tdpW = hw.power.tdp_w?.value ?? 700;
+  const tokensPerHour = decodePerCard * 3600;
+  const hwHourlyCost = HW_RENT_USD_PER_HOUR_PER_CARD;
+  const powerHourlyCost = ((tdpW * PUE) / 1000) * POWER_USD_PER_KWH;
+  const totalHourlyCost = hwHourlyCost + powerHourlyCost;
+  const costPerM = (totalHourlyCost / tokensPerHour) * 1_000_000;
+  const key = `${c.stack.engine.id}|${c.stack.model.id}|${c.stack.hardware.id}`;
+  if (!rawCells.has(key)) rawCells.set(key, []);
+  rawCells.get(key)!.push({
+    caseId: c.id,
+    caseTitle: c.title,
+    costPerM,
+    precision: c.stack.quantization,
+    decodeTokSCard: decodePerCard
+  });
+}
+
+// Per-engine summary: how many cells covered, median $/M, lowest $/M cell
+interface EngineSummary {
+  engineId: string;
+  cellCount: number; // distinct (model × hw) combos
+  medianCostPerM: number;
+  bestCase: { caseId: string; caseTitle: string; costPerM: number; modelId: string; hwId: string } | null;
+}
+
+const engineSummaries: EngineSummary[] = engines
+  .map((e) => {
+    const cellsForEngine = Array.from(rawCells.entries()).filter(([k]) => k.startsWith(`${e.id}|`));
+    if (cellsForEngine.length === 0) return null;
+    const allCosts: number[] = [];
+    let best: EngineSummary['bestCase'] = null;
+    for (const [key, entries] of cellsForEngine) {
+      const [, modelId, hwId] = key.split('|');
+      for (const e2 of entries) {
+        allCosts.push(e2.costPerM);
+        if (!best || e2.costPerM < best.costPerM) {
+          best = {
+            caseId: e2.caseId,
+            caseTitle: e2.caseTitle,
+            costPerM: e2.costPerM,
+            modelId,
+            hwId
+          };
+        }
+      }
+    }
+    allCosts.sort((a, b) => a - b);
+    const median = allCosts[Math.floor(allCosts.length / 2)];
+    return {
+      engineId: e.id,
+      cellCount: cellsForEngine.length,
+      medianCostPerM: median,
+      bestCase: best
+    };
+  })
+  .filter((x): x is EngineSummary => x !== null)
+  .sort((a, b) => a.medianCostPerM - b.medianCostPerM);
+
+// Cross-tab: engine rows × (model × hw) cell columns
+// Only show columns where at least one engine has data
+type CellKey = string; // "modelId|hwId"
+const cellKeys = new Set<CellKey>();
+for (const k of rawCells.keys()) {
+  const [, modelId, hwId] = k.split('|');
+  cellKeys.add(`${modelId}|${hwId}`);
+}
+const cellKeyList = Array.from(cellKeys).sort();
+
+interface Cell {
+  modelId: string;
+  hwId: string;
+  byEngine: Map<string, CellEntry[]>;
+  // Cheapest engine on this cell (for highlighting)
+  cheapestEngineId: string | null;
+  cheapestCostPerM: number | null;
+}
+
+const cells: Cell[] = cellKeyList.map((k) => {
+  const [modelId, hwId] = k.split('|');
+  const byEngine = new Map<string, CellEntry[]>();
+  for (const e of engines) {
+    const entries = rawCells.get(`${e.id}|${k}`) ?? [];
+    if (entries.length > 0) byEngine.set(e.id, entries);
+  }
+  let cheapest: { engineId: string; costPerM: number } | null = null;
+  for (const [eid, entries] of byEngine) {
+    const minCost = Math.min(...entries.map((x) => x.costPerM));
+    if (!cheapest || minCost < cheapest.costPerM) cheapest = { engineId: eid, costPerM: minCost };
+  }
+  return {
+    modelId,
+    hwId,
+    byEngine,
+    cheapestEngineId: cheapest?.engineId ?? null,
+    cheapestCostPerM: cheapest?.costPerM ?? null
+  };
+});
+
+// Cells where we have ≥2 engines (most interesting comparison)
+const cellsWithMultipleEngines = cells.filter((c) => c.byEngine.size >= 2);
+
+const modelById = new Map(models.map((m) => [m.id, m]));
+const hwById = new Map(hardware.map((h) => [h.id, h]));
+
+function formatCost(c: number): string {
+  return c.toFixed(2);
+}
+---
+<BaseLayout title="按引擎对照成本 / Pricing by Engine">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        PRICING · BY ENGINE
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        按引擎对照成本
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        <a href={pathname('/pricing/')} style="color: var(--color-accent);" class="hover:underline">/pricing/</a> 按
+        (model × hardware) 排成本; 这里加 <strong>引擎</strong> 作第三轴, 答 "vLLM vs SGLang vs MindIE
+        在同一张卡 / 同一模型上谁更便宜?" 数据来自同一个 case 集合. 空格 = 暂无数据 (鼓励贡献).
+        相同 (model × hardware) 下 <span style="color: var(--color-accent); font-weight: 600;">★</span> 标记最便宜的引擎.
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-lg border p-3" data-testid="bye-stat-engines" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{engineSummaries.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">引擎覆盖</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="bye-stat-cells" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{cells.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">(模型×硬件) 单元</div>
+        </div>
+        <div class="rounded-lg border p-3" data-testid="bye-stat-multi" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-surface-raised));">
+          <div class="text-2xl font-semibold tabular-nums" style="color: var(--color-accent);">{cellsWithMultipleEngines.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">≥2 引擎对照</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{cases.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">总案例数</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 1: per-engine summary leaderboard -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">1. 引擎成本排行 / Engine cost ranking</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        各引擎在覆盖的 (model × hardware) 单元上的中位 $/M tokens. 直接对比未必公平 — 不同引擎覆盖的
+        硬件 / 模型分布不同. 看具体单元里的 <span style="color: var(--color-accent); font-weight: 600;">★</span>
+        才是 apples-to-apples 比较.
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" style="border-collapse: collapse;" data-testid="engine-summary">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--color-border);">
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">排名</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">引擎</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">中位 $/M tok</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">覆盖 (model × hw) 单元</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">单价最低案例</th>
+            </tr>
+          </thead>
+          <tbody>
+            {engineSummaries.map((s, idx) => (
+              <tr style="border-bottom: 1px solid var(--color-border);" data-testid={`engine-rank-${s.engineId}`}>
+                <td class="py-3 px-4 font-mono" style="color: var(--color-text-muted);">{idx + 1}</td>
+                <td class="py-3 px-4 font-semibold" style="color: var(--color-text);">{s.engineId}</td>
+                <td class="py-3 px-4 tabular-nums" style={`color: ${idx === 0 ? 'var(--color-accent)' : 'var(--color-text)'}; font-weight: ${idx === 0 ? '600' : '400'};`}>
+                  ${formatCost(s.medianCostPerM)}{idx === 0 && <span class="ml-1">★</span>}
+                </td>
+                <td class="py-3 px-4 tabular-nums" style="color: var(--color-text-muted);">{s.cellCount}</td>
+                <td class="py-3 px-4 text-xs" style="color: var(--color-text-muted);">
+                  {s.bestCase ? (
+                    <a href={pathname(`/cases/${s.bestCase.caseId}/`)} class="hover:underline" style="color: var(--color-accent);">
+                      {s.bestCase.caseTitle.length > 50 ? s.bestCase.caseTitle.slice(0, 48) + '…' : s.bestCase.caseTitle}
+                      <span class="ml-2 font-mono">${formatCost(s.bestCase.costPerM)}</span>
+                    </a>
+                  ) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Section 2: head-to-head matrix -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <div class="flex items-baseline justify-between gap-2 flex-wrap mb-2">
+        <h2 class="text-2xl font-semibold">2. (模型 × 硬件) 单元里的 head-to-head</h2>
+        <span class="text-xs font-mono" style="color: var(--color-text-muted);">{cellsWithMultipleEngines.length} 多引擎单元</span>
+      </div>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        最公平的引擎对比: 锁定 (model × hardware) 单元, 看不同引擎在同一组合下的 $/M tok.
+        高亮 <span style="color: var(--color-accent); font-weight: 600;">★</span> 是该单元最便宜的引擎.
+      </p>
+
+      {cellsWithMultipleEngines.length === 0 ? (
+        <div class="rounded-lg border p-6 text-sm" style="border-color: var(--color-border); background: var(--color-surface-raised); color: var(--color-text-muted);">
+          暂无多引擎对照单元. 多数 (model × hardware) 组合只有 1 个引擎被实测过 — 这正是 evokernel-spec
+          需要更多社区贡献的方向. 通过 PR 添加现有 cell 的另一引擎案例可直接填这里.
+          <div class="mt-3"><a href={pathname('/contribute/')} style="color: var(--color-accent);" class="hover:underline">→ 贡献指南</a></div>
+        </div>
+      ) : (
+        <div class="space-y-4">
+          {cellsWithMultipleEngines.map((c) => {
+            const m = modelById.get(c.modelId);
+            const h = hwById.get(c.hwId);
+            return (
+              <div class="rounded-lg border p-4" data-testid={`h2h-${c.modelId}-${c.hwId}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                <div class="flex items-baseline gap-3 flex-wrap mb-3">
+                  <a href={pathname(`/models/${c.modelId}/`)} class="text-base font-semibold hover:underline" style="color: var(--color-text);">{m?.name ?? c.modelId}</a>
+                  <span style="color: var(--color-text-muted);">×</span>
+                  <a href={pathname(`/hardware/${c.hwId}/`)} class="text-base font-semibold hover:underline" style="color: var(--color-text);">{h?.name ?? c.hwId}</a>
+                </div>
+                <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+                  {Array.from(c.byEngine.entries()).map(([eid, entries]) => {
+                    const minCost = Math.min(...entries.map((e) => e.costPerM));
+                    const isCheapest = eid === c.cheapestEngineId;
+                    return (
+                      <div class="p-3 rounded border" style={`border-color: ${isCheapest ? 'var(--color-accent)' : 'var(--color-border)'}; background: ${isCheapest ? 'color-mix(in oklch, var(--color-accent) 6%, var(--color-bg))' : 'var(--color-bg)'};`}>
+                        <div class="flex items-baseline justify-between mb-1">
+                          <span class="font-semibold" style="color: var(--color-text);">{eid}</span>
+                          {isCheapest && <span style="color: var(--color-accent); font-weight: 600;">★</span>}
+                        </div>
+                        <div class="text-base tabular-nums" style={`color: ${isCheapest ? 'var(--color-accent)' : 'var(--color-text)'}; font-weight: ${isCheapest ? '600' : '500'};`}>
+                          ${formatCost(minCost)}<span class="text-xs ml-1" style="color: var(--color-text-muted);">/M tok</span>
+                        </div>
+                        {entries.length > 1 && (
+                          <div class="mt-1 text-[10px]" style="color: var(--color-text-muted);">
+                            ({entries.length} cases · range ${formatCost(Math.min(...entries.map((e) => e.costPerM)))} - ${formatCost(Math.max(...entries.map((e) => e.costPerM)))})
+                          </div>
+                        )}
+                        <div class="mt-1.5 space-y-0.5">
+                          {entries.slice(0, 3).map((e) => (
+                            <a href={pathname(`/cases/${e.caseId}/`)} class="block text-[11px] hover:underline" style="color: var(--color-text-muted);">
+                              · {e.precision} ({e.decodeTokSCard.toFixed(0)} tok/s/card)
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">为什么引擎选择影响成本</h2>
+      <div class="grid lg:grid-cols-2 gap-4 text-sm">
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">1. Kernel 优化深度差异</h3>
+          <p style="color: var(--color-text-muted);">
+            vLLM 的 PagedAttention / SGLang 的 RadixAttention / TRT-LLM 的 fused engine 在
+            同一硬件上 throughput 差 10-30%. 引擎 = kernel 路径 = 直接钱.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">2. 调度策略差异</h3>
+          <p style="color: var(--color-text-muted);">
+            Continuous batching / chunked prefill / disaggregated prefill 各引擎实现成熟度不同.
+            高 QPS 工作负载下, 调度器是瓶颈而非 GPU.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">3. 量化路径成熟度</h3>
+          <p style="color: var(--color-text-muted);">
+            FP8 / INT4-AWQ / FP4 calibration 在不同引擎上质量与速度 trade-off 不同. TRT-LLM 在 NVIDIA
+            硬件上量化路径最成熟; SGLang 在 RadixAttention 长 context 场景独占优势.
+          </p>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-sm font-semibold mb-2" style="color: var(--color-accent);">4. 国产硬件锁定</h3>
+          <p style="color: var(--color-text-muted);">
+            国产硬件 (Ascend / Cambricon / Moore Threads) 通常只有 1 个生产 engine 选择
+            (MindIE / vllm-ascend / 自研). 国央企部署成本对比时, 引擎不是变量, 硬件是.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          全部 (model × hw) 排成本走 <a href={pathname('/pricing/')} style="color: var(--color-accent);" class="hover:underline">/pricing/</a>;
+          想自己调假设走 <a href={pathname('/calculator/')} style="color: var(--color-accent);" class="hover:underline">/calculator/</a>;
+          想看引擎选择的全面决策走 <a href={pathname('/learn/picking-engine/')} style="color: var(--color-accent);" class="hover:underline">/learn/picking-engine/</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/pricing/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">所有 cell 排成本 →</a>
+          <a href={pathname('/learn/picking-engine/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">引擎选择指南 →</a>
+          <a href={pathname('/contribute/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">贡献多引擎案例 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>
