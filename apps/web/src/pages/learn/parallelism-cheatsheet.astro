@@ -1,0 +1,285 @@
+---
+/**
+ * Parallelism cheatsheet — TP × PP × EP × SP × Ring decision matrix.
+ *
+ * Pulls live data from data/parallel-strategies/*.yaml + data/playbooks/*.yaml
+ * + data/patterns/*.yaml so guidance stays in sync with the catalog.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getParallelStrategies, getPlaybooks, getPatterns } from '~/lib/data';
+
+const [strategies, playbooks, patterns] = await Promise.all([
+  getParallelStrategies(), getPlaybooks(), getPatterns()
+]);
+
+interface DecisionRow {
+  scenario_zh: string;
+  scenario_en: string;
+  recommended: string;
+  rationale: string;
+  related_patterns: string[];
+  related_playbooks: string[];
+  caveats?: string[];
+}
+
+// Decision matrix — encoded domain knowledge that ties together strategies +
+// patterns + playbooks. Each row is a deployment scenario with a concrete
+// parallelism recipe.
+const DECISION_MATRIX: DecisionRow[] = [
+  {
+    scenario_zh: '< 13B 单节点 (≤ 8 卡), 高吞吐 chat',
+    scenario_en: '< 13B single-node, high-throughput chat',
+    recommended: 'TP=8, PP=1, EP=1, SP=0',
+    rationale: '单节点 NVLink 域内 TP=8 是默认; 模型小不需要 PP/EP/SP. 走 vLLM/SGLang continuous batching 即可.',
+    related_patterns: ['continuous-batching', 'flashattention-v3', 'paged-attention'],
+    related_playbooks: ['dense-llm-medium-on-hopper-single-node', 'dense-llm-small-on-edge-card']
+  },
+  {
+    scenario_zh: '13-70B 单节点, dense LLM (Llama 3 70B)',
+    scenario_en: '13-70B single-node, dense LLM',
+    recommended: 'TP=8, PP=1, EP=1, SP=可选',
+    rationale: 'TP=8 在 H100/H200 8-OAM 上吃满 NVLink-4 bandwidth. 70B BF16 ≈ 140GB 装得下 8 卡. SP 仅 long-context 场景启用.',
+    related_patterns: ['gqa-mqa-shared-kv', 'tp-allreduce-overlap', 'continuous-batching'],
+    related_playbooks: ['dense-llm-medium-on-hopper-single-node', 'dense-llm-medium-on-cdna3-single-node']
+  },
+  {
+    scenario_zh: 'MoE 大模型 (DeepSeek V3 671B / Llama 4 Maverick 400B)',
+    scenario_en: 'MoE 大 model (DeepSeek V3 671B / Llama 4 Maverick 400B)',
+    recommended: 'TP=8 + EP=8-72',
+    rationale: 'MoE expert 沿 EP 分布让每 token 只激活 ~5% 专家 — 内存高效但 dispatch all2all 通信激增. EP=8 单节点; EP=72 NVL72 全集群; EP=32+ 跨节点用 IB/RoCE.',
+    related_patterns: ['moe-expert-routing-on-domestic', 'tp-allreduce-overlap', 'disaggregated-prefill-decode'],
+    related_playbooks: ['moe-llm-large-on-blackwell-superpod', 'moe-llm-large-on-cdna3-cluster', 'moe-llm-large-on-ascend-cluster']
+  },
+  {
+    scenario_zh: '405B+ dense / 跨节点 (Llama 3.1 405B / GPT-class)',
+    scenario_en: '405B+ dense, cross-node deployment',
+    recommended: 'TP=8 (intra-node) × PP=2-8 (inter-node)',
+    rationale: '权重 800GB+ 单节点装不下 → 必须 PP. PP 跨节点走 IB/RoCE, micro-batch overlap. dense 模型不用 EP. 现代部署多用 zero-bubble PP.',
+    related_patterns: ['tp-allreduce-overlap'],
+    related_playbooks: ['dense-llm-large-on-tpu-pod']
+  },
+  {
+    scenario_zh: '1M+ context / Ring Attention 必备',
+    scenario_en: '1M+ context, Ring Attention required',
+    recommended: 'TP=8 × Ring=8-72 (sequence dim)',
+    rationale: '单 GPU KV cache 装不下 (200K context × 70B BF16 ≈ 90 GB). Ring 沿 sequence 切到多 GPU, 通过 NVLink 环形传 KV. 配 FA3 + GQA 进一步降 KV size.',
+    related_patterns: ['ring-attention-long-context', 'sliding-window-attention', 'gqa-mqa-shared-kv'],
+    related_playbooks: ['long-context-on-blackwell-superpod', 'long-context-on-hopper-cluster']
+  },
+  {
+    scenario_zh: '高 throughput 服务 + 不平衡 prefill/decode',
+    scenario_en: 'High throughput serving with imbalanced prefill/decode',
+    recommended: 'TP=8 + Disaggregated (split prefill/decode 节点)',
+    rationale: 'Prefill 是 compute-bound, decode 是 memory-bound — 同节点跑两者会浪费. Disagg 让 prefill 节点 24卡, decode 节点 48卡 (3x KV cache + 2x QPS), TCO 降 30-50%.',
+    related_patterns: ['disaggregated-prefill-decode', 'continuous-batching', 'prefix-radix-cache'],
+    related_playbooks: ['moe-llm-large-on-blackwell-superpod', 'long-context-on-blackwell-superpod']
+  },
+  {
+    scenario_zh: '国产替代 (Atlas 800T / 思元 590 / MI300X)',
+    scenario_en: 'Domestic-substitute deployment (Atlas / MLU / MI)',
+    recommended: 'TP=8 (HCCS-v2 / MLU-Link / IF mesh) + EP=8-32',
+    rationale: '国产芯片单节点 8 卡全互联, 跨节点走 RoCE-200/400G. EP 是 MoE 模型必备 (DeepSeek V3 / Qwen 3); MindIE/MUSA 调度系统已支持. 不上 PP (跨节点 latency 大).',
+    related_patterns: ['moe-expert-routing-on-domestic', 'mtp-multi-token-prediction', 'kv-cache-int8'],
+    related_playbooks: ['moe-llm-large-on-ascend-cluster', 'reasoning-llm-on-ascend-cluster', 'multi-modal-on-cdna3-cluster']
+  },
+  {
+    scenario_zh: '端侧 / 边缘 (Jetson / Apple M / Phone)',
+    scenario_en: 'Edge / on-device (Jetson / Apple / Phone)',
+    recommended: 'TP=1, PP=1 (单芯片串行)',
+    rationale: '端侧硬件单 die, 没有多卡互联; 模型必须装下单 device 显存. 走 quantization (INT4 Q4_K_M) 而非并行. llama.cpp / MLC-LLM / MNN 是默认栈.',
+    related_patterns: ['kv-cache-int8'],
+    related_playbooks: ['dense-llm-small-on-edge-card', 'dense-llm-small-on-edge-card-amd']
+  }
+];
+
+interface StrategyDescriptor {
+  symbol: string;
+  expand_zh: string;
+  expand_en: string;
+  pros: string[];
+  cons: string[];
+  when_to_use: string;
+}
+
+const STRATEGY_GUIDE: StrategyDescriptor[] = [
+  {
+    symbol: 'TP',
+    expand_zh: 'Tensor Parallelism · 张量并行',
+    expand_en: 'Tensor Parallelism',
+    pros: ['每层 GEMM 沿 hidden 维切分', '单层 latency 降', '内存均匀分布'],
+    cons: ['每层 all-reduce 通信开销', '需要高带宽 NVLink/HCCS', '> 8 卡跨节点 latency 不友好'],
+    when_to_use: '默认起点 (TP=8 在 8-OAM 节点); 跨节点 TP > 8 走 IB 性能跌'
+  },
+  {
+    symbol: 'PP',
+    expand_zh: 'Pipeline Parallelism · 流水线并行',
+    expand_en: 'Pipeline Parallelism',
+    pros: ['权重沿 layer 切', '单设备显存大幅降低', '跨节点容忍较低 bandwidth'],
+    cons: ['micro-batch 切分', '管线 bubble 浪费 ~10-20% 算力', '调度复杂'],
+    when_to_use: '405B+ dense 模型必备 (单节点装不下); decode-heavy reasoning 配合 PP=2 减少 bubble'
+  },
+  {
+    symbol: 'EP',
+    expand_zh: 'Expert Parallelism · 专家并行',
+    expand_en: 'Expert Parallelism',
+    pros: ['MoE 专家沿设备分布', '每 token 只激活 1-5% 专家', 'A/D 平衡 routing'],
+    cons: ['all2all dispatch + combine 通信', '不平衡 routing 导致 hotspot', '只对 MoE 有效'],
+    when_to_use: 'MoE 模型 (DeepSeek V3 / Mixtral 8×22B / Llama 4) 必备; EP=8 单节点, EP=32-72 跨节点'
+  },
+  {
+    symbol: 'SP',
+    expand_zh: 'Sequence Parallelism · 序列并行',
+    expand_en: 'Sequence Parallelism',
+    pros: ['沿 sequence 维切 LayerNorm/Residual', 'Activation 内存降低', '通常配合 TP'],
+    cons: ['仅 long context (≥ 16K) 收益明显', '调度复杂', 'Megatron-LM 风格'],
+    when_to_use: 'Long context 训练 / 推理时 activation memory 是瓶颈; 一般是 TP+SP 组合'
+  },
+  {
+    symbol: 'Ring',
+    expand_zh: 'Ring Attention · 环形 attention',
+    expand_en: 'Ring Attention',
+    pros: ['沿 sequence 切 KV', '1M+ context 单 GPU 装不下时唯一选择', '与 TP 正交'],
+    cons: ['ring 通信 N 步', 'Decode 收益小 (only prefill 显著)', '调参复杂'],
+    when_to_use: 'Behemoth 10M / Gemini 1.5 Pro 2M 级别 context; 配合 NVLink-5 全互联拓扑'
+  },
+  {
+    symbol: 'Disagg',
+    expand_zh: 'Disaggregated Prefill/Decode · 解耦部署',
+    expand_en: 'Disaggregated Prefill/Decode',
+    pros: ['prefill / decode 节点独立调优', 'TCO 30-50% 降', '不平衡负载下显著'],
+    cons: ['KV transfer 跨节点', '调度系统复杂 (router + KV cache routing)', '门槛高'],
+    when_to_use: 'High throughput 服务 + prefill/decode QPS 不平衡; super-pod 部署默认'
+  }
+];
+
+const playbooksById = new Map(playbooks.map((pb) => [pb.id, pb]));
+const patternsById = new Map(patterns.map((p) => [p.id, p]));
+---
+<BaseLayout title="并行策略速查表 / Parallelism Cheatsheet">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · PARALLELISM CHEATSHEET
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        并行策略速查表 · Parallelism Cheatsheet
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        TP × PP × EP × SP × Ring × Disaggregated 的决策矩阵. 每个场景给出具体并行配方,
+        链接到对应的 <a href={pathname('/playbooks/')} style="color: var(--color-accent);" class="hover:underline">部署 Playbook</a>
+        和 <a href={pathname('/patterns/')} style="color: var(--color-accent);" class="hover:underline">优化模式</a>.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">并行策略: </span><strong>{strategies.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">部署场景: </span><strong>{DECISION_MATRIX.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">关联 Playbook: </span><strong>{playbooks.length}</strong></div>
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="strategy-symbols-heading">
+      <h2 id="strategy-symbols-heading" class="text-2xl font-semibold mb-4">6 种并行策略速览</h2>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {STRATEGY_GUIDE.map((s) => (
+          <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`strategy-${s.symbol.toLowerCase()}`}>
+            <div class="flex items-baseline gap-2 mb-2">
+              <span class="text-2xl font-mono font-semibold" style="color: var(--color-accent);">{s.symbol}</span>
+              <span class="text-sm" style="color: var(--color-text-muted);">{s.expand_zh}</span>
+            </div>
+            <p class="text-xs mb-3" style="color: var(--color-text-muted);">{s.expand_en}</p>
+            <div class="text-xs">
+              <div class="font-semibold mb-1">何时用</div>
+              <p class="mb-3" style="color: var(--color-text-muted);">{s.when_to_use}</p>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <div class="font-semibold mb-1" style="color: oklch(70% 0.15 145);">优势</div>
+                  <ul class="space-y-0.5" style="color: var(--color-text-muted);">
+                    {s.pros.map((p) => (<li>· {p}</li>))}
+                  </ul>
+                </div>
+                <div>
+                  <div class="font-semibold mb-1" style="color: oklch(70% 0.18 30);">代价</div>
+                  <ul class="space-y-0.5" style="color: var(--color-text-muted);">
+                    {s.cons.map((c) => (<li>· {c}</li>))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="decision-matrix-heading">
+      <h2 id="decision-matrix-heading" class="text-2xl font-semibold mb-4">8 个部署场景决策矩阵</h2>
+      <div class="space-y-3">
+        {DECISION_MATRIX.map((row, idx) => (
+          <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`decision-row-${idx}`}>
+            <div class="grid lg:grid-cols-[2fr,1fr] gap-4">
+              <div>
+                <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-text-muted);">场景 / Scenario</div>
+                <div class="text-base font-semibold mb-1" style="color: var(--color-text);">{row.scenario_zh}</div>
+                <div class="text-xs mb-3" style="color: var(--color-text-muted);">{row.scenario_en}</div>
+
+                <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-accent);">→ 推荐配方</div>
+                <div class="font-mono text-sm mb-2 px-2 py-1 rounded inline-block" style="background: var(--color-bg); color: var(--color-text);">{row.recommended}</div>
+                <p class="text-sm" style="color: var(--color-text-muted);">{row.rationale}</p>
+
+                {row.caveats && row.caveats.length > 0 && (
+                  <ul class="text-xs mt-3 space-y-1" style="color: var(--color-text-muted);">
+                    {row.caveats.map((c) => (<li>⚠️ {c}</li>))}
+                  </ul>
+                )}
+              </div>
+
+              <div class="space-y-3">
+                {row.related_patterns.length > 0 && (
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wider font-medium mb-1.5" style="color: var(--color-text-muted);">🧩 关联模式</div>
+                    <ul class="text-xs space-y-1">
+                      {row.related_patterns.map((pid) => {
+                        const p = patternsById.get(pid);
+                        return p ? (
+                          <li><a href={pathname(`/patterns/${p.id}/`)} class="hover:underline" style="color: var(--color-accent);">→ {p.name.length > 40 ? p.name.slice(0, 38) + '…' : p.name}</a></li>
+                        ) : null;
+                      })}
+                    </ul>
+                  </div>
+                )}
+                {row.related_playbooks.length > 0 && (
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wider font-medium mb-1.5" style="color: var(--color-text-muted);">📘 关联 Playbook</div>
+                    <ul class="text-xs space-y-1">
+                      {row.related_playbooks.map((pid) => {
+                        const pb = playbooksById.get(pid);
+                        return pb ? (
+                          <li><a href={pathname(`/playbooks/${pb.id}/`)} class="hover:underline" style="color: var(--color-text);">→ {pb.id}</a></li>
+                        ) : null;
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          挑好并行策略后, 用<a href={pathname('/calculator/')} style="color: var(--color-accent);" class="hover:underline">计算器</a>验证具体 (TP, PP, EP) 配置的吞吐 / TCO 上界,
+          或浏览<a href={pathname('/playbooks/')} style="color: var(--color-accent);" class="hover:underline">Playbook</a> 看完整 (model × hardware × parallelism × engine) 端到端配方.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/calculator/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">打开计算器 →</a>
+          <a href={pathname('/playbooks/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">浏览 24 个 Playbook →</a>
+          <a href={pathname('/learn/quantization-decision-tree/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">量化决策树 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

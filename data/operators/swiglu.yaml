@@ -1,0 +1,77 @@
+id: swiglu
+name: SwiGLU (Swish-Gated Linear Unit)
+category: activation
+
+flops_formula: '6 * batch * seq * hidden_in * hidden_intermediate (3 GEMM 总和) + 8 * batch * seq * hidden_intermediate (silu+mul)'
+bytes_formula: '2 * (3 * hidden_in * hidden_intermediate weights) + 4 * batch * seq * hidden_intermediate (activation memory)'
+arithmetic_intensity_formula: '~ hidden_in / 2 FLOP/byte (compute-bound)'
+arithmetic_intensity_typical:
+  min: 80
+  max: 1024
+  notes: 'Hidden_in 4096-16384 让 SwiGLU 是典型 compute-bound MLP — 与单 GEMM 类似. Decode 阶段 batch=1 时退化为 memory-bound (跟普通 GEMM 一样).'
+
+description: |
+  Swish-Gated Linear Unit — 现代 LLM 的标准 MLP block. 与传统 ReLU/GELU MLP 的区别:
+  把单 up-projection 拆成两个并行 projection (gate + up), 用 SiLU 激活 gate, 然后 element-wise
+  乘 up — 增加表达能力, 在同 FLOP 下质量提升 0.5-1 pt MMLU.
+
+  ## 公式
+  ```
+  out = down_proj(silu(x @ gate_proj) * (x @ up_proj))
+  ```
+
+  ## 模型采用
+  - **Llama 3 / 4 / Llama 4 Behemoth**: `gate_proj` + `up_proj` + `down_proj` 三个 GEMM, hidden_intermediate ≈ 8/3 × hidden_in
+  - **Mistral / Mixtral 8×22B**: 同 SwiGLU pattern
+  - **Qwen 2/3**: 标准 SwiGLU; Qwen 3 中等模型 hidden=4096, intermediate=11008
+  - **DeepSeek V3 (MoE expert)**: 每个 expert 是独立 SwiGLU MLP
+  - **Gemma 2/3**: GeGLU 变种 (用 GELU 替 SiLU); 公式相同
+
+  ## 部署关键
+  几乎所有引擎都 **fuse 三个 GEMM + silu + element-wise mul** 成一个 kernel:
+  - vLLM `silu_and_mul` 直接 fuse silu + mul 到 GEMM epilogue
+  - TRT-LLM 把 gate+up GEMM merge 成单 GEMM (输出维度 2× intermediate, 然后切两半)
+  - SGLang Triton kernel 端到端 fuse 三 GEMM + activation
+  - llama.cpp Q4_K_M 也有 SwiGLU fused INT4 kernel
+
+variants: [geglu, glu, reglu]
+
+fusion_targets: [matmul, silu]
+participates_in_fused_kernels:
+  - fused-mlp-silu
+
+engine_implementations:
+  - name: vLLM SiluAndMul (CUDA + ROCm)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, cdna4]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/activation_kernels.cu
+    notes: 'fused silu + element-wise mul; 配合 fused gate+up GEMM 实现端到端 SwiGLU'
+  - name: TRT-LLM GatedMLP plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: 'gate+up GEMM 合成单一 GEMM, 输出 2× intermediate dim 后切片'
+  - name: SGLang Triton SwiGLU
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+  - name: MindIE FusedMLP (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: 'CANN 8.0+ AscendC 算子, 与 RMSNorm 合并到一个 graph block'
+  - name: llama.cpp INT4 SwiGLU
+    hardware_arch: [hopper, ampere, ada, cdna3, apple-m, jetson]
+    notes: 'GGUF Q4_K_M / Q5_K_M 量化路径'
+
+precision_support: [bf16, fp16, fp8-e4m3, fp4, int8, int4-awq, int4-gptq]
+
+related_patterns: []
+
+references:
+  - title: 'GLU Variants Improve Transformer'
+    url: https://arxiv.org/abs/2002.05202
+    source_type: paper
+  - title: 'Llama 2 Technical Report (SwiGLU adoption)'
+    url: https://arxiv.org/abs/2307.09288
+    source_type: paper
+  - title: 'PaLM Technical Report (SwiGLU at scale)'
+    url: https://arxiv.org/abs/2204.02311
+    source_type: paper

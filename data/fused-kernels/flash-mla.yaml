@@ -1,0 +1,98 @@
+id: flash-mla
+name: FlashMLA — DeepSeek Multi-Head Latent Attention kernel
+category: attention
+summary: |
+  DeepSeek V2/V3 自研的 Multi-Head Latent Attention (MLA) 专用融合 kernel.
+  与标准 GQA/MQA 不同, MLA 把 KV 压缩到一个低秩潜在向量, decode 阶段只缓存
+  压缩后的 latent KV — Llama 3 70B GQA-8 的 KV cache 比 DeepSeek V3 大 5-10x.
+fuses_operators: [scaled-dot-product-attention, attention, matmul, softmax]
+
+description_md: |
+  ## 为什么 MLA 不是普通 attention
+
+  标准 attention KV cache 大小: `B × S × kv_heads × head_dim × 2`. 现代 GQA 已经
+  把 kv_heads 从 64 降到 8, 但 KV cache 仍是长 context 主要瓶颈.
+
+  **MLA 的 trick**: 把 KV 压缩成一个 latent 向量 `c_kv = W_dkv @ x`, 维度只有 ~512
+  (而非 8 heads × 128 dim = 1024). decode 时只缓存 `c_kv`, 用时再 `K = W_uk @ c_kv;
+  V = W_uv @ c_kv` 在 attention kernel 内部展开. 参数 W_uk/W_uv 是 fixed 矩阵,
+  fused 进 attention kernel 不需要单独 GEMM.
+
+  ## 与 FlashAttn-3 的区别
+
+  - FA3 用标准 K/V (从 KV cache 直读)
+  - FlashMLA 用 c_kv (latent), kernel 内部 fuse `W_uk @ c_kv` 和 `q @ K^T` 成单 GEMM
+  - **DeepSeek V3 在 671B-A37B MoE 上 KV cache 仅 70 GB** (Llama 3 405B GQA-8 是 580 GB)
+
+  ## 决定性收益
+
+  Long context (128K-1M) decode 上, KV cache 5-10x 减少直接转化为:
+  - **batch size 5-10x 增加** (单卡装下更多并发 session)
+  - **decode latency 30-50% 降** (KV 读取 bandwidth 减少)
+  - **HBM 不再是瓶颈** — 671B 模型在 H800 上 long context 推理可行 (没 MLA 完全装不下)
+
+  ## 实现关键
+
+  - DeepSeek-AI 开源 FlashMLA: 针对 H100/H800/H200 优化, sm_90 only
+  - 内部 fused 三个 GEMM: `q @ W_uk @ c_kv`, `q @ W_uq`, `O @ W_uv @ c_kv`
+  - WGMMA 流水线: 与 FA3 类似的生产者-消费者 warp 切分
+  - **Hopper-only**: Ampere 没 TMA, fallback 到 split-K Triton 实现, 性能跌 30-50%
+
+why_fuse: |
+  把 W_uk/W_uv 矩阵融合进 attention kernel 让 latent → full KV 的展开和 attention 计算
+  共享同一个 GEMM tile pipeline. 不 fuse 的话, latent decompress 单独 GEMM 写回 HBM
+  再读回来, 把 MLA 内存优势抹掉一半.
+
+speedup:
+  - baseline: 标准 GQA attention (Llama 3 GQA-8)
+    multiplier_min: 1.5
+    multiplier_max: 3.0
+    notes: 'long context decode (128K+) — KV bandwidth 主要瓶颈, MLA 5-10x KV cache 减少 + 内部 fused decompress 让 decode 1.5-3x 加速'
+  - baseline: FlashAttention-3 (no MLA)
+    multiplier_min: 1.0
+    multiplier_max: 1.4
+    notes: 'short context (<8K) 几乎相同 (KV 不是瓶颈); long context 显著'
+
+implementations:
+  - name: DeepSeek-AI FlashMLA (reference)
+    hardware_arch: [hopper]
+    url: https://github.com/deepseek-ai/FlashMLA
+    notes: 'official DeepSeek 开源实现, sm_90 only'
+  - name: vLLM FlashMLA backend (DeepSeek-V3 path)
+    engine_id: vllm
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/vllm-project/vllm
+    notes: 'vLLM 0.6.4+ 自动检测 DeepSeek model, 走 FlashMLA 路径'
+  - name: SGLang Flashinfer MLA
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: MindIE MLA (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: 'CANN 9.0+ 适配 DeepSeek V3 MLA; 性能比 Hopper 路径低 30-40%'
+
+hardware_requires:
+  - 'Hopper (sm_90) 或 Blackwell (sm_100) 上最优 — TMA + WGMMA'
+  - 'CUDA 12.3+ for TMA driver'
+  - 'Ampere fallback 走 Triton, 性能跌 30-50%'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - '只对 MLA 架构模型有用 (DeepSeek V2/V3, MiniMax-Text-01); Llama/Mistral GQA 模型不受益'
+  - 'kernel 比 FA3 复杂度更高, 调试 + 校准更难'
+  - 'Ampere fallback 性能折损大, 不建议在 A100 部署 DeepSeek V3'
+
+references:
+  - title: 'DeepSeek-V2 Technical Report (introduces MLA)'
+    url: https://arxiv.org/abs/2405.04434
+    source_type: paper
+  - title: 'DeepSeek-V3 Technical Report'
+    url: https://arxiv.org/abs/2412.19437
+    source_type: paper
+  - title: 'FlashMLA repository'
+    url: https://github.com/deepseek-ai/FlashMLA
+    source_type: implementation

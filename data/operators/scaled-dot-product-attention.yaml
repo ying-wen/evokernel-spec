@@ -1,0 +1,84 @@
+id: scaled-dot-product-attention
+name: Scaled Dot-Product Attention (SDPA)
+category: attention
+
+flops_formula: '2 * batch * heads * seq^2 * head_dim (QK^T) + 2 * batch * heads * seq^2 * head_dim (PV) ≈ 4 * batch * heads * seq^2 * head_dim'
+bytes_formula: '8 * batch * seq * (3 * heads * head_dim + heads * seq) (Q,K,V,O + attention scores)'
+arithmetic_intensity_formula: 'O(seq) — quadratic in sequence length'
+arithmetic_intensity_typical:
+  min: 80
+  max: 4096
+  notes: 'Long-context (32K+) prefill 是 compute-bound (高 FLOP/byte); short decode (single token) 退化到 memory-bound (KV cache 读). FlashAttention 重写解决了 attention scores 中间存储问题.'
+
+description: |
+  Scaled Dot-Product Attention — Transformer 核心 primitive. 算 attention scores
+  `softmax(QK^T / sqrt(d)) @ V`, 是 LLM 推理中 **唯一二次复杂度的 op** (O(seq²)),
+  也是长 context 部署的主要瓶颈.
+
+  ## 公式
+  ```
+  scores = Q @ K^T / sqrt(head_dim)         # [B, H, S, S]
+  attn = softmax(scores)                     # along last dim
+  out = attn @ V                             # [B, H, S, D]
+  ```
+
+  ## 在 LLM 中的角色
+  - **Prefill 阶段**: full O(seq²) attention, 长 context 时 compute-bound. FlashAttn-3 在 H100/H200 上接近 75% 硬件峰值.
+  - **Decode 阶段**: 退化到 single-token attention `q @ K_cache^T @ V_cache`, KV cache 是 memory-bound 主导因素.
+  - **Self-attention vs Cross-attention**: encoder-decoder 模型 (T5) 有 cross-attn; 现代 LLM (Llama/Mistral) 只有 causal self-attn.
+
+  ## 实现演进
+  - **Naive PyTorch SDPA** (`F.scaled_dot_product_attention`): 物化 [B, H, S, S] attention 矩阵 — 长 context OOM
+  - **FlashAttention v1/2/3**: tile-based, 不存全部 attention scores, online softmax — 长 context 必备
+  - **PagedAttention** (vLLM): KV cache 分块管理, 跨请求不连续显存
+  - **SDPA causal mask**: 现代 LLM 只算下三角, 节省一半计算
+
+  ## 与 attention.yaml 的区别
+  这是 **数学 primitive** (scaled QK^T softmax PV 公式); attention.yaml 是 **逻辑 op** (multi-head 包装含 Q/K/V projection).
+  SDPA 是核心 inner kernel, attention.yaml 是 layer-level wrapper.
+
+variants: [causal-sdpa, bidirectional-sdpa, alibi-sdpa, flash-sdpa]
+
+fusion_targets: [matmul, softmax]
+participates_in_fused_kernels:
+  - flash-attention-v3
+  - paged-attention-decode
+  - fused-attn-sliding-window
+  - fused-radix-attention
+  - fused-quantized-attention
+
+engine_implementations:
+  - name: PyTorch torch.nn.functional.scaled_dot_product_attention
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, apple-m]
+    url: https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
+    notes: '默认 backend 自动选: math / efficient_attention / flash_attention. Hopper 优先 FlashAttn-3.'
+  - name: vLLM FlashAttention path
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+    url: https://github.com/Dao-AILab/flash-attention
+  - name: TRT-LLM Multi-Head Attention plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: SGLang Flashinfer SDPA
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: MindIE FA2 (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: 'Ascend FlashAttention v2 实现; 暂无 v3 (无 TMA-equivalent on 910C)'
+
+precision_support: [bf16, fp16, fp8-e4m3, fp32]
+
+related_patterns: [flashattention-v3, sliding-window-attention, ring-attention-long-context, gqa-mqa-shared-kv]
+
+references:
+  - title: 'Attention Is All You Need (introduces scaled dot-product)'
+    url: https://arxiv.org/abs/1706.03762
+    source_type: paper
+  - title: 'FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision'
+    url: https://arxiv.org/abs/2407.08608
+    source_type: paper
+  - title: 'PyTorch SDPA documentation'
+    url: https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
+    source_type: docs

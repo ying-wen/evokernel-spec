@@ -1,0 +1,75 @@
+id: cross-entropy
+name: Cross-Entropy / Log-Softmax (token sampling)
+category: misc
+
+flops_formula: '5 * batch * seq * vocab_size (exp + sum + log + subtract + select)'
+bytes_formula: '8 * batch * seq * vocab_size (logits + log-softmax)'
+arithmetic_intensity_formula: '~ 0.6 FLOP/byte (memory-bound)'
+arithmetic_intensity_typical:
+  min: 0.4
+  max: 1.0
+  notes: '极度 memory-bound — vocab 60K-200K 让 logits tensor 庞大. Llama 3 vocab 128K, batch=64 seq=2048 时 logits ≈ 16 GB BF16.'
+
+description: |
+  Cross-entropy / log-softmax — LLM 输出端的 vocab-projection 后处理. 推理阶段算
+  next-token 概率分布 + 采样; 训练阶段算 loss. 看起来很简单, 但因 vocab_size 60K-200K 极大,
+  在 long-context decode 上能成为意外瓶颈.
+
+  ## 推理阶段角色
+  ```
+  logits = lm_head(hidden)      # [B, S, V] V=128K for Llama 3
+  log_probs = log_softmax(logits, dim=-1)
+  next_token = sample(log_probs[:, -1, :])  # only need last token in decode
+  ```
+
+  - **Decode 阶段**: 每 step 只需最后一 token 的 logits, vocab 大但 batch=1 — 实际 memory 不大
+  - **Prefill 阶段**: 需要全 [B, S, V] logits — Llama 3 vocab 128K + seq 2048 + B=64 BF16 ≈ 16 GB 中间 tensor
+  - **Speculative decoding**: 需要 K+1 tokens 的 logits 验证, vocab × K 张存储 — 可能 OOM
+
+  ## 优化路径
+  - **Tied embedding**: lm_head 与 token embedding 共享权重 (Llama / Qwen / Mistral 均如此), 节省 V×D 显存
+  - **Vocab parallelism**: 把 vocab 维度切到 TP rank, 每 rank 算 V/N 部分, 最后 all-gather
+  - **Fused log-softmax + sample**: vLLM/SGLang 把 log-softmax + temperature scale + top-p sample fuse 成单 kernel
+  - **Avoid full logits**: 只取 top-K logits 而非全 [B, S, V] (top-k=200 满足大部分 sample 策略)
+
+  ## 训练阶段
+  - LLM 预训练 cross-entropy loss 是主要 loss; 与 forward 一起算
+  - Distillation 用 KL-divergence (本质也是 cross-entropy 变种)
+
+variants: [softmax-cross-entropy, kl-divergence, focal-loss, label-smoothing]
+
+fusion_targets: [softmax, top-k-sampling]
+participates_in_fused_kernels: []
+
+engine_implementations:
+  - name: vLLM Sampler kernel
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+    url: https://github.com/vllm-project/vllm/blob/main/csrc/sampler.cu
+    notes: 'fused log_softmax + temperature + top-k + top-p + sample'
+  - name: TRT-LLM dynamicDecode plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: SGLang Triton sampler
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+  - name: PyTorch nn.functional.log_softmax
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, apple-m]
+  - name: MindIE Sampler
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+  - name: llama.cpp sampling
+    hardware_arch: [hopper, ampere, ada, cdna3, apple-m, jetson]
+    notes: 'CPU + GPU sampler, 端侧默认'
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'PyTorch CrossEntropyLoss documentation'
+    url: https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+    source_type: docs
+  - title: 'Tied embedding (Press & Wolf 2017)'
+    url: https://arxiv.org/abs/1608.05859
+    source_type: paper

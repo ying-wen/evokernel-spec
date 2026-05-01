@@ -1,0 +1,99 @@
+id: flash-decoding
+name: Flash-Decoding (long-context decode parallelism)
+category: attention
+summary: |
+  Long-context decode 优化: 把单 token 的 decode attention 沿 KV-sequence 维度并行,
+  让 SM 在 long context (32K+) decode 阶段不被单 query 限制. FlashAttention 系列的 decode
+  特化路径, 不替代 paged-attention-decode (后者管 KV cache 内存布局).
+fuses_operators: [scaled-dot-product-attention, attention, softmax]
+
+description_md: |
+  ## 问题: 长 context decode 不能填满 SM
+
+  Decode 阶段每步生成 1 token, attention 算 `q @ K_cache^T @ V_cache` 其中 q 是 [1, head_dim].
+  标准 attention kernel 沿 query 维度并行 (per-head), 但 decode 时 query 只有 1 个 — 在
+  H100 132 SM 上, 你只能用 head_count (Llama 3 GQA-8 = 8 heads × 8 layers/per-step) 个 SM.
+  长 context 时 K_cache 是 [S, head_dim] 巨大, 单 SM 串行扫整个 sequence 太慢.
+
+  ## Flash-Decoding 的解决方案
+
+  把 K_cache/V_cache 沿 sequence 维度切成多个 chunk, 让多个 SM 并行算 partial attention,
+  最后再 merge. 公式上:
+
+  ```
+  对于 chunk_i ∈ [0, num_chunks):
+    O_i, m_i = flash_attention_chunk(q, K[chunk_i], V[chunk_i])  # 各 SM 独立
+  最终 O = merge(O_0...O_{n-1}, m_0...m_{n-1})  # online softmax 合并
+  ```
+
+  关键技巧: online softmax 让 chunk 间的 normalization 可分块累加, 不需要全 attention 物化.
+
+  ## 与其他 attention kernel 的关系
+
+  - **FlashAttention-3**: prefill 优化, query 维度并行 (S 大时充分并行)
+  - **PagedAttention-decode**: 管 KV cache 分页内存布局, 不直接做 sequence 维并行
+  - **Flash-Decoding**: decode 阶段补全 SM 利用率, 与 PagedAttn 互补使用
+  - **FlashMLA**: DeepSeek MLA 专用 (latent KV); Flash-Decoding 不与之竞争
+
+  ## 收益条件
+
+  - **长 context** (≥ 32K KV cache): seq 维度切 4-8 chunk, 4-8x SM 并行
+  - **小 batch decode** (B ≤ 4): 高 batch 时 head × batch 已经够 SM, Flash-Decoding 无收益
+  - **Hopper / Ampere / Blackwell**: 都有 SM 大量空闲的问题
+
+why_fuse: |
+  把 attention chunking + online softmax merge 融合在一个 kernel 内, 避免 chunk 间结果
+  写回 HBM 再读回来. Online softmax 维持数值稳定 (与 FA 同样的方法).
+
+speedup:
+  - baseline: PagedAttention-decode (no chunking)
+    multiplier_min: 2.5
+    multiplier_max: 8.0
+    notes: 'long context (64K+) decode 单步 attention 加速 2.5-8x; short context (<8K) 无收益'
+  - baseline: FlashAttention-2 decode mode
+    multiplier_min: 2.0
+    multiplier_max: 5.0
+    notes: 'FA2 decode 不分 chunk, 长 context 单 SM 串行, Flash-Decoding 让 SM 并行'
+
+implementations:
+  - name: FlashAttention flash_attn_with_kvcache (Tri Dao)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/flash_attn_interface.py
+    notes: '官方 reference, split_k 参数控制 chunk 数'
+  - name: vLLM Flash-Decoding (long-context decode)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/vllm-project/vllm
+    notes: 'vLLM 0.4+ 在 long context (>32K) 自动启用'
+  - name: SGLang Flashinfer flash_decoding_attention
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: TRT-LLM long-context attention plugin
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+    notes: 'TRT-LLM 0.10+ 支持 paged + chunked decode'
+
+hardware_requires:
+  - '任意支持 FlashAttention 的 GPU (Hopper/Ampere/Ada/Blackwell)'
+  - 'Triton 2.1+ 或 cuDNN flash-decode path'
+
+enables_patterns: [ring-attention-long-context]
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'short context (<8K) 启用 chunking 反而增加 overhead'
+  - 'high batch (B>16) 已经填满 SM, chunking 无收益'
+  - 'chunk size 调参敏感: 太小 SM 切换开销大, 太大并行度不够'
+
+references:
+  - title: 'Flash-Decoding for long-context inference (Dao et al.)'
+    url: https://crfm.stanford.edu/2023/10/12/flashdecoding.html
+    source_type: blog
+  - title: 'flash-attention with KV cache (decode path)'
+    url: https://github.com/Dao-AILab/flash-attention
+    source_type: implementation
+  - title: 'vLLM long-context optimization'
+    url: https://docs.vllm.ai/en/latest/configuration/optimization.html
+    source_type: docs

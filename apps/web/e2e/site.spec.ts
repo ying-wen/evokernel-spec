@@ -576,6 +576,83 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.20: 4 new operators + 2 fused-kernels + /learn/parallelism-cheatsheet/ + /learn/picking-engine/', () => {
+  test('SwiGLU operator detail visible', async ({ page }) => {
+    await page.goto('/operators/swiglu/');
+    await expect(page.getByText(/SwiGLU|Swish-Gated/i).first()).toBeVisible();
+    await expect(page.getByText(/Llama|Qwen|Mistral|silu_and_mul/i).first()).toBeVisible();
+  });
+
+  test('Scaled Dot-Product Attention operator detail visible', async ({ page }) => {
+    await page.goto('/operators/scaled-dot-product-attention/');
+    await expect(page.getByText(/Scaled Dot-Product|SDPA/i).first()).toBeVisible();
+    await expect(page.getByText(/FlashAttention|softmax|QK\^T/i).first()).toBeVisible();
+  });
+
+  test('Conv2D operator detail visible (vision primitive)', async ({ page }) => {
+    await page.goto('/operators/conv2d/');
+    await expect(page.getByText(/2D Convolution|Conv2d|vision encoder/i).first()).toBeVisible();
+    await expect(page.getByText(/ViT|Vision Transformer|cuDNN/i).first()).toBeVisible();
+  });
+
+  test('Cross-entropy operator detail visible (token sampling)', async ({ page }) => {
+    await page.goto('/operators/cross-entropy/');
+    await expect(page.getByText(/Cross-Entropy|Log-Softmax|token sampling/i).first()).toBeVisible();
+    await expect(page.getByText(/vocab|tied embedding|sampler/i).first()).toBeVisible();
+  });
+
+  test('FlashMLA fused-kernel visible (DeepSeek MLA)', async ({ page }) => {
+    await page.goto('/fused-kernels/flash-mla/');
+    await expect(page.getByText(/FlashMLA|Multi-Head Latent|DeepSeek/i).first()).toBeVisible();
+    await expect(page.getByText(/latent|c_kv|671B|sm_90/i).first()).toBeVisible();
+  });
+
+  test('Flash-Decoding fused-kernel visible (long-context decode)', async ({ page }) => {
+    await page.goto('/fused-kernels/flash-decoding/');
+    await expect(page.getByText(/Flash-Decoding|long-context decode/i).first()).toBeVisible();
+    await expect(page.getByText(/SM|chunk|online softmax|sequence/i).first()).toBeVisible();
+  });
+
+  test('/learn/parallelism-cheatsheet/ renders strategies + decision matrix', async ({ page }) => {
+    await page.goto('/learn/parallelism-cheatsheet/');
+    await expect(page.getByRole('heading', { name: /并行策略速查表|Parallelism Cheatsheet/i }).first()).toBeVisible();
+    // 6 strategy symbols
+    await expect(page.getByTestId('strategy-tp').first()).toBeVisible();
+    await expect(page.getByTestId('strategy-pp').first()).toBeVisible();
+    await expect(page.getByTestId('strategy-ep').first()).toBeVisible();
+    await expect(page.getByTestId('strategy-ring').first()).toBeVisible();
+    // First decision row
+    await expect(page.getByTestId('decision-row-0').first()).toBeVisible();
+  });
+
+  test('/learn/parallelism-cheatsheet/ links to playbooks + patterns', async ({ page }) => {
+    await page.goto('/learn/parallelism-cheatsheet/');
+    await expect(page.locator('a[href*="/playbooks/"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/patterns/"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/calculator/"]').first()).toBeVisible();
+  });
+
+  test('/learn/picking-engine/ renders 7 scenarios + engine profiles', async ({ page }) => {
+    await page.goto('/learn/picking-engine/');
+    await expect(page.getByRole('heading', { name: /推理引擎选型|Picking an Engine/i }).first()).toBeVisible();
+    // First scenario
+    await expect(page.getByTestId('scenario-0').first()).toBeVisible();
+    // Engine profiles include vLLM + SGLang + TRT-LLM
+    await expect(page.getByTestId('engine-profile-vllm').first()).toBeVisible();
+    await expect(page.getByTestId('engine-profile-sglang').first()).toBeVisible();
+    await expect(page.getByTestId('engine-profile-tensorrt-llm').first()).toBeVisible();
+  });
+
+  test('/learn/picking-engine/ surfaces case + playbook density per engine', async ({ page }) => {
+    await page.goto('/learn/picking-engine/');
+    // Each engine profile shows case + playbook count
+    await expect(page.getByText(/案例.*playbook/i).first()).toBeVisible();
+    // Cross-links to playbooks + parallelism + quantization guides
+    await expect(page.locator('a[href*="/learn/parallelism-cheatsheet"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/quantization-decision-tree"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.19: 4 new patterns + 2 playbooks + 2 cases + /learn/quantization-decision-tree/', () => {
   test('GQA/MQA shared-KV pattern detail visible', async ({ page }) => {
     await page.goto('/patterns/gqa-mqa-shared-kv/');

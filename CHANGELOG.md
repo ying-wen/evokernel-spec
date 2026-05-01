@@ -6,14 +6,49 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.20+ horizon)
+### Planned (v1.21+ horizon)
 - Public submission portal (case YAML web form) — currently PR-only
 - Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - Compare-server view (super-pod vs super-pod, mirroring compare-hardware)
-- /learn/parallelism-cheatsheet/ + /learn/picking-engine/ guides
+- /learn/attention-variants/ guide (MHA / MQA / GQA / MLA / SWA)
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
+
+---
+
+## [1.20.0] — 2026-05-01
+
+Operator catalog deepening + completing the `/learn/` triad. Closes gap (2) operator/fusion info and gap (3) deployment optimization chain in one release.
+
+### Added
+
+**4 more operators** (18 → 22):
+- `swiglu` (activation): Swish-Gated Linear Unit — universal in modern LLMs (Llama 3+, Mistral, Qwen 3, DeepSeek V3 expert MLP)
+- `scaled-dot-product-attention` (attention): explicit SDPA primitive distinct from `attention.yaml` layer wrapper. Documents FlashAttn evolution + decode/prefill cost asymmetry
+- `conv2d` (matmul): vision encoder primitive for multi-modal LLMs (Llama 4 Vision, Qwen 2.5-VL, Pixtral) and diffusion (SD3, Flux)
+- `cross-entropy` (misc): token sampling cost. vocab 60K-200K makes prefill cross-entropy a surprise long-context bottleneck
+
+**2 more fused-kernels** (16 → 18):
+- `flash-mla`: DeepSeek V2/V3 Multi-Head Latent Attention specialized kernel. Latent KV cache 5-10× smaller than GQA. Hopper-only optimal
+- `flash-decoding`: long-context decode parallelism. Splits KV-cache along sequence dim across SMs for 32K+ decode 2.5-8× speedup. Distinct from PagedAttention-decode (memory layout)
+
+**`/learn/parallelism-cheatsheet/`** (NEW educational guide):
+- 6 strategy cards: TP / PP / EP / SP / Ring / Disagg with pros/cons/when-to-use
+- 8 deployment-scenario decision matrix: each row recommends specific TP×PP×EP recipe
+- Each row cross-links to relevant patterns + playbooks
+- Closes gap-3 "parallelism is unclear" complaint
+
+**`/learn/picking-engine/`** (NEW educational guide):
+- 7 scenario picker (NVIDIA general / agent / production / ascend / InternLM-Qwen / AMD / edge)
+- 5 engine profiles (vLLM / SGLang / TRT-LLM / MindIE / LMDeploy) with strengths / weaknesses / best-for / not-for / ecosystem
+- Engines sorted by real deployment density (cases + playbooks count, live)
+- Closes gap-3 "which engine to pick" complaint — completes /learn/ triad with quantization-decision-tree + parallelism-cheatsheet
+
+### Stats
+- 274/274 site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 29, **fused-kernel: 18**, playbook: 24, pattern: 19, **operator: 22**, citation: 1
+- Build: 364 pages
 
 ---
 

@@ -1,0 +1,335 @@
+---
+/**
+ * Engine picker — vLLM vs SGLang vs TRT-LLM vs MindIE vs LMDeploy decision tree.
+ *
+ * Pulls live data from data/engines + data/cases + data/playbooks so engine
+ * usage shows actual deployment count, and case cross-links survive engine
+ * version churn.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getEngines, getCases, getPlaybooks } from '~/lib/data';
+
+const [engines, cases, playbooks] = await Promise.all([
+  getEngines(), getCases(), getPlaybooks()
+]);
+
+// Count cases per engine to surface real deployment density.
+const caseCountByEngine = new Map<string, number>();
+for (const c of cases) {
+  caseCountByEngine.set(c.stack.engine.id, (caseCountByEngine.get(c.stack.engine.id) ?? 0) + 1);
+}
+const playbookCountByEngine = new Map<string, number>();
+for (const pb of playbooks) {
+  if (pb.recipe?.engine_primary) {
+    playbookCountByEngine.set(pb.recipe.engine_primary, (playbookCountByEngine.get(pb.recipe.engine_primary) ?? 0) + 1);
+  }
+}
+
+interface EngineProfile {
+  id: string;
+  strengths: string[];
+  weaknesses: string[];
+  best_for: string;
+  not_for: string;
+  ecosystem_zh: string;
+}
+
+// Engine profiles — concrete tradeoffs that aren't in the engine YAML schema
+// (which is reference-only). This is the strategic picker.
+const PROFILES: Record<string, EngineProfile> = {
+  vllm: {
+    id: 'vllm',
+    strengths: [
+      '社区最大, model 兼容性最广 (Llama / Mistral / DeepSeek / Qwen / Mixtral / GLM 都 day-1 支持)',
+      'PagedAttention 原产地, KV cache 管理最成熟',
+      'ROCm + CUDA + CPU 全后端, 跨厂商部署默认',
+      'Continuous batching 性能 production-grade'
+    ],
+    weaknesses: [
+      'Prefill throughput 比 TRT-LLM 低 10-25% (CUDA Graph 优化 vs trtllm-build)',
+      '冷启动 30-60 秒 (CUDA Graph capture)',
+      '调度算法 vLLM-router 仍在演进, 不如 NVIDIA Dynamo 成熟'
+    ],
+    best_for: '通用 LLM 推理服务; 多 model 部署; AMD/CDNA 后端; 开发期快速迭代',
+    not_for: '极致 prefill 吞吐 (走 TRT-LLM); 大规模 production 调度 (走 Dynamo); 端侧 (走 llama.cpp)',
+    ecosystem_zh: 'NVIDIA + AMD + Intel + Ascend (vllm-ascend fork) + 国产芯片均有 fork'
+  },
+  sglang: {
+    id: 'sglang',
+    strengths: [
+      'RadixAttention 前缀复用最成熟 — agent / chatbot 场景 TTFT 5-20x',
+      'Triton kernel 路径快速迭代, 新硬件 (Blackwell, MI355X) 跟进最快',
+      'Disaggregated prefill/decode 内置原生支持',
+      'Structured output (JSON / XML / regex) 性能最强'
+    ],
+    weaknesses: [
+      'Model 兼容性比 vLLM 略窄 (但 frontier model day-1 都支持)',
+      'AMD ROCm path 不如 vLLM 成熟',
+      '调试工具链不如 vLLM (社区相对小)'
+    ],
+    best_for: 'Agent / multi-turn / few-shot 场景 (前缀复用关键); structured generation; 长 context disagg',
+    not_for: 'AMD-only stack (用 vLLM); 端侧 (走 llama.cpp); 信创合规 (走 MindIE)',
+    ecosystem_zh: 'NVIDIA 主战场; 与 Flashinfer 紧密集成; AMD ROCm 路径有但不主推'
+  },
+  'tensorrt-llm': {
+    id: 'tensorrt-llm',
+    strengths: [
+      'NVIDIA 硬件极致优化 — 同卡 prefill 吞吐 vLLM/SGLang 高 10-25%',
+      'FP8 / FP4 Blackwell 路径最早最完整',
+      '生产部署稳定性极高 (engine 离线 build, 运行时确定性)',
+      'Multi-LoRA + speculative decoding 内置, 调度系统强'
+    ],
+    weaknesses: [
+      'NVIDIA-only, AMD/Ascend/国产完全没法用',
+      'Engine build 5-30 分钟 (vs vLLM 30 秒 capture)',
+      'GPU-arch 锁定 — sm_90 engine 不能跑在 sm_100',
+      '社区贡献节奏比 vLLM 慢, 新 model 适配滞后 1-2 周'
+    ],
+    best_for: 'NVIDIA 生产部署 + 极致吞吐 + 硬件锁定可接受 + 离线 build 时间不是问题',
+    not_for: '多厂商部署; 频繁 model 切换; 端侧; AMD/Ascend',
+    ecosystem_zh: 'NVIDIA-only; 与 Triton Inference Server / Dynamo 紧耦合; FP4 Blackwell 早期独家'
+  },
+  mindie: {
+    id: 'mindie',
+    strengths: [
+      '昇腾 NPU 唯一 production-grade 推理栈',
+      '信创认证 — 国央企部署默认',
+      'CANN 9.0+ FP8/INT8 路径成熟',
+      'MindIE 2.0+ 内置 MTP / continuous batching, 与 vLLM/SGLang 对标'
+    ],
+    weaknesses: [
+      '昇腾-only (非 NPU 上不能用)',
+      '社区比 NVIDIA 阵营小, 文档主要中文',
+      'Frontier model day-1 适配有 1-4 周 lag (DeepSeek V3 用了 6 周)',
+      'ROCm/CUDA 用户切换学习曲线陡'
+    ],
+    best_for: '昇腾 910C / 910D 部署; 国央企信创合规; 中国 enterprise / AI 国产替代',
+    not_for: 'NVIDIA-only stack; 全球生态团队; 端侧 (无 NPU 端侧)',
+    ecosystem_zh: '华为昇腾完整软硬一体; 与 OBS + ModelArts + MindStudio 集成'
+  },
+  lmdeploy: {
+    id: 'lmdeploy',
+    strengths: [
+      'TurboMind backend 在 InternLM / Qwen 系模型上吞吐顶尖',
+      '社区 (上海 AI Lab + InternLM) 维护稳定',
+      'AWQ INT4 量化路径极致优化',
+      '中文模型生态最强'
+    ],
+    weaknesses: [
+      '主要面向 InternLM / Qwen, 其他模型支持深度不及 vLLM',
+      'TurboMind 是 C++ 实现, 调试 / 二次开发门槛高',
+      '社区比 vLLM/SGLang 小一个数量级'
+    ],
+    best_for: 'InternLM / Qwen 部署; 中文场景; AWQ INT4 极致量化',
+    not_for: '多 model 通用部署; AMD/Ascend (CUDA-only TurboMind 路径)',
+    ecosystem_zh: '上海 AI Lab + 国内中文 LLM 生态'
+  }
+};
+
+const profiledEngines = engines
+  .filter((e) => PROFILES[e.id])
+  .map((e) => ({
+    engine: e,
+    profile: PROFILES[e.id]!,
+    cases: caseCountByEngine.get(e.id) ?? 0,
+    playbooks: playbookCountByEngine.get(e.id) ?? 0
+  }))
+  .sort((a, b) => (b.cases + b.playbooks) - (a.cases + a.playbooks));
+
+interface ScenarioRecommendation {
+  scenario_zh: string;
+  scenario_en: string;
+  primary: string;
+  alternates: string[];
+  why: string;
+}
+
+const SCENARIO_PICKER: ScenarioRecommendation[] = [
+  {
+    scenario_zh: 'NVIDIA 单节点 / 集群, 通用 LLM 服务',
+    scenario_en: 'NVIDIA single-node or cluster, general LLM serving',
+    primary: 'vllm',
+    alternates: ['sglang', 'tensorrt-llm'],
+    why: 'vLLM 社区 + 兼容性 + ROCm 备选; 极致吞吐时切 TRT-LLM; agent 场景切 SGLang'
+  },
+  {
+    scenario_zh: 'Agent / multi-turn chat / few-shot inference',
+    scenario_en: 'Agent / multi-turn / few-shot inference',
+    primary: 'sglang',
+    alternates: ['vllm', 'lmdeploy'],
+    why: 'RadixAttention 前缀复用让 multi-turn TTFT 5-20x; vLLM prefix-caching 是次选, lmdeploy InternLM 场景'
+  },
+  {
+    scenario_zh: 'NVIDIA Production + 极致吞吐 + 硬件锁定 OK',
+    scenario_en: 'NVIDIA production with maximum throughput, hardware-lock acceptable',
+    primary: 'tensorrt-llm',
+    alternates: ['vllm'],
+    why: 'TRT-LLM trtllm-build engine 比 CUDA Graph 快 10-25%; FP4 Blackwell 路径最完整; engine 锁定可接受时首选'
+  },
+  {
+    scenario_zh: '昇腾 910C / 910D 部署 (国央企 / 信创)',
+    scenario_en: 'Ascend 910C/910D deployment (state-owned enterprise / info-creation compliance)',
+    primary: 'mindie',
+    alternates: ['vllm-ascend (community fork)'],
+    why: '昇腾 NPU 唯一 production-grade 栈; CANN 9.0+ MTP/continuous batching/disagg 全有; 信创认证'
+  },
+  {
+    scenario_zh: 'InternLM / Qwen 中文模型 + AWQ INT4',
+    scenario_en: 'InternLM / Qwen Chinese model + AWQ INT4',
+    primary: 'lmdeploy',
+    alternates: ['vllm', 'sglang'],
+    why: 'TurboMind backend 对 InternLM / Qwen 系优化最深; AWQ INT4 极致优化; 中文场景默认'
+  },
+  {
+    scenario_zh: 'AMD MI300X / MI325X 集群',
+    scenario_en: 'AMD MI300X / MI325X cluster',
+    primary: 'vllm',
+    alternates: ['sglang'],
+    why: 'vLLM ROCm 0.7+ 是 AMD 最成熟路径; SGLang ROCm 实验性; TRT-LLM/MindIE 不可用'
+  },
+  {
+    scenario_zh: '端侧 / 边缘 (Jetson / Apple M / Phone)',
+    scenario_en: 'Edge / on-device deployment',
+    primary: '— (走 llama.cpp / MLC-LLM)',
+    alternates: [],
+    why: '上述 5 个引擎都是数据中心级; 端侧走 llama.cpp (CPU+GPU GGUF) 或 MLC-LLM (跨平台编译)'
+  }
+];
+
+const enginesById = new Map(engines.map((e) => [e.id, e]));
+---
+<BaseLayout title="推理引擎选型 / Picking an Inference Engine">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · PICKING AN INFERENCE ENGINE
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        推理引擎选型 · Picking an Engine
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        vLLM / SGLang / TRT-LLM / MindIE / LMDeploy 的 strategic picker. 引擎选择决定 30-50%
+        部署成本和 50-100% 调度复杂度. 这里基于真实
+        <a href={pathname('/cases/')} style="color: var(--color-accent);" class="hover:underline">部署案例</a>
+        和 <a href={pathname('/playbooks/')} style="color: var(--color-accent);" class="hover:underline">Playbook</a>
+        分布给出场景化推荐.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">引擎数: </span><strong>{engines.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">实测案例: </span><strong>{cases.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">Playbook: </span><strong>{playbooks.length}</strong></div>
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="scenario-picker-heading">
+      <h2 id="scenario-picker-heading" class="text-2xl font-semibold mb-4">7 个场景速查</h2>
+      <div class="space-y-3">
+        {SCENARIO_PICKER.map((s, idx) => {
+          const primaryEngine = enginesById.get(s.primary);
+          return (
+            <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`scenario-${idx}`}>
+              <div class="grid lg:grid-cols-[2fr,1fr] gap-4">
+                <div>
+                  <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-text-muted);">场景 / Scenario</div>
+                  <div class="text-base font-semibold mb-1" style="color: var(--color-text);">{s.scenario_zh}</div>
+                  <div class="text-xs mb-3" style="color: var(--color-text-muted);">{s.scenario_en}</div>
+                  <p class="text-sm" style="color: var(--color-text-muted);">{s.why}</p>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider font-medium mb-1.5" style="color: var(--color-accent);">推荐 / Primary</div>
+                  {primaryEngine ? (
+                    <a href={pathname(`/engines/${primaryEngine.id}/`)} class="inline-block text-sm font-semibold hover:underline mb-3" style="color: var(--color-text);">→ {primaryEngine.name}</a>
+                  ) : (
+                    <div class="text-sm font-semibold mb-3" style="color: var(--color-text);">{s.primary}</div>
+                  )}
+                  {s.alternates.length > 0 && (
+                    <>
+                      <div class="text-[10px] uppercase tracking-wider font-medium mb-1.5" style="color: var(--color-text-muted);">备选</div>
+                      <ul class="text-xs space-y-1">
+                        {s.alternates.map((altId) => {
+                          const e = enginesById.get(altId);
+                          return e ? (
+                            <li><a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-text-muted);">→ {e.name}</a></li>
+                          ) : (
+                            <li style="color: var(--color-text-muted);">→ {altId}</li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="engine-profiles-heading">
+      <h2 id="engine-profiles-heading" class="text-2xl font-semibold mb-4">引擎详细对照 (按部署密度排序)</h2>
+      <div class="space-y-4">
+        {profiledEngines.map(({ engine, profile, cases: cc, playbooks: pc }) => (
+          <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`engine-profile-${engine.id}`}>
+            <div class="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+              <h3 class="text-lg font-semibold flex items-center gap-2">
+                <a href={pathname(`/engines/${engine.id}/`)} class="hover:underline" style="color: var(--color-text);">{engine.name}</a>
+                {engine.maintainer && <span class="text-xs font-normal px-2 py-0.5 rounded" style="background: var(--color-bg); color: var(--color-text-muted);">{engine.maintainer}</span>}
+              </h3>
+              <div class="text-xs" style="color: var(--color-text-muted);">
+                <strong style="color: var(--color-accent);">{cc}</strong> 案例 · <strong>{pc}</strong> playbook
+              </div>
+            </div>
+
+            <div class="grid lg:grid-cols-2 gap-4 text-sm">
+              <div>
+                <div class="font-semibold mb-1" style="color: oklch(70% 0.15 145);">优势</div>
+                <ul class="text-xs space-y-1" style="color: var(--color-text-muted);">
+                  {profile.strengths.map((s) => (<li>· {s}</li>))}
+                </ul>
+              </div>
+              <div>
+                <div class="font-semibold mb-1" style="color: oklch(70% 0.18 30);">代价</div>
+                <ul class="text-xs space-y-1" style="color: var(--color-text-muted);">
+                  {profile.weaknesses.map((w) => (<li>· {w}</li>))}
+                </ul>
+              </div>
+            </div>
+
+            <div class="mt-4 grid lg:grid-cols-2 gap-4 text-xs">
+              <div>
+                <div class="font-semibold mb-1" style="color: var(--color-accent);">最适合</div>
+                <p style="color: var(--color-text-muted);">{profile.best_for}</p>
+              </div>
+              <div>
+                <div class="font-semibold mb-1" style="color: var(--color-text-muted);">不适合</div>
+                <p style="color: var(--color-text-muted);">{profile.not_for}</p>
+              </div>
+            </div>
+
+            <div class="mt-3 text-xs" style="color: var(--color-text-muted);">
+              <span class="font-semibold">生态: </span>{profile.ecosystem_zh}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          挑好引擎后, 看具体 (model × hardware × engine) 部署 <a href={pathname('/playbooks/')} style="color: var(--color-accent);" class="hover:underline">Playbook</a>
+          和真实<a href={pathname('/cases/')} style="color: var(--color-accent);" class="hover:underline">案例</a>
+          找完整配方; 或用<a href={pathname('/learn/parallelism-cheatsheet/')} style="color: var(--color-accent);" class="hover:underline">并行策略速查表</a>定 TP/PP/EP.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/playbooks/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">浏览 Playbook →</a>
+          <a href={pathname('/learn/parallelism-cheatsheet/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">并行策略 →</a>
+          <a href={pathname('/learn/quantization-decision-tree/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">量化决策树 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

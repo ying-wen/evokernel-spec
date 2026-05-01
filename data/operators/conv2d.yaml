@@ -1,0 +1,83 @@
+id: conv2d
+name: 2D Convolution (vision encoder primitive)
+category: matmul
+
+flops_formula: '2 * batch * out_h * out_w * out_channels * (kernel_h * kernel_w * in_channels)'
+bytes_formula: '4 * (batch * in_h * in_w * in_channels + kernel_h * kernel_w * in_channels * out_channels + batch * out_h * out_w * out_channels)'
+arithmetic_intensity_formula: 'kernel_h * kernel_w / 2 to ~kernel_count'
+arithmetic_intensity_typical:
+  min: 8
+  max: 800
+  notes: '取决于 kernel size 和 channel 数. 1x1 conv (point-wise) 最低 (~3 FLOP/byte); 3x3+ conv 高 (50-800). 大 batch 接近 GEMM 峰值.'
+
+description: |
+  2D 卷积 — 视觉模型的核心 primitive. 在 multi-modal LLM (Llama 4 Vision, Qwen 2.5-VL,
+  Pixtral, GLM-V) 的 vision encoder 阶段大量使用; 也是 diffusion (Stable Diffusion 3, Flux)
+  的 UNet/DiT 主要计算.
+
+  ## 公式
+  ```
+  out[b, c_out, h, w] = sum_{c_in, kh, kw} (
+      input[b, c_in, h*stride + kh, w*stride + kw] * weight[c_out, c_in, kh, kw]
+  ) + bias[c_out]
+  ```
+
+  ## 在现代部署中的角色
+  - **ViT (Vision Transformer)**: 第一层 patch embedding 是 conv2d (kernel=patch_size, stride=patch_size), 把 224×224 图切成 14×14 patches
+  - **CNN backbone (ResNet, EfficientNet)**: 老一代 vision encoder, 现已被 ViT 主导但仍在端侧部署
+  - **Diffusion UNet/DiT**: SD3 / Flux 仍在 spatial 阶段用 conv (DiT 是 transformer-only 但 patch embedding 仍 conv)
+  - **Multi-modal LLM vision tower**: Llama 4 Vision / Qwen 2.5-VL 的 ViT 编码器先 conv2d 做 patch embedding
+
+  ## 实现层次
+  - **im2col + GEMM** (老路径): 把 conv 展开成大 GEMM, 内存浪费大
+  - **直接卷积 (Winograd / FFT)**: 3x3 conv 用 Winograd F(2,3) 减少 4× FLOPs
+  - **cuDNN / MIOpen / CANN**: 自动选择最优算法 (implicit GEMM / Winograd / FFT) 基于 input shape
+  - **Triton / Cutlass**: 现代框架自定义 conv kernel
+
+  ## 部署关键
+  - Multi-modal LLM 的 image encoder TFLOPS ~2-10 TFLOPS / image (224x224 ViT-L)
+  - 高分辨率输入 (1024+ px) conv 时间显著 — 决定 multi-modal TTFT
+  - 端侧 (Jetson, Apple M, mobile NPU) conv 是主要耗时, INT8/INT4 量化敏感
+
+variants: [conv1d, depthwise-conv2d, pointwise-conv2d, transposed-conv2d, dilated-conv2d]
+
+fusion_targets: [layer-norm, gelu, silu, batch-norm]
+participates_in_fused_kernels: []
+
+engine_implementations:
+  - name: cuDNN convolution
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/deeplearning/cudnn/
+    notes: 'NVIDIA 标准 conv 库, vLLM/TRT-LLM/SGLang 都依赖'
+  - name: MIOpen convolution
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/MIOpen
+    notes: 'AMD ROCm 标准 conv 库'
+  - name: TRT-LLM IConvolutionLayer
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: '自动选择 Winograd / GEMM 算法, INT8 calibration 内置'
+  - name: CANN convolution (AscendC)
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: '昇腾 vision encoder 通过 CANN 标准 op'
+  - name: Apple MPSGraph conv2d
+    hardware_arch: [apple-m]
+    notes: '端侧 Vision Transformer 使用 Metal Performance Shaders'
+  - name: ONNX Runtime conv2d
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, apple-m, jetson]
+    notes: '跨硬件 conv 实现, Jetson / Phone NPU 默认路径'
+
+precision_support: [bf16, fp16, fp8-e4m3, fp32, int8, int4-awq]
+
+related_patterns: []
+
+references:
+  - title: 'An Image is Worth 16x16 Words: Transformers for Image Recognition (ViT, conv patch embedding)'
+    url: https://arxiv.org/abs/2010.11929
+    source_type: paper
+  - title: 'cuDNN convolution algorithms'
+    url: https://docs.nvidia.com/deeplearning/cudnn/api/index.html#cudnnConvolutionFwdAlgo_t
+    source_type: docs
+  - title: 'Winograd Minimal Filtering Algorithm'
+    url: https://arxiv.org/abs/1509.09308
+    source_type: paper
