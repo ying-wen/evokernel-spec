@@ -138,7 +138,12 @@ test.describe('SEO and feeds', () => {
     await page.goto('/');
     expect(await page.locator('meta[property="og:title"]').getAttribute('content')).toContain('EvoKernel');
     expect(await page.locator('meta[name="twitter:card"]').getAttribute('content')).toBe('summary_large_image');
-    expect(await page.locator('link[rel="alternate"][type="application/rss+xml"]').getAttribute('href')).toBe('/cases.xml');
+    // v1.34+: now has 2 RSS feeds (cases.xml + feed.xml). Both must be present.
+    const rssLinks = page.locator('link[rel="alternate"][type="application/rss+xml"]');
+    expect(await rssLinks.count()).toBeGreaterThanOrEqual(2);
+    const hrefs = await rssLinks.evaluateAll((els) => els.map((e) => (e as HTMLLinkElement).getAttribute('href')));
+    expect(hrefs).toContain('/cases.xml');
+    expect(hrefs).toContain('/feed.xml');
   });
 
   test('RSS feed is valid XML', async ({ page }) => {
@@ -573,6 +578,55 @@ test.describe('Hardware-detail in-page TOC', () => {
     expect(await page.locator('#topology').count()).toBe(1);
     expect(await page.locator('#operators').count()).toBe(1);
     expect(await page.locator('#cases').count()).toBe(1);
+  });
+});
+
+test.describe('v1.34: /changelog/ public page + /feed.xml RSS feed', () => {
+  test('/changelog/ renders with stats card + month TOC + recent releases', async ({ page }) => {
+    await page.goto('/changelog/');
+    await expect(page.getByRole('heading', { name: /版本日志|Changelog/i }).first()).toBeVisible();
+    await expect(page.locator('[data-testid="changelog-stat-total"]').first()).toBeVisible();
+    // Recent releases visible (v1.30+ should always exist as long as the site is shipping)
+    await expect(page.locator('[data-testid="release-v1.33.0"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="release-v1.30.0"]').first()).toBeVisible();
+  });
+
+  test('/changelog/ has RSS subscribe links', async ({ page }) => {
+    await page.goto('/changelog/');
+    // Multiple RSS links (header stat card + footer CTA + inline)
+    const rssLinks = page.locator('a[href*="/feed.xml"]');
+    expect(await rssLinks.count()).toBeGreaterThanOrEqual(2);
+  });
+
+  test('/changelog/ release entries link to GitHub release tags', async ({ page }) => {
+    await page.goto('/changelog/');
+    await expect(page.locator('a[href*="github.com/ying-wen/evokernel-spec/releases/tag/v"]').first()).toBeVisible();
+  });
+
+  test('/feed.xml renders valid RSS with multiple items', async ({ page }) => {
+    const response = await page.request.get('/feed.xml');
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toMatch(/xml/);
+    const body = await response.text();
+    expect(body).toContain('<?xml version="1.0"');
+    expect(body).toContain('<rss version="2.0">');
+    expect(body).toContain('EvoKernel Spec — Releases');
+    // At least 5 items present (likely many more)
+    const itemCount = (body.match(/<item>/g) ?? []).length;
+    expect(itemCount).toBeGreaterThanOrEqual(5);
+  });
+
+  test('RSS auto-discovery <link rel="alternate"> present in <head>', async ({ page }) => {
+    await page.goto('/');
+    const html = await page.content();
+    expect(html).toContain('type="application/rss+xml"');
+    expect(html).toContain('feed.xml');
+  });
+
+  test('About dropdown contains the new changelog link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="about"]').first();
+    await expect(dd.locator('a[href*="/changelog"]').first()).toHaveCount(1);
   });
 });
 

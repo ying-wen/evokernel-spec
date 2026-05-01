@@ -114,7 +114,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/quality/', labelKey: 'nav.quality', desc_zh: '数据质量 · 引证度量 · 缺失 entity', desc_en: 'Data quality · evidence metrics · missing entities' },
       { path: '/impact/', labelKey: 'nav.impact', desc_zh: 'GitHub Stars · 贡献者 · 引证', desc_en: 'GitHub stars · contributors · citations' },
       { path: '/contribute/', labelKey: 'nav.contribute', desc_zh: '贡献指南 · 三种 PR 路径', desc_en: 'Contributing · 3 PR tracks' },
-      { path: '/about/', labelKey: 'nav.about', desc_zh: '项目设计原则 · evidence tier · 公式', desc_en: 'Design principles · evidence tier · formulas' }
+      { path: '/about/', labelKey: 'nav.about', desc_zh: '项目设计原则 · evidence tier · 公式', desc_en: 'Design principles · evidence tier · formulas' },
+      { path: '/changelog/', labelKey: 'nav.changelog', desc_zh: '版本日志 · RSS 订阅 · 每个版本一个主题', desc_en: 'Release log · RSS feed · single-theme releases' }
     ]
   }
 ];

@@ -1,0 +1,233 @@
+---
+/**
+ * /changelog/ — public release log.
+ *
+ * Reads CHANGELOG.md at build time. Each release is rendered with version +
+ * date headline + markdown body. RSS feed lives at /feed.xml; this page is
+ * the human-readable mirror.
+ *
+ * Design choice: keep everything on one scrollable page (no per-version sub-
+ * pages). At ~30 releases × ~1KB markdown each, the page is < 60 KB —
+ * well under any reasonable budget. New visitors can scan the project's
+ * cadence in one scroll.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getReleases } from '~/lib/changelog';
+import { marked } from 'marked';
+
+const releases = getReleases();
+
+// Render markdown bodies once at build. Use synchronous marked.parse for
+// simplicity — bodies are trusted (we wrote them).
+const rendered = await Promise.all(
+  releases.map(async (r) => ({
+    ...r,
+    body_html: await marked.parse(r.body_md, { async: true })
+  }))
+);
+
+const total = releases.length;
+const earliest = releases[releases.length - 1]?.date ?? '?';
+const latest = releases[0]?.date ?? '?';
+
+// Group by month for the in-page TOC
+const byMonth = new Map<string, typeof rendered>();
+for (const r of rendered) {
+  const month = r.date.slice(0, 7);
+  if (!byMonth.has(month)) byMonth.set(month, []);
+  byMonth.get(month)!.push(r);
+}
+---
+<BaseLayout title="Changelog · 版本日志">
+  <Fragment slot="head">
+    <link rel="alternate" type="application/rss+xml" title="EvoKernel Spec — Releases" href={pathname('/feed.xml')} />
+  </Fragment>
+
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        CHANGELOG · RELEASES
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        版本日志 · Changelog
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        每个版本一个 single-theme 改动 + 可选小内容增量. 按 SemVer 版本号倒序.
+        订阅
+        <a href={pathname('/feed.xml')} target="_blank" rel="noopener" style="color: var(--color-accent);" class="hover:underline">RSS 流</a>
+        以便有新版本时收到通知.
+      </p>
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div class="rounded-lg border p-3" data-testid="changelog-stat-total" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{total}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">已发布版本</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-base font-semibold" style="color: var(--color-text);">{earliest}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">首个版本</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-base font-semibold" style="color: var(--color-text);">{latest}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">最新版本</div>
+        </div>
+        <a href={pathname('/feed.xml')} target="_blank" rel="noopener" class="rounded-lg border p-3 hover:opacity-90 transition-opacity" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 6%, var(--color-surface-raised));">
+          <div class="text-2xl font-semibold" style="color: var(--color-accent);">📡</div>
+          <div class="text-xs mt-1" style="color: var(--color-accent);">订阅 RSS</div>
+        </a>
+      </div>
+    </section>
+
+    <!-- TOC by month -->
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="toc-heading">
+      <h2 id="toc-heading" class="text-base font-semibold mb-3">按月浏览 · TOC</h2>
+      <div class="flex flex-wrap gap-2 text-xs">
+        {Array.from(byMonth.entries()).map(([month, rs]) => (
+          <a href={`#month-${month}`} class="px-2.5 py-1 rounded border hover:opacity-80" style="border-color: var(--color-border); color: var(--color-text);">
+            <span class="font-mono">{month}</span>
+            <span class="ml-1.5" style="color: var(--color-text-muted);">×{rs.length}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <!-- Releases -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      {Array.from(byMonth.entries()).map(([month, monthReleases]) => (
+        <div id={`month-${month}`} class="mb-12 scroll-mt-24">
+          <h2 class="text-xl font-semibold mb-6 sticky top-0 py-2 z-10" style="color: var(--color-text-muted); background: var(--color-bg);">
+            {month}
+          </h2>
+          <div class="space-y-10">
+            {monthReleases.map((r) => (
+              <article id={`v${r.version}`} class="scroll-mt-24" data-testid={`release-v${r.version}`}>
+                <header class="flex items-baseline gap-3 flex-wrap mb-3 pb-2 border-b" style="border-color: var(--color-border);">
+                  <a href={`#v${r.version}`} class="text-2xl font-semibold tabular-nums hover:underline" style="color: var(--color-accent);">
+                    v{r.version}
+                  </a>
+                  <span class="text-sm font-mono" style="color: var(--color-text-muted);">{r.date}</span>
+                  <a
+                    href={`https://github.com/ying-wen/evokernel-spec/releases/tag/v${r.version}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-xs hover:underline ml-auto"
+                    style="color: var(--color-text-muted);"
+                  >
+                    GitHub Release ↗
+                  </a>
+                </header>
+                <div class="changelog-body" set:html={r.body_html}></div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">订阅更新</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          RSS 是订阅本项目的最简单方式 — 不依赖第三方平台, 不需要账号. 把
+          <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface-raised);">https://yingwen.io/evokernel-spec/feed.xml</code>
+          加到你的 RSS reader (Reeder / NetNewsWire / Inoreader) 即可.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/feed.xml')} target="_blank" rel="noopener" class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">
+            📡 RSS Feed →
+          </a>
+          <a href="https://github.com/ying-wen/evokernel-spec/releases" target="_blank" rel="noopener noreferrer" class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">
+            GitHub Releases ↗
+          </a>
+          <a href={pathname('/impact/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">
+            影响指标 →
+          </a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>
+
+<style is:global>
+  .changelog-body {
+    color: var(--color-text);
+    line-height: 1.7;
+    font-size: 0.9375rem;
+  }
+  .changelog-body h3 {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.625rem;
+    color: var(--color-text);
+  }
+  .changelog-body h4 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin: 1.125rem 0 0.5rem;
+    color: var(--color-text);
+  }
+  .changelog-body p {
+    margin: 0.625rem 0;
+    color: var(--color-text);
+  }
+  .changelog-body ul, .changelog-body ol {
+    padding-left: 1.5rem;
+    margin: 0.625rem 0;
+  }
+  .changelog-body li {
+    margin: 0.25rem 0;
+  }
+  .changelog-body code {
+    font-family: ui-monospace, SF Mono, Menlo, Consolas, monospace;
+    font-size: 0.825em;
+    background: var(--color-surface-raised);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--color-accent);
+  }
+  .changelog-body pre {
+    background: var(--color-surface-raised);
+    padding: 0.875rem 1rem;
+    border-radius: 0.375rem;
+    overflow-x: auto;
+    margin: 0.875rem 0;
+    border: 1px solid var(--color-border);
+  }
+  .changelog-body pre code {
+    background: transparent;
+    padding: 0;
+    color: var(--color-text);
+  }
+  .changelog-body a {
+    color: var(--color-accent);
+  }
+  .changelog-body a:hover {
+    text-decoration: underline;
+  }
+  .changelog-body strong {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+  .changelog-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.875rem 0;
+    font-size: 0.8125rem;
+  }
+  .changelog-body th, .changelog-body td {
+    border: 1px solid var(--color-border);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .changelog-body th {
+    background: var(--color-surface-raised);
+    font-weight: 600;
+  }
+  .changelog-body hr {
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    margin: 1.25rem 0;
+  }
+</style>

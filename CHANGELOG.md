@@ -6,13 +6,12 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.34+ horizon
+### v1.35+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
 **Tier 1 remaining (high-leverage, low-effort)**:
 - Citation PR onboarding (real external citations to populate /impact/)
-- "What's new this week" RSS feed (auto-from git log)
 - More tours (SD3/Flux diffusion, Kimi K2.6 on B200, GPT-OSS on Atlas)
 
 **Tier 2 (medium-leverage)**:
@@ -27,6 +26,48 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.34.0] — 2026-05-02
+
+**`/changelog/` public page + `/feed.xml` RSS feed.** Returning visitors and would-be contributors can now subscribe to releases. Complement to v1.18's `/impact/` dashboard — that one shows *that* the project is alive; this one shows *what's happening*.
+
+### Added
+
+**`/changelog/`** (NEW public page):
+- Renders all releases from `CHANGELOG.md` in a single scrollable page
+- 4 stat cards: total released versions / first version / latest version / RSS subscribe CTA
+- Month-grouped TOC for fast navigation across many releases
+- Each release: anchor-linkable header (`#v1.34.0`), GitHub Release tag link, full markdown body rendered as HTML
+- Sticky month headers for orientation while scrolling
+- Pre-existing `marked` library reused for markdown rendering
+
+**`/feed.xml`** (NEW RSS feed):
+- Auto-generated from `CHANGELOG.md` parsed at build time
+- Uses Astro's official `@astrojs/rss` (already a dependency from `/cases.xml`)
+- Skips "Unreleased" placeholder; only versioned releases included
+- Each item: `vX.Y.Z — DATE` title, summary from first body paragraph (220 char cap), pubDate, link to `/changelog/#vX.Y.Z`
+- 33 releases currently in feed (back to v1.0.0)
+
+**`apps/web/src/lib/changelog.ts`** (NEW shared parser):
+- Single `getReleases()` function, build-time cached
+- Walks up from build cwd to find `CHANGELOG.md` at repo root
+- Splits on `## [version] — date` headers; tolerant of em-dash / hyphen / en-dash separators
+- Both `/changelog/` page and `/feed.xml` consume the same parsed output — single source of truth
+
+**RSS auto-discovery**: `BaseLayout.astro` now emits two `<link rel="alternate" type="application/rss+xml">` tags in `<head>` — one for cases (existing), one for releases (new). Browser RSS readers auto-detect both.
+
+**Nav wiring**: About dropdown gains a 5th item — Changelog (alongside Quality / Impact / Contribute / About).
+
+### Fixed
+- Pre-existing E2E test `'home has OpenGraph and Twitter meta'` was strict-mode-asserting only one RSS link existed — updated to assert at least 2 (with both `/cases.xml` + `/feed.xml` in the set).
+
+### Stats
+- 392/392 site E2E pass (+6 new) · 36/36 unit pass
+- Build: 425 pages
+- 33 releases in feed (v1.0.0 → v1.33.0)
+- About dropdown count: 5 items (was 4)
 
 ---
 
