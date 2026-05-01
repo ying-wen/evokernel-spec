@@ -627,6 +627,60 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v1.42: /engines/compare/ — engine capability matrix', () => {
+  test('/engines/compare/ renders header + 4 coverage cards + 6 axis tables', async ({ page }) => {
+    await page.goto('/engines/compare/');
+    await expect(page.getByRole('heading', { name: /推理引擎能力对比矩阵|Engine.*[Cc]apability/i }).first()).toBeVisible();
+    // 6 axis sections (quant / parallel / serving / spec-decode / frontend / deployment)
+    const axisHeadings = page.locator('h2');
+    expect(await axisHeadings.count()).toBeGreaterThanOrEqual(6);
+  });
+
+  test('Compare matrix renders 7 engine columns × all axes', async ({ page }) => {
+    await page.goto('/engines/compare/');
+    // Each engine name should appear at least once as a column header link
+    for (const name of ['vLLM', 'SGLang', 'TensorRT-LLM', 'MindIE', 'LMDeploy', 'MoRI', 'HanGuangAI']) {
+      await expect(page.getByText(name).first()).toBeVisible();
+    }
+  });
+
+  test('Compare matrix shows ✓ glyphs (engines actually have features)', async ({ page }) => {
+    await page.goto('/engines/compare/');
+    // Should be 100+ supported cells across the matrix
+    const checkmarks = page.locator('span', { hasText: /^✓$/ });
+    expect(await checkmarks.count()).toBeGreaterThanOrEqual(100);
+  });
+
+  test('Compare matrix surfaces decision shortcuts (selection helper)', async ({ page }) => {
+    await page.goto('/engines/compare/');
+    await expect(page.getByText(/选型快捷方式|Decision/i).first()).toBeVisible();
+    // Should have shortcut cards (NVIDIA-only / PD-disagg / 异构 / Ascend / InternLM / frontier)
+    const shortcuts = page.locator('a[href*="/engines/"]', { hasText: /^[a-zA-Z]/ });
+    expect(await shortcuts.count()).toBeGreaterThanOrEqual(5);
+  });
+
+  test('Engine detail page surfaces capability matrix (vLLM)', async ({ page }) => {
+    await page.goto('/engines/vllm/');
+    await expect(page.getByRole('heading', { name: /能力矩阵|Capability/i }).first()).toBeVisible();
+    await expect(page.getByText(/量化格式|Quantization/i).first()).toBeVisible();
+    await expect(page.getByText(/并行策略|Parallelism/i).first()).toBeVisible();
+    await expect(page.getByText(/服务特性|Serving/i).first()).toBeVisible();
+  });
+
+  test('Engine detail page surfaces strengths / weaknesses / best-for (vLLM)', async ({ page }) => {
+    await page.goto('/engines/vllm/');
+    await expect(page.getByText(/优势|Strengths/i).first()).toBeVisible();
+    await expect(page.getByText(/局限|Weaknesses/i).first()).toBeVisible();
+    await expect(page.getByText(/最适合|Best for/i).first()).toBeVisible();
+  });
+
+  test('/engines/ index links to /engines/compare/ via callout', async ({ page }) => {
+    await page.goto('/engines/');
+    const calloutLink = page.locator('a[href$="/engines/compare/"]').first();
+    await expect(calloutLink).toBeVisible();
+  });
+});
+
 test.describe('v1.40: /learn/troubleshooting/ — symptom-driven debugging decision tree', () => {
   test('/learn/troubleshooting/ renders header + 4 stat cards + symptom categories', async ({ page }) => {
     await page.goto('/learn/troubleshooting/');

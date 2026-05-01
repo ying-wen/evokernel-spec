@@ -67,7 +67,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/fused-kernels/', labelKey: 'nav.fusedKernels', desc_zh: '24 个融合 kernel · 实现路径 · 引擎支持', desc_en: '24 fused kernels · implementations · engine support' },
       { path: '/operators/fusion-graph/', labelKey: 'nav.fusionGraph', desc_zh: '算子-Kernel 二分图 · 找 hub / heavy-fusion / 数据漂移', desc_en: 'Operator-Kernel bipartite graph · hubs / heavy-fusion / drift' },
       { path: '/quantizations/', labelKey: 'nav.quantizations', desc_zh: 'BF16 / FP8 / FP4 / INT8 / INT4 全谱', desc_en: 'BF16 / FP8 / FP4 / INT8 / INT4 spectrum' },
-      { path: '/engines/', labelKey: 'nav.engines', desc_zh: 'vLLM · SGLang · TRT-LLM · MindIE · …', desc_en: 'vLLM · SGLang · TRT-LLM · MindIE · …' }
+      { path: '/engines/', labelKey: 'nav.engines', desc_zh: 'vLLM · SGLang · TRT-LLM · MindIE · …', desc_en: 'vLLM · SGLang · TRT-LLM · MindIE · …' },
+      { path: '/engines/compare/', labelKey: 'nav.enginesCompare', desc_zh: '引擎能力矩阵 · 量化 / 并行 / 服务特性 / spec decode', desc_en: 'Engine capability matrix · quant / parallel / serving / spec decode', theme: 'accent' }
     ]
   },
   {

@@ -2,6 +2,89 @@ id: tensorrt-llm
 name: TensorRT-LLM (Dynamo)
 maintainer: vendor
 source_url: https://github.com/NVIDIA/TensorRT-LLM
+documentation_url: https://nvidia.github.io/TensorRT-LLM/
 supported_hardware_vendors: [nvidia]
 latest_version: '0.14.0'
 notes: 'NVIDIA-only; deepest kernel optimizations and FP8/FP4 support'
+
+quantization_formats:
+  - fp16
+  - bf16
+  - fp8-e4m3
+  - fp8-e5m2
+  - fp4-nvfp4
+  - fp4-mxfp4
+  - int8
+  - int4-gptq
+  - int4-awq
+  - int4-fp4-mixed
+
+parallelism_modes:
+  - tp
+  - pp
+  - ep
+  - sp
+  - cp
+  - dp
+
+serving_features:
+  - paged-attention
+  - continuous-batching
+  - chunked-prefill
+  - prefix-cache
+  - speculative-decoding
+  - multi-lora
+  - structured-output
+  - kv-cache-quant
+  - disaggregated-prefill-decode
+  - kv-cache-offload-cpu
+  - multi-modal-vision
+  - tensor-rt-graph
+  - cuda-graphs
+  - flash-attention-v2
+  - flash-attention-v3
+  - guided-decoding
+  - logprobs
+  - streaming
+
+speculative_decoding:
+  - draft-model
+  - medusa
+  - eagle
+  - eagle-2
+  - lookahead
+  - mtp
+
+frontend_protocols:
+  - openai-compat
+  - triton-tensorrt
+  - grpc-custom
+
+deployment_targets:
+  - single-node
+  - multi-node
+  - k8s-operator
+  - docker
+  - bare-metal
+  - cloud-managed
+
+production_readiness: production
+
+strengths:
+  - 最深 kernel 优化 (NVIDIA-first features 优先落地)
+  - FP4 (NVFP4 / MXFP4) 与 FP8 路径最成熟
+  - Hopper / Blackwell 张量核心利用率最高
+  - 与 Triton Inference Server 深度集成 (production-grade)
+  - Dynamo (v2 架构) 提供 PD-disagg + multi-tenant 路由
+
+weaknesses:
+  - 仅支持 NVIDIA — 无国产 / AMD / Intel 路径
+  - Engine build (compile) 步骤增加部署复杂度
+  - 学习曲线陡 (相比 vLLM)
+  - 模型 onboard 慢于 vLLM
+
+best_for:
+  - 极致性能 / 最低延迟 NVIDIA 部署
+  - Blackwell FP4 训练后量化推理
+  - 与 Triton 生态深度集成的产品
+  - Multi-modal 多任务路由

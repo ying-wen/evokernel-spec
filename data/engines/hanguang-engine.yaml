@@ -5,3 +5,37 @@ source_url: https://www.t-head.cn/
 supported_hardware_vendors: [pingtouge]
 latest_version: 'unknown'
 notes: 'T-Head/Pingtouge inference stack for HanGuang 800; details limited in public docs'
+
+quantization_formats:
+  - fp16
+  - int8
+
+parallelism_modes:
+  - tp
+
+serving_features:
+  - continuous-batching
+  - streaming
+
+speculative_decoding: []
+
+frontend_protocols:
+  - rest-custom
+
+deployment_targets:
+  - single-node
+  - bare-metal
+
+production_readiness: unknown
+
+strengths:
+  - HanGuang 800 NPU 官方栈 (Pingtouge / T-Head)
+  - 阿里集团内合规部署路径
+
+weaknesses:
+  - 公开文档稀缺
+  - 模型 / quant 路径覆盖度未知
+  - 社区生态非常小
+
+best_for:
+  - 阿里 / 平头哥 HanGuang 800 部署 (内部场景)

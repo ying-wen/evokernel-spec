@@ -2,6 +2,66 @@ id: lmdeploy
 name: LMDeploy
 maintainer: mixed
 source_url: https://github.com/InternLM/lmdeploy
+documentation_url: https://lmdeploy.readthedocs.io/
 supported_hardware_vendors: [nvidia, huawei, cambricon]
 latest_version: '0.6.0'
 notes: 'TurboMind backend; friendly to Chinese hardware ecosystems'
+
+quantization_formats:
+  - fp16
+  - bf16
+  - fp8-e4m3
+  - int8
+  - int4-awq
+  - int4-gptq
+
+parallelism_modes:
+  - tp
+  - pp
+  - dp
+
+serving_features:
+  - paged-attention
+  - continuous-batching
+  - chunked-prefill
+  - prefix-cache
+  - multi-lora
+  - kv-cache-quant
+  - multi-modal-vision
+  - cuda-graphs
+  - flash-attention-v2
+  - logprobs
+  - streaming
+
+speculative_decoding: []
+
+frontend_protocols:
+  - openai-compat
+  - rest-custom
+  - grpc-custom
+
+deployment_targets:
+  - single-node
+  - multi-node
+  - docker
+  - bare-metal
+
+production_readiness: stable
+
+strengths:
+  - 国产硬件 (Ascend / Cambricon) friendly
+  - TurboMind 高性能后端 (handcrafted CUDA)
+  - InternLM / 书生大模型原生路径
+  - W4A16 (AWQ) 量化质量好
+  - VLM (vision) 支持成熟
+
+weaknesses:
+  - 社区规模 < vLLM / SGLang
+  - Spec decoding 路径不成熟
+  - PD-disagg 不支持
+
+best_for:
+  - InternLM / 书生模型部署
+  - 含 Ascend / Cambricon 的国产硬件车队
+  - W4A16 量化优先
+  - VLM 视觉模型

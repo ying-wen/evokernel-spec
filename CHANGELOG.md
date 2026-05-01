@@ -6,7 +6,7 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.42+ horizon
+### v1.43+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
@@ -17,12 +17,45 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 **Tier 2 remaining**:
 - Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
 - Citation auto-import (Twitter/X mentions, GitHub backlinks, arxiv)
+- Migration guide series (vLLM → SGLang, H100 → MI300X, FP16 → FP8 → FP4)
 
 **Tier 3 (large bets)**:
 - Interactive deployment-journey visualization
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.42.0] — 2026-05-02
+
+**Theme**: Engine capability matrix — answer "vLLM vs SGLang vs TRT-LLM, which one supports X?" without reading 7 READMEs.
+
+### Added
+- **Engine schema extended** (`schemas/engine.ts`) with 7 capability axes:
+  - `quantization_formats` (10 enum values: FP16/BF16/FP8-E4M3/FP8-E5M2/NVFP4/MXFP4/INT8/INT4-GPTQ/INT4-AWQ/INT4-FP4-mix)
+  - `parallelism_modes` (TP/PP/EP/SP/CP/DP)
+  - `serving_features` (25 enum values: PagedAttention / RadixAttention / chunked-prefill / prefix-cache / spec-decoding / multi-LoRA / structured-output / tool-calling / KV-quant / KV-offload / PD-disagg / multi-modal / CUDA-graphs / FlashAttn-v2/v3 / guided-decoding / logprobs / streaming / etc.)
+  - `speculative_decoding` (draft-model / Medusa / EAGLE / EAGLE-2 / EAGLE-3 / lookahead / MTP / self-speculative / spec-infer)
+  - `frontend_protocols` (OpenAI-compat / TGI-compat / Triton-TensorRT / gRPC / REST / WebSocket)
+  - `deployment_targets` (single-node / multi-node / k8s-operator / Ray Serve / Docker / bare-metal / cloud-managed)
+  - `production_readiness` (experimental / beta / stable / production / unknown)
+  - Plus `strengths` / `weaknesses` / `best_for` narrative fields
+- **All 7 engines populated** (vLLM, SGLang, TensorRT-LLM, MindIE, LMDeploy, MoRI, HanGuangAI) with full capability data.
+- **`/engines/compare/`** — new comparison matrix page, 7 engines × 60+ features across 6 axes (quant / parallel / serving / spec-decode / frontend / deployment). Sticky-row tables, ✓ glyphs, 4 coverage summary cards highlighting top-coverage engine per axis, plus 6 decision shortcut cards ("NVIDIA-only · 极致性能 → TensorRT-LLM", "PD-disagg + RadixAttention → SGLang", "异构硬件车队 · 含国产 → vLLM", etc.).
+- **`/engines/[slug]/`** detail pages now surface 6 new capability sections (能力矩阵 / 量化格式 / 并行策略 / 服务特性 / 投机解码方法 / 前端协议 / 部署形态) + 优势 / 局限 / 最适合 narrative cards.
+- **`/engines/`** index gains accent callout linking to `/engines/compare/`.
+- **`nav-groups.ts`**: added `Engines compare` entry to optimize dropdown (theme: accent).
+- **i18n**: `nav.enginesCompare` zh="引擎对比矩阵" / en="Compare matrix".
+- **7 v1.42 E2E tests** covering matrix structure, glyph counts, decision shortcuts, detail-page sections, callout link.
+
+### Why
+The user can already filter hardware × model × case in this site, but until v1.42 there was no single view of "which inference engine fits my requirements?" Engine choice is one of the highest-leverage decisions in the deployment optimization chain (cost, latency, feature parity, deployment complexity all flow from it), and the answer was scattered across 7 separate vendor docs. The compare matrix collapses that into a one-page lookup with the data structured so future PRs can extend it without UI work — `data/engines/<id>.yaml` adds a feature, the matrix updates automatically next build.
+
+### Stats
+- 463 site E2E pass (+29: 7 v1.42 + 22 auto-discovered for new route) · 36/36 unit pass
+- Build: 446 pages (+1)
+- Engine YAMLs: 7 with full capability data (was 7 with sparse)
 
 ---
 

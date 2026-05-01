@@ -2,6 +2,80 @@ id: sglang
 name: SGLang
 maintainer: community
 source_url: https://github.com/sgl-project/sglang
-supported_hardware_vendors: [nvidia, amd]
+documentation_url: https://docs.sglang.ai/
+supported_hardware_vendors: [nvidia, amd, huawei]
 latest_version: '0.4.0'
 notes: 'High-performance serving with RadixAttention and disaggregated prefill/decode'
+
+quantization_formats:
+  - fp16
+  - bf16
+  - fp8-e4m3
+  - fp8-e5m2
+  - fp4-nvfp4
+  - int8
+  - int4-awq
+
+parallelism_modes:
+  - tp
+  - pp
+  - ep
+  - dp
+
+serving_features:
+  - paged-attention
+  - continuous-batching
+  - chunked-prefill
+  - prefix-cache
+  - speculative-decoding
+  - multi-lora
+  - structured-output
+  - tool-calling
+  - kv-cache-quant
+  - disaggregated-prefill-decode
+  - pd-disagg-router
+  - multi-modal-vision
+  - cuda-graphs
+  - flash-attention-v3
+  - radix-attention
+  - guided-decoding
+  - logprobs
+  - streaming
+
+speculative_decoding:
+  - draft-model
+  - eagle
+  - eagle-2
+  - eagle-3
+  - mtp
+
+frontend_protocols:
+  - openai-compat
+  - rest-custom
+
+deployment_targets:
+  - single-node
+  - multi-node
+  - k8s-operator
+  - docker
+  - bare-metal
+
+production_readiness: production
+
+strengths:
+  - RadixAttention — 树状 prefix-cache，高吞吐 agent/RAG/few-shot
+  - 原生 PD-disagg + router (Mooncake 集成 / 自研)
+  - DeepSeek V3/R1/V4 优化最深 (deepseek 团队 co-dev)
+  - EAGLE-2/EAGLE-3 spec decoding 完整支持
+  - 性能 / 吞吐对标 TRT-LLM 但更易部署
+
+weaknesses:
+  - 硬件支持少于 vLLM (主要 NVIDIA + ROCm + Ascend)
+  - 文档相对 vLLM 略弱
+  - 模型支持稍慢 (但主流 LLM 都覆盖)
+
+best_for:
+  - DeepSeek / Qwen 高性能部署
+  - PD-disagg 大规模集群
+  - Agent / RAG / few-shot 场景 (prefix 高复用)
+  - EAGLE spec decoding

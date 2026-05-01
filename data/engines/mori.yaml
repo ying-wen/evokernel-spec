@@ -4,4 +4,49 @@ maintainer: community
 source_url: https://github.com/mori-project/mori
 supported_hardware_vendors: [nvidia]
 latest_version: '0.1.0'
-notes: 'New inference engine featured in InferenceX benchmarks'
+notes: 'Newer inference engine featured in InferenceX benchmarks; details limited in public docs'
+
+quantization_formats:
+  - fp16
+  - bf16
+  - fp8-e4m3
+  - int8
+
+parallelism_modes:
+  - tp
+  - pp
+
+serving_features:
+  - paged-attention
+  - continuous-batching
+  - chunked-prefill
+  - prefix-cache
+  - cuda-graphs
+  - flash-attention-v3
+  - streaming
+
+speculative_decoding: []
+
+frontend_protocols:
+  - openai-compat
+
+deployment_targets:
+  - single-node
+  - docker
+  - bare-metal
+
+production_readiness: experimental
+
+strengths:
+  - 实验性 / research-friendly
+  - 出现在 InferenceX 基准对比中
+
+weaknesses:
+  - Pre-1.0，无 production track record
+  - 单一硬件 (NVIDIA)
+  - 文档与社区仍在建设
+  - Feature 覆盖度低于 vLLM / SGLang / TRT-LLM
+
+best_for:
+  - 学术 / research benchmark
+  - 新 algorithm 快速验证

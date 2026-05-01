@@ -1,0 +1,431 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import { pathname } from '~/lib/i18n';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { getEngines } from '~/lib/data';
+
+// v1.42: Engine capability matrix — answers "vLLM vs SGLang vs TRT-LLM,
+// which one supports X?" without the user reading 7 READMEs.
+const engines = (await getEngines()).sort((a, b) => a.id.localeCompare(b.id));
+
+// Discriminator axes (each row is a feature, each column is an engine).
+// Order matters: most-asked features first.
+
+const QUANT_FORMATS = [
+  ['fp16', 'FP16'],
+  ['bf16', 'BF16'],
+  ['fp8-e4m3', 'FP8 E4M3'],
+  ['fp8-e5m2', 'FP8 E5M2'],
+  ['fp4-nvfp4', 'NVFP4'],
+  ['fp4-mxfp4', 'MXFP4'],
+  ['int8', 'INT8'],
+  ['int4-gptq', 'INT4 GPTQ'],
+  ['int4-awq', 'INT4 AWQ'],
+  ['int4-fp4-mixed', 'INT4/FP4 mix'],
+] as const;
+
+const PARALLELISM = [
+  ['tp', 'Tensor (TP)'],
+  ['pp', 'Pipeline (PP)'],
+  ['ep', 'Expert (EP)'],
+  ['sp', 'Sequence (SP)'],
+  ['cp', 'Context (CP)'],
+  ['dp', 'Data (DP)'],
+] as const;
+
+const SERVING = [
+  ['paged-attention', 'PagedAttention'],
+  ['continuous-batching', 'Continuous batching'],
+  ['chunked-prefill', 'Chunked prefill'],
+  ['prefix-cache', 'Prefix cache'],
+  ['radix-attention', 'RadixAttention'],
+  ['speculative-decoding', 'Spec decoding'],
+  ['multi-lora', 'Multi-LoRA'],
+  ['structured-output', 'Structured output'],
+  ['tool-calling', 'Tool calling'],
+  ['guided-decoding', 'Guided decoding'],
+  ['kv-cache-quant', 'KV cache quant'],
+  ['kv-cache-offload-cpu', 'KV offload CPU'],
+  ['disaggregated-prefill-decode', 'PD-disagg'],
+  ['pd-disagg-router', 'PD-disagg router'],
+  ['multi-modal-vision', 'Vision (VLM)'],
+  ['multi-modal-audio', 'Audio'],
+  ['cuda-graphs', 'CUDA graphs'],
+  ['flash-attention-v2', 'FlashAttention 2'],
+  ['flash-attention-v3', 'FlashAttention 3'],
+  ['logprobs', 'Logprobs'],
+  ['streaming', 'Streaming'],
+] as const;
+
+const SPEC_DECODE = [
+  ['draft-model', 'Draft model'],
+  ['medusa', 'Medusa'],
+  ['eagle', 'EAGLE'],
+  ['eagle-2', 'EAGLE-2'],
+  ['eagle-3', 'EAGLE-3'],
+  ['lookahead', 'Lookahead'],
+  ['mtp', 'MTP'],
+] as const;
+
+const FRONTEND = [
+  ['openai-compat', 'OpenAI compat'],
+  ['tgi-compat', 'TGI compat'],
+  ['triton-tensorrt', 'Triton/TRT'],
+  ['grpc-custom', 'gRPC custom'],
+  ['rest-custom', 'REST custom'],
+] as const;
+
+const DEPLOYMENT = [
+  ['single-node', 'Single node'],
+  ['multi-node', 'Multi node'],
+  ['k8s-operator', 'K8s operator'],
+  ['ray-serve', 'Ray Serve'],
+  ['docker', 'Docker'],
+  ['bare-metal', 'Bare metal'],
+  ['cloud-managed', 'Cloud managed'],
+] as const;
+
+// Per-axis coverage stats — surfaces "which engine has the deepest support"
+function axisStats<K extends string>(axis: readonly (readonly [K, string])[], pick: (e: typeof engines[number]) => readonly K[] | undefined) {
+  return engines.map((e) => ({
+    id: e.id,
+    name: e.name,
+    count: (pick(e) ?? []).length,
+    total: axis.length
+  }));
+}
+
+const quantStats = axisStats(QUANT_FORMATS, (e) => e.quantization_formats);
+const servingStats = axisStats(SERVING, (e) => e.serving_features);
+const parallelStats = axisStats(PARALLELISM, (e) => e.parallelism_modes);
+const specStats = axisStats(SPEC_DECODE, (e) => e.speculative_decoding);
+---
+<BaseLayout title="引擎能力对比矩阵">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="ENGINES · COMPARE"
+        title="推理引擎能力对比矩阵"
+        subtitle={`${engines.length} 个引擎 × ${QUANT_FORMATS.length + SERVING.length + PARALLELISM.length + SPEC_DECODE.length + FRONTEND.length + DEPLOYMENT.length} 个能力维度 · "vLLM vs SGLang vs TRT-LLM" 一页查表`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        每行一个能力维度, 每列一个引擎. ✓ = 引擎官方支持; — = 不支持或未文档化.
+        引擎兼容并不等于 perf 等价 (vLLM-on-AMD ≈ 80% feature parity vs vLLM-on-NVIDIA);
+        这张表回答 <strong>"X 引擎能不能做 Y"</strong>, perf 数据请看 <a href={pathname('/pricing/by-engine/')} class="underline" style="color: var(--color-accent);">/pricing/by-engine/</a>.
+      </p>
+
+      {/* Coverage summary cards */}
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-8">
+        {[
+          { label: '量化格式覆盖', stats: quantStats, total: QUANT_FORMATS.length },
+          { label: '服务特性覆盖', stats: servingStats, total: SERVING.length },
+          { label: '并行策略覆盖', stats: parallelStats, total: PARALLELISM.length },
+          { label: '投机解码方法', stats: specStats, total: SPEC_DECODE.length },
+        ].map(({ label, stats, total }) => {
+          const top = [...stats].sort((a, b) => b.count - a.count)[0];
+          return (
+            <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="text-xs font-semibold mb-2" style="color: var(--color-text-muted);">{label}</div>
+              <div class="text-lg font-semibold">{top.name}</div>
+              <div class="text-xs" style="color: var(--color-text-muted);">{top.count} / {total} 维度</div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    {/* Quantization */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">⚡️ 量化格式</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        是否能在该引擎中加载该精度. 不代表 quality / perf — 只是 "能跑起来" 的下限.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 140px;">量化 ↓ × 引擎 →</th>
+              {engines.map((e) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 90px;">
+                  <a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-accent); font-size: 0.7rem; font-weight: 500;">{e.name}</a>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {QUANT_FORMATS.map(([key, label]) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                  <span style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-muted);">{label}</span>
+                </td>
+                {engines.map((e) => {
+                  const supported = (e.quantization_formats ?? []).includes(key);
+                  return (
+                    <td class="p-2 text-center">
+                      {supported ? (
+                        <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; background: var(--color-accent); color: white; border-radius: 4px; font-weight: 600;">✓</span>
+                      ) : (
+                        <span style="color: color-mix(in oklch, var(--color-text-muted) 50%, transparent);">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Parallelism */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🔀 并行策略</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        TP / PP / EP / SP / CP / DP — 决定模型怎么切分到多卡多节点. 详见 <a href={pathname('/learn/parallelism-cheatsheet/')} class="underline" style="color: var(--color-accent);">/learn/parallelism-cheatsheet/</a>.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 140px;">策略 ↓ × 引擎 →</th>
+              {engines.map((e) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 90px;">
+                  <a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-accent); font-size: 0.7rem; font-weight: 500;">{e.name}</a>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PARALLELISM.map(([key, label]) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                  <span style="font-size: 0.75rem;">{label}</span>
+                </td>
+                {engines.map((e) => {
+                  const supported = (e.parallelism_modes ?? []).includes(key);
+                  return (
+                    <td class="p-2 text-center">
+                      {supported ? (
+                        <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; background: var(--color-accent); color: white; border-radius: 4px; font-weight: 600;">✓</span>
+                      ) : (
+                        <span style="color: color-mix(in oklch, var(--color-text-muted) 50%, transparent);">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Serving features */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🛠️ 服务特性</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        请求级 / batch 级特性 — 是引擎吞吐 / 延迟 / 多租户能力的来源.
+        缺失某个特性通常意味着 hot path 性能 / 用户体验上的 trade-off.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 180px;">特性 ↓ × 引擎 →</th>
+              {engines.map((e) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 90px;">
+                  <a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-accent); font-size: 0.7rem; font-weight: 500;">{e.name}</a>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {SERVING.map(([key, label]) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                  <span style="font-size: 0.75rem;">{label}</span>
+                </td>
+                {engines.map((e) => {
+                  const supported = (e.serving_features ?? []).includes(key);
+                  return (
+                    <td class="p-2 text-center">
+                      {supported ? (
+                        <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; background: var(--color-accent); color: white; border-radius: 4px; font-weight: 600;">✓</span>
+                      ) : (
+                        <span style="color: color-mix(in oklch, var(--color-text-muted) 50%, transparent);">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Speculative decoding */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🚀 投机解码方法</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        投机解码可以把 decode 阶段提速 1.5–4×, 但每种方法的 acceptance rate / 训练成本 / 模型架构限制不同.
+        EAGLE-2/EAGLE-3 是当前 SoTA. 详见 <a href={pathname('/operators/speculative-verify/')} class="underline" style="color: var(--color-accent);">speculative-verify</a>.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 140px;">方法 ↓ × 引擎 →</th>
+              {engines.map((e) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 90px;">
+                  <a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-accent); font-size: 0.7rem; font-weight: 500;">{e.name}</a>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {SPEC_DECODE.map(([key, label]) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                  <span style="font-size: 0.75rem;">{label}</span>
+                </td>
+                {engines.map((e) => {
+                  const supported = (e.speculative_decoding ?? []).includes(key);
+                  return (
+                    <td class="p-2 text-center">
+                      {supported ? (
+                        <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; background: var(--color-accent); color: white; border-radius: 4px; font-weight: 600;">✓</span>
+                      ) : (
+                        <span style="color: color-mix(in oklch, var(--color-text-muted) 50%, transparent);">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Frontend protocols */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🔌 前端协议</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        客户端怎么调用. OpenAI-compat 是事实标准 — 大多数 SDK / Agent / RAG 都假定它.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 140px;">协议 ↓ × 引擎 →</th>
+              {engines.map((e) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 90px;">
+                  <a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-accent); font-size: 0.7rem; font-weight: 500;">{e.name}</a>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {FRONTEND.map(([key, label]) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                  <span style="font-size: 0.75rem;">{label}</span>
+                </td>
+                {engines.map((e) => {
+                  const supported = (e.frontend_protocols ?? []).includes(key);
+                  return (
+                    <td class="p-2 text-center">
+                      {supported ? (
+                        <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; background: var(--color-accent); color: white; border-radius: 4px; font-weight: 600;">✓</span>
+                      ) : (
+                        <span style="color: color-mix(in oklch, var(--color-text-muted) 50%, transparent);">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Deployment targets */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🚢 部署形态</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        引擎是否官方提供该部署目标的 image / operator / docs.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 140px;">部署 ↓ × 引擎 →</th>
+              {engines.map((e) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 90px;">
+                  <a href={pathname(`/engines/${e.id}/`)} class="hover:underline" style="color: var(--color-accent); font-size: 0.7rem; font-weight: 500;">{e.name}</a>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {DEPLOYMENT.map(([key, label]) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                  <span style="font-size: 0.75rem;">{label}</span>
+                </td>
+                {engines.map((e) => {
+                  const supported = (e.deployment_targets ?? []).includes(key);
+                  return (
+                    <td class="p-2 text-center">
+                      {supported ? (
+                        <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; background: var(--color-accent); color: white; border-radius: 4px; font-weight: 600;">✓</span>
+                      ) : (
+                        <span style="color: color-mix(in oklch, var(--color-text-muted) 50%, transparent);">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Decision shortcuts */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🎯 选型快捷方式</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        基于上面矩阵自动派生. 这是 "我有需求 X, 推荐哪个引擎" 的 shortcut, 而不是 perf benchmark.
+      </p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {[
+          { ask: 'NVIDIA-only · 极致性能', match: engines.find((e) => e.id === 'tensorrt-llm'), why: 'kernel 优化最深, FP8/FP4 路径最成熟' },
+          { ask: 'PD-disagg + RadixAttention', match: engines.find((e) => e.id === 'sglang'), why: '原生 PD-disagg + 树状 prefix-cache' },
+          { ask: '异构硬件车队 · 含国产', match: engines.find((e) => e.id === 'vllm'), why: '10+ vendor 支持 (NVIDIA/AMD/Ascend/MLU/...)' },
+          { ask: 'Ascend 910C / CloudMatrix 384', match: engines.find((e) => e.id === 'mindie'), why: '华为官方栈, HCCL fusion 深度优化' },
+          { ask: 'InternLM / VLM · W4A16', match: engines.find((e) => e.id === 'lmdeploy'), why: 'TurboMind 后端 + AWQ 优先' },
+          { ask: '模型快速 onboard (frontier LLM)', match: engines.find((e) => e.id === 'vllm'), why: 'PR cadence 最快, 周级新模型支持' },
+        ].map(({ ask, match, why }) => match ? (
+          <a href={pathname(`/engines/${match.id}/`)} class="block rounded-lg p-4 border transition-transform hover:-translate-y-0.5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">{ask}</div>
+            <div class="text-base font-semibold mb-1">{match.name}</div>
+            <div class="text-xs" style="color: var(--color-text-muted);">{why}</div>
+          </a>
+        ) : null)}
+      </div>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Note: 数据基于 evokernel-spec corpus + 各引擎公开 README / docs (accessed 2026-04). 引擎能力变化快 —
+        发现遗漏请提 PR 至 <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 0 4px; border-radius: 3px;">data/engines/&lt;id&gt;.yaml</code>,
+        我们会下次构建自动出现在这张表上.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

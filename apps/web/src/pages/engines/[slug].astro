@@ -35,8 +35,95 @@ const cases = allCases.filter((c) => c.stack.engine.id === engine.id).sort((a, b
         <SpecRow label="源码"><a href={engine.source_url} class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">{engine.source_url}</a></SpecRow>
         {engine.documentation_url && <SpecRow label="文档"><a href={engine.documentation_url} class="underline" style="color: var(--color-accent);" target="_blank" rel="noopener">{engine.documentation_url}</a></SpecRow>}
         <SpecRow label="支持厂商">{engine.supported_hardware_vendors.join(', ')}</SpecRow>
+        {engine.production_readiness && <SpecRow label="生产就绪度">{engine.production_readiness}</SpecRow>}
       </div>
     </section>
+
+    {/* v1.42: capability matrix fields */}
+    {(engine.quantization_formats?.length || engine.parallelism_modes?.length || engine.serving_features?.length || engine.speculative_decoding?.length || engine.frontend_protocols?.length) && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">能力矩阵</h3>
+        <div class="rounded-lg border p-4 grid gap-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          {engine.quantization_formats?.length ? (
+            <div>
+              <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">量化格式 · {engine.quantization_formats.length}</div>
+              <div class="flex gap-1 flex-wrap">
+                {engine.quantization_formats.map((q) => <Badge>{q}</Badge>)}
+              </div>
+            </div>
+          ) : null}
+          {engine.parallelism_modes?.length ? (
+            <div>
+              <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">并行策略 · {engine.parallelism_modes.length}</div>
+              <div class="flex gap-1 flex-wrap">
+                {engine.parallelism_modes.map((p) => <Badge variant="accent">{p.toUpperCase()}</Badge>)}
+              </div>
+            </div>
+          ) : null}
+          {engine.serving_features?.length ? (
+            <div>
+              <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">服务特性 · {engine.serving_features.length}</div>
+              <div class="flex gap-1 flex-wrap">
+                {engine.serving_features.map((f) => <Badge>{f}</Badge>)}
+              </div>
+            </div>
+          ) : null}
+          {engine.speculative_decoding?.length ? (
+            <div>
+              <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">投机解码方法 · {engine.speculative_decoding.length}</div>
+              <div class="flex gap-1 flex-wrap">
+                {engine.speculative_decoding.map((s) => <Badge variant="accent">{s}</Badge>)}
+              </div>
+            </div>
+          ) : null}
+          {engine.frontend_protocols?.length ? (
+            <div>
+              <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">前端协议</div>
+              <div class="flex gap-1 flex-wrap">
+                {engine.frontend_protocols.map((p) => <Badge>{p}</Badge>)}
+              </div>
+            </div>
+          ) : null}
+          {engine.deployment_targets?.length ? (
+            <div>
+              <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">部署形态</div>
+              <div class="flex gap-1 flex-wrap">
+                {engine.deployment_targets.map((d) => <Badge>{d}</Badge>)}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    )}
+
+    {(engine.strengths?.length || engine.weaknesses?.length || engine.best_for?.length) && (
+      <section class="pb-8 grid gap-4 md:grid-cols-3">
+        {engine.strengths?.length ? (
+          <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <h4 class="text-sm font-semibold mb-2">优势</h4>
+            <ul class="text-sm space-y-1.5" style="color: var(--color-text-muted);">
+              {engine.strengths.map((s) => <li>✓ {s}</li>)}
+            </ul>
+          </div>
+        ) : null}
+        {engine.weaknesses?.length ? (
+          <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <h4 class="text-sm font-semibold mb-2">局限</h4>
+            <ul class="text-sm space-y-1.5" style="color: var(--color-text-muted);">
+              {engine.weaknesses.map((w) => <li>· {w}</li>)}
+            </ul>
+          </div>
+        ) : null}
+        {engine.best_for?.length ? (
+          <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <h4 class="text-sm font-semibold mb-2">最适合</h4>
+            <ul class="text-sm space-y-1.5" style="color: var(--color-text-muted);">
+              {engine.best_for.map((b) => <li>→ {b}</li>)}
+            </ul>
+          </div>
+        ) : null}
+      </section>
+    )}
 
     <section class="pb-8">
       <h3 class="text-lg font-semibold mb-3">兼容硬件 ({supportingHw.length})</h3>

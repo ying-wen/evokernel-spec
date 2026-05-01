@@ -2,6 +2,70 @@ id: mindie
 name: MindIE
 maintainer: vendor
 source_url: https://www.hiascend.com/document/detail/zh/mindie
+documentation_url: https://www.hiascend.com/document/detail/zh/mindie
 supported_hardware_vendors: [huawei]
 latest_version: '1.0.RC3'
 notes: 'Huawei official inference engine for Ascend (910B/910C, CloudMatrix)'
+
+quantization_formats:
+  - fp16
+  - bf16
+  - int8
+  - int4-awq
+  - int4-gptq
+
+parallelism_modes:
+  - tp
+  - pp
+  - ep
+  - dp
+
+serving_features:
+  - paged-attention
+  - continuous-batching
+  - chunked-prefill
+  - prefix-cache
+  - multi-lora
+  - kv-cache-quant
+  - disaggregated-prefill-decode
+  - multi-modal-vision
+  - logprobs
+  - streaming
+
+speculative_decoding:
+  - draft-model
+  - mtp
+
+frontend_protocols:
+  - openai-compat
+  - rest-custom
+  - grpc-custom
+
+deployment_targets:
+  - single-node
+  - multi-node
+  - k8s-operator
+  - docker
+  - bare-metal
+  - cloud-managed
+
+production_readiness: production
+
+strengths:
+  - Ascend 910B/910C/CloudMatrix 384 官方一线优化
+  - HCCL collective + 计算+通信 fusion 深度优化
+  - 与 ModelArts / CANN / MindStudio 生态深度集成
+  - DeepSeek V3 / Qwen / Llama 在 Ascend 上吞吐对标 NVIDIA
+  - PD-disagg 与 SuperPoD-Cluster 拓扑感知
+
+weaknesses:
+  - 仅支持 Huawei Ascend (设计目的所限)
+  - 文档中文优先，英文支持滞后
+  - 闭源 — 自主魔改空间小
+  - Spec decoding 路径仍在演进
+
+best_for:
+  - 国产化合规要求强的公有云 / 政企
+  - CloudMatrix 384 / Atlas 900 SuperPoD
+  - DeepSeek / Qwen 大规模部署 (国产芯路径)
+  - Ascend 上的 multi-modal 服务

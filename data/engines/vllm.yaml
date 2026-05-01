@@ -6,3 +6,78 @@ documentation_url: https://docs.vllm.ai/
 supported_hardware_vendors: [nvidia, amd, intel, aws, google, huawei, cambricon, hygon, moore-threads]
 latest_version: '0.6.0'
 notes: 'Most widely used; ascend / rocm / musa forks for non-NVIDIA hardware'
+
+quantization_formats:
+  - fp16
+  - bf16
+  - fp8-e4m3
+  - fp8-e5m2
+  - fp4-nvfp4
+  - int8
+  - int4-gptq
+  - int4-awq
+
+parallelism_modes:
+  - tp
+  - pp
+  - ep
+  - dp
+
+serving_features:
+  - paged-attention
+  - continuous-batching
+  - chunked-prefill
+  - prefix-cache
+  - speculative-decoding
+  - multi-lora
+  - structured-output
+  - tool-calling
+  - kv-cache-quant
+  - kv-cache-offload-cpu
+  - multi-modal-vision
+  - multi-modal-audio
+  - cuda-graphs
+  - flash-attention-v2
+  - flash-attention-v3
+  - guided-decoding
+  - logprobs
+  - streaming
+
+speculative_decoding:
+  - draft-model
+  - medusa
+  - eagle
+  - mtp
+
+frontend_protocols:
+  - openai-compat
+  - rest-custom
+
+deployment_targets:
+  - single-node
+  - multi-node
+  - k8s-operator
+  - ray-serve
+  - docker
+  - bare-metal
+  - cloud-managed
+
+production_readiness: production
+
+strengths:
+  - 最广泛硬件支持 (10+ vendors, 含 9 家国产)
+  - 活跃社区 + 周级 release cadence
+  - PagedAttention 原创者 + prefix-cache 默认开
+  - 模型支持最快 (frontier model 通常 PR 上 within days)
+  - 良好的 multi-modal 支持 (vision + audio)
+
+weaknesses:
+  - PD-disagg 较新 (相比 SGLang/Mooncake)
+  - 对 NVIDIA 之外的硬件，部分 feature parity 滞后
+  - 默认配置不一定最优，需要调参
+
+best_for:
+  - 异构硬件车队 (mixed NVIDIA/AMD/Ascend)
+  - 模型快速 onboard
+  - OpenAI-compat API 替换
+  - LoRA serving (multi-tenant)
