@@ -6,15 +6,72 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.31+ horizon)
-- Public submission portal (case YAML web form)
-- Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
-- More tours: SD3 / Flux on Hopper (diffusion — needs schema work for non-LLM models)
-- Auto-translated vendor doc summaries via build-time API
-- "What's new this week" RSS / changelog feed
-- /impact/ → citation auto-import
-- /servers/cluster-internals/ unified view combining host_cpu + network_topology + storage on one page
-- Capacity planning guide (sizing → headroom → scaling)
+### v1.32+ horizon
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
+
+**Tier 1 (high-leverage, low-effort)**:
+- Capacity-planning interactive calculator (turn the math from v1.31 into a form-based tool)
+- Citation PR onboarding (real external citations to populate /impact/)
+- "What's new this week" RSS feed (auto-from git log)
+- /servers/cluster-internals/ unified view (the trilogy on one page)
+- More tours (SD3/Flux diffusion, Kimi K2.6 on B200, GPT-OSS on Atlas)
+
+**Tier 2 (medium-leverage)**:
+- Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE)
+- Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
+- Operator → fused-kernel DAG visualization
+- Public submission portal (web-form-to-PR)
+- Citation auto-import (Twitter/X mentions, GitHub backlinks, arxiv)
+
+**Tier 3 (large bets)**:
+- Interactive deployment-journey visualization
+- Real benchmark CI runner (auto-refresh case data on rented GPUs)
+- Multi-language expansion (ja/ko/es/fr)
+- Private deployment edition
+
+---
+
+## [1.31.0] — 2026-05-02
+
+**Capacity planning (deployment chain step 0) + LoRA multiplexing pattern + comprehensive roadmap.**
+
+This is the iteration that closes the deployment chain at the *front* end. v1.30 added the post-deployment guides (observability + lifecycle); v1.31 adds the *pre*-deployment guide (capacity planning). The full chain now reads top-to-bottom in 7 sequential steps.
+
+### Added
+
+**`/learn/capacity-planning/`** (NEW educational guide):
+- 4 input categories you must have before sizing (model specs / workload profile / SLO budget / hardware options) — each with concrete questions + how-to-get-it
+- 7-step sizing formula chain (A → G): weight HBM → KV cache → activation → throughput → long-context correction → parallelism → SLO validation
+- Complete worked example (Llama 4 Scout 109B FP8 on H200, 100 QPS, 32K context → 3-node × 8-H200 + TP=2 + KV-INT8)
+- 6 common sizing mistakes with fixes
+- Closing 7-step deployment chain summary linking to all sibling /learn/ guides
+
+**1 more pattern** (23 → 24): `lora-adapter-multiplexing`
+- Punica / S-LoRA / vLLM multi-LoRA — serve 100s of fine-tuned models from one base
+- 7-10x cost saving for multi-tenant SaaS
+- Trade-offs: BGMV overhead ~5-10%, cold LoRA swap 50-200 ms, rank standardization required
+
+**`docs/ROADMAP.md`** (refreshed):
+- Replaces stale v1.5.1-era roadmap (archived to ROADMAP.archived-v1.5.1.md)
+- Captures the complete v1.17 → v1.31 arc + state of all entities
+- Three-tier prioritized future work: high-leverage low-effort / medium / large bets
+- Process notes for next contributor (release cadence, schema-extension recipe, test budget)
+
+### Final 7-step deployment optimization chain
+0. **Capacity planning** → /learn/capacity-planning/ ← v1.31 NEW
+1. **Pick engine** → /learn/picking-engine/
+2. **Pick quantization** → /learn/quantization-decision-tree/
+3. **Pick parallelism** → /learn/parallelism-cheatsheet/
+4. **Anticipate failures** → /learn/deployment-failures/
+5. **Monitor** → /learn/observability/ ← v1.30
+6. **Iterate** → /learn/production-lifecycle/ ← v1.30
+
+### Stats
+- 374/374 site E2E pass (+6 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 38, fused-kernel: 24, playbook: 24, **pattern: 24**, operator: 29, citation: 1, tour: 8
+- Build: 422 pages
+- /learn/ guides: 10 (was 9) — capacity-planning added
 
 ---
 

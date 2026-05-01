@@ -1,0 +1,339 @@
+---
+/**
+ * /learn/capacity-planning/ — sizing guide for LLM inference deployments.
+ *
+ * Closes step 0 of the deployment chain: "how big should I size this?"
+ * Without this, every deployment starts with educated guessing — over-
+ * provision and waste budget, under-provision and trip SLO from day one.
+ *
+ * Structure:
+ *   1. The 4 inputs you need before sizing (model / hardware / workload / SLO)
+ *   2. Memory sizing: HBM = weights + KV cache + activations + buffer
+ *   3. Throughput sizing: target QPS → cards needed (with worked example)
+ *   4. Latency sizing: TTFT/TBT budget → batch size + parallel strategy
+ *   5. Headroom + scaling: how much spare capacity, how to scale out
+ *   6. Common sizing mistakes
+ *
+ * All math uses concrete numbers from real cards in the catalog.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getResolvedHardware, getModels, getCases } from '~/lib/data';
+
+const [hardware, models, cases] = await Promise.all([
+  getResolvedHardware(), getModels(), getCases()
+]);
+
+// Pull a few representative hardware specs for sizing examples
+const h200 = hardware.find((h) => h.id === 'h200-sxm');
+const mi325x = hardware.find((h) => h.id === 'mi325x');
+const ascend910c = hardware.find((h) => h.id === 'ascend-910c');
+
+interface SizingInput {
+  category_zh: string;
+  category_en: string;
+  blurb: string;
+  questions: Array<{ q: string; example: string; how_to_get_it: string }>;
+}
+
+const SIZING_INPUTS: SizingInput[] = [
+  {
+    category_zh: '1. 模型规格',
+    category_en: 'Model specs',
+    blurb: '这部分应该直接从 model card 拿到, 不需要猜.',
+    questions: [
+      { q: '总参数量?', example: 'Llama 4 Scout 109B / DeepSeek V3 671B-A37B / Qwen 3.6 Plus ~80B', how_to_get_it: '/models/<slug>/ → params 字段' },
+      { q: '架构类型?', example: 'Dense / MoE (active/total) / SSM / Hybrid', how_to_get_it: '影响 KV cache 与 weight 比例 — MoE active params 比 total 小很多' },
+      { q: 'Attention 类型?', example: 'MHA / GQA-8 / MQA / MLA', how_to_get_it: '决定 KV cache 大小 — MLA (DeepSeek V3) 比 MHA 小 ~30x' },
+      { q: 'Hidden / heads / context?', example: 'Llama 4 Scout: hidden=4096, heads=32, kv_heads=8, max_context=128K', how_to_get_it: 'config.json' }
+    ]
+  },
+  {
+    category_zh: '2. 工作负载特征',
+    category_en: 'Workload profile',
+    blurb: '这部分需要从 product / user research 来 — 没数据就先猜, 部署后用真实流量校准.',
+    questions: [
+      { q: '目标 QPS?', example: '内部 dogfood: 0.1-1 QPS; B2B SaaS: 10-100 QPS; consumer chatbot: 1000+ QPS', how_to_get_it: '产品估算或 ramp 计划' },
+      { q: '请求 input / output 长度分布?', example: 'Chatbot: input 50-500 / output 100-1000; RAG: input 5K-50K / output 200-2K; agent: input 500-5K / output 50-500', how_to_get_it: 'P50 + P99 + max — 不是平均值, 极端值决定 buffer' },
+      { q: '并发 session 数?', example: '同时活跃 chat session, 决定 KV cache 总占用; 1K 用户活跃 = 1K KV', how_to_get_it: '产品 DAU × 平均会话时长 / 24h' },
+      { q: '请求模式: 突发 vs 稳定?', example: '突发 (晚上 8 点 4x peak) vs 稳定 (B2B 全天均匀)', how_to_get_it: '如有 prior service 看历史; 否则保守估计 peak/avg 3x' }
+    ]
+  },
+  {
+    category_zh: '3. SLO 预算',
+    category_en: 'SLO budget',
+    blurb: '业务承诺的延迟 / 错误率上限. 这是硬约束, 不是 nice-to-have.',
+    questions: [
+      { q: 'TTFT P95 上限?', example: '实时 chat: 500 ms; agent: 2 s; batch eval: 30 s', how_to_get_it: '与 product 团队 align, 写到合同' },
+      { q: 'TBT P99 上限?', example: 'Streaming chat: 50 ms; voice: 30 ms; batch: N/A', how_to_get_it: '用户阅读速度 ~5 word/s = 200 ms/word, P99 < 50 ms 给 buffer' },
+      { q: '可用性 SLO?', example: '99.5% (商用 baseline) / 99.9% (premium)', how_to_get_it: '99.5 = 7.2 hour/月 down; 99.9 = 43 min/月; 99.99 = 4 min/月' },
+      { q: '成本上限 ($/M tokens)?', example: 'OpenAI GPT-4o-mini ~$0.15-0.6; Llama 4 Scout self-host < $0.10; 国央企信创: 比开源高 30-50%', how_to_get_it: '查 /pricing/ 排行榜对照' }
+    ]
+  },
+  {
+    category_zh: '4. 硬件可选范围',
+    category_en: 'Hardware options',
+    blurb: '不是所有团队都有所有硬件 — 信创 / 云预算 / on-premise 等约束.',
+    questions: [
+      { q: '云 vs on-premise?', example: 'Cloud: AWS H100/H200/Trainium, GCP TPU v5p, Azure MI300X; on-premise: 自建', how_to_get_it: '组织 procurement policy' },
+      { q: '信创合规要求?', example: '国央企 = 必须 国产 (Ascend / Cambricon / 摩尔线程); 商业 = 任选', how_to_get_it: '组织合规要求' },
+      { q: '可用 GPU 代际?', example: 'A100 (旧) / H100 (主流) / H200 (新) / B200 (前沿) / MI325X / Ascend 910C', how_to_get_it: '/hardware/ 浏览' },
+      { q: '是否需要 super-pod?', example: '< 70B model 单节点 8 卡足够; > 200B 或 long context (1M+) 需要 super-pod (NVL72 / CloudMatrix 384)', how_to_get_it: '后续 sizing 决定' }
+    ]
+  }
+];
+
+interface SizingFormula {
+  step_zh: string;
+  step_en: string;
+  formula: string;
+  example_zh: string;
+  result_zh: string;
+}
+
+const SIZING_FORMULAS: SizingFormula[] = [
+  {
+    step_zh: 'A. 模型权重 HBM 占用',
+    step_en: 'Weight HBM',
+    formula: 'weight_GB = total_params_B × bytes_per_param',
+    example_zh: 'Llama 4 Scout 109B + FP8 = 109 × 1 byte = 109 GB',
+    result_zh: '单卡 H200 (141 GB HBM) 装得下 weight, 还剩 32 GB 给 KV + activation. 单卡 H100 (80 GB) 装不下需要 TP=2.'
+  },
+  {
+    step_zh: 'B. KV cache HBM 占用',
+    step_en: 'KV cache HBM',
+    formula: 'kv_GB_per_session = 2 × layers × kv_heads × head_dim × max_context × bytes_per_kv',
+    example_zh: 'Llama 4 Scout: 2 × 32 layers × 8 kv_heads × 128 head_dim × 128K context × 2 (BF16) = 16.8 GB / session',
+    result_zh: 'KV INT8 砍半 → 8.4 GB / session. 32 并发 session = 270 GB KV — 单 H200 装不下, 必须分布或 KV-INT8.'
+  },
+  {
+    step_zh: 'C. Activation + buffer',
+    step_en: 'Activation + buffer',
+    formula: 'activation_GB ≈ batch × max_seq × hidden_dim × layers × 4 bytes / 1e9 + 5-10 GB engine buffer',
+    example_zh: 'Llama 4 Scout, batch=32, seq=8K, hidden=4096, layers=32: ~33 GB activation + 8 GB buffer = 41 GB',
+    result_zh: '生产部署 activation 通常 < 10% HBM, 但是 long-context prefill 时会暴涨 — 需要 chunked-prefill 控制.'
+  },
+  {
+    step_zh: 'D. 吞吐 → 卡数',
+    step_en: 'Throughput → cards needed',
+    formula: 'cards = ceil(target_QPS × avg_output_tokens / decode_tok_s_per_card)',
+    example_zh: '目标 100 QPS × 平均输出 500 token = 50K tok/s 需求 / 单卡 H200 ~3500 tok/s = 14.3 张卡',
+    result_zh: '向上取整到 16 卡 = 2 节点 H200. 加 30% headroom = 3 节点 24 卡.'
+  },
+  {
+    step_zh: 'E. 长 context 修正',
+    step_en: 'Long context correction',
+    formula: 'long_context_kv_GB = sessions × max_context × kv_GB_per_token',
+    example_zh: '1000 用户活跃 × 32K context × 50 KB/token KV (BF16) = 1.6 TB KV total',
+    result_zh: '不可能装 HBM. 必须启用 hot-cold KV tiering + paged-attention + KV-INT8. 见 /patterns/hot-cold-kv-tiering/'
+  },
+  {
+    step_zh: 'F. 并行策略',
+    step_en: 'Parallelism strategy',
+    formula: 'TP × PP × EP × DP = total_cards',
+    example_zh: 'Llama 4 Scout 单节点: TP=8 + DP=2 → 16 卡. DeepSeek V3 super-pod: TP=8 + EP=64 → 512 卡.',
+    result_zh: 'TP 优先 (节点内 NVLink). PP 跨节点 (有 bubble). EP 用于 MoE expert (跨节点也要 high-bandwidth fabric).'
+  },
+  {
+    step_zh: 'G. SLO 验证',
+    step_en: 'SLO validation',
+    formula: 'P95_TTFT ≈ prefill_compute_time + queue_wait + network_RTT',
+    example_zh: '8K input prefill on H200 ~80 ms + queue (saturated → 几百 ms) + RTT 5 ms',
+    result_zh: 'Saturation 下 TTFT P95 容易突破 500 ms — 必须留 headroom 或 disagg prefill/decode.'
+  }
+];
+
+interface CommonMistake {
+  mistake: string;
+  why_bad: string;
+  fix: string;
+}
+
+const COMMON_MISTAKES: CommonMistake[] = [
+  {
+    mistake: '只看 HBM 总容量, 忘了 KV cache scaling',
+    why_bad: '"H200 有 141 GB, Llama 4 Scout 109 GB 装下" — 忽略 KV cache 32K context × 32 并发 = 270 GB',
+    fix: '总 HBM = 模型权重 + (并发 × max_context × KV/token) + activation + 10-15% buffer'
+  },
+  {
+    mistake: '用平均 latency 而不是 P99',
+    why_bad: '平均 200 ms 看似 OK, 但 P99 = 2 s 时大量用户体验差. SLO 写 P95/P99.',
+    fix: '从 day 1 设计 P99 latency budget; 实测时同样 P50/P95/P99 三个百分位都看'
+  },
+  {
+    mistake: '没有 headroom, 部署即满负载',
+    why_bad: '一切正常时 90% 利用率, 突发流量 / one-off 长 input → 立刻 SLO 违反',
+    fix: '生产部署目标利用率 ≤ 70%, 留 30% headroom 给突发 + 部分故障容忍'
+  },
+  {
+    mistake: '忽略 cold start',
+    why_bad: '"我有 16 张卡足够" — 部署刚启动, KV cache 是空的, prefill 全跑, 瞬间峰值 5x stable',
+    fix: '冷启动期间限流或预热 (sample requests warm up cache); auto-scaling 留 buffer'
+  },
+  {
+    mistake: '把推理和训练混用同一资源',
+    why_bad: '训练 batch 大、prefill 占主导; 推理需要 low latency. 同卡跑两者会相互干扰',
+    fix: '生产推理与训练 GPU 分离, 至少 namespace 级隔离 (Kubernetes / Slurm partition)'
+  },
+  {
+    mistake: '没考虑硬件代际差异',
+    why_bad: 'A100 与 H200 的 Roofline 形状完全不同 — A100 上 FP8 走 emulation, decode 1.5x 而非 3x',
+    fix: '查 /hardware/<slug>/ 看代际 compute / HBM / interconnect 完整规格'
+  }
+];
+
+const totalCards = hardware.length;
+const totalCases = cases.length;
+---
+<BaseLayout title="容量规划 / Capacity Planning">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · CAPACITY PLANNING
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        容量规划 · Capacity Planning
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        部署链路第一步: <strong>"我应该买几张卡?"</strong> 这是最常被跳过的问题 — 直接拷贝
+        别人的部署方案, 然后 day 1 就被 OOM / SLO 违反惊醒. 这里覆盖 4 类必备 input + 7 步
+        sizing 公式 + 6 条常见错误, 每条都用 catalog 里实际硬件的具体数字.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">必备 input: </span><strong>4 类</strong></div>
+        <div><span style="color: var(--color-text-muted);">Sizing 公式: </span><strong>{SIZING_FORMULAS.length} 步</strong></div>
+        <div><span style="color: var(--color-text-muted);">常见错误: </span><strong>{COMMON_MISTAKES.length} 条</strong></div>
+        <div><span style="color: var(--color-text-muted);">参考案例: </span><strong>{totalCases}</strong></div>
+      </div>
+    </section>
+
+    <!-- Section 1: 4 inputs -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">1. Sizing 前必备的 4 类 input</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        没这 4 类信息就不要 sizing — 否则 garbage in / garbage out. 找 PM / SRE / 合规
+        团队补齐数据再开始计算.
+      </p>
+
+      <div class="grid lg:grid-cols-2 gap-4">
+        {SIZING_INPUTS.map((input, idx) => (
+          <div class="rounded-lg border p-5" data-testid={`sizing-input-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <h3 class="text-base font-semibold mb-2" style="color: var(--color-text);">{input.category_zh}</h3>
+            <p class="text-sm mb-3" style="color: var(--color-text-muted);">{input.blurb}</p>
+            <ul class="space-y-3 text-xs">
+              {input.questions.map((q) => (
+                <li>
+                  <div class="font-medium" style="color: var(--color-text);">{q.q}</div>
+                  <div class="mt-1" style="color: var(--color-text-muted);">
+                    <strong style="color: var(--color-accent);">例:</strong> {q.example}
+                  </div>
+                  <div class="mt-1" style="color: var(--color-text-muted);">
+                    <strong>怎么获取:</strong> {q.how_to_get_it}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- Section 2: 7-step sizing math -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">2. Sizing 公式 — 7 步推导卡数</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        从模型参数到卡数的完整路径. 每步都有具体公式 + 真实硬件数字 worked example. 公式
+        简单, 关键是把它们 <strong>串起来</strong>.
+      </p>
+
+      <div class="space-y-3">
+        {SIZING_FORMULAS.map((f, idx) => (
+          <div class="rounded-lg border p-5" data-testid={`sizing-step-${String.fromCharCode(65 + idx)}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <h3 class="text-base font-semibold mb-1" style="color: var(--color-text);">{f.step_zh}</h3>
+            <code class="block text-xs font-mono px-3 py-2 my-2 rounded" style="background: var(--color-bg); color: var(--color-accent);">
+              {f.formula}
+            </code>
+            <div class="text-sm mt-3 mb-2">
+              <strong style="color: var(--color-text);">具体例子:</strong> <span style="color: var(--color-text-muted);">{f.example_zh}</span>
+            </div>
+            <div class="text-sm p-3 rounded" style="background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+              <strong style="color: var(--color-accent);">→ 结论:</strong> <span style="color: var(--color-text);">{f.result_zh}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- Section 3: worked example -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">3. 完整 worked example</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        把 7 步公式串起来跑一遍真实场景. 这是部署前应该做的 spreadsheet 计算.
+      </p>
+
+      <div class="rounded-lg border p-6" data-testid="worked-example" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 3%, var(--color-bg));">
+        <h3 class="text-base font-semibold mb-3" style="color: var(--color-accent);">场景: B2B SaaS, Llama 4 Scout 109B FP8 on H200, 100 QPS, 32K context</h3>
+
+        <div class="space-y-2 text-sm" style="color: var(--color-text);">
+          <div><strong>Input:</strong> 100 QPS · avg input 5K · avg output 500 · max 32K context · TTFT P95 &lt; 800 ms</div>
+          <div class="pt-2 border-t" style="border-color: var(--color-border);"><strong>A. Weight:</strong> 109B × 1 byte (FP8) = <code>109 GB</code></div>
+          <div><strong>B. KV per session (32K, GQA-8):</strong> 2 × 32 × 8 × 128 × 32K × 2 = <code>4.2 GB / session</code></div>
+          <div><strong>C. Activation:</strong> batch=32 → <code>~30 GB</code></div>
+          <div><strong>1 卡 H200 容量:</strong> 141 - 109 - 30 = 2 GB → <strong>装不下</strong></div>
+          <div class="pt-2 border-t" style="border-color: var(--color-border);"><strong>→ 需 TP=2:</strong> 双 H200 共 282 GB, 减 weight 减 activation = <code>140 GB</code> 给 KV</div>
+          <div><strong>→ KV INT8 (2x):</strong> 4.2 GB → 2.1 GB / session × 32 并发 = <code>67 GB</code> ✓</div>
+          <div class="pt-2 border-t" style="border-color: var(--color-border);"><strong>D. 吞吐:</strong> 100 QPS × 500 tok = 50K tok/s. H200 FP8 ~3500 tok/s/card → <code>14 cards</code></div>
+          <div><strong>+ 30% headroom:</strong> <code>20 cards = 5 节点 (TP=2, DP=2.5)</code></div>
+          <div><strong>→ 实际配:</strong> <code>3× 8-H200 节点 = 24 张卡</code> (留余量给突发)</div>
+          <div class="pt-2 border-t" style="border-color: var(--color-border);"><strong>G. TTFT 验证:</strong> 5K input prefill on 1 H200 ~50 ms + queue (5% util) ~10 ms = <code>P50 60 ms, P95 ~150 ms</code> ✓ (vs SLO 800 ms)</div>
+          <div class="pt-2"><strong style="color: var(--color-accent);">→ 最终配置:</strong> <strong>3 节点 × 8 H200 + TP=2 + KV-INT8 + RadixAttention</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 4: common mistakes -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">4. 常见 sizing 错误</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        每条都见过 production 工程师踩过. 看看 — 上线前对照清单.
+      </p>
+
+      <div class="space-y-3">
+        {COMMON_MISTAKES.map((m, idx) => (
+          <div class="rounded-lg border p-4" data-testid={`common-mistake-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="flex items-baseline gap-3 flex-wrap mb-1">
+              <span class="text-xs font-mono px-2 py-0.5 rounded" style="background: var(--color-china); color: white;">⚠️ {idx + 1}</span>
+              <h3 class="text-sm font-semibold" style="color: var(--color-text);">{m.mistake}</h3>
+            </div>
+            <div class="text-xs mt-2" style="color: var(--color-text-muted);">
+              <strong style="color: var(--color-china);">为什么坏:</strong> {m.why_bad}
+            </div>
+            <div class="text-xs mt-1.5" style="color: var(--color-text-muted);">
+              <strong style="color: var(--color-accent);">→ 修复:</strong> {m.fix}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">完整 6-step 部署链路</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          Sizing 是第 0 步 — 决定 "买几张卡". 之后是选 engine, 选 quant, 选 parallelism, 知道
+          会出什么错, 上线后怎么监控, 怎么改进.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/capacity-planning/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">0. 容量规划 (你在这)</a>
+          <a href={pathname('/learn/picking-engine/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">1. 选引擎 →</a>
+          <a href={pathname('/learn/quantization-decision-tree/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">2. 选量化 →</a>
+          <a href={pathname('/learn/parallelism-cheatsheet/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">3. 选并行 →</a>
+          <a href={pathname('/learn/deployment-failures/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">4. 失败模式 →</a>
+          <a href={pathname('/learn/observability/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">5. 监控 →</a>
+          <a href={pathname('/learn/production-lifecycle/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">6. 生命周期 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

@@ -83,7 +83,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/learn/attention-variants/', labelKey: 'home.entry.attention', desc_zh: 'Attention 变体 · MHA / GQA / MQA / MLA', desc_en: 'Attention variants · MHA / GQA / MQA / MLA' },
       { path: '/learn/deployment-failures/', labelKey: 'home.entry.failures', desc_zh: '部署失败模式 · 阶段化 gotcha 索引', desc_en: 'Deployment failures · staged gotcha index' },
       { path: '/learn/observability/', labelKey: 'home.entry.observability', desc_zh: '生产可观测性 · 4 层指标 + 5 栈工具 + 6 故障 playbook', desc_en: 'Production observability · 4 metric tiers + 5 stack tools + 6 playbooks' },
-      { path: '/learn/production-lifecycle/', labelKey: 'home.entry.lifecycle', desc_zh: '生产生命周期 · rollout / A/B / 迁移 / 回滚', desc_en: 'Production lifecycle · rollout / A/B / migration / rollback' }
+      { path: '/learn/production-lifecycle/', labelKey: 'home.entry.lifecycle', desc_zh: '生产生命周期 · rollout / A/B / 迁移 / 回滚', desc_en: 'Production lifecycle · rollout / A/B / migration / rollback' },
+      { path: '/learn/capacity-planning/', labelKey: 'home.entry.capacityPlanning', desc_zh: '容量规划 · 部署链路 step 0 · 7-step sizing 推导', desc_en: 'Capacity planning · deployment chain step 0 · 7-step sizing math' }
     ]
   },
   {

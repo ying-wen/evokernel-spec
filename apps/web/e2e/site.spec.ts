@@ -576,6 +576,60 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.31: capacity planning step-0 + LoRA pattern + roadmap (closes the deployment chain)', () => {
+  test('/learn/capacity-planning/ renders 4 sizing inputs + 7 sizing steps + worked example + common mistakes', async ({ page }) => {
+    await page.goto('/learn/capacity-planning/');
+    await expect(page.getByRole('heading', { name: /容量规划|Capacity Planning/i }).first()).toBeVisible();
+    // 4 sizing input categories
+    for (let i = 1; i <= 4; i++) {
+      await expect(page.locator(`[data-testid="sizing-input-${i}"]`).first()).toBeVisible();
+    }
+    // 7 sizing steps (A–G)
+    for (const step of ['A', 'B', 'C', 'D', 'E', 'F', 'G']) {
+      await expect(page.locator(`[data-testid="sizing-step-${step}"]`).first()).toBeVisible();
+    }
+    await expect(page.locator('[data-testid="worked-example"]').first()).toBeVisible();
+    // 6 common mistakes
+    for (let i = 1; i <= 6; i++) {
+      await expect(page.locator(`[data-testid="common-mistake-${i}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('Capacity-planning concludes with 7-step deployment chain summary', async ({ page }) => {
+    await page.goto('/learn/capacity-planning/');
+    // Each step in the chain has a link
+    for (const path of ['/learn/picking-engine', '/learn/quantization-decision-tree', '/learn/parallelism-cheatsheet', '/learn/deployment-failures', '/learn/observability', '/learn/production-lifecycle']) {
+      await expect(page.locator(`a[href*="${path}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('Capacity-planning worked example contains real numbers (Llama 4 Scout 109B + H200)', async ({ page }) => {
+    await page.goto('/learn/capacity-planning/');
+    const example = page.locator('[data-testid="worked-example"]').first();
+    await expect(example).toContainText(/Llama 4 Scout/);
+    await expect(example).toContainText(/H200/);
+    await expect(example).toContainText(/109/);
+  });
+
+  test('LoRA adapter multiplexing pattern visible (Punica / S-LoRA)', async ({ page }) => {
+    await page.goto('/patterns/lora-adapter-multiplexing/');
+    await expect(page.getByText(/LoRA|多路复用/i).first()).toBeVisible();
+    await expect(page.getByText(/Punica|S-LoRA/i).first()).toBeVisible();
+  });
+
+  test('Learn dropdown contains the new capacity-planning link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="learn"]').first();
+    await expect(dd.locator('a[href*="/learn/capacity-planning"]').first()).toHaveCount(1);
+  });
+
+  test('Homepage Learn section now exposes capacity-planning', async ({ page }) => {
+    await page.goto('/');
+    const sec = page.locator('[data-testid="home-section-learn"]').first();
+    await expect(sec.locator('a[href*="/learn/capacity-planning"]').first()).toHaveCount(1);
+  });
+});
+
 test.describe('v1.30: production lifecycle gap-3 closure — observability + lifecycle + 2 operators', () => {
   test('/learn/observability/ renders 4 metric tiers + 5 stack tooling + 6 diagnostic playbooks', async ({ page }) => {
     await page.goto('/learn/observability/');

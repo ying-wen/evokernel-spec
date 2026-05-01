@@ -1,0 +1,93 @@
+id: lora-adapter-multiplexing
+name: LoRA 适配器多路复用 (Punica / S-LoRA — 一个基座 N 个微调)
+category: scheduling
+description_md: |
+  ## 简介
+
+  SaaS LLM 服务最大成本节省手段之一: 部署 **一份基座大模型** + **N 个 LoRA 适配器**, 而非
+  N 份完整微调模型. 一个 70B 模型在 H100 上占 80 GB; 每个 LoRA adapter 只占 50-200 MB —
+  100 个 LoRA 加起来 ~10 GB, 比再部署 1 份 70B 节省 7x 内存. 同时让用户/租户看起来都有
+  自己专属的微调模型.
+
+  ## Punica vs S-LoRA vs naive
+
+  - **Naive 实现**: 切换 LoRA 时 reload base + apply LoRA, latency seconds. 无法多租户.
+  - **Punica** (NeurIPS 2024): 单 GPU 同时服务多个 LoRA, batch 内不同请求用不同 adapter.
+    专门 BGMV (batched grouped matrix-vector) kernel 让 LoRA 推理与 base 同等速度.
+  - **S-LoRA**: 进一步支持 thousands of LoRAs, 自动 cache eviction (LRU), 跨节点 LoRA share.
+
+  ## 何时用
+
+  - **多租户 SaaS**: 100s/1000s 客户每人一份微调, 每客户 ~10-50 QPS — 必用
+  - **垂直 SaaS** (法律 / 医疗 / 客服): 行业内多个公司客户, 各自 LoRA
+  - **A/B 测试**: 同一基座, 多个 LoRA variant 同时跑, 对比效果
+  - **个性化** (chatbot 个人 LoRA): 每个高级用户一份 200-500 MB LoRA
+
+  ## 何时不用
+
+  - **单一模型部署** (chatbot 自己用): 无意义, base 模型已经 enough
+  - **LoRA rank 太大** (rank > 256, GB+ adapter): 此时 LoRA 已经接近 full fine-tune,
+    不如直接部署 full model
+  - **Adapter 切换 latency 关键** (实时游戏 NPC): cold-start LoRA load 几百 ms 不可接受
+
+  ## 实现关键
+
+  - **BGMV kernel**: Batched Grouped Matrix-Vector, 同 batch 内不同 LoRA 同时算
+    (vs naive 必须按 adapter 排序成多个 batch)
+  - **LoRA cache**: GPU HBM 留 N 个 hot LoRA, host RAM 留 cold LoRA, miss 时 ~100 ms swap
+  - **Rank 标准化**: 不同 LoRA 不同 rank 时, 内存对齐麻烦. 实践中要求所有 adapter rank 相同.
+  - **vLLM 0.6+ multi-LoRA path**: `--enable-lora --max-loras 32 --max-lora-rank 64`
+
+  ## 实测 numbers
+
+  - **单 H100 服务 100 个 LoRA**: 平均 throughput 与单 LoRA serving 相差 5-10% (BGMV overhead)
+  - **TTFT 命中 hot LoRA**: 与 base 相同
+  - **TTFT 命中 cold LoRA**: + 50-200 ms (HBM ↔ host RAM swap)
+  - **HBM 占用**: 70B base (80 GB) + 100 × 200 MB LoRA (20 GB) = 100 GB total
+
+  ## 引擎支持
+
+  - **vLLM 0.6+**: `--enable-lora`, max-loras 32-64 推荐
+  - **SGLang 0.4+**: 内置, 高级 LoRA cache eviction
+  - **TGI**: 实验性支持
+  - **MindIE 2.0+**: Ascend 上 LoRA multiplex 实验性
+
+applies_when:
+  - multi-tenant-saas
+  - per-user-fine-tuning
+  - ab-testing-variants
+  - many-fine-tuned-models
+related_operators: [matmul]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, lmdeploy]
+hardware_requires:
+  - sufficient-hbm-for-base-plus-lora-cache
+model_archetypes: [dense-llm, moe-llm]
+speedup:
+  - metric: cost-per-token
+    multiplier_min: 0.1
+    multiplier_max: 0.5
+    notes: '相比 N 份 base 模型独立部署, 成本降 50-90%. 关键是 base model 复用.'
+  - metric: memory-footprint
+    multiplier_min: 0.1
+    multiplier_max: 0.3
+    notes: 'HBM 占用 = 1 base + N × small adapter, vs N × base'
+  - metric: ttft
+    multiplier_min: 1.0
+    multiplier_max: 1.3
+    notes: 'Hot LoRA 与 base 一致; cold LoRA + 50-200 ms swap'
+trade_offs:
+  - 'LoRA rank 不一致时 batching 失效 — 实践中要求统一 rank'
+  - 'BGMV kernel overhead ~5-10% per-token throughput'
+  - 'Cold LoRA swap 是 P99 latency 来源 — capacity planning 时多预留 hot cache'
+  - 'Adapter rank 太大 (> 256) 时 LoRA multiplex 不如 full fine-tune 部署'
+references:
+  - title: 'Punica: Multi-Tenant LoRA Serving'
+    url: https://arxiv.org/abs/2310.18547
+    source_type: paper
+  - title: 'S-LoRA: Serving Thousands of Concurrent LoRA Adapters'
+    url: https://arxiv.org/abs/2311.03285
+    source_type: paper
+  - title: 'vLLM multi-LoRA support'
+    url: https://docs.vllm.ai/en/latest/features/lora.html
+    source_type: docs
