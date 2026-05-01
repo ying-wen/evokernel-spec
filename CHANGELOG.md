@@ -6,14 +6,48 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.23+ horizon)
+### Planned (v1.24+ horizon)
 - Public submission portal (case YAML web form) — currently PR-only
 - Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
 - Server-compare client-side filter island (real querystring parsing in SSG)
-- More end-to-end tours (Llama 4 Behemoth on NVL72; DeepSeek V3 on Atlas 800T)
+- Refactor tours to data-driven (data/tours/*.yaml + dynamic /learn/tours/[slug])
+- More tours: Qwen 3 7B on Jetson Orin (edge); Llama 4 Behemoth on NVL72 (when released)
+
+---
+
+## [1.23.0] — 2026-05-01
+
+End-to-end tour expansion. v1.22 introduced one tour; v1.23 extends to **3 tours covering the deployment spectrum** (single-node Hopper / 国央企 super-pod / frontier Blackwell super-pod) + tour index + density adds.
+
+### Added
+
+**2 more end-to-end tours**:
+- `/learn/tour-dsv4pro-cloudmatrix-384/`: DeepSeek V4 Pro 671B-A37B MoE on Huawei CloudMatrix 384 (Ascend × MindIE × 信创合规). Marquee Chinese-stack reasoning deployment — 384 卡 super-pod, TP=16 × PP=4 × EP=6, 国央企 context
+- `/learn/tour-llama4-maverick-nvl72/`: Llama 4 Maverick 400B-A17B multi-modal MoE on GB200 NVL72 (vLLM × FP4 × disagg). Frontier Blackwell super-pod — 72 卡 NVLink-5 全互联, EP=72 single-domain, 24 prefill + 48 decode disagg split
+
+**`/learn/tours/`** (NEW index page):
+- 3 tour cards with model × hardware × engine × quant scope summary
+- Tour comparison matrix (规模 × 量化 × 引擎 × 部署语境)
+- "PR a new tour" instructions
+- Closes the gap-3 ask: tours give concrete narratives where decision-trees give abstract matrices
+
+**1 more pattern** (19 → 20):
+- `chunked-prefill`: mixed prefill/decode batching to eliminate P99 TBT spike. vLLM/SGLang default since 0.7+, MindIE 2.0+ experimental. Distinct from disagg-prefill-decode (chunked = same step, disagg = different node)
+
+**1 more fused-kernel** (20 → 21):
+- `fused-grouped-gemm`: MoE expert batched compute. Replaces expert-loop with single grouped-GEMM kernel — 2-4× speedup at 16-256 experts. CUTLASS / vLLM Triton / DeepSeek FlashMoE / MindIE all implement this
+
+**1 more case** (31 → 32):
+- `case-llama4-scout-mi355x-vllm-rocm-001`: Llama 4 Scout 109B-A17B on 8×MI355X with vLLM ROCm + chunked prefill. Surfaces the chunked-prefill P99 TBT win on AMD (64ms → 22ms) and demonstrates MI355X 288 GB HBM3e capacity advantage
+
+### Stats
+- 299/299 site E2E pass (+7 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 32**, **fused-kernel: 21**, playbook: 24, **pattern: 20**, operator: 25, citation: 1
+- Build: 385 pages
+- `/learn/` surfaces: **3 tours + 6 guides + 1 fusion-matrix + 1 deployment-failures** = 11 educational pages
 
 ---
 

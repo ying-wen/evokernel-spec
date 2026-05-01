@@ -576,6 +576,62 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.23: 2 more end-to-end tours + tours index + 1 pattern + 1 fused-kernel + 1 case', () => {
+  test('/learn/tours/ index lists 3 tour cards + matrix', async ({ page }) => {
+    await page.goto('/learn/tours/');
+    await expect(page.getByRole('heading', { name: /部署 Tour 索引|End-to-End Tours/i }).first()).toBeVisible();
+    // Three tour cards
+    await expect(page.getByTestId('tour-card-case-llama4-scout-h100x8-vllm-001').first()).toBeVisible();
+    await expect(page.getByTestId('tour-card-case-dsv4pro-cm384-mindie-001').first()).toBeVisible();
+    await expect(page.getByTestId('tour-card-case-llama4mvk-gb200-nvl72-001').first()).toBeVisible();
+    // Matrix table
+    await expect(page.getByTestId('tour-matrix').first()).toBeVisible();
+  });
+
+  test('Tour: DeepSeek V4 Pro × CloudMatrix 384 walks 7 stages', async ({ page }) => {
+    await page.goto('/learn/tour-dsv4pro-cloudmatrix-384/');
+    await expect(page.getByText(/DeepSeek V4 Pro|CloudMatrix 384|国央企/i).first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-acquire').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-quantize').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-shard').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-serve').first()).toBeVisible();
+  });
+
+  test('Tour: DeepSeek V4 Pro tour links to other 2 tours', async ({ page }) => {
+    await page.goto('/learn/tour-dsv4pro-cloudmatrix-384/');
+    await expect(page.locator('a[href*="/learn/end-to-end-tour"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/tour-llama4-maverick-nvl72"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/tours/"]').first()).toBeVisible();
+  });
+
+  test('Tour: Llama 4 Maverick × NVL72 walks 7 stages', async ({ page }) => {
+    await page.goto('/learn/tour-llama4-maverick-nvl72/');
+    await expect(page.getByText(/Llama 4 Maverick|NVL72|FP4/i).first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-quantize').first()).toBeVisible();
+    await expect(page.getByTestId('tour-stage-shard').first()).toBeVisible();
+    // Disagg + EP=72 specific content
+    await expect(page.getByText(/disagg|EP=72|NVLink-5/i).first()).toBeVisible();
+  });
+
+  test('Chunked prefill pattern visible', async ({ page }) => {
+    await page.goto('/patterns/chunked-prefill/');
+    await expect(page.getByText(/Chunked Prefill|mixed prefill\/decode/i).first()).toBeVisible();
+    await expect(page.getByText(/P99 TBT|Sarathi|chunk/i).first()).toBeVisible();
+  });
+
+  test('Fused grouped-GEMM kernel visible (MoE expert batched compute)', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-grouped-gemm/');
+    await expect(page.getByText(/Grouped-GEMM|MoE expert|grouped/i).first()).toBeVisible();
+    await expect(page.getByText(/CUTLASS|fused_moe|DeepSeek/i).first()).toBeVisible();
+  });
+
+  test('Llama 4 Scout × MI355X case visible (chunked prefill on AMD)', async ({ page }) => {
+    await page.goto('/cases/case-llama4-scout-mi355x-vllm-rocm-001/');
+    await expect(page.getByText(/Llama 4 Scout|MI355X|vLLM ROCm/i).first()).toBeVisible();
+    await expect(page.getByText(/chunked prefill|EP=8|P99 TBT/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.22: /operators/fusion-matrix/ + /learn/picking-quantization-format/ + /learn/end-to-end-tour/ + 2 cases', () => {
   test('/operators/fusion-matrix/ renders cross-tab matrix', async ({ page }) => {
     await page.goto('/operators/fusion-matrix/');

@@ -1,0 +1,121 @@
+id: fused-grouped-gemm
+name: Fused Grouped-GEMM (MoE expert batched compute)
+category: moe
+fuses_operators: [grouped-matmul, matmul, moe-gate]
+summary: |
+  把 MoE 多个 expert 的独立 GEMM 合并成单个 grouped-GEMM kernel — 替代 expert-loop 的
+  per-expert kernel launch. 现代 MoE 推理 (DeepSeek V3/V4, Mixtral, Llama 4) 必备 kernel,
+  在 EP 场景下与 fused-moe-dispatch-deepep 配合, decode 吞吐 2-4x 提升.
+
+description_md: |
+  ## 为什么 grouped-GEMM 重要
+
+  Naive MoE expert forward:
+  ```
+  for expert_id in active_experts:
+    expert_input = gather_tokens(expert_id)        # token routing
+    output = expert.gemm(expert_input)              # 独立 GEMM
+    scatter_back(output, expert_id)                 # token un-routing
+  ```
+
+  问题: 每个 expert 独立 launch GEMM kernel. 假设 16 expert × top-2 routing,
+  每 batch 平均激活 ~4-6 expert, kernel launch overhead 大. 而且 expert 之间 GEMM
+  是 independent — 不需要顺序执行.
+
+  **Grouped-GEMM** 把所有 active expert 的 GEMM 合并成单 batched-GEMM:
+  ```
+  # 输入: A[N1, K], B1[K, M] for expert 1; A[N2, K], B2[K, M] for expert 2; ...
+  # 输出: 单 kernel 一次性算所有 expert 的 GEMM (variable shape, padded or fused)
+  fused_grouped_gemm(input_chunks, expert_weights_list)  # 单 kernel
+  ```
+
+  CUTLASS / cuBLASLt 的 grouped-GEMM API 让 N expert × per-expert 不同 token count 的
+  ragged batch 一次跑 — 比 expert-loop 快 2-4x.
+
+  ## 与 fused-moe-dispatch-deepep 的区别
+
+  - **fused-moe-dispatch-deepep**: 处理 token routing (gather + scatter), 主要是 communication
+  - **fused-grouped-gemm**: 处理 expert compute (group of GEMMs), 主要是 compute
+  - 两者配合: dispatch → grouped-gemm → dispatch (combine), 三步 fuse 是终极目标
+
+  ## 实现层次
+
+  - **CUTLASS GroupedGemm template**: NVIDIA 标准实现, MoE expert variable batch
+  - **cuBLASLt cublasLtGemmBatched**: 限定 same-shape batch, 不适合 variable-token MoE
+  - **Megatron-LM grouped_gemm**: 基于 CUTLASS, 训练 + 推理统一
+  - **vLLM fused_moe kernel**: vLLM 0.4+ 的 Triton 实现, 大 EP 场景默认
+  - **DeepSeek FlashMoE**: 自研 grouped-gemm + dispatch combined kernel
+  - **MindIE grouped MatMul** (AscendC): 昇腾 MoE expert kernel
+
+  ## 应用模型
+  - DeepSeek V3 / V4 (671B-A37B / 256B-A22B MoE)
+  - Mixtral 8×22B / 8×7B
+  - Llama 4 Maverick (400B-A17B) / Scout (109B-A17B)
+  - Qwen 3 MoE 系列
+
+why_fuse: |
+  Per-expert GEMM kernel launch overhead 在 16-256 个 expert 时累积可观. Grouped-GEMM 把所有
+  expert 一次性跑, kernel launch 从 N 次降到 1 次; 同时 SM 调度更平衡 (不同 expert token 分布
+  不均时, grouped 调度让大 expert 不饿小 expert).
+
+speedup:
+  - baseline: PyTorch eager (expert-loop with per-expert GEMM)
+    multiplier_min: 2.0
+    multiplier_max: 4.0
+    notes: 'EP=8-32, 16-256 expert 数 — 越多 expert 收益越大'
+  - baseline: vLLM 0.3 (un-fused expert iteration)
+    multiplier_min: 1.5
+    multiplier_max: 2.5
+    notes: '与 vLLM 早期 expert iteration 比, fused grouped-gemm 路径加速 1.5-2.5x'
+
+implementations:
+  - name: CUTLASS GroupedGemm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/NVIDIA/cutlass/tree/main/examples/24_gemm_grouped
+    notes: 'NVIDIA 标准 grouped-GEMM 模板'
+  - name: vLLM fused_moe (Triton)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+    url: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/fused_moe/fused_moe.py
+    notes: 'Triton 实现, MoE 模型默认路径'
+  - name: SGLang fused_moe
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+  - name: DeepSeek FlashMoE
+    hardware_arch: [hopper]
+    url: https://github.com/deepseek-ai/DeepEP
+    notes: 'DeepSeek V3 自研, 与 DeepEP dispatch 组合使用'
+  - name: TRT-LLM IGroupedGemmLayer
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: Megatron-LM grouped_gemm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/fanshiqing/grouped_gemm
+  - name: MindIE GroupedMatMul (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: 'CANN 8.0+ 标准 op, 与 fused-moe-dispatch-domestic 配合'
+
+hardware_requires:
+  - 'Tensor cores (任何现代 GPU/NPU)'
+  - 'CUTLASS-compatible / hipBLASLt / CANN AscendC'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Variable-shape batch padding 可能浪费 5-15% compute (取决于 expert load 分布)'
+  - 'grouped-GEMM API 比 standard GEMM 复杂, 调试成本高'
+  - 'Dense (non-MoE) 模型不适用'
+
+references:
+  - title: 'CUTLASS Grouped GEMM example'
+    url: https://github.com/NVIDIA/cutlass/tree/main/examples/24_gemm_grouped
+    source_type: implementation
+  - title: 'Mixture of Experts efficient inference (Megatron-LM)'
+    url: https://arxiv.org/abs/2211.15841
+    source_type: paper
+  - title: 'vLLM fused_moe kernel'
+    url: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/fused_moe/fused_moe.py
+    source_type: implementation

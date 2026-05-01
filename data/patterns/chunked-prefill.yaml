@@ -1,0 +1,81 @@
+id: chunked-prefill
+name: Chunked Prefill (mixed prefill/decode batch)
+category: scheduling
+description_md: |
+  ## 简介
+
+  传统 vLLM-style scheduling 把 prefill 和 decode 分到不同 step:
+  prefill step 处理新请求 (大 input, compute-bound), decode step 推进 batch (小 input, memory-bound).
+  问题: prefill step 期间 decode 暂停 → P99 TBT (time-between-tokens) 抖动严重;
+  尤其长 prompt 的 prefill 会 block 已有请求 5-30 秒.
+
+  **Chunked prefill** 把长 prompt 切成多个小 chunk, 每个 step 同时处理一些 prefill chunks +
+  所有进行中的 decode token. 让 prefill 与 decode 在同一 step 内 batched 起跑, 消除 P99 TBT spike.
+
+  ## 调度核心
+  ```
+  每 step:
+    new_input = []
+    for r in pending_requests:
+      tokens_left = remaining_prefill(r)
+      chunk = min(tokens_left, max_chunk_size - len(new_input))
+      new_input.extend(prefill_chunk(r, chunk))
+      if len(new_input) >= max_chunk_size: break
+    for r in active_decode:
+      new_input.extend([next_decode_token(r)])
+    forward(new_input)  # mixed prefill chunks + decode tokens
+  ```
+
+  ## 收益
+  - **P99 TBT 降低 5-20x**: 长 prompt prefill 不再 block decode
+  - **GPU 利用率上升 ~15-25%**: prefill chunks 填补 decode 的 SM 空闲
+  - **TTFT 略微增加 5-15%**: prefill 切 chunk 多了 step overhead, 单 prompt 完成时间稍长
+
+  ## 与 disagg-prefill-decode 的区别
+  - **Disaggregated**: prefill 和 decode 跑在 *不同节点*, KV transfer 跨网络
+  - **Chunked**: prefill 和 decode 在 *同一 step* 内 batched, 共享 GPU
+  - **互补**: Disagg 适合超大 cluster (> 32 GPU); Chunked 适合中小集群 (≤ 16 GPU 单节点 / 多节点 mix)
+
+  ## 引擎支持
+  - vLLM 0.6+: `--enable-chunked-prefill` (0.7+ 默认开启)
+  - SGLang 0.4+: 内置, 默认开启
+  - TensorRT-LLM 0.10+: `enable_chunked_context` 配置
+  - MindIE 2.0+: 实验性支持
+
+applies_when:
+  - long-prompt-input
+  - mixed-prefill-decode-load
+  - p99-latency-sensitive
+  - single-cluster-deployment
+related_operators: [scaled-dot-product-attention]
+supporting_cases_min: 0
+engines_supporting: [vllm, sglang, tensorrt-llm, mindie]
+hardware_requires: []
+model_archetypes: [dense-llm, moe-llm, long-context, reasoning, multi-modal]
+speedup:
+  - metric: ttft
+    multiplier_min: 0.85
+    multiplier_max: 1.0
+    notes: 'TTFT 略微增加 (chunk overhead) — 不是 chunked prefill 的目标'
+  - metric: decode-throughput
+    multiplier_min: 1.15
+    multiplier_max: 1.4
+    notes: 'GPU 利用率上升, decode 吞吐 1.15-1.4x'
+  - metric: cost-per-token
+    multiplier_min: 0.75
+    multiplier_max: 0.9
+    notes: 'TCO 降 10-25%, 来自 GPU 利用率提升'
+trade_offs:
+  - 'TTFT 略增 (5-15%), 与 chunked prefill 优化目标 (P99 TBT) 冲突 — 需要根据工作负载选择是否开'
+  - 'Chunk size 调参敏感: 太小 step overhead 大, 太大 prefill block decode'
+  - '极短 prompt 工作负载没收益 (prefill 本来就快)'
+references:
+  - title: 'Sarathi: Efficient LLM Inference by Piggybacking Decodes with Chunked Prefills'
+    url: https://arxiv.org/abs/2308.16369
+    source_type: paper
+  - title: 'vLLM chunked prefill documentation'
+    url: https://docs.vllm.ai/en/latest/configuration/optimization.html
+    source_type: docs
+  - title: 'SGLang chunked prefill'
+    url: https://docs.sglang.ai/backend/server_arguments.html
+    source_type: docs
