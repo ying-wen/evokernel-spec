@@ -6,7 +6,7 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.39+ horizon
+### v1.40+ horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
@@ -14,9 +14,8 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Citation PR onboarding (community work)
 - 1-2 more tours optional (video diffusion, Llama 4 Behemoth on NVL72)
 
-**Tier 2 (medium-leverage)**:
+**Tier 2 remaining**:
 - Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
-- Public submission portal (web-form-to-PR)
 - Citation auto-import (Twitter/X mentions, GitHub backlinks, arxiv)
 
 **Tier 3 (large bets)**:
@@ -24,6 +23,36 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.39.0] — 2026-05-02
+
+**Public submission portal for cases.** Removes the "fork + clone + vim" friction. Web form generates PR-ready YAML; user pastes into GitHub UI new-file PR. CI's `pnpm validate` catches schema errors. 3-minute case-add path vs the legacy 30-minute setup.
+
+### Added
+
+**`/contribute/case-form/`** (NEW interactive submission portal):
+- 7 form sections matching `schemas/case.ts` exactly: identity / stack / parallelism / scenario / results / reproduction & patterns / evidence
+- All required fields are inputs; optional fields hint "(optional)"
+- Model + hardware + engine + quantization pickers populated from catalog (20 models, 39 hardware, 7 engines, 9 quantizations)
+- Live YAML output panel (sticky on scroll) re-renders on every field change
+- 📋 Copy + ⬇️ Download buttons
+- Step-by-step PR submission instructions: GitHub UI new-file path → file naming convention → CI validation flow
+- Cross-link to /learn/capacity-planning/ + /calculator/capacity-planner/ + /learn/observability/ closing the contribution loop
+
+**Wiring**:
+- /contribute/ "Submit a case" track now points to the form (vs the old issue-template path)
+- About nav dropdown gains "提交部署案例" item alongside Quality / Impact / Contribute / About / Changelog
+
+### Why this matters
+The project had 41 cases at v1.38, but most contributions came from the maintainer. The form makes external contribution trivial — fill 30 fields, copy YAML, paste in GitHub UI. Combined with v1.18's `/impact/` GitHub stars + v1.34's release RSS, this is the project's "external contributor on-ramp" stack.
+
+### Stats
+- 420/420 site E2E pass (+7 new) · 36/36 unit pass
+- Build: 439 pages
+- About dropdown count: 6 items (was 5)
+- Form fields: 30+ inputs covering 100% of `CaseSchema` required fields
 
 ---
 

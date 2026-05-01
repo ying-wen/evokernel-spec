@@ -581,6 +581,66 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.39: /contribute/case-form/ — web form generating PR-ready case YAML', () => {
+  test('/contribute/case-form/ renders form + sticky output panel', async ({ page }) => {
+    await page.goto('/contribute/case-form/');
+    await expect(page.getByRole('heading', { name: /提交部署案例|Submit a deployment case/i }).first()).toBeVisible();
+    // The form is client:only=react — wait for output panel to mount + render YAML
+    await expect(page.locator('[data-testid="csf-output"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="csf-yaml-output"]').first()).toBeVisible();
+  });
+
+  test('Generated YAML contains required schema fields (id, title, stack, results, evidence)', async ({ page }) => {
+    await page.goto('/contribute/case-form/');
+    const yaml = await page.locator('[data-testid="csf-yaml-output"]').first().textContent();
+    expect(yaml).toBeTruthy();
+    expect(yaml).toContain('id: case-');
+    expect(yaml).toContain('title:');
+    expect(yaml).toContain('stack:');
+    expect(yaml).toContain('results:');
+    expect(yaml).toContain('throughput_tokens_per_sec:');
+    expect(yaml).toContain('evidence:');
+    expect(yaml).toContain('tier: measured');
+  });
+
+  test('Updating a form field re-renders the YAML output', async ({ page }) => {
+    await page.goto('/contribute/case-form/');
+    const initialYaml = await page.locator('[data-testid="csf-yaml-output"]').first().textContent();
+    // Find the title input (first text input after the slug input) and modify
+    const titleInput = page.locator('input[type="text"]').nth(1);
+    await titleInput.fill('Custom case title for E2E test');
+    // Wait a tick for re-render
+    await page.waitForTimeout(150);
+    const updatedYaml = await page.locator('[data-testid="csf-yaml-output"]').first().textContent();
+    expect(updatedYaml).toContain('Custom case title for E2E test');
+    expect(updatedYaml).not.toBe(initialYaml);
+  });
+
+  test('Copy button is present and clickable', async ({ page }) => {
+    await page.goto('/contribute/case-form/');
+    const copyBtn = page.locator('[data-testid="csf-copy-btn"]').first();
+    await expect(copyBtn).toBeVisible();
+    // Don't actually click (that would trigger a clipboard write that may not work in headless), just verify it's there
+  });
+
+  test('PR submission instructions visible (links to GitHub data/cases path)', async ({ page }) => {
+    await page.goto('/contribute/case-form/');
+    await expect(page.getByText(/提交 PR 步骤|How to submit/i).first()).toBeVisible();
+    await expect(page.locator('a[href*="github.com/ying-wen/evokernel-spec/new"]').first()).toBeVisible();
+  });
+
+  test('About dropdown contains the new case-form link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="about"]').first();
+    await expect(dd.locator('a[href*="/contribute/case-form"]').first()).toHaveCount(1);
+  });
+
+  test('/contribute/ "Submit a case" track now points to the form', async ({ page }) => {
+    await page.goto('/contribute/');
+    await expect(page.locator('a[href*="/contribute/case-form"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.38: /operators/fusion-graph/ — SVG bipartite graph view (complement to fusion-matrix)', () => {
   test('/operators/fusion-graph/ renders header + 4 stat cards + SVG graph', async ({ page }) => {
     await page.goto('/operators/fusion-graph/');

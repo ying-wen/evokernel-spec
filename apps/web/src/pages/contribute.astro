@@ -2,7 +2,7 @@
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
-import { t, localePath, type Locale } from '~/lib/i18n';
+import { t, localePath, pathname, type Locale } from '~/lib/i18n';
 import { getResolvedHardware, getModels, getCases, getVendors } from '~/lib/data';
 
 interface Props { locale?: Locale }
@@ -56,8 +56,10 @@ const tracks = [
     blurb: en
       ? 'A measured case enters the Calibration Map immediately and shifts every Tier 1 prediction for that hardware. The single highest-leverage contribution.'
       : '一条 measured case 直接喂入 Calibration Map，立刻让该硬件在所有模型上的 Tier 1 估算更准。最高杠杆的贡献类型。',
-    cta: en ? 'Submit a case →' : '提交案例 →',
-    href: issueNew('03-deployment-case.yaml'),
+    cta: en ? 'Submit a case (form) →' : '提交案例 (表单) →',
+    // v1.39+: form-based submission portal generates PR-ready YAML in 3 minutes
+    // (vs the legacy fork+clone+vim path that used to live behind issueNew(...)).
+    href: '/contribute/case-form/',
     accent: 'var(--color-tier-measured)'
   }
 ];
@@ -106,9 +108,12 @@ const flowSteps = en
           <h3 class="text-xl font-semibold mb-2">{track.title}</h3>
           <p class="text-sm font-medium mb-3" style={`color: ${track.accent};`}>{track.audience}</p>
           <p class="text-sm mb-6 flex-1" style="color: var(--color-text-muted);">{track.blurb}</p>
-          <a href={track.href} target="_blank" rel="noopener"
-             class="inline-block px-4 py-2 rounded-md font-medium text-sm text-center"
-             style={`background: ${track.accent}; color: white;`}>
+          <a
+            href={track.href.startsWith('/') ? pathname(track.href) : track.href}
+            {...(track.href.startsWith('/') ? {} : { target: '_blank', rel: 'noopener' })}
+            class="inline-block px-4 py-2 rounded-md font-medium text-sm text-center"
+            style={`background: ${track.accent}; color: white;`}
+          >
             {track.cta}
           </a>
         </article>

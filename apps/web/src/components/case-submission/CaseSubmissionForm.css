@@ -1,0 +1,214 @@
+.csf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+@media (max-width: 1024px) {
+  .csf-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.csf-form,
+.csf-output {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-raised);
+  padding: 1.25rem;
+}
+
+.csf-form {
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+}
+
+.csf-section {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.csf-section:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+.csf-section-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--color-accent);
+  margin-bottom: 0.875rem;
+}
+.csf-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.csf-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.csf-row-5 {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+}
+@media (max-width: 600px) {
+  .csf-row-5 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.csf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.csf-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+.csf-hint {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.csf-input,
+.csf-textarea {
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  width: 100%;
+  font-family: inherit;
+  transition: border-color var(--duration-fast) var(--ease-out-expo);
+}
+.csf-input:focus,
+.csf-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.csf-mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.csf-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Output column */
+.csf-output {
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+.csf-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.875rem;
+}
+.csf-output-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.csf-output-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.csf-btn {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out-expo);
+}
+.csf-btn:hover {
+  background: color-mix(in oklch, var(--color-accent) 6%, var(--color-bg));
+}
+.csf-btn-primary {
+  background: var(--color-accent);
+  color: white;
+  border-color: var(--color-accent);
+}
+.csf-btn-primary:hover {
+  background: color-mix(in oklch, var(--color-accent) 88%, black);
+}
+
+.csf-yaml {
+  flex: 1;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  padding: 0.875rem 1rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-text);
+  overflow: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+.csf-pr-instructions {
+  margin-top: 1rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));
+  border-radius: 0.375rem;
+}
+.csf-pr-instructions h4 {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  margin-bottom: 0.5rem;
+}
+.csf-pr-instructions ol {
+  margin: 0 0 0 1.25rem;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.csf-pr-instructions code {
+  background: var(--color-surface-raised);
+  padding: 0 0.25rem;
+  border-radius: 0.1875rem;
+  font-size: 0.7rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--color-accent);
+}
+.csf-pr-instructions a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.csf-pr-note {
+  margin-top: 0.75rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  line-height: 1.55;
+}
