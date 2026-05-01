@@ -1,6 +1,8 @@
 ---
 import Search from './Search.tsx';
 import ThemeToggle from './ThemeToggle.astro';
+import GitHubStarButton from '~/components/impact/GitHubStarButton.tsx';
+import '~/components/impact/GitHubStarButton.css';
 import { t, localePath, type Locale } from '~/lib/i18n';
 
 interface Props { locale?: Locale }
@@ -63,7 +65,7 @@ const localeSwitchHref = (() => {
       <a href={localeSwitchHref} class="text-xs px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);" aria-label="Switch language">
         {otherLocale === 'en' ? 'EN' : '中'}
       </a>
-      <a href="https://github.com/evokernel/evokernel-spec" class="hidden sm:inline-flex text-xs px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text-muted);">GitHub</a>
+      <span class="hidden sm:inline-flex"><GitHubStarButton client:only="react" /></span>
       <button id="menu-toggle" type="button" class="md:hidden px-2 py-1 rounded border text-sm" style="border-color: var(--color-border); color: var(--color-text);" aria-label={t(locale, 'nav.menu')} aria-expanded="false">
         ≡
       </button>
@@ -80,7 +82,7 @@ const localeSwitchHref = (() => {
       </li>
     ))}
     <li>
-      <a href="https://github.com/evokernel/evokernel-spec" class="block py-2 text-sm" style="color: var(--color-text-muted);">GitHub ↗</a>
+      <a href="https://github.com/ying-wen/evokernel-spec" class="block py-2 text-sm" style="color: var(--color-text-muted);">GitHub ↗</a>
     </li>
   </ul>
 </header>

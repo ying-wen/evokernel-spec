@@ -5,7 +5,7 @@ import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
-  PlaybookSchema
+  PlaybookSchema, CitationSchema
 } from '@evokernel/schemas';
 import { loadYaml } from './lib/load-yaml.ts';
 
@@ -34,7 +34,8 @@ const ENTITY_GLOBS: Array<{ name: string; glob: string; schema: ZodSchema }> = [
   { name: 'pattern', glob: 'patterns/*.yaml', schema: PatternSchema },
   { name: 'pipeline-stage', glob: 'pipeline/*.yaml', schema: PipelineStageSchema },
   { name: 'fused-kernel', glob: 'fused-kernels/*.yaml', schema: FusedKernelSchema },
-  { name: 'playbook', glob: 'playbooks/*.yaml', schema: PlaybookSchema }
+  { name: 'playbook', glob: 'playbooks/*.yaml', schema: PlaybookSchema },
+  { name: 'citation', glob: 'citations/*.yaml', schema: CitationSchema }
 ];
 
 export async function validateAll(opts: { dataDir: string }): Promise<ValidationReport> {

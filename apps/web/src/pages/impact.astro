@@ -1,0 +1,216 @@
+---
+/**
+ * /impact/ — public dashboard summarizing project impact and adoption.
+ *
+ * Three layers:
+ *
+ *   1. Live GitHub stats (React island, client-side fetch + 1h cache)
+ *   2. Build-time stats (commits, contributors, content counts)
+ *   3. Curated citations from data/citations/*.yaml
+ *
+ * Goal: a single URL that prospective contributors / citers can link to,
+ * showing the project is alive and being used.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import ImpactDashboard from '~/components/impact/ImpactDashboard.tsx';
+import '~/components/impact/ImpactDashboard.css';
+import GitHubStarButton from '~/components/impact/GitHubStarButton.tsx';
+import '~/components/impact/GitHubStarButton.css';
+import { contributorStats } from '~/lib/build-meta';
+import { pathname } from '~/lib/i18n';
+import {
+  getCases, getHardware, getPlaybooks, getCitations, getModels,
+  getServers, getFusedKernels, getPatterns
+} from '~/lib/data';
+
+const [cases, hardware, playbooks, citations, models, servers, fusedKernels, patterns] = await Promise.all([
+  getCases(), getHardware(), getPlaybooks(), getCitations(), getModels(),
+  getServers(), getFusedKernels(), getPatterns()
+]);
+
+const stats = contributorStats();
+
+// Group citations by source_type so we can show "papers / blogs / talks" rows.
+type CitationGroup = { label: string; emoji: string; items: typeof citations };
+const SOURCE_GROUP_ORDER: Array<{ type: typeof citations[number]['source_type']; label: string; emoji: string }> = [
+  { type: 'paper', label: 'Papers', emoji: '📄' },
+  { type: 'talk', label: 'Talks', emoji: '🎤' },
+  { type: 'blog', label: 'Blog posts', emoji: '✍️' },
+  { type: 'docs', label: 'Docs', emoji: '📘' },
+  { type: 'video', label: 'Videos', emoji: '🎬' },
+  { type: 'podcast', label: 'Podcasts', emoji: '🎧' },
+  { type: 'newsletter', label: 'Newsletters', emoji: '📰' },
+  { type: 'press', label: 'Press', emoji: '📡' },
+  { type: 'tweet', label: 'Tweets', emoji: '🐦' },
+  { type: 'other', label: 'Other', emoji: '🔗' }
+];
+const groups: CitationGroup[] = SOURCE_GROUP_ORDER
+  .map((g) => ({
+    label: g.label,
+    emoji: g.emoji,
+    items: citations.filter((c) => c.source_type === g.type).sort((a, b) => b.date.localeCompare(a.date))
+  }))
+  .filter((g) => g.items.length > 0);
+
+// Build-time content counts — the "site catalog" metric.
+const contentCounts = [
+  { key: 'hardware', label: '加速卡', value: hardware.length, href: '/hardware/' },
+  { key: 'servers', label: '超节点', value: servers.length, href: '/servers/' },
+  { key: 'models', label: '模型', value: models.length, href: '/models/' },
+  { key: 'cases', label: '部署案例', value: cases.length, href: '/cases/' },
+  { key: 'playbooks', label: 'Playbook', value: playbooks.length, href: '/playbooks/' },
+  { key: 'fused-kernels', label: '融合算子', value: fusedKernels.length, href: '/fused-kernels/' },
+  { key: 'patterns', label: '优化模式', value: patterns.length, href: '/patterns/' }
+];
+---
+<BaseLayout title="Impact · 影响指标">
+  <Container width="wide">
+    <section class="pt-12 pb-6">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        IMPACT · ADOPTION METRICS
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        影响指标 · Impact Metrics
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        EvoKernel Spec 的当前覆盖度、社区采纳和外部引用. 数据从 GitHub API + git history + 静态目录 build-time 计算; 引证由社区 PR 维护.
+      </p>
+      <div class="mt-6 flex gap-3 flex-wrap">
+        <GitHubStarButton client:only="react" variant="full" />
+        <a
+          href="https://github.com/ying-wen/evokernel-spec/issues/new?template=case-study.md"
+          class="text-xs px-3 py-2 rounded border font-medium"
+          style="border-color: var(--color-border); color: var(--color-text);"
+          target="_blank"
+          rel="noopener noreferrer"
+        >📝 提交案例 / 引证 →</a>
+      </div>
+    </section>
+
+    <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="impact-github-heading">
+      <h2 id="impact-github-heading" class="text-xs uppercase tracking-widest font-medium mb-4" style="color: var(--color-text-muted);">
+        GITHUB · 实时 / live
+      </h2>
+      <ImpactDashboard client:only="react" />
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="impact-content-heading">
+      <h2 id="impact-content-heading" class="text-xs uppercase tracking-widest font-medium mb-4" style="color: var(--color-text-muted);">
+        CONTENT CATALOG · 静态目录
+      </h2>
+      <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {contentCounts.map((c) => (
+          <a href={pathname(c.href)} class="block rounded-lg border p-4 transition-transform hover:-translate-y-0.5" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`content-card-${c.key}`}>
+            <div class="text-2xl font-semibold tabular-nums" style="color: var(--color-text);">{c.value}</div>
+            <div class="text-xs mt-1" style="color: var(--color-text-muted);">{c.label}</div>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="impact-velocity-heading">
+      <h2 id="impact-velocity-heading" class="text-xs uppercase tracking-widest font-medium mb-4" style="color: var(--color-text-muted);">
+        DEVELOPMENT VELOCITY · 开发节奏
+      </h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{stats.commitCount}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">总提交数 (--no-merges)</div>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-2xl font-semibold tabular-nums">{stats.contributorCount}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">总贡献者</div>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-base font-semibold" style="color: var(--color-text);">{stats.firstCommitDate?.slice(0, 10) ?? '?'}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">项目起点</div>
+        </div>
+        <div class="rounded-lg border p-4" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <div class="text-base font-semibold" style="color: var(--color-text);">{stats.lastCommitDate?.slice(0, 10) ?? '?'}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">最近提交</div>
+        </div>
+      </div>
+
+      {stats.topContributors.length > 0 && (
+        <div class="mt-5">
+          <div class="text-xs font-medium mb-2" style="color: var(--color-text-muted);">Top 5 contributors (by commit count)</div>
+          <ul class="flex flex-wrap gap-2">
+            {stats.topContributors.map((c) => (
+              <li class="text-xs px-2 py-1 rounded border" style="border-color: var(--color-border); color: var(--color-text);">
+                <strong>{c.name}</strong> <span style="color: var(--color-text-muted);" class="tabular-nums">· {c.commits}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="impact-citations-heading">
+      <div class="flex items-baseline justify-between flex-wrap gap-2 mb-4">
+        <h2 id="impact-citations-heading" class="text-xs uppercase tracking-widest font-medium" style="color: var(--color-text-muted);">
+          EXTERNAL CITATIONS · {citations.length} 条引证
+        </h2>
+        <a href="https://github.com/ying-wen/evokernel-spec/blob/main/data/citations/" class="text-xs hover:underline" style="color: var(--color-accent);" target="_blank" rel="noopener noreferrer">
+          📥 PR 添加 →
+        </a>
+      </div>
+
+      {groups.length === 0 ? (
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          暂无外部引证记录. 看到了链接到本站的论文 / 博客 / talk? 通过
+          <a href="https://github.com/ying-wen/evokernel-spec/blob/main/data/citations/" class="hover:underline" style="color: var(--color-accent);" target="_blank" rel="noopener noreferrer"> data/citations/ 提交 PR</a>.
+        </p>
+      ) : (
+        <div class="space-y-6">
+          {groups.map((g) => (
+            <div data-testid={`citation-group-${g.label.toLowerCase().replace(/\s+/g, '-')}`}>
+              <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+                <span aria-hidden="true">{g.emoji}</span>
+                {g.label} <span style="color: var(--color-text-muted);" class="font-normal">({g.items.length})</span>
+              </h3>
+              <ul class="space-y-2">
+                {g.items.map((c) => (
+                  <li class="rounded-lg border p-3" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+                    <a href={c.url} target="_blank" rel="noopener noreferrer" class="text-sm font-medium hover:underline" style="color: var(--color-text);">
+                      {c.title} <span aria-hidden="true">↗</span>
+                    </a>
+                    {c.author && <span class="text-xs ml-2" style="color: var(--color-text-muted);">— {c.author}</span>}
+                    <div class="text-xs mt-1 font-mono" style="color: var(--color-text-muted);">{c.date}</div>
+                    <p class="text-xs mt-2" style="color: var(--color-text-muted);">{c.snippet}</p>
+                    {c.topics.length > 0 && (
+                      <div class="mt-2 flex flex-wrap gap-1">
+                        {c.topics.map((t) => (
+                          <span class="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider" style="background: var(--color-bg); color: var(--color-text-muted);">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">为这个项目站台</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          点 ★ Star 让更多人发现 · 提交 case 让数据更精准 · 写到论文/博客/talk 后通过 PR 给
+          <code class="text-xs px-2 py-0.5 rounded" style="background: var(--color-surface);">data/citations/</code> 加一行.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <GitHubStarButton client:only="react" variant="full" />
+          <a href={pathname('/contribute/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">
+            ⚡ 贡献指南 →
+          </a>
+          <a href={pathname('/cases/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">
+            浏览案例 →
+          </a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

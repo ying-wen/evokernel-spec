@@ -1,0 +1,42 @@
+---
+/**
+ * Privacy-friendly visitor analytics injection. No cookies, no PII.
+ *
+ * Two providers supported, both opt-in via build-time env vars:
+ *
+ *   PUBLIC_CF_ANALYTICS_TOKEN   — Cloudflare Web Analytics beacon token
+ *   PUBLIC_PLAUSIBLE_DOMAIN     — Plausible domain (e.g. "yingwen.io")
+ *
+ * If neither is set, this component renders nothing — the site stays
+ * analytics-free in dev / preview / forks. Production deploys set the env var
+ * in the GitHub Actions workflow (Settings → Secrets → Actions → New repository
+ * variable).
+ *
+ * Why both: Cloudflare Web Analytics is free and lives at the edge; Plausible
+ * is the gold standard for self-hosted privacy-friendly analytics. Operators
+ * can pick whichever fits their infrastructure.
+ */
+
+const cfToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN ?? '';
+const plausibleDomain = import.meta.env.PUBLIC_PLAUSIBLE_DOMAIN ?? '';
+const isProd = import.meta.env.PROD;
+
+const enableCloudflare = isProd && cfToken !== '';
+const enablePlausible = isProd && plausibleDomain !== '';
+---
+{enableCloudflare && (
+  <script
+    is:inline
+    defer
+    src="https://static.cloudflareinsights.com/beacon.min.js"
+    data-cf-beacon={`{"token": "${cfToken}"}`}
+  />
+)}
+{enablePlausible && (
+  <script
+    is:inline
+    defer
+    data-domain={plausibleDomain}
+    src="https://plausible.io/js/script.js"
+  />
+)}

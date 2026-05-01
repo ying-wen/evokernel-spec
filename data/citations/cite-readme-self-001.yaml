@@ -1,0 +1,12 @@
+id: cite-readme-self-001
+title: 'EvoKernel Spec — README and project home (self)'
+url: https://github.com/ying-wen/evokernel-spec
+source_type: docs
+author: 'ying-wen'
+date: '2026-04-28'
+snippet: |
+  Self-citation seed entry — placeholder demonstrating the citations schema.
+  Replace via PR with first external citation. The /impact/ page filters out
+  self-citations from the public count via topic=general + author check.
+lang: en
+topics: [general]

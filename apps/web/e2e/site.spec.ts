@@ -576,6 +576,69 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.18: impact metrics surface (GH stars + impact strip + /impact/ dashboard + citations)', () => {
+  test('Nav shows live GitHub star button on every page', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('gh-star-button').first()).toBeVisible();
+    // Star button links to repo
+    const button = page.getByTestId('gh-star-button').first();
+    await expect(button).toHaveAttribute('href', /github\.com\/ying-wen\/evokernel-spec/);
+  });
+
+  test('Homepage shows impact strip with contributors + cases + last-commit + CTA', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('impact-strip-contributors').first()).toBeVisible();
+    await expect(page.getByTestId('impact-strip-cases').first()).toBeVisible();
+    await expect(page.getByTestId('impact-strip-last-commit').first()).toBeVisible();
+    await expect(page.getByTestId('impact-strip-cta').first()).toBeVisible();
+  });
+
+  test('Homepage impact strip CTA links to /impact/', async ({ page }) => {
+    await page.goto('/');
+    const cta = page.getByTestId('impact-strip-cta').first();
+    await expect(cta).toHaveAttribute('href', /\/impact\/?$/);
+  });
+
+  test('/impact/ dashboard renders GitHub live cards + content catalog + velocity', async ({ page }) => {
+    await page.goto('/impact/');
+    await expect(page.getByRole('heading', { name: /影响指标|Impact Metrics/i }).first()).toBeVisible();
+    // Live GitHub cards (5 expected)
+    await expect(page.getByTestId('impact-card-stars').first()).toBeVisible();
+    await expect(page.getByTestId('impact-card-forks').first()).toBeVisible();
+    await expect(page.getByTestId('impact-card-issues').first()).toBeVisible();
+    // Content catalog cards
+    await expect(page.getByTestId('content-card-hardware').first()).toBeVisible();
+    await expect(page.getByTestId('content-card-cases').first()).toBeVisible();
+    await expect(page.getByTestId('content-card-playbooks').first()).toBeVisible();
+  });
+
+  test('/impact/ shows development velocity (commits + contributors + dates)', async ({ page }) => {
+    await page.goto('/impact/');
+    await expect(page.getByText(/总提交数|开发节奏|DEVELOPMENT VELOCITY/i).first()).toBeVisible();
+    await expect(page.getByText(/总贡献者/i).first()).toBeVisible();
+    // Top contributors list
+    await expect(page.getByText(/Top.*contributors/i).first()).toBeVisible();
+  });
+
+  test('/impact/ shows citation tracker section with PR-add CTA', async ({ page }) => {
+    await page.goto('/impact/');
+    await expect(page.getByText(/EXTERNAL CITATIONS|外部引证/i).first()).toBeVisible();
+    await expect(page.getByText(/PR 添加|提交 PR/i).first()).toBeVisible();
+  });
+
+  test('/impact/ has standalone "为这个项目站台" CTA card with GH star + contribute links', async ({ page }) => {
+    await page.goto('/impact/');
+    await expect(page.getByText(/为这个项目站台/i).first()).toBeVisible();
+    await expect(page.getByText(/贡献指南/i).first()).toBeVisible();
+  });
+
+  test('Citations schema validates — at least 1 citation entry exists', async ({ page }) => {
+    await page.goto('/impact/');
+    // Read the rendered citation count from the heading
+    await expect(page.locator('text=/\\d+ 条引证/').first()).toBeVisible();
+  });
+});
+
 test.describe('v1.17: deployment failures guide + 3 playbooks + 2 cases + 1 fused-kernel', () => {
   test('Deployment failures page lives at /learn/deployment-failures/', async ({ page }) => {
     await page.goto('/learn/deployment-failures/');

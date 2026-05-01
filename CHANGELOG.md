@@ -6,12 +6,61 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.18: impact metrics surface)
-- GitHub stars button (client-side fetch, one-click star from site)
-- Visitor analytics (privacy-friendly, no cookies — Plausible-style)
-- Adoption metrics: cases submitted, playbooks used, last contributor
-- Public metrics dashboard at /impact/
-- Citation tracker: papers/blogs that link to the site
+### Planned (v1.19+ horizon)
+- Public submission portal (case YAML web form) — currently PR-only
+- Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
+- Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
+- Compare-server view (super-pod vs super-pod, mirroring compare-hardware)
+- "What's new this week" RSS / changelog feed
+- /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
+
+---
+
+## [1.18.0] — 2026-05-01
+
+Impact-metrics surface — make adoption visible. Until now the site was a content catalog; v1.18 adds the credibility layer that quantifies "this matters because…" so contributors and citers can link to a single dashboard.
+
+### Added
+
+**Live GitHub star button (Nav, every page)**:
+- React island fetches `https://api.github.com/repos/ying-wen/evokernel-spec` client-side (60 req/h/IP unauth limit)
+- localStorage 1h cache amortizes one fetch per visitor; falls back to "—" if API unreachable
+- One-click goes to GH Star UI (true one-click-star requires OAuth)
+- `client:only="react"` to avoid SSR hydration mismatch with localStorage state
+
+**Homepage impact strip**:
+- Compact heartbeat under hero: ★ stars · 👥 contributors · 📦 cases · 🚀 last commit · → /impact/ CTA
+- Build-time stats baked from `git shortlog -sne` + `git log -1 --format=%cI`
+- New `contributorStats()` helper in `apps/web/src/lib/build-meta.ts`
+
+**`/impact/` public dashboard** (NEW page):
+- 5 live GitHub cards (stars / forks / watchers / issues / last-pushed) via React island
+- 7 content-catalog cards (hardware / servers / models / cases / playbooks / fused-kernels / patterns) — click-through to their index
+- 4 development-velocity cards (total commits, contributors, project start, last commit)
+- Top-5-contributors list with commit counts
+- External citations section grouped by source_type (paper / talk / blog / docs / video / podcast / newsletter / press / tweet / other)
+- Build-time PR-add CTA pointing to `data/citations/`
+
+**Privacy-friendly analytics injection** (opt-in):
+- New `apps/web/src/components/impact/Analytics.astro` injects beacons only when configured
+- Two providers supported via build-time env vars: `PUBLIC_CF_ANALYTICS_TOKEN` (Cloudflare Web Analytics) and `PUBLIC_PLAUSIBLE_DOMAIN` (Plausible)
+- No-op without env var — site stays analytics-free in dev / preview / forks
+- Wired into `BaseLayout.astro` head
+
+**Citations schema + tracker**:
+- New `schemas/citation.ts` with `CitationSchema` + `CitationSourceType` enum
+- New `data/citations/` directory with seed entry; PRs add new citations
+- `getCitations()` in `apps/web/src/lib/data/index.ts`
+- Validate-data script picks up `data/citations/*.yaml`
+
+### Fixed
+- Nav GitHub link previously pointed to `evokernel/evokernel-spec` (wrong owner) — corrected to `ying-wen/evokernel-spec`
+- React #418 hydration mismatch: `client:idle` with localStorage-seeded `useState` initializer caused SSR HTML to differ from client first render. Switched live components to `client:only="react"` since they have no useful server render — fetched data is client-only
+
+### Stats
+- 254/254 site E2E pass (+8 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 27, fused-kernel: 16, playbook: 22, pattern: 15, **citation: 1** (seed)
+- Build: 345 pages
 
 ---
 
@@ -42,7 +91,7 @@ Failure-modes drilldown — surfaces production gotchas as a quick-lookup guide 
 
 ### Stats
 - 246/246 site E2E pass (+10 new) · 36/36 unit pass
-- vendor: 28, hardware: 39, server: 14, model: 19, **case: 27**, fused-kernel: 16, **playbook: 22**, pattern: 21
+- vendor: 28, hardware: 39, server: 14, model: 19, **case: 27**, fused-kernel: 16, **playbook: 22**, pattern: 15
 - Build: 344 pages
 
 ---

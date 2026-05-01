@@ -13,4 +13,5 @@ export * from './pattern';
 export * from './pipeline-stage';
 export * from './fused-kernel';
 export * from './playbook';
+export * from './citation';
 export * from './manifest';
