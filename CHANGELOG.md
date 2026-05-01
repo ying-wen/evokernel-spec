@@ -6,14 +6,53 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.21+ horizon)
+### Planned (v1.22+ horizon)
 - Public submission portal (case YAML web form) — currently PR-only
 - Auto-translated vendor doc summaries (Ascend CANN, Cambricon Neuware → English) via build-time API
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
-- Compare-server view (super-pod vs super-pod, mirroring compare-hardware)
-- /learn/attention-variants/ guide (MHA / MQA / GQA / MLA / SWA)
+- /learn/picking-quantization-format/ (GGUF vs AWQ vs GPTQ vs FP8 native)
+- Operator × fused-kernel cross-reference matrix
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import via GitHub Discussions / Twitter mentions
+- Server-compare client-side filter island (real querystring parsing in SSG)
+
+---
+
+## [1.21.0] — 2026-05-01
+
+Triple-gap iteration: attention-variants completes the `/learn/` tetrad (gap 2/3), `/servers/compare/` closes the cluster-internals analytical UI (gap 1), and 3 more operators + 2 more fused-kernels deepen the operator catalog.
+
+### Added
+
+**`/learn/attention-variants/`** (NEW educational guide):
+- 5-variant cross-comparison table (MHA / MQA / GQA / MLA / SWA) with 5 axes: KV compression, quality loss, long-context viability, example models, related fused-kernels
+- Per-variant trade-offs section linking to primary patterns
+- Cross-links to model detail pages, fused-kernel pages, and the rest of the `/learn/` tetrad
+- Closes the attention architecture choice gap — the most consequential decision before deployment
+
+**`/servers/compare/`** (NEW cluster analytical UI):
+- Side-by-side super-pod comparison table (15 dimensions: card_count, scale-up domain, fabrics, bisection BW, total memory/compute, rack power, cooling, switch chips, oversubscription, scale-out NICs, release year)
+- Per-row best-value highlighting (★ for max compute/memory, min for power)
+- Default top-6 by BF16 PFLOPS, picker grid linking to all 14 super-pod detail pages
+- Mirrors `/compare/` for hardware but simpler (categorical data, no radar chart needed)
+- Closes the gap-1 cluster-internals analytical UI complaint
+
+**3 more operators** (22 → 25):
+- `dropout` (misc): training-only stochastic regularizer; documents the eval-mode trap (`model.eval()` not called → non-deterministic decode output)
+- `group-norm` (norm): vision/diffusion primitive; SD3/Flux UNet + multi-modal vision encoder. Distinct from LayerNorm/RMSNorm
+- `repeat-interleave` (memory): GQA KV broadcast + beam expansion. Documents why modern attention kernels avoid materializing the broadcast (FlashAttn v2/v3 internal GQA path)
+
+**2 more fused-kernels** (18 → 20):
+- `fused-conv-norm-act`: Conv2D + GroupNorm/LayerNorm + GELU/SiLU vision encoder block. ViT patch-embed + SD3/Flux UNet + multi-modal vision tower
+- `fused-add-bias-gelu`: legacy GPT-style MLP block. Pre-SwiGLU pattern, still in vision FFN + GPT-OSS legacy
+
+### Fixed
+- `/servers/compare/` originally tried to read `?ids=...` from `Astro.url.searchParams` but static SSG renders without querystrings. Refactored to render a deterministic top-by-compute sample server-side; picker grid links to individual server detail pages instead of querystring re-renders. (Future: client-side React island for real subset filtering.)
+
+### Stats
+- 284/284 site E2E pass (+10 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 29, **fused-kernel: 20**, playbook: 24, pattern: 19, **operator: 25**, citation: 1
+- Build: 371 pages
 
 ---
 

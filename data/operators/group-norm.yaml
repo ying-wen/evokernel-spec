@@ -1,0 +1,78 @@
+id: group-norm
+name: Group Normalization (vision / diffusion)
+category: norm
+
+flops_formula: '8 * batch * channels * spatial (compute mean/var/normalize/scale)'
+bytes_formula: '8 * batch * channels * spatial + 8 * channels (gamma/beta)'
+arithmetic_intensity_formula: '~ 1 FLOP/byte (memory-bound)'
+arithmetic_intensity_typical:
+  min: 0.8
+  max: 1.5
+  notes: 'Memory-bound; 总是 fuse 进卷积 epilogue 或 SwiGLU 入口. 推理时几乎不单独调用.'
+
+description: |
+  Group Normalization (Wu & He 2018) — 把 channels 分成 G 组, 在每组内计算 mean/var. 与
+  LayerNorm 的区别: LayerNorm 在 (channels, seq) 维度归一化; GroupNorm 把 channels 切组,
+  组内归一化. 对 small-batch CV 和 diffusion 比 BatchNorm 更稳定 (BN 依赖 batch size, 在
+  small-batch / inference batch=1 上崩).
+
+  ## 公式
+  ```
+  group_size = channels / G
+  for each group g:
+    mean = mean(x[:, g*group_size:(g+1)*group_size, :, :])
+    var  = var(x[:, g*group_size:(g+1)*group_size, :, :])
+    out[:, g*...] = (x[:, g*...] - mean) / sqrt(var + eps) * gamma + beta
+  ```
+
+  ## 在现代部署中的角色
+  - **Diffusion (Stable Diffusion 3 / Flux / DiT)**: GroupNorm 是 UNet/DiT block 的标配
+  - **Vision encoder (CLIP / ViT-L 部分变体)**: 早期 vision encoder 用 GN; 现代 ViT 倾向 LayerNorm
+  - **多模态 LLM**: vision tower 内部可能用 GN (取决于具体架构), LLM backbone 全用 RMSNorm/LayerNorm
+
+  ## 与 LayerNorm / RMSNorm 区别
+  | Norm | 归一化轴 | 主要场景 | 推理 batch=1 行为 |
+  |---|---|---|---|
+  | BatchNorm | batch 维 | 老式 CNN | 用 running stats, 但 small-batch 不稳 |
+  | **GroupNorm** | group of channels | Diffusion, ViT 部分 | 与 batch size 解耦 |
+  | LayerNorm | channels + seq | Transformer encoder | 与 batch 解耦 |
+  | RMSNorm | hidden | 现代 LLM (Llama+) | 比 LayerNorm 快 ~30% |
+
+  ## 部署关键
+  - 几乎总是 fuse 进 convolution epilogue 或 attention block 入口 — 不单独 launch kernel
+  - cuDNN / cuBLAS / cuTLASS 都有 fused-conv-norm-act 路径
+  - 端侧 (Apple MPSGraph, llama.cpp Metal) 也 fuse
+
+variants: [layer-norm, rms-norm, batch-norm, instance-norm]
+
+fusion_targets: [matmul, gelu, silu]
+participates_in_fused_kernels:
+  - fused-conv-norm-act
+
+engine_implementations:
+  - name: PyTorch torch.nn.GroupNorm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, apple-m]
+    url: https://pytorch.org/docs/stable/generated/torch.nn.GroupNorm.html
+  - name: cuDNN groupNormForward
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    notes: 'fused with conv; 单独调用很少'
+  - name: TRT-LLM IGroupNormalizationLayer
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: Apple MPSGraph GroupNorm
+    hardware_arch: [apple-m]
+    notes: 'CoreML / MPS 标准 op, 用于端侧 Stable Diffusion'
+  - name: ONNX Runtime GroupNorm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, apple-m, jetson]
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'Group Normalization (Wu & He 2018)'
+    url: https://arxiv.org/abs/1803.08494
+    source_type: paper
+  - title: 'PyTorch GroupNorm documentation'
+    url: https://pytorch.org/docs/stable/generated/torch.nn.GroupNorm.html
+    source_type: docs

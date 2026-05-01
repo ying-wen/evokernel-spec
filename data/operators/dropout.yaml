@@ -1,0 +1,75 @@
+id: dropout
+name: Dropout (training-only stochastic regularizer)
+category: misc
+
+flops_formula: '2 * batch * seq * hidden (multiply + mask gen)'
+bytes_formula: '4 * batch * seq * hidden (read + write activations)'
+arithmetic_intensity_formula: '~ 0.5 FLOP/byte (memory-bound)'
+arithmetic_intensity_typical:
+  min: 0.4
+  max: 0.6
+  notes: '极度 memory-bound; 推理阶段几乎无 dropout 调用 (eval mode), 训练阶段被 fused 进 layer 计算'
+
+description: |
+  Dropout — 训练时随机置零部分 activation 防过拟合 (Srivastava et al. 2014). 在 LLM 推理阶段
+  几乎从不调用 (eval mode 下 dropout = identity), 但作为训练 op 仍出现在模型 forward graph
+  里, 必须正确处理 (例如 vLLM/SGLang 加载 HF 模型时自动跳过 dropout 层).
+
+  ## 公式
+  ```
+  训练 mode (training=True):
+    mask = bernoulli(1 - p)  # element-wise 概率 (1-p) 保留
+    out = x * mask / (1 - p)  # inverted dropout, scale 让期望不变
+  推理 mode (training=False):
+    out = x  # identity
+  ```
+
+  ## 在推理部署中的角色
+  - **eval mode 必须**: vLLM/SGLang/TRT-LLM 加载模型时强制 `model.eval()`, dropout 层退化为 identity. 否则推理结果不确定.
+  - **常见陷阱**: 自定义 PyTorch 推理服务忘记 `model.eval()`, decode 输出每次不同 — 排查很久才找到
+  - **训练-推理一致性**: 检查 model card 里 `training=False` 是否传到所有 dropout 层
+  - **某些训练 trick 复用**: Monte Carlo Dropout 推理时仍 `training=True`, 但是非主流场景
+
+  ## 训练阶段优化
+  - **fused dropout**: 通常 fuse 到 attention output projection 或 MLP 后 — 减少 HBM I/O
+  - **inverted scaling**: 训练时除以 (1-p), 推理时直接 identity, 不需 rescale
+  - **分布式训练**: dropout mask 必须 device-local (不能跨 device 同步), 否则数据并行不一致
+
+  ## variants
+  - **Variational Dropout (LSTM)**: 同一 mask 跨 timestep 复用
+  - **DropPath (stochastic depth)**: 整层置零, ViT/ConvNeXt 标配
+  - **Attention Dropout**: 仅在 attention scores 上 dropout, 现代 LLM 通常 0.0
+
+variants: [drop-path, attention-dropout, variational-dropout]
+
+fusion_targets: [matmul, layer-norm]
+participates_in_fused_kernels: []
+
+engine_implementations:
+  - name: PyTorch torch.nn.Dropout
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, apple-m]
+    url: https://pytorch.org/docs/stable/generated/torch.nn.Dropout.html
+    notes: 'eval mode 自动 identity'
+  - name: vLLM (skip dropout)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+    notes: '加载 HF model 时自动 eval(), dropout 层不进 inference graph'
+  - name: TRT-LLM
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: 'engine build 时常量 fold dropout = identity, 不出现在 .engine 文件'
+  - name: cuDNN dropout
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    notes: '训练阶段使用; 推理几乎不调用'
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'Dropout: A Simple Way to Prevent Neural Networks from Overfitting'
+    url: https://jmlr.org/papers/v15/srivastava14a.html
+    source_type: paper
+  - title: 'PyTorch Dropout documentation'
+    url: https://pytorch.org/docs/stable/generated/torch.nn.Dropout.html
+    source_type: docs

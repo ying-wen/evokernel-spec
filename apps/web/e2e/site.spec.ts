@@ -576,6 +576,79 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.21: /learn/attention-variants/ + /servers/compare/ + 3 ops + 2 fused-kernels', () => {
+  test('/learn/attention-variants/ renders 5 variants table', async ({ page }) => {
+    await page.goto('/learn/attention-variants/');
+    await expect(page.getByRole('heading', { name: /Attention 变体对照|Attention Variants/i }).first()).toBeVisible();
+    // 5 variants
+    await expect(page.getByTestId('variant-mha').first()).toBeVisible();
+    await expect(page.getByTestId('variant-mqa').first()).toBeVisible();
+    await expect(page.getByTestId('variant-gqa').first()).toBeVisible();
+    await expect(page.getByTestId('variant-mla').first()).toBeVisible();
+    await expect(page.getByTestId('variant-swa').first()).toBeVisible();
+  });
+
+  test('/learn/attention-variants/ links to learn triad CTAs', async ({ page }) => {
+    await page.goto('/learn/attention-variants/');
+    await expect(page.locator('a[href*="/learn/quantization-decision-tree"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/parallelism-cheatsheet"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/picking-engine"]').first()).toBeVisible();
+  });
+
+  test('/servers/compare/ renders default top-4 selection', async ({ page }) => {
+    await page.goto('/servers/compare/');
+    await expect(page.getByRole('heading', { name: /超节点并排对照|Compare Super-Pods/i }).first()).toBeVisible();
+    // Comparison rows
+    await expect(page.getByTestId('row-card-count').first()).toBeVisible();
+    await expect(page.getByTestId('row-bisection-bw').first()).toBeVisible();
+    await expect(page.getByTestId('row-total-compute').first()).toBeVisible();
+  });
+
+  test('/servers/compare/ shows top-by-compute servers in table headers', async ({ page }) => {
+    await page.goto('/servers/compare/');
+    // Top-by-compute super-pods appear as table column headers (linked to detail)
+    await expect(page.locator('a[href*="/servers/nvidia-gb200-nvl72/"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/servers/huawei-cloudmatrix-384/"]').first()).toBeVisible();
+  });
+
+  test('/servers/compare/ has clickable picker grid for all servers', async ({ page }) => {
+    await page.goto('/servers/compare/');
+    // Pick grid surfaces all servers
+    await expect(page.getByTestId('pick-nvidia-hgx-h100').first()).toBeVisible();
+    await expect(page.getByTestId('pick-huawei-cloudmatrix-384').first()).toBeVisible();
+  });
+
+  test('Dropout operator detail visible', async ({ page }) => {
+    await page.goto('/operators/dropout/');
+    await expect(page.getByText(/Dropout|stochastic regularizer/i).first()).toBeVisible();
+    await expect(page.getByText(/eval mode|inverted/i).first()).toBeVisible();
+  });
+
+  test('Group-norm operator detail visible (vision/diffusion)', async ({ page }) => {
+    await page.goto('/operators/group-norm/');
+    await expect(page.getByText(/Group Normalization|vision|diffusion/i).first()).toBeVisible();
+    await expect(page.getByText(/Stable Diffusion|UNet|DiT|ResBlock/i).first()).toBeVisible();
+  });
+
+  test('Repeat-interleave operator detail visible (GQA broadcast)', async ({ page }) => {
+    await page.goto('/operators/repeat-interleave/');
+    await expect(page.getByText(/Repeat-Interleave|GQA KV broadcast/i).first()).toBeVisible();
+    await expect(page.getByText(/group_size|broadcast/i).first()).toBeVisible();
+  });
+
+  test('Fused conv+norm+act fused-kernel visible (vision encoder block)', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-conv-norm-act/');
+    await expect(page.getByText(/Fused Conv2D|vision encoder block/i).first()).toBeVisible();
+    await expect(page.getByText(/cuDNN|UNet|ViT/i).first()).toBeVisible();
+  });
+
+  test('Fused add-bias-gelu fused-kernel visible (legacy GPT MLP)', async ({ page }) => {
+    await page.goto('/fused-kernels/fused-add-bias-gelu/');
+    await expect(page.getByText(/Fused Add-Bias|GPT-style|legacy MLP/i).first()).toBeVisible();
+    await expect(page.getByText(/cuBLAS|GELU|epilogue/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.20: 4 new operators + 2 fused-kernels + /learn/parallelism-cheatsheet/ + /learn/picking-engine/', () => {
   test('SwiGLU operator detail visible', async ({ page }) => {
     await page.goto('/operators/swiglu/');

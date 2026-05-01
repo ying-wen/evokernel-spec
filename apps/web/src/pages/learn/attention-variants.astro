@@ -1,0 +1,260 @@
+---
+/**
+ * Attention variants cross-comparison — MHA / MQA / GQA / MLA / SWA.
+ *
+ * Attention variant choice is *the* most consequential architectural decision
+ * for inference: it sets KV cache size, long-context viability, and which
+ * fused kernels are available. This page ties operators + fused-kernels +
+ * patterns + models into one cross-reference.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import {
+  getOperators, getFusedKernels, getPatterns, getModels
+} from '~/lib/data';
+
+const [operators, fusedKernels, patterns, models] = await Promise.all([
+  getOperators(), getFusedKernels(), getPatterns(), getModels()
+]);
+
+interface VariantProfile {
+  id: string;
+  abbrev: string;
+  full_name: string;
+  full_name_zh: string;
+  kv_compression: string;
+  quality_loss: string;
+  long_context_viability: string;
+  example_models: string[];
+  primary_pattern_id?: string;
+  related_kernels: string[];
+  trade_offs: string[];
+}
+
+const VARIANTS: VariantProfile[] = [
+  {
+    id: 'mha',
+    abbrev: 'MHA',
+    full_name: 'Multi-Head Attention',
+    full_name_zh: '多头注意力',
+    kv_compression: '1× (baseline) — every query head has its own K/V head',
+    quality_loss: '0 (reference)',
+    long_context_viability: '差 — 64 KV heads × 128 KB/token × 1M tokens = 8 GB/seq',
+    example_models: ['llama-2', 'gpt-3', 'opt-175b'],
+    related_kernels: ['flash-attention-v3', 'paged-attention-decode'],
+    trade_offs: [
+      'KV cache 最大, 长 context 主要瓶颈',
+      'No information loss, attention 表达能力最强',
+      '现代生产模型几乎不再用 — 已被 GQA/MQA 替代'
+    ]
+  },
+  {
+    id: 'mqa',
+    abbrev: 'MQA',
+    full_name: 'Multi-Query Attention',
+    full_name_zh: '多查询注意力',
+    kv_compression: 'H× (one K/V head shared by all H query heads)',
+    quality_loss: '0.5-2 pt MMLU vs MHA',
+    long_context_viability: '极好 — KV cache 比 MHA 小 64×',
+    example_models: ['palm', 'falcon-40b'],
+    related_kernels: ['flash-attention-v3'],
+    trade_offs: [
+      'KV cache 最小 — 极致长 context',
+      '质量损失明显, 高质量产品慎用',
+      '现代选择倾向 GQA-8 折中, MQA 极端化'
+    ]
+  },
+  {
+    id: 'gqa',
+    abbrev: 'GQA',
+    full_name: 'Grouped-Query Attention',
+    full_name_zh: '分组查询注意力',
+    kv_compression: 'group_size× (e.g. GQA-8 = 8× compression)',
+    quality_loss: '< 0.5 pt MMLU at GQA-8',
+    long_context_viability: '很好 — KV 比 MHA 小 8×, 是当前主流',
+    example_models: ['llama-3-1', 'llama-4-scout', 'mixtral-8x22b', 'qwen-3', 'gemma-2'],
+    primary_pattern_id: 'gqa-mqa-shared-kv',
+    related_kernels: ['flash-attention-v3', 'paged-attention-decode', 'fused-rope-qkv'],
+    trade_offs: [
+      '现代 LLM 默认 — Llama 3+ / Mistral / Qwen 3 / GPT-4o 都用',
+      'KV 减小 8× 几乎无质量损失',
+      '后训练转 GQA 需要 short distill 步骤'
+    ]
+  },
+  {
+    id: 'mla',
+    abbrev: 'MLA',
+    full_name: 'Multi-Head Latent Attention',
+    full_name_zh: '多头潜在注意力',
+    kv_compression: '~5-10× vs GQA-8 (compresses to low-rank latent c_kv)',
+    quality_loss: '< 0.3 pt MMLU vs MHA (quality matches or beats)',
+    long_context_viability: '极好 — DeepSeek V3 671B 长 context 单卡可行',
+    example_models: ['deepseek-v3', 'deepseek-v4-flash', 'deepseek-v4-pro'],
+    related_kernels: ['flash-mla'],
+    trade_offs: [
+      'KV cache 最小化 (latent vector 替代 K/V)',
+      '需要 specialized FlashMLA kernel — Hopper-only 最优, Ampere fallback 30-50% 性能折损',
+      '只对 MLA-trained 模型有用; 模型架构锁定'
+    ]
+  },
+  {
+    id: 'swa',
+    abbrev: 'SWA',
+    full_name: 'Sliding Window Attention',
+    full_name_zh: '滑窗注意力',
+    kv_compression: 'depends on window size W (KV cache O(W) instead of O(L))',
+    quality_loss: '0.5-3 pt on long-range tasks; ~0 on local tasks',
+    long_context_viability: '很好但有损 — 长 context 局部任务 (chat/code) OK, 长程依赖任务损失',
+    example_models: ['mistral-7b', 'gemma-2', 'gemma-3'],
+    primary_pattern_id: 'sliding-window-attention',
+    related_kernels: ['fused-attn-sliding-window'],
+    trade_offs: [
+      'KV cache O(W) — 200K context with W=4096 → 50× 减少',
+      '长程依赖任务 (long reasoning, document QA) 质量明显跌',
+      '现代 hybrid 设计 (Gemma 2: 5 SWA + 1 global) 缓解但仍受限'
+    ]
+  }
+];
+
+const operatorsById = new Map(operators.map((o) => [o.id, o]));
+const kernelsById = new Map(fusedKernels.map((k) => [k.id, k]));
+const patternsById = new Map(patterns.map((p) => [p.id, p]));
+const modelsById = new Map(models.map((m) => [m.id, m]));
+---
+<BaseLayout title="Attention 变体对照 / Attention Variants Cheatsheet">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · ATTENTION VARIANTS
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        Attention 变体对照 · Attention Variants
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        MHA / MQA / GQA / MLA / SWA — attention 变体选择是 LLM 架构对推理影响最大的决定:
+        直接定 KV cache size · long-context 可行性 · 哪些 fused kernel 可用. 这里把
+        <a href={pathname('/operators/scaled-dot-product-attention/')} style="color: var(--color-accent);" class="hover:underline">SDPA primitive</a>,
+        <a href={pathname('/fused-kernels/')} style="color: var(--color-accent);" class="hover:underline">fused kernels</a>,
+        <a href={pathname('/patterns/')} style="color: var(--color-accent);" class="hover:underline">优化模式</a> 和真实模型一次串起来.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">变体: </span><strong>{VARIANTS.length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">关联 fused-kernel: </span><strong>{Array.from(new Set(VARIANTS.flatMap((v) => v.related_kernels))).length}</strong></div>
+        <div><span style="color: var(--color-text-muted);">关联模型: </span><strong>{Array.from(new Set(VARIANTS.flatMap((v) => v.example_models))).length}</strong></div>
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="comparison-heading">
+      <h2 id="comparison-heading" class="text-2xl font-semibold mb-4">5 个变体并排对照</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" style="border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text-muted);">维度 / Axis</th>
+              {VARIANTS.map((v) => (
+                <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text);">
+                  <span style="color: var(--color-accent);">{v.abbrev}</span>
+                  <div class="text-xs font-normal mt-0.5" style="color: var(--color-text-muted);">{v.full_name_zh}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <td class="py-3 px-3 align-top text-xs uppercase tracking-wider" style="color: var(--color-text-muted);">KV 压缩比</td>
+              {VARIANTS.map((v) => (<td class="py-3 px-3 align-top text-xs" style="color: var(--color-text);">{v.kv_compression}</td>))}
+            </tr>
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <td class="py-3 px-3 align-top text-xs uppercase tracking-wider" style="color: var(--color-text-muted);">质量损失</td>
+              {VARIANTS.map((v) => (<td class="py-3 px-3 align-top text-xs" style="color: var(--color-text);">{v.quality_loss}</td>))}
+            </tr>
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <td class="py-3 px-3 align-top text-xs uppercase tracking-wider" style="color: var(--color-text-muted);">长 context</td>
+              {VARIANTS.map((v) => (<td class="py-3 px-3 align-top text-xs" style="color: var(--color-text);">{v.long_context_viability}</td>))}
+            </tr>
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <td class="py-3 px-3 align-top text-xs uppercase tracking-wider" style="color: var(--color-text-muted);">代表模型</td>
+              {VARIANTS.map((v) => (
+                <td class="py-3 px-3 align-top text-xs">
+                  <ul class="space-y-1">
+                    {v.example_models.map((m) => {
+                      const model = modelsById.get(m);
+                      return model ? (
+                        <li><a href={pathname(`/models/${m}/`)} class="hover:underline" style="color: var(--color-accent);">→ {model.name}</a></li>
+                      ) : (
+                        <li style="color: var(--color-text-muted);">→ {m}</li>
+                      );
+                    })}
+                  </ul>
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td class="py-3 px-3 align-top text-xs uppercase tracking-wider" style="color: var(--color-text-muted);">关联 kernel</td>
+              {VARIANTS.map((v) => (
+                <td class="py-3 px-3 align-top text-xs">
+                  <ul class="space-y-1">
+                    {v.related_kernels.map((k) => {
+                      const kernel = kernelsById.get(k);
+                      return kernel ? (
+                        <li><a href={pathname(`/fused-kernels/${k}/`)} class="hover:underline" style="color: var(--color-text);">🧩 {kernel.name.length > 28 ? kernel.name.slice(0, 26) + '…' : kernel.name}</a></li>
+                      ) : null;
+                    })}
+                  </ul>
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);" aria-labelledby="detail-heading">
+      <h2 id="detail-heading" class="text-2xl font-semibold mb-4">每个变体的部署 trade-offs</h2>
+      <div class="space-y-4">
+        {VARIANTS.map((v) => {
+          const pattern = v.primary_pattern_id ? patternsById.get(v.primary_pattern_id) : undefined;
+          return (
+            <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);" data-testid={`variant-${v.id}`}>
+              <div class="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+                <h3 class="text-lg font-semibold">
+                  <span style="color: var(--color-accent);">{v.abbrev}</span>
+                  <span class="text-sm font-normal ml-2" style="color: var(--color-text);">{v.full_name}</span>
+                  <span class="text-sm font-normal ml-2" style="color: var(--color-text-muted);">/ {v.full_name_zh}</span>
+                </h3>
+                {pattern && (
+                  <a href={pathname(`/patterns/${pattern.id}/`)} class="text-xs px-2 py-1 rounded hover:underline" style="background: var(--color-bg); color: var(--color-accent);">
+                    🧩 {pattern.name}
+                  </a>
+                )}
+              </div>
+
+              <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--color-text-muted);">Trade-offs</div>
+              <ul class="text-sm space-y-1.5" style="color: var(--color-text-muted);">
+                {v.trade_offs.map((t) => (<li>· {t}</li>))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          挑好 attention 变体后, 选 <a href={pathname('/learn/quantization-decision-tree/')} style="color: var(--color-accent);" class="hover:underline">量化策略</a>,
+          定 <a href={pathname('/learn/parallelism-cheatsheet/')} style="color: var(--color-accent);" class="hover:underline">并行配方</a>,
+          挑 <a href={pathname('/learn/picking-engine/')} style="color: var(--color-accent);" class="hover:underline">推理引擎</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/quantization-decision-tree/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">量化决策树 →</a>
+          <a href={pathname('/learn/parallelism-cheatsheet/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">并行策略 →</a>
+          <a href={pathname('/learn/picking-engine/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">引擎选型 →</a>
+          <a href={pathname('/operators/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">算子目录 ({operators.length}) →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

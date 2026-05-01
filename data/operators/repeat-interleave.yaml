@@ -1,0 +1,91 @@
+id: repeat-interleave
+name: Repeat-Interleave (GQA KV broadcast / beam expansion)
+category: memory
+
+flops_formula: '0 (pure memory copy)'
+bytes_formula: '4 * batch * seq * hidden * repeat_count (read original + write repeated copies)'
+arithmetic_intensity_formula: '~0 (memory-bandwidth bound; just copy)'
+arithmetic_intensity_typical:
+  min: 0.001
+  max: 0.01
+  notes: '近乎纯 memory copy; 总是 fuse 进 attention kernel — 单独调用很少'
+
+description: |
+  Repeat-Interleave — 把 tensor 沿某轴重复 K 次, 每个元素重复 K 次而非整体重复 (与 `repeat`/`tile` 不同).
+  在 LLM 推理中关键用于:
+  1. **GQA KV broadcast**: 8 KV heads 重复 H/8 次匹配 H query heads
+  2. **Beam search expansion**: input batch B 重复 K 次得到 B×K beams
+  3. **Speculative decoding draft**: draft tokens 重复让 target 一次 forward 出 K+1 token
+  4. **Multi-modal patch expansion**: image patches 重复匹配 text tokens
+
+  ## 公式 (GQA case)
+  ```
+  # K shape: [B, S, num_kv_heads, head_dim]
+  # 目标 shape: [B, S, num_query_heads, head_dim]
+  group_size = num_query_heads / num_kv_heads  # e.g. 64/8 = 8
+  K_expanded = K.repeat_interleave(group_size, dim=2)
+  # K_expanded[b, s, q*group_size + i, d] = K[b, s, q, d]  for i in [0, group_size)
+  ```
+
+  ## 优化关键: 几乎从不单独 launch
+  Naive 实现把 K_expanded 物化到 HBM = 浪费 8x KV 内存 + 双倍 bandwidth.
+  现代 attention kernel 在内部直接 broadcast 计算:
+  - **FlashAttention v2/v3**: 内部 GQA 路径, K 仍是 [B, S, num_kv_heads, ...], kernel 计算
+    `q[h] @ K[h / group_size]` 用整数除法找到对应 KV head. 不物化扩展 K.
+  - **PagedAttention**: KV cache 按原 num_kv_heads 存, query-time broadcast 在 SMEM 内完成
+  - **FlashMLA**: 不需要 broadcast (latent KV 设计)
+
+  ## 在 beam search 中
+  ```
+  # Input: [B, S, H]  beams = K
+  # Output: [B*K, S, H]
+  expanded = input.repeat_interleave(K, dim=0)
+  ```
+  vLLM beam_search_step 把 K 个 beam 沿 batch 维 interleave 后过 attention; 现代 sampling-based
+  decoding 大多放弃 beam search, 这条路径已不主流.
+
+  ## 与 broadcast 的区别
+  - **broadcast**: 不物化, 计算时按位置查
+  - **repeat-interleave**: 物化新 tensor, 占内存
+  - 现代 kernel 选 broadcast (零开销), 老路径选 repeat-interleave
+
+variants: [tile, repeat, broadcast]
+
+fusion_targets: [matmul, attention]
+participates_in_fused_kernels:
+  - flash-attention-v3
+  - paged-attention-decode
+  - fused-attn-sliding-window
+
+engine_implementations:
+  - name: PyTorch torch.repeat_interleave
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, apple-m]
+    url: https://pytorch.org/docs/stable/generated/torch.repeat_interleave.html
+    notes: '通用实现, 但物化新 tensor — naive path'
+  - name: vLLM GQA path (no explicit broadcast)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+    notes: 'attention kernel 内部自动 broadcast, 不调 repeat_interleave'
+  - name: SGLang Flashinfer GQA
+    engine_id: sglang
+    hardware_arch: [hopper, ampere, blackwell]
+    notes: '同 vLLM, 内部 broadcast'
+  - name: TRT-LLM GQA path
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+  - name: MindIE GQA (AscendC)
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: 'CANN 9.0+ FA2 内部 broadcast, 不调 ConcatRepeat'
+
+precision_support: [bf16, fp16, fp8-e4m3, fp32, int8]
+
+related_patterns: [gqa-mqa-shared-kv]
+
+references:
+  - title: 'PyTorch repeat_interleave documentation'
+    url: https://pytorch.org/docs/stable/generated/torch.repeat_interleave.html
+    source_type: docs
+  - title: 'GQA paper (Ainslie et al.)'
+    url: https://arxiv.org/abs/2305.13245
+    source_type: paper

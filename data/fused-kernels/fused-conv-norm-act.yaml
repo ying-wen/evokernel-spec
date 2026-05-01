@@ -1,0 +1,109 @@
+id: fused-conv-norm-act
+name: Fused Conv2D + Norm + Activation (vision encoder block)
+category: misc
+fuses_operators: [conv2d, group-norm, layer-norm, gelu, silu]
+summary: |
+  把 Conv2D + GroupNorm/LayerNorm + GELU/SiLU 三个 op fuse 成单 kernel — 视觉模型
+  的标准 building block. ViT patch-embed / Stable Diffusion UNet block / multi-modal
+  vision encoder 都用. 不 fuse 时三个 op 各自 round-trip HBM, fuse 后中间 activation
+  只在 SMEM, HBM I/O 减少 60-70%.
+
+description_md: |
+  ## 为什么这个 fusion 关键
+
+  Vision encoder forward 中, 一个标准 block 大致是:
+  ```
+  x = conv2d(input)
+  x = group_norm(x) [or layer_norm]
+  x = gelu(x) [or silu]
+  ```
+
+  不 fuse 时:
+  - conv 输出 [B, C, H, W] 写回 HBM (~100MB-1GB 范围)
+  - GN 读回, 计算 mean/var, 输出写 HBM
+  - GELU 读回, element-wise 算, 写回
+
+  3 次 HBM read + 3 次 HBM write = 巨大浪费. fuse 后 conv 输出留在 SMEM,
+  GN 在线统计 mean/var, GELU 立刻 element-wise — 只有 conv input 和最终输出走 HBM.
+
+  ## 实现层次
+
+  - **cuDNN convForward + biasActivation epilogue**: cuDNN 8+ 支持 conv → bias → norm → activation 一步
+  - **CUTLASS Convolution + epilogue fusion**: 自定义 epilogue 链, 适合非标准 norm
+  - **TensorRT IConvolutionLayer + IActivationLayer 自动融合**: trtllm-build 阶段 graph 优化
+  - **SD3 / Flux UNet kernels**: PyTorch 2.x torch.compile 自动 fuse, 配合 Triton
+  - **CANN ConvBnAct (AscendC)**: 昇腾 vision encoder fused 路径
+  - **MPSGraph fusion (Apple M)**: 端侧 Stable Diffusion 默认走 MPSGraph 自动融合
+
+  ## 应用模型 / 场景
+
+  - **ViT patch embedding**: 第一层 conv (kernel=patch_size, stride=patch_size) + LayerNorm + GELU
+  - **Stable Diffusion 3 / Flux UNet**: 每个 ResBlock 是 Conv → GN → SiLU
+  - **DiT (Diffusion Transformer)**: patch embedding 同 ViT, 后续 block 是 attention
+  - **Multi-modal LLM vision tower**: Llama 4 Vision, Qwen 2.5-VL, Pixtral 的图像编码器
+
+why_fuse: |
+  Conv 输出 + 中间 GroupNorm/LayerNorm 是大 tensor (B × C × H × W), 物化到 HBM 浪费 bandwidth.
+  Fused kernel 让 conv output 直接进 norm 在线统计 + activation, 不 round-trip HBM.
+
+speedup:
+  - baseline: PyTorch eager (3 separate ops)
+    multiplier_min: 1.5
+    multiplier_max: 3.0
+    notes: 'vision encoder forward 整体加速 1.5-3x, 长序列 / 高分辨率收益更大'
+  - baseline: PyTorch eager with cuDNN conv only (norm/act unfused)
+    multiplier_min: 1.2
+    multiplier_max: 1.7
+    notes: '与 conv-only fused 比较, 多 fuse 进 norm + act 再 1.2-1.7x'
+
+implementations:
+  - name: cuDNN fused conv + bias + activation
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/deeplearning/cudnn/api/index.html
+    notes: 'cuDNN 8+, fp16/bf16/int8 路径'
+  - name: CUTLASS Conv epilogue fusion
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/NVIDIA/cutlass
+    notes: '自定义 epilogue 链; SD3/Flux 部分 kernel 使用'
+  - name: TRT-LLM auto graph fusion
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: 'trtllm-build 阶段把 conv + norm + act 合到一个 layer'
+  - name: PyTorch torch.compile (Triton)
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+    notes: 'eager 自动转 inductor + triton, 现代 torch.compile 自动 fuse'
+  - name: CANN ConvBnAct
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: '昇腾视觉算子, vision tower 主路径'
+  - name: Apple MPSGraph autoFusion
+    hardware_arch: [apple-m]
+    notes: '端侧 Stable Diffusion / ViT 自动融合'
+  - name: ROCm MIOpen fused conv
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/MIOpen
+    notes: 'AMD 路径, 与 cuDNN 对应'
+
+hardware_requires:
+  - 'Tensor cores 或 vector ALU (任何现代 GPU/NPU)'
+  - 'cuDNN 8+ / MIOpen / CANN 8+ / MPSGraph (depending on platform)'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Fusion path 在某些自定义 norm (LayerNorm 变种) 不支持, fall back 到 unfused'
+  - '调试更难: 三个 op 合一, profiler 看不到中间值'
+  - 'INT8 quantization calibration 跨 fused boundary 校准, 比单 op 复杂'
+
+references:
+  - title: 'cuDNN convolution + epilogue fusion'
+    url: https://docs.nvidia.com/deeplearning/cudnn/api/index.html
+    source_type: docs
+  - title: 'CUTLASS epilogue fusion'
+    url: https://github.com/NVIDIA/cutlass/blob/main/media/docs/efficient_gemm.md
+    source_type: implementation
+  - title: 'PyTorch 2.0 torch.compile + Inductor'
+    url: https://pytorch.org/blog/pytorch-2.0-release/
+    source_type: blog

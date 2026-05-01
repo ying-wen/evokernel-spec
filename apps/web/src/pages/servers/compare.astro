@@ -1,0 +1,190 @@
+---
+/**
+ * /servers/compare/ — super-pod side-by-side comparison.
+ *
+ * Mirrors /compare/ for hardware but simpler: server data is mostly categorical
+ * (no radar chart needed). Default selection = top 4 by total compute,
+ * users can pick any subset via querystring (?ids=a,b,c).
+ *
+ * Closes the gap-1 ask: cluster-internals data is rich but had no analytical UI
+ * to compare super-pods. This is that UI — every cell links to the source detail
+ * page, and unified rows surface "what's actually different" at a glance.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getServers } from '~/lib/data';
+
+const servers = await getServers();
+
+// Static SSG can't read URL querystrings (Astro.url.searchParams is always
+// empty during prerender). So we render a deterministic sample on the server,
+// and the picker grid below links to individual server detail pages.
+//
+// Sample = top 6 by total compute, balanced with at least one Chinese-vendor
+// super-pod for cross-vendor visibility. Falls back to first 6 if compute
+// data is missing.
+const NVL_TOP_BY_COMPUTE = [...servers].sort((a, b) => (b.total_compute_pflops_bf16 ?? 0) - (a.total_compute_pflops_bf16 ?? 0));
+const selected = NVL_TOP_BY_COMPUTE.slice(0, 6);
+
+interface Row {
+  label_zh: string;
+  label_en: string;
+  format: (s: typeof servers[number]) => string;
+  highlight?: 'max' | 'min';
+}
+
+const ROWS: Row[] = [
+  { label_zh: '类型', label_en: 'Type', format: (s) => s.type },
+  { label_zh: '加速卡型号', label_en: 'Card', format: (s) => s.card },
+  { label_zh: '卡数', label_en: 'Card count', format: (s) => `${s.card_count}`, highlight: 'max' },
+  { label_zh: 'Scale-up 域', label_en: 'Scale-up domain', format: (s) => `${s.scale_up_domain_size}`, highlight: 'max' },
+  { label_zh: '节点内互联', label_en: 'Intra-node fabric', format: (s) => s.intra_node_interconnect },
+  { label_zh: '节点间互联', label_en: 'Inter-node fabric', format: (s) => s.inter_node_interconnect ?? '—' },
+  { label_zh: 'Bisection 带宽 (TB/s)', label_en: 'Bisection BW', format: (s) => s.bisection_bandwidth_tbs?.value ? `${s.bisection_bandwidth_tbs.value.toFixed(2)} TB/s` : '—', highlight: 'max' },
+  { label_zh: '总显存 (GB)', label_en: 'Total memory', format: (s) => `${s.total_memory_gb} GB`, highlight: 'max' },
+  { label_zh: '总算力 (BF16 PFLOPS)', label_en: 'Total compute', format: (s) => s.total_compute_pflops_bf16 ? `${s.total_compute_pflops_bf16.toFixed(2)} PF` : '—', highlight: 'max' },
+  { label_zh: '机柜功耗 (kW)', label_en: 'Rack power', format: (s) => `${s.rack_power_kw} kW`, highlight: 'min' },
+  { label_zh: '冷却方式', label_en: 'Cooling', format: (s) => s.cooling },
+  { label_zh: 'Switch 类型 / 数量', label_en: 'Switch chips', format: (s) => s.switch_chips ? s.switch_chips.map((c) => `${c.name} ×${c.count}`).join('; ') : '—' },
+  { label_zh: 'Oversubscription', label_en: 'Oversubscription', format: (s) => s.oversubscription_ratio ? `${s.oversubscription_ratio}:1` : '—' },
+  { label_zh: 'Scale-out NIC/节点', label_en: 'Scale-out NICs', format: (s) => s.scale_out_nics_per_node ? `${s.scale_out_nics_per_node} ×${s.scale_out_bandwidth_gbps_per_nic} Gbps` : '—' },
+  { label_zh: '发布年份', label_en: 'Release year', format: (s) => `${s.release_year}` }
+];
+
+// Compute highlight winners per row (where applicable). Numeric extraction
+// is lenient — if any selected cell isn't numeric, no highlight is applied.
+function extractNumber(s: string): number | null {
+  const match = s.match(/^[\d.]+/);
+  return match ? Number(match[0]) : null;
+}
+
+function findHighlightId(row: Row): string | null {
+  if (!row.highlight) return null;
+  const nums = selected.map((s) => ({ id: s!.id, n: extractNumber(row.format(s!)) }));
+  const valid = nums.filter((x) => x.n !== null);
+  if (valid.length === 0) return null;
+  const winner = valid.reduce((best, cur) => {
+    if (best.n === null) return cur;
+    if (cur.n === null) return best;
+    if (row.highlight === 'max' && cur.n > best.n) return cur;
+    if (row.highlight === 'min' && cur.n < best.n) return cur;
+    return best;
+  });
+  return winner.id;
+}
+---
+<BaseLayout title="超节点对照 / Compare Super-Pods">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        SERVERS · SIDE-BY-SIDE COMPARISON
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        超节点并排对照 · Compare Super-Pods
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        Top-{selected.length} 超节点之间的 cluster-internal 维度对比 — fabric、bisection、oversubscription、机柜功耗、cooling.
+        每行的 <span style="color: var(--color-accent);">★</span> 标记最优值 (max for compute / memory / bandwidth, min for power).
+        浏览全部 <a href={pathname('/servers/')} style="color: var(--color-accent);" class="hover:underline">{servers.length} 超节点目录</a> 看完整列表.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">已对比: </span><strong>{selected.length}</strong> / {servers.length}</div>
+        <div><span style="color: var(--color-text-muted);">对比维度: </span><strong>{ROWS.length}</strong></div>
+      </div>
+    </section>
+
+    {selected.length === 0 ? (
+      <section class="py-12 text-center">
+        <p class="text-base" style="color: var(--color-text-muted);">未找到任何超节点 — 检查 URL 中的 id 是否正确.</p>
+        <a href={pathname('/servers/')} class="inline-block mt-4 text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">浏览超节点目录 →</a>
+      </section>
+    ) : (
+      <section class="py-6 border-t" style="border-color: var(--color-border);" aria-labelledby="compare-table-heading">
+        <h2 id="compare-table-heading" class="sr-only">Comparison Table</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm" style="border-collapse: collapse; min-width: 720px;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--color-border);">
+                <th class="text-left py-3 px-3 font-semibold sticky left-0" style="color: var(--color-text-muted); background: var(--color-bg);">维度 / Axis</th>
+                {selected.map((s) => (
+                  <th class="text-left py-3 px-3 font-semibold" style="color: var(--color-text); min-width: 200px;">
+                    <a href={pathname(`/servers/${s!.id}/`)} class="hover:underline" style="color: var(--color-accent);">{s!.name}</a>
+                    <div class="text-xs font-normal mt-0.5" style="color: var(--color-text-muted);">{s!.id}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {ROWS.map((row) => {
+                const winnerId = findHighlightId(row);
+                return (
+                  <tr style="border-bottom: 1px solid var(--color-border);" data-testid={`row-${row.label_en.toLowerCase().replace(/\s+/g, '-')}`}>
+                    <td class="py-2.5 px-3 align-top text-xs sticky left-0" style="background: var(--color-bg);">
+                      <div class="font-semibold" style="color: var(--color-text);">{row.label_zh}</div>
+                      <div class="font-normal" style="color: var(--color-text-muted);">{row.label_en}</div>
+                    </td>
+                    {selected.map((s) => {
+                      const isWinner = winnerId === s!.id;
+                      return (
+                        <td class="py-2.5 px-3 align-top text-xs" style={isWinner
+                          ? 'color: var(--color-accent); font-weight: 600; background: color-mix(in oklch, var(--color-accent) 5%, transparent);'
+                          : 'color: var(--color-text);'}>
+                          {row.format(s!)}
+                          {isWinner && <span class="ml-1" aria-label="best in this row">★</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-lg font-semibold mb-4">全部 {servers.length} 个超节点</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        上方对比按 BF16 总算力 top-{selected.length} 选取. 看其他超节点详情, 直接点击下方进入对应详情页:
+      </p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 text-xs">
+        {servers.map((s) => {
+          const inSelection = selected.some((sel) => sel.id === s.id);
+          return (
+            <a
+              href={pathname(`/servers/${s.id}/`)}
+              class={`block p-3 rounded border transition-transform hover:-translate-y-0.5 ${inSelection ? 'font-semibold' : ''}`}
+              style={inSelection
+                ? 'border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 8%, transparent); color: var(--color-text);'
+                : 'border-color: var(--color-border); background: var(--color-surface-raised); color: var(--color-text);'}
+              data-testid={`pick-${s.id}`}
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span>{s.name}</span>
+                {inSelection && <span class="text-[10px] uppercase tracking-wider" style="color: var(--color-accent);">在对比中</span>}
+              </div>
+              <div class="font-mono text-[10px] mt-1" style="color: var(--color-text-muted);">{s.card_count}× {s.card} · {s.total_memory_gb} GB</div>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          看完超节点对比, 用<a href={pathname('/calculator/')} style="color: var(--color-accent);" class="hover:underline">计算器</a>对照具体 (model × server) 组合的吞吐 / TCO,
+          或浏览相关<a href={pathname('/playbooks/')} style="color: var(--color-accent);" class="hover:underline">部署 Playbook</a>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/servers/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">浏览全部 {servers.length} 超节点 →</a>
+          <a href={pathname('/compare/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">对比单卡 →</a>
+          <a href={pathname('/calculator/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">打开计算器 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

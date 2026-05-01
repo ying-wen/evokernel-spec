@@ -1,0 +1,118 @@
+id: fused-add-bias-gelu
+name: Fused Add-Bias + GELU (legacy MLP / GPT-style)
+category: mlp
+fuses_operators: [matmul, gelu]
+summary: |
+  老款 GPT-style MLP block 的标准 fusion: 把 bias-add + GELU activation 融合到 GEMM
+  epilogue. SwiGLU (Llama+) 的前身 — GPT-2 / GPT-3 / OPT / BERT 全用. 现代 LLM 走 SwiGLU 后
+  这个 kernel 仍在 vision encoder (ViT-L FFN), legacy 模型 (GPT-OSS), 和某些 MoE expert
+  内部使用.
+
+description_md: |
+  ## 为什么这个 fusion 重要
+
+  GPT-style MLP forward:
+  ```
+  x = matmul(input, W_up) + b_up        # GEMM + bias
+  x = gelu(x)                            # element-wise activation
+  x = matmul(x, W_down) + b_down        # GEMM + bias
+  ```
+
+  不 fuse 时:
+  - GEMM 输出写 HBM
+  - bias-add 读回写出
+  - GELU 读回写出
+
+  fuse 进 GEMM epilogue 后, bias-add + GELU 在寄存器 / SMEM 内完成, 中间 activation
+  完全不走 HBM. cuBLAS / cuTLASS / cuDNN 都有标准实现 — 这是 deep learning kernel 设计
+  最早的 fusion case.
+
+  ## 与 SwiGLU 的区别
+
+  | MLP 类型 | 公式 | GEMM 数 | 现代采用 |
+  |---|---|---|---|
+  | **Legacy GPT (gelu)** | `gelu(x@W_up + b)@W_down + b` | 2 | GPT-2/3, OPT, BERT, ViT FFN |
+  | **SwiGLU** | `silu(x@W_gate) * (x@W_up) @W_down` | 3 | Llama 3+, Mistral, Qwen 3, DeepSeek V3 |
+
+  SwiGLU 多一个 GEMM (gate_proj), 但质量 +0.5-1 pt MMLU. Legacy GELU MLP 在新 LLM
+  几乎被淘汰, 但仍在 vision encoder 大量使用 (ViT FFN 是 GELU 而非 SwiGLU).
+
+  ## GELU 变种
+
+  - **GELU exact**: 用 erf 函数, 数学正确但慢
+  - **GELU tanh approximation** (默认): `0.5x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`, 快且近似
+  - **GELU sigmoid approximation**: 移动端使用, 误差稍大但更快
+  - cuDNN / cuBLAS 默认 tanh 近似, 现代 LLM 默认走 tanh
+
+  ## 部署关键
+
+  - **Vision encoder 主战场**: ViT-L FFN, CLIP encoder, 多模态 vision tower 都是 GELU MLP
+  - **GPT-OSS 等 legacy LLM**: gpt-2 / gpt-j / opt 等老模型仍跑这个 path
+  - **MoE expert variations**: 部分 MoE 设计在 expert 内仍用 GELU (vs 标准 SwiGLU)
+
+why_fuse: |
+  GEMM 输出 (B × S × hidden) 是大 tensor. 不 fuse 时 bias-add + GELU 各自 HBM round-trip,
+  bandwidth 浪费 ~2x. Fuse 进 epilogue 让中间值在寄存器, HBM 只读 input/weights, 写
+  最终 output.
+
+speedup:
+  - baseline: PyTorch eager (3 separate ops)
+    multiplier_min: 1.4
+    multiplier_max: 2.5
+    notes: 'MLP 块加速 1.4-2.5x; vision encoder forward 整体 1.2-1.6x'
+  - baseline: cuBLAS GEMM only (bias + GELU unfused)
+    multiplier_min: 1.15
+    multiplier_max: 1.5
+    notes: '与 GEMM-only fused 比较, 多 fuse bias + GELU 再 1.15-1.5x'
+
+implementations:
+  - name: cuBLAS LtMatmul + epilogue (CUBLASLT_EPILOGUE_GELU_BIAS)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/cuda/cublas/index.html#cublasltepilogue-t
+    notes: 'cuBLASLt 内置 GELU/RELU/TANH bias 路径, 现代 deep learning 库默认'
+  - name: cuTLASS GEMM + GELU epilogue
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/NVIDIA/cutlass
+    notes: '自定义 epilogue chain 实现, 灵活但门槛高'
+  - name: TRT-LLM IGatedActivationLayer
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, ada, blackwell]
+    notes: 'trtllm-build 自动选 cuBLASLt 或 cuTLASS 路径'
+  - name: PyTorch torch.compile (Triton)
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3]
+    notes: 'eager 自动 fuse, inductor + triton 路径'
+  - name: hipBLASLt + epilogue
+    hardware_arch: [cdna3, cdna4]
+    url: https://github.com/ROCm/hipBLASLt
+    notes: 'AMD 对标 cuBLASLt, GELU/SwiGLU epilogue 都支持'
+  - name: CANN MatMulBiasAdd
+    engine_id: mindie
+    hardware_arch: [ascend-da-vinci-3, ascend-da-vinci-4]
+    notes: '昇腾标准融合 op'
+  - name: Apple MPSGraph fused matmul
+    hardware_arch: [apple-m]
+    notes: '端侧 BERT / ViT 默认路径'
+
+hardware_requires:
+  - 'Tensor cores 任何现代 GPU/NPU'
+  - 'cuBLASLt / hipBLASLt / CANN / MPSGraph (depending on platform)'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Legacy 模型 only — 现代 SwiGLU LLM 不走这条路径'
+  - 'GELU 近似选择影响数值精度: tanh-approx 比 exact-erf 误差 ~1e-4'
+  - 'INT8 量化时 GELU 输出范围 [−0.17, +∞) 需要 per-tensor calibration'
+
+references:
+  - title: 'GELU paper (Hendrycks & Gimpel 2016)'
+    url: https://arxiv.org/abs/1606.08415
+    source_type: paper
+  - title: 'cuBLASLt epilogue documentation'
+    url: https://docs.nvidia.com/cuda/cublas/index.html#cublasltepilogue-t
+    source_type: docs
+  - title: 'cuTLASS GEMM + epilogue'
+    url: https://github.com/NVIDIA/cutlass/blob/main/media/docs/efficient_gemm.md
+    source_type: implementation
