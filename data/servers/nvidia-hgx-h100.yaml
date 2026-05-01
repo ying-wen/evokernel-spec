@@ -62,6 +62,20 @@ network_topology:
     走 rail-optimized fat-tree (每张卡走自己的 rail switch, 同 rail 跨节点 1 跳,
     跨 rail 通过 spine 2 跳). NVIDIA SHARP-2 在 IB 网内做 all-reduce.
     跨 64 节点典型部署直径 = 3 跳, 1024+ 节点需要 dragonfly+ 替代.
+storage_architecture:
+  local_nvme_per_node_tb: 16.0
+  parallel_fs_pb: 4.0
+  parallel_fs_family: lustre
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 800
+  notes: |
+    HGX H100 production 部署典型 16 TB local NVMe/node + Lustre 4 PB shared FS
+    (DDN/HPE 厂商方案). GDS 经过 ConnectX-7 RDMA 到 Lustre OSS, 让 H100 GPU
+    skip host RAM. Checkpoint 走 parallel-fs (vs NVL72 hybrid) 因为大型 HGX 集群
+    通常没有 NVL72-class hot KV streaming 需求 — 训练为主, 推理 hot weight 直接
+    HBM 装下.
 cabinet_layout_md: |
   ## HGX H100 8-GPU 机箱布局 / Chassis layout
 

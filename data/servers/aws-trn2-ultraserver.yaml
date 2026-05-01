@@ -66,6 +66,19 @@ network_topology:
     cost (no switches) + 局部通信效率高 (邻居 1 跳); 缺点是非邻居需要多跳,
     对 unstructured all-to-all (例如 MoE EP) 不友好. AWS 选 torus 是为了规模:
     通常 EC2 trn2 实例规模较大, dragonfly+ overhead 大.
+storage_architecture:
+  local_nvme_per_node_tb: 8.0
+  parallel_fs_family: object-store-s3-compat
+  gpu_direct_storage: false
+  rdma_storage: false
+  checkpoint_strategy: object-store
+  aggregate_read_bandwidth_gbps: 100
+  notes: |
+    AWS Trn2 UltraServer 是 cloud-only — checkpoint / dataset 走 S3 (而非传统
+    parallel FS). Trainium chip 没有等价 GDS 设计, 数据通过 host Graviton4 中转.
+    本地 NVMe 8 TB 用作 scratch / KV offload 缓冲, 但持久化在 S3. 这是 cloud
+    inference 与 on-premise super-pod 的根本 storage 差异 — bandwidth 受 EC2
+    network 限制 (~100 GB/s per UltraServer), 而非 RDMA / Lustre 的 TB/s.
 cabinet_layout_md: |
   ## Trn2 UltraServer 布局 / Layout
 

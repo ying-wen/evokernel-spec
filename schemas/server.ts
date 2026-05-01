@@ -104,6 +104,60 @@ const NetworkTopologySchema = z.object({
 });
 
 /**
+ * Storage architecture detail at the cluster level. The storage path is the
+ * third architectural axis (after compute / fabric) that constrains real
+ * production deployment: where do weights live, where do activations spill,
+ * how fast does a checkpoint save, can the GPU read directly from NVMe.
+ *
+ * v1.29+: was previously implicit / scattered in cabinet_layout_md prose.
+ * Surfacing it lets readers compare GDS-capable systems vs PCIe-bound vs
+ * cloud-only object-store paths.
+ */
+const StorageArchitectureSchema = z.object({
+  /** Per-node local NVMe scratch capacity in TB. */
+  local_nvme_per_node_tb: z.number().positive().optional(),
+  /** Total cluster-shared parallel filesystem capacity in PB (if any). */
+  parallel_fs_pb: z.number().positive().optional(),
+  /** Parallel filesystem family. */
+  parallel_fs_family: z.enum([
+    'lustre',
+    'gpfs-spectrum-scale',
+    'weka',
+    'daos',
+    'beegfs',
+    'cephfs',
+    'pure-flashblade',
+    'vast',
+    'object-store-s3-compat',
+    'cloud-managed',
+    'none',
+    'other'
+  ]).optional(),
+  /** GPU Direct Storage support — GPU reads NVMe without bouncing through host RAM. */
+  gpu_direct_storage: z.boolean().optional(),
+  /** RDMA over Ethernet/IB to storage tier. */
+  rdma_storage: z.boolean().optional(),
+  /**
+   * Typical model checkpoint placement strategy.
+   * - `local-nvme`: each node has full checkpoint locally
+   * - `parallel-fs`: shared filesystem (Lustre/GPFS/Weka)
+   * - `object-store`: S3-compatible / cloud blob
+   * - `hybrid`: hot in NVMe + cold in object store
+   */
+  checkpoint_strategy: z.enum([
+    'local-nvme',
+    'parallel-fs',
+    'object-store',
+    'hybrid',
+    'unknown'
+  ]).optional(),
+  /** Cluster-wide read bandwidth (aggregate, GB/s) — typical bandwidth budget for dataloader. */
+  aggregate_read_bandwidth_gbps: z.number().positive().optional(),
+  /** Free-text notes — what's distinctive about this storage choice. */
+  notes: z.string().optional()
+});
+
+/**
  * Power-distribution detail at the rack/super-pod level. Sustained vs
  * peak matters because real datacenter PUE budgets live on sustained
  * draw, not the spec-sheet peak.
@@ -163,6 +217,10 @@ export const ServerSchema = z.object({
    *  dragonfly+ vs torus across super-pods via /servers/network-topology/. */
   network_topology: NetworkTopologySchema.optional(),
 
+  /** Storage architecture detail. v1.29+: lets readers compare local-NVMe vs
+   *  parallel-FS vs object-store across super-pods via /servers/storage-matrix/. */
+  storage_architecture: StorageArchitectureSchema.optional(),
+
   /** Free-form markdown describing rack/cabinet layout. */
   cabinet_layout_md: z.string().optional(),
 
@@ -176,3 +234,4 @@ export type SwitchChip = z.infer<typeof SwitchChipSchema>;
 export type PowerDistribution = z.infer<typeof PowerDistributionSchema>;
 export type HostCpu = z.infer<typeof HostCpuSchema>;
 export type NetworkTopology = z.infer<typeof NetworkTopologySchema>;
+export type StorageArchitecture = z.infer<typeof StorageArchitectureSchema>;

@@ -63,6 +63,19 @@ network_topology:
     跨节点出 8 × 200G HDR IB ConnectX-6. SHARP-1 (基础版) 可用. Ampere 时代典型
     rail-optimized fat-tree, 但单边 IB 200 Gb/s 是 H100 era 400G 的一半 — 跨节点
     all-reduce 时间 ~2x H100. 64-node SuperPOD 是经典参考部署.
+storage_architecture:
+  local_nvme_per_node_tb: 30.0
+  parallel_fs_pb: 2.0
+  parallel_fs_family: lustre
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 400
+  notes: |
+    DGX A100 是首批支持 GPU Direct Storage (GDS) 的 NVIDIA 平台 (2020+).
+    NVMe-oF over RDMA 是当时 cutting-edge — 而后 H100/H200 沿用此 pattern.
+    Local NVMe 30 TB/node 是 DGX 标配 (NVIDIA reference). Lustre 是 Ampere era
+    最常见 parallel FS 选择 (DDN A2-style appliance).
 cabinet_layout_md: |
   ## DGX A100 8-GPU 机箱布局 / Chassis layout
 

@@ -60,6 +60,18 @@ network_topology:
     KUAE 集群 8 节点 × 8 卡 = 64 卡. 单节点通过 MTLink 全连接 (1 跳),
     跨节点走 RoCE-v2 200G. 国产 GPU 集群中规模较小的部署形态, 适合中小型 LLM
     训推. MTLink 暂无 in-network reduction. 软件栈 (MUSA) 仍在追赶 CUDA 兼容.
+storage_architecture:
+  local_nvme_per_node_tb: 16.0
+  parallel_fs_pb: 1.5
+  parallel_fs_family: other
+  gpu_direct_storage: false
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 200
+  notes: |
+    KUAE 集群通常配国产分布式 FS (OceanStor / 海泰 / 自研), 1.5 PB 规模适配
+    8 节点 64 卡部署. 摩尔线程 MUSA 暂无 GDS 等价物 — 数据通过 host Hygon /
+    Intel 中转. 部署成本敏感的中型企业是主要用户.
 cabinet_layout_md: |
   ## 摩尔线程 KUAE 集群布局 / 8-node KUAE pod layout
 

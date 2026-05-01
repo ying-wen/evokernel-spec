@@ -6,14 +6,66 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.29+ horizon)
+### Planned (v1.30+ horizon)
 - Public submission portal (case YAML web form)
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - More tours: SD3 / Flux on Hopper (diffusion — needs schema work for non-LLM models)
 - Auto-translated vendor doc summaries via build-time API
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import
-- Storage architecture (parallel FS, GDS, NVMe locality) — third architectural axis after host_cpu + network_topology
+- /servers/cluster-internals/ unified view combining host_cpu + network_topology + storage on one page
+- Production lifecycle / observability content (deployment chain gap-3)
+
+---
+
+## [1.29.0] — 2026-05-02
+
+Continuing the gap-1 cluster-internal trilogy. After v1.27 host_cpu (compute axis) and v1.28 network_topology (fabric axis), v1.29 adds **storage_architecture** as the third axis — covering parallel FS, GPU Direct Storage, local NVMe, checkpoint strategy. All 14 super-pods now have all three architectural axes populated. Plus 1 new pattern bridging storage → compute, and 2 new operators.
+
+### Added
+
+**`storage_architecture` server schema field**:
+- 12 FS family enum: lustre, gpfs-spectrum-scale, weka, daos, beegfs, cephfs, pure-flashblade, vast, object-store-s3-compat, cloud-managed, none, other
+- 5 checkpoint strategy enum: local-nvme, parallel-fs, object-store, hybrid, unknown
+- Fields: `local_nvme_per_node_tb`, `parallel_fs_pb`, `parallel_fs_family`, `gpu_direct_storage`, `rdma_storage`, `checkpoint_strategy`, `aggregate_read_bandwidth_gbps`, `notes`
+
+**`storage_architecture` populated on all 14 super-pods (100%)**:
+- NVL72 / GB300 — Weka + GDS + hybrid checkpoint (hot NVMe + cold Weka)
+- HGX H100 / H200 / DGX A100 — Lustre + GDS + parallel-fs checkpoint
+- MI325X Platform — Weka + RDMA but no GDS (DirectGMA experimental)
+- El Capitan EX255a — ClusterStor E1000 (Lustre) + 11 TB/s aggregate
+- AWS Trn2 — S3-compat cloud-native (no GDS, object store)
+- CloudMatrix 384 / Atlas 900 / Atlas 800T — OceanStor + NPU Direct Storage (国产 GDS)
+- Cambricon MLU590-pod / Moore Threads KUAE — host-bounce path (no GDS equivalent yet)
+
+**`/servers/storage-matrix/`** (NEW comparison view):
+- 9-dimension side-by-side table: local NVMe / parallel FS capacity / FS family / checkpoint strategy / aggregate read / GDS / RDMA / GPU count / notes
+- Best-value highlighting (max NVMe, max FS capacity, max read bandwidth)
+- FS family distribution chips (5+ families across 14 super-pods)
+- "Why storage architecture matters" section with 4 trade-off cards: GDS divider / NVMe reload / 信创 OceanStor / cloud-vs-on-premise
+- Cross-links to hot-cold-kv-tiering pattern + host-cpu + network-topology matrices (the trilogy)
+
+**Per-server detail page surfaces storage_architecture**:
+- New "存储架构" card alongside host_cpu, network_topology, switch_chips, power
+- Accent border when `gpu_direct_storage === true` (visual encoding for GDS-class systems)
+- All 8 storage fields rendered + cross-link to /servers/storage-matrix/
+
+**1 more pattern** (22 → 23):
+- `weight-streaming-prefetch`: bridges storage → compute. When model weights exceed HBM, GDS-capable systems prefetch next layer's weight from NVMe/FS while current layer computes. Layer-aware scheduler + double-buffering. Implemented in NVIDIA Magnum IO + Dynamo, TRT-LLM 0.13+. Distinguished from `hot-cold-kv-tiering` (KV data, not weights)
+
+**2 more operators** (25 → 27):
+- `mla-attention`: DeepSeek V2/V3/V4 Multi-head Latent Attention. Caches latent vector instead of K/V — KV cache 4-8× smaller than GQA, ~30× smaller than MHA. The reason DeepSeek V3 671B + 32K context is deployable. Bound to `flash-mla` fused kernel
+- `memcpy-async`: cross-device DMA primitive (host↔device, GPU↔GPU peer, GPU↔NVMe via GDS). Referenced everywhere but was never an explicit operator. Now properly bound to hot-cold-kv-tiering, kv-cache-cpu-offload, weight-streaming-prefetch patterns.
+
+### Three architectural axes — 14/14 super-pods covered on all of them
+- v1.27: `host_cpu` — compute axis (Grace, EPYC, Sapphire, Kunpeng, Graviton)
+- v1.28: `network_topology` — fabric axis (full-mesh, fat-tree, dragonfly+, torus, optical)
+- v1.29: `storage_architecture` — persistence axis (Lustre, Weka, OceanStor, S3, GDS)
+
+### Stats
+- 357/357 site E2E pass (+11 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14 (**14 with all three axes**), model: 19, case: 38, fused-kernel: 24, playbook: 24, **pattern: 22**, **operator: 27**, citation: 1, tour: 8
+- Build: 416 pages
 
 ---
 

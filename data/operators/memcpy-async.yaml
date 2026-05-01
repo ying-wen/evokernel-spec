@@ -1,0 +1,94 @@
+id: memcpy-async
+name: Memcpy Async (host ↔ device + cross-device DMA)
+category: communication
+
+flops_formula: '0 (pure memory transfer)'
+bytes_formula: 'transfer_size'
+arithmetic_intensity_formula: '0 (pure bandwidth)'
+arithmetic_intensity_typical:
+  min: 0.0001
+  max: 0.001
+  notes: '纯 DMA 搬运, 不占 SM 算力, 受 PCIe / NVLink-C2C / Infinity Fabric / NVMe-oF bandwidth 限制'
+
+description: |
+  Memcpy Async 是 GPU runtime 层的**异步内存搬运**原语 — host RAM ↔ HBM, GPU ↔ GPU,
+  GPU ↔ NVMe (via GDS), 跨 NUMA HBM. 与 synchronous memcpy 区别: 调用立即返回 future,
+  数据搬运在后台 DMA engine 完成, GPU SM 同时跑其他 kernel.
+
+  这是支撑现代 LLM 推理一切 cross-device 数据流动的基础原语 — KV cache offload,
+  weight streaming, prefetch, hot-cold tiering, multi-GPU TP/EP 都依赖 memcpy_async
+  与 compute kernel overlap.
+
+  ## 关键变体
+
+  - **cudaMemcpyAsync** (CUDA): host ↔ device, device ↔ device, 走 PCIe / NVLink
+  - **cuMemcpyPeerAsync** (CUDA): GPU ↔ GPU 直连 P2P (跳过 host RAM)
+  - **cuFile** (NVIDIA GDS): GPU 直读 NVMe / 远端 RDMA storage
+  - **hipMemcpyAsync** (ROCm): AMD 等价物
+  - **aclrtMemcpyAsync** (CANN): 昇腾等价物
+  - **musaMemcpyAsync** (MUSA): 摩尔线程
+
+  ## 何时关键
+
+  - **KV cache offload**: hot KV 在 HBM, cold 在 host RAM — 切换时 memcpy_async 异步搬运
+  - **Weight streaming prefetch**: 下一层 weight 从 NVMe / FS 异步预取到 HBM, 与当前层 GEMM overlap
+  - **Cross-GPU TP communication**: NCCL / RCCL / HCCL 内部都用 memcpy_async + barrier
+  - **Multi-GPU disaggregated prefill/decode**: prefill 节点的 KV 通过 memcpy_peer 传到 decode 节点
+  - **Mooncake / Dynamo KV-store**: 跨节点 KV 复用走 memcpy + RDMA
+
+  ## 性能因素
+
+  - **PCIe Gen5**: 64 GB/s 单向 (典型 host ↔ HBM)
+  - **NVLink-C2C** (Grace+H100/B200): 900 GB/s (Grace host RAM 当 tier-2 HBM)
+  - **NVLink P2P**: 900 GB/s GPU↔GPU (NVL72 内全互联)
+  - **Infinity Fabric P2P** (MI300X/MI325X): ~1024 GB/s GPU↔GPU
+  - **NVMe-oF over IB-XDR + GDS**: ~50-100 GB/s GPU↔NVMe (绕过 host RAM)
+
+  ## 不适用 / 注意
+
+  - **小 transfer (< 1 KB)**: launch overhead 大, 不如 synchronous memcpy
+  - **Pinned host memory 必备**: 不 pin 的 host buffer DMA bandwidth 减半 (走 page-cache)
+  - **Stream 选择影响 overlap**: 跟 compute kernel 在同一个 stream 不会 overlap (stream-level 串行)
+
+variants: [host-to-device, device-to-host, device-to-device, peer-direct, nvme-direct]
+
+fusion_targets: []
+participates_in_fused_kernels:
+  - mooncake-kv-disaggregation
+  - paged-attention-decode
+
+engine_implementations:
+  - name: CUDA Runtime API (cudaMemcpyAsync)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/cuda/cuda-runtime-api/
+    notes: 'NVIDIA 标准异步 memcpy'
+  - name: NVIDIA cuFile (GDS)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.nvidia.com/gpudirect-storage/api-reference-guide/
+    notes: 'GPU 直接读写 NVMe / RDMA storage'
+  - name: ROCm hipMemcpyAsync
+    hardware_arch: [cdna3, cdna4, rdna3]
+    url: https://rocmdocs.amd.com/projects/HIP/
+    notes: 'AMD 对应 cudaMemcpyAsync; DirectGMA experimental'
+  - name: CANN aclrtMemcpyAsync
+    hardware_arch: [ascend-910b, ascend-910c, ascend-910d]
+    url: https://www.hiascend.com/document/detail/zh/canncommercial/
+    notes: '昇腾等价物, NPU Direct Storage 支持'
+  - name: MUSA Runtime
+    hardware_arch: [moore-threads]
+    notes: '摩尔线程对应 cudaMemcpyAsync'
+
+precision_support: []  # memcpy 不依赖精度
+
+related_patterns: [hot-cold-kv-tiering, kv-cache-cpu-offload, weight-streaming-prefetch]
+
+references:
+  - title: 'CUDA Memcpy Async + Streams'
+    url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#asynchronous-concurrent-execution
+    source_type: docs
+  - title: 'NVIDIA GPU Direct Storage'
+    url: https://docs.nvidia.com/gpudirect-storage/
+    source_type: docs
+  - title: 'Pinned Memory Best Practices'
+    url: https://developer.nvidia.com/blog/how-optimize-data-transfers-cuda-cc/
+    source_type: blog

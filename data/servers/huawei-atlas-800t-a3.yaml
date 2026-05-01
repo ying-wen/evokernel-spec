@@ -58,6 +58,17 @@ network_topology:
     Atlas 800T A3 是单节点 8 Ascend 910C, intra-node 通过 1 个 HCCS-v2 switch
     全连接 (1 跳). 跨节点出 RoCE-v2 200G NIC, 但这是单节点 server, 跨节点拓扑由
     使用方决定 (典型 fat-tree). 信创部署最常见的训推一体平台.
+storage_architecture:
+  local_nvme_per_node_tb: 8.0
+  parallel_fs_family: other
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: local-nvme
+  aggregate_read_bandwidth_gbps: 200
+  notes: |
+    Atlas 800T A3 是单节点 server, 8 TB local NVMe/node 通常已经足够 (单节点训练
+    + 推理). 跨节点 storage 配置由用户决定 — 常见配 OceanStor 但属于客户自购.
+    NPU Direct Storage 与 CloudMatrix 384 / Atlas 900 共用 — 信创合规存储栈.
 cabinet_layout_md: |
   ## Atlas 800T A3 机箱布局 / Chassis layout
 

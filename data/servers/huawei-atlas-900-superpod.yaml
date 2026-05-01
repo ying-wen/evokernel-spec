@@ -64,6 +64,19 @@ network_topology:
     走 RoCE-v2 400G fat-tree-rail-optimized (3-4 跳). 这是国产 8-cabinet 经典
     部署形态, 在 CloudMatrix 384 (全光纤) 出现之前是华为最大规模超节点方案.
     没有 in-network reduction — RoCE 是开放标准, 不像 lingqu 那样支持 SHARP-like.
+storage_architecture:
+  local_nvme_per_node_tb: 16.0
+  parallel_fs_pb: 4.0
+  parallel_fs_family: other
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 800
+  notes: |
+    Atlas 900 SuperPoD 通常配 OceanStor 分布式 FS (信创合规). NPU Direct Storage
+    通过 RoCE-400G RDMA 访问 OceanStor — 比 CloudMatrix 384 的 lingqu fabric 路径
+    慢 ~20% (RoCE 标准 RDMA vs 全光纤 lingqu). 16 TB local NVMe/node 是中型节点
+    标配, 4 PB shared FS 支撑 32-node training/inference 工作负载.
 cabinet_layout_md: |
   ## Atlas 900 SuperPoD A2 机柜布局 / 8-cabinet layout
 

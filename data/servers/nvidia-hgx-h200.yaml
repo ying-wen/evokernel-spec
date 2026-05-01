@@ -64,6 +64,19 @@ network_topology:
     跨节点 8 × 400G IB ConnectX-7 走 rail-optimized fat-tree. SHARP-2 in-network reduction
     继承自 H100 部署规范. H200 的 HBM3e 提升让单卡 KV 容量增加, 但 inter-node
     fabric 没有变化 — 跨节点 all-reduce 性能与 H100 等价.
+storage_architecture:
+  local_nvme_per_node_tb: 16.0
+  parallel_fs_pb: 4.0
+  parallel_fs_family: lustre
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 800
+  notes: |
+    HGX H200 与 HGX H100 共用同一 storage 设计 — Lustre / GPFS / Weka 任选,
+    GDS over ConnectX-7 RDMA. H200 的 HBM3e 让单节点装下更大模型, 减少 cross-node
+    weight streaming 需求, 但 storage 层接近 H100. Inference 常用 vLLM/SGLang +
+    KV cache offload 到 host RAM (PCIe Gen5 路径), checkpoint 仍 Lustre.
 cabinet_layout_md: |
   ## HGX H200 8-GPU 机箱布局 / Chassis layout
 

@@ -62,6 +62,20 @@ network_topology:
     任意 GPU 对之间 1 跳, 18 个 NVSwitch chip 提供 1.8 TB/s/GPU bidirectional.
     跨 NVL72 出口走 IB XDR (800 Gb/s/NIC), 但 super-pod 内部不需要 IB.
     SHARP-3 in-network all-reduce 在 NVL72 fabric 内可用 — TP 通信带宽实际放大 1.5-2x.
+storage_architecture:
+  local_nvme_per_node_tb: 30.0
+  parallel_fs_pb: 5.0
+  parallel_fs_family: weka
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: hybrid
+  aggregate_read_bandwidth_gbps: 1600
+  notes: |
+    NVL72 production 部署典型配 30 TB local NVMe per node + Weka 平台 5 PB shared
+    parallel filesystem. GDS (GPU Direct Storage) 让 Blackwell GPU 直接 RDMA
+    读 NVMe / Weka, 不经过 host RAM. Checkpoint 策略 hybrid: 热权重在 local NVMe (秒级
+    weight reload), 冷权重 + dataset 在 Weka (大容量). Long context inference
+    weight streaming 走这条路径.
 cabinet_layout_md: |
   ## NVL72 机柜布局 / Cabinet layout
 

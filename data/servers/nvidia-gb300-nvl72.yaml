@@ -63,6 +63,20 @@ network_topology:
     GB300 NVL72 沿用 NVL72 全 NVSwitch full-mesh 拓扑 — 升级在 NVLink-5 单 link
     带宽 (1.8 TB/s/GPU → 2.25 TB/s/GPU bidirectional). SHARP-3 in-network reduction
     继承自 GB200 — 跨整个 NVL72 fabric (72 卡) 一次 all-reduce 走 switch 端 sum.
+storage_architecture:
+  local_nvme_per_node_tb: 30.0
+  parallel_fs_pb: 8.0
+  parallel_fs_family: weka
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: hybrid
+  aggregate_read_bandwidth_gbps: 2400
+  notes: |
+    GB300 NVL72 沿用 GB200 NVL72 storage 设计 — 30 TB local NVMe/node + 8 PB
+    Weka shared FS, GDS-capable. 升级在 NIC bandwidth: 800G ConnectX-8 vs GB200
+    400G — aggregate read bandwidth 提升 50%. 权重 streaming + KV offload 走
+    NVLink-C2C 到 host RAM 是 hot path; 冷权重 (历史 checkpoint) 走 GDS 直接
+    NVMe / Weka.
 cabinet_layout_md: |
   ## GB300 NVL72 机柜布局 / Cabinet layout
 

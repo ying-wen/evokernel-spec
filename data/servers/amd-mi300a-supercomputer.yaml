@@ -60,6 +60,20 @@ network_topology:
     (5 跳 vs fat-tree 7+ 跳), 但跨 group 的 latency 比 fat-tree 高一些.
     Slingshot 协议本身是 RDMA capable, 但没有 SHARP-style in-network reduction.
     4 APU/blade 之间用 Infinity Fabric coherent 互联 (intra-blade).
+storage_architecture:
+  local_nvme_per_node_tb: 1.92
+  parallel_fs_pb: 1024.0
+  parallel_fs_family: lustre
+  gpu_direct_storage: false
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 11000
+  notes: |
+    El Capitan 用 HPE Cray ClusterStor E1000 (Lustre-based, 1 EB scratch capacity).
+    HPC 级别 storage 设计: aggregate read bandwidth ~11 TB/s 跨整个集群,
+    比 AI super-pod (NVL72 / CloudMatrix) 高 1-2 个数量级 — HPC checkpoint pattern
+    跟 AI inference 不一样 (大型分块写). MI300A APU unified memory 让 host RAM ←→
+    HBM 没有传统 PCIe DMA bottleneck; 但 storage ←→ HBM 还是要先到 host.
 cabinet_layout_md: |
   ## HPE Cray EX255a 节点布局 / Blade layout
 

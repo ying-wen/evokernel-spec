@@ -59,6 +59,19 @@ network_topology:
     思元 590 集群 16 节点 × 8 卡 = 128 MLU. 单节点 MLU-Link-v2 全连接 (1 跳),
     跨节点走 RoCE-v2 200G fat-tree. 16-node 部署典型直径 3-4 跳.
     国产寒武纪生态 — 与 Atlas 900 类似 hierarchical mesh 但规模更小.
+storage_architecture:
+  local_nvme_per_node_tb: 16.0
+  parallel_fs_pb: 2.0
+  parallel_fs_family: other
+  gpu_direct_storage: false
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 400
+  notes: |
+    思元 590 集群 storage 配置因部署方而异 — 国央企用 OceanStor (信创预算友好),
+    商业部署多用 Lustre / GPFS. Cambricon MLU 暂无 GDS 等价物, 数据通过 host
+    Hygon C86 / 鲲鹏 920 中转再到 MLU. 比 Ascend 路径多一跳 round-trip, 大型
+    dataset 训练时 host bandwidth 会成为瓶颈.
 cabinet_layout_md: |
   ## 思元 590 集群布局 / 16-node pod layout
 

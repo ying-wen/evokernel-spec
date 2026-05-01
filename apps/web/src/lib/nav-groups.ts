@@ -95,6 +95,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/servers/compare/', labelKey: 'nav.serversCompare', desc_zh: '超节点对比 · NVL72 vs Atlas vs CM384', desc_en: 'Compare super-pods · NVL72 vs Atlas vs CM384' },
       { path: '/servers/host-cpu-matrix/', labelKey: 'nav.hostCpuMatrix', desc_zh: 'Host CPU 矩阵 · 14/14 super-pod 全填', desc_en: 'Host-CPU matrix · 14/14 super-pods covered' },
       { path: '/servers/network-topology-matrix/', labelKey: 'nav.networkTopoMatrix', desc_zh: '网络拓扑矩阵 · fat-tree / dragonfly+ / torus / mesh', desc_en: 'Network-topology matrix · fat-tree / dragonfly+ / torus / mesh' },
+      { path: '/servers/storage-matrix/', labelKey: 'nav.storageMatrix', desc_zh: '存储架构矩阵 · GDS / Lustre / Weka / OceanStor', desc_en: 'Storage matrix · GDS / Lustre / Weka / OceanStor' },
       { path: '/pricing/', labelKey: 'nav.pricing', desc_zh: '$ / M tokens 排名 · 自动从案例计算', desc_en: '$/M tokens ranking · auto-computed from cases' },
       { path: '/showcase/', labelKey: 'nav.showcase', desc_zh: '精选发现 · 数据告诉我们什么', desc_en: 'Showcase · what the data tells us', theme: 'accent' }
     ]

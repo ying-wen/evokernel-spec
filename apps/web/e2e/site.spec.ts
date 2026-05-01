@@ -576,6 +576,90 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.29: storage_architecture on every super-pod (14/14) + matrix view + weight-streaming pattern + 2 operators', () => {
+  test('/servers/storage-matrix/ renders matrix + FS family distribution', async ({ page }) => {
+    await page.goto('/servers/storage-matrix/');
+    await expect(page.getByRole('heading', { name: /存储架构对照|Storage Matrix/i }).first()).toBeVisible();
+    await expect(page.getByTestId('storage-matrix').first()).toBeVisible();
+    // Stats: GDS count + FS family count
+    await expect(page.getByText(/含 GPU Direct Storage|GPU Direct Storage/i).first()).toBeVisible();
+  });
+
+  test('Storage matrix shows multiple FS families (Lustre / Weka / S3-compat / OceanStor)', async ({ page }) => {
+    await page.goto('/servers/storage-matrix/');
+    await expect(page.getByText(/Lustre/i).first()).toBeVisible();
+    await expect(page.getByText(/Weka/i).first()).toBeVisible();
+    await expect(page.getByText(/S3-compat/i).first()).toBeVisible();
+  });
+
+  test('Storage matrix surfaces "why storage matters" educational section + cross-link to hot-cold KV', async ({ page }) => {
+    await page.goto('/servers/storage-matrix/');
+    await expect(page.getByText(/为什么存储架构重要/i).first()).toBeVisible();
+    await expect(page.locator('a[href*="/patterns/hot-cold-kv-tiering"]').first()).toBeVisible();
+  });
+
+  test('Per-server detail page surfaces storage card on GB200 NVL72 (GDS + Weka + hybrid)', async ({ page }) => {
+    await page.goto('/servers/nvidia-gb200-nvl72/');
+    const card = page.locator('[data-testid="storage-card"]').first();
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(/GPU Direct Storage/);
+    await expect(card).toContainText(/Weka/);
+    await expect(card.locator('a[href*="/servers/storage-matrix"]')).toHaveCount(1);
+  });
+
+  test('Per-server detail page shows storage on AWS Trn2 (object-store cloud-native)', async ({ page }) => {
+    await page.goto('/servers/aws-trn2-ultraserver/');
+    const card = page.locator('[data-testid="storage-card"]').first();
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(/S3-compat|Object Store/i);
+  });
+
+  test('Per-server detail page shows storage on CloudMatrix 384 (OceanStor + 国产 GDS)', async ({ page }) => {
+    await page.goto('/servers/huawei-cloudmatrix-384/');
+    const card = page.locator('[data-testid="storage-card"]').first();
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(/OceanStor/);
+  });
+
+  test('All 14 super-pods now have storage_architecture rendered (100%)', async ({ page }) => {
+    const slugs = [
+      'nvidia-hgx-h100', 'nvidia-hgx-h200', 'nvidia-gb200-nvl72', 'nvidia-gb300-nvl72',
+      'nvidia-dgx-a100', 'amd-mi325x-platform', 'amd-mi300a-supercomputer',
+      'aws-trn2-ultraserver', 'huawei-cloudmatrix-384', 'huawei-atlas-900-superpod',
+      'huawei-atlas-800t-a3', 'cambricon-mlu590-pod', 'cambricon-x8-server',
+      'moore-threads-kuae'
+    ];
+    for (const slug of slugs) {
+      await page.goto(`/servers/${slug}/`);
+      await expect(page.locator('[data-testid="storage-card"]').first()).toBeVisible();
+    }
+  });
+
+  test('Tools dropdown contains the new storage-matrix link', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="tools"]').first();
+    await expect(dd.locator('a[href*="/servers/storage-matrix"]').first()).toHaveCount(1);
+  });
+
+  test('Weight Streaming Prefetch pattern visible (storage → compute bridge)', async ({ page }) => {
+    await page.goto('/patterns/weight-streaming-prefetch/');
+    await expect(page.getByText(/权重流式预取|Weight Streaming/i).first()).toBeVisible();
+    await expect(page.getByText(/GPU Direct Storage|cuFile|Magnum IO/i).first()).toBeVisible();
+  });
+
+  test('MLA (Multi-head Latent Attention) operator visible (DeepSeek V3 path)', async ({ page }) => {
+    await page.goto('/operators/mla-attention/');
+    await expect(page.getByText(/MLA|Multi-head Latent Attention|DeepSeek/i).first()).toBeVisible();
+    await expect(page.getByText(/flash-mla|FlashMLA/i).first()).toBeVisible();
+  });
+
+  test('Memcpy Async operator visible (cross-device DMA primitive)', async ({ page }) => {
+    await page.goto('/operators/memcpy-async/');
+    await expect(page.getByText(/Memcpy Async|异步内存搬运/i).first()).toBeVisible();
+    await expect(page.getByText(/cudaMemcpyAsync|cuFile|GDS/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.28: network_topology on every super-pod (14/14) + matrix view + 2 fused kernels + Cambricon tour', () => {
   test('/servers/network-topology-matrix/ renders matrix + topology distribution', async ({ page }) => {
     await page.goto('/servers/network-topology-matrix/');

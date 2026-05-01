@@ -1,0 +1,87 @@
+id: weight-streaming-prefetch
+name: 权重流式预取 (Weight Streaming Prefetch — 大模型超 HBM 部署)
+category: kv-cache
+description_md: |
+  ## 简介
+
+  当模型权重不能完全装进 HBM (例如 1T MoE 在 8×H100 80GB 上, 模型 ~2 TB BF16, HBM 总和 640 GB),
+  传统方案是 PP 跨多节点切分. **权重流式预取** 提供另一条路径: 把 cold weight 留在 NVMe / 远端
+  parallel FS, 用 GPU Direct Storage (GDS) 在 forward pass 即将用到下一层时**预取 weight 到 HBM**,
+  与当前层 compute 重叠.
+
+  类似 CPU L1/L2/L3 cache 的 prefetch 思路, 但跨度从 cache line (64B) 提升到 weight tensor (GB-级).
+  Forward pass 是 sequential layer-by-layer, prefetch pattern 极其规则, 命中率接近 100% — 只要
+  storage bandwidth 跟得上计算速度.
+
+  ## 与 `hot-cold-kv-tiering` 的区别
+  - **hot-cold-kv-tiering**: 数据是 KV cache (推理过程中产生), 分层 HBM/DRAM/SSD, 按 access pattern
+  - **weight-streaming-prefetch**: 数据是 model weights (静态), 分层 HBM/SSD, 按 layer 顺序预取
+
+  两者可同时存在, 在 hybrid checkpoint + GDS-capable 系统上叠加最大化 HBM 利用率.
+
+  ## 实现机制
+  - **GDS (GPU Direct Storage)**: GPU RDMA 直接读 NVMe / 远端 FS, 跳过 host RAM, 降低 latency
+  - **Layer-aware prefetch scheduler**: 知道 forward pass layer 顺序, 提前 N-1 层 issue 预取
+  - **Double-buffering HBM region**: HBM 留 2-3 层 worth of weight 空间, 预取下层时不阻塞当前
+  - **NVMe-oF / cuFile API**: NVIDIA cuFile + DOCA / NVIDIA Dynamo 实现这条 path
+
+  ## 关键性能因素
+  - **Storage bandwidth**: 必须 ≥ 单层 weight size / 单层 compute time. 例如 70B model 单层 ~1 GB BF16,
+    H100 上 single-layer compute ~10 ms, 需 ≥ 100 GB/s sustained read — Weka / Lustre / OceanStor 可达
+  - **GDS latency**: NVMe-oF 直读 ~30-100 μs, 比 host bounce 快 5-10x. 长 prefetch 队列可摊开 latency
+  - **HBM budget**: 至少 2 层 weight 空间, 太小会阻塞 prefetch; 适合 HBM ≥ 80 GB 系统
+
+  ## 何时收益最大
+  - **超大模型** (>500B BF16 不能 PP 切分时), GDS-capable 系统
+  - **多模型 hot-swap** (同一 GPU 在 model A → B 切换时预取 B)
+  - **Long context inference**, weight 占用比 KV cache 多, prefetch 让 HBM 集中给 KV
+  - **节点配 GDS + 高带宽 storage** (Weka / Lustre / OceanStor / 自研分布式 FS)
+
+  ## 不适用
+  - **小模型** (<70B), 全部权重装下 HBM, prefetch 没意义
+  - **PCIe-only 系统** (没 GDS), bandwidth 不够无法 streaming
+  - **极低 latency 单请求** (TTFT < 50 ms 严格时), prefetch overhead 占比大
+
+applies_when:
+  - very-large-model
+  - hbm-capacity-limited
+  - gds-capable-storage
+  - hybrid-checkpoint-deploy
+related_operators: [memcpy-async, dma-load, matmul]
+supporting_cases_min: 0
+engines_supporting: [tensorrt-llm, vllm, mindie]
+hardware_requires:
+  - gpu-direct-storage
+  - high-bandwidth-storage-100gb-plus
+model_archetypes: [dense-llm, moe-llm, long-context]
+speedup:
+  - metric: cost-per-token
+    multiplier_min: 0.6
+    multiplier_max: 0.85
+    notes: '跨节点 PP 替换为单节点 streaming, 减少节点数 = 降本; 取决于 storage bandwidth / compute ratio'
+  - metric: ttft
+    multiplier_min: 0.95
+    multiplier_max: 1.1
+    notes: 'Steady-state TTFT 几乎不变 (prefetch hidden); cold start 时 prefetch buffer 未填会增加'
+  - metric: memory-footprint
+    multiplier_min: 4.0
+    multiplier_max: 20.0
+    notes: 'HBM 实际用量 = 2-3 层 weight + KV cache, 而非全模型. 等效 HBM 容量放大 4-20x'
+trade_offs:
+  - 'Storage bandwidth 不够时 prefetch fall behind, decode latency 抖动'
+  - 'GDS 部署门槛: 需要 cuFile + DOCA + Magnum IO 全栈, 部分老 driver 不支持'
+  - 'Cold start 第一次 forward 必慢, 因为 HBM prefetch buffer 是空的'
+  - 'Decode 单 token 的 compute time 短, prefetch overhead 占比高 — 主要在 prefill / large batch 收益'
+references:
+  - title: 'NVIDIA Magnum IO + GDS docs'
+    url: https://docs.nvidia.com/gpudirect-storage/
+    source_type: docs
+  - title: 'NVIDIA Dynamo Inference Framework (weight streaming path)'
+    url: https://github.com/ai-dynamo/dynamo
+    source_type: implementation
+  - title: 'Weka GDS reference architecture'
+    url: https://www.weka.io/learn/glossary/gpu-direct-storage/
+    source_type: docs
+  - title: 'TensorRT-LLM 0.13 weight streaming'
+    url: https://nvidia.github.io/TensorRT-LLM/
+    source_type: docs

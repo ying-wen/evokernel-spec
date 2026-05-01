@@ -29,9 +29,11 @@ const hasClusterDetail = (server.switch_chips?.length ?? 0) > 0
   || server.bisection_bandwidth_tbs
   || server.host_cpu
   || server.network_topology
+  || server.storage_architecture
   || cabinetMd;
 const hostCpu = server.host_cpu;
 const netTopo = server.network_topology;
+const storage = server.storage_architecture;
 // Architecture label kept short for chip; full description shown in row.
 const archLabelMap: Record<string, string> = {
   'arm-neoverse-v2': 'ARM Neoverse V2',
@@ -45,6 +47,28 @@ const archLabelMap: Record<string, string> = {
   'x86-granite-rapids': 'x86 Granite Rapids',
   'risc-v': 'RISC-V',
   'other': 'Other'
+};
+// Storage parallel-FS family labels.
+const fsLabelMap: Record<string, string> = {
+  'lustre': 'Lustre',
+  'gpfs-spectrum-scale': 'IBM Spectrum Scale (GPFS)',
+  'weka': 'Weka',
+  'daos': 'DAOS',
+  'beegfs': 'BeeGFS',
+  'cephfs': 'CephFS',
+  'pure-flashblade': 'Pure FlashBlade',
+  'vast': 'VAST Data',
+  'object-store-s3-compat': 'S3-compat object store',
+  'cloud-managed': 'Cloud-managed',
+  'none': '— 无 parallel FS',
+  'other': 'Other / 厂商专有'
+};
+const ckptLabelMap: Record<string, string> = {
+  'local-nvme': 'Local NVMe (per-node)',
+  'parallel-fs': 'Parallel filesystem',
+  'object-store': 'Object store (S3 / OSS)',
+  'hybrid': 'Hybrid (hot NVMe + cold object/FS)',
+  'unknown': 'Unknown'
 };
 // Topology family — same pattern as archLabelMap.
 const topoLabelMap: Record<string, string> = {
@@ -239,6 +263,39 @@ const topoLabelMap: Record<string, string> = {
               <div class="px-4 py-2 border-t text-xs" style="border-color: var(--color-border);">
                 <a href={pathname('/servers/network-topology-matrix/')} class="hover:underline" style="color: var(--color-accent);">
                   → 14/14 super-pod 网络拓扑对照矩阵
+                </a>
+              </div>
+            </div>
+          )}
+
+          {storage && (
+            <div class="rounded-lg border" data-testid="storage-card" style={`border-color: ${storage.gpu_direct_storage ? 'var(--color-accent)' : 'var(--color-border)'}; background: var(--color-surface-raised);`}>
+              <div class="px-4 py-3 border-b" style="border-color: var(--color-border);">
+                <h4 class="text-sm font-semibold flex items-center gap-2">
+                  存储架构
+                  {storage.gpu_direct_storage && <Badge variant="default">GPU Direct Storage</Badge>}
+                </h4>
+                <p class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  {storage.parallel_fs_family ? (fsLabelMap[storage.parallel_fs_family] ?? storage.parallel_fs_family) : 'Storage path'}
+                </p>
+              </div>
+              <div>
+                {storage.local_nvme_per_node_tb !== undefined && <SpecRow label="Local NVMe / 节点">{storage.local_nvme_per_node_tb} TB</SpecRow>}
+                {storage.parallel_fs_pb !== undefined && <SpecRow label="Parallel FS 容量">{storage.parallel_fs_pb} PB</SpecRow>}
+                {storage.parallel_fs_family && <SpecRow label="Parallel FS 类型">{fsLabelMap[storage.parallel_fs_family] ?? storage.parallel_fs_family}</SpecRow>}
+                {storage.checkpoint_strategy && <SpecRow label="Checkpoint 策略">{ckptLabelMap[storage.checkpoint_strategy] ?? storage.checkpoint_strategy}</SpecRow>}
+                {storage.aggregate_read_bandwidth_gbps !== undefined && <SpecRow label="聚合读带宽">{storage.aggregate_read_bandwidth_gbps} GB/s</SpecRow>}
+                <SpecRow label="GPU Direct Storage">{storage.gpu_direct_storage ? '✓ GDS / NPU-DS' : '— 经 host RAM 中转'}</SpecRow>
+                <SpecRow label="RDMA to storage">{storage.rdma_storage ? '✓ NVMe-oF / RoCE' : '— 不支持'}</SpecRow>
+              </div>
+              {storage.notes && (
+                <div class="px-4 py-3 border-t text-xs" style="border-color: var(--color-border); color: var(--color-text-muted); line-height: 1.6; white-space: pre-line;">
+                  {storage.notes}
+                </div>
+              )}
+              <div class="px-4 py-2 border-t text-xs" style="border-color: var(--color-border);">
+                <a href={pathname('/servers/storage-matrix/')} class="hover:underline" style="color: var(--color-accent);">
+                  → 14/14 super-pod 存储架构对照矩阵
                 </a>
               </div>
             </div>

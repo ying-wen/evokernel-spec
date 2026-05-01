@@ -57,6 +57,20 @@ network_topology:
     华为自研 in-network reduction (类似 SHARP) 在 lingqu fabric 中可用, all-reduce
     带宽放大 1.5x. 这是国央企部署对标 NVL72 的核心方案 — 单 super-pod 内不依赖 RoCE,
     跨 super-pod 才走 RoCE-400G 跳出去.
+storage_architecture:
+  local_nvme_per_node_tb: 30.0
+  parallel_fs_pb: 6.0
+  parallel_fs_family: other
+  gpu_direct_storage: true
+  rdma_storage: true
+  checkpoint_strategy: hybrid
+  aggregate_read_bandwidth_gbps: 1200
+  notes: |
+    CloudMatrix 384 配华为 OceanStor 分布式 FS (信创合规自主存储). 6 PB shared FS +
+    30 TB local NVMe/node. Ascend GDS-equivalent (NPU Direct Storage) 通过 lingqu
+    fabric RDMA 直接访问 OceanStor — 类似 NVIDIA GDS 但全国产化. Hybrid checkpoint:
+    热 weight 在 local NVMe (毫秒级 reload), 冷 dataset 在 OceanStor. 与 NVL72 storage
+    设计哲学接近, 但软件栈是 MindIE + CANN 而非 NCCL + cuFile.
 cabinet_layout_md: |
   ## CloudMatrix 384 多机柜布局 / Multi-cabinet layout
 

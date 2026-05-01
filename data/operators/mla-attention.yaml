@@ -1,0 +1,86 @@
+id: mla-attention
+name: MLA — Multi-head Latent Attention (DeepSeek V2/V3/V4)
+category: attention
+
+flops_formula: '4 * batch * seq * d_model * d_latent + 2 * batch * seq^2 * d_latent'
+bytes_formula: '2 * batch * seq * d_latent + batch * heads * seq^2'
+arithmetic_intensity_formula: 'd_model / 2 (compressed via latent projection)'
+arithmetic_intensity_typical:
+  min: 16.0
+  max: 64.0
+  notes: 'MLA 通过 latent 投影压缩 KV cache, arithmetic intensity 比 MHA 高约 2-3x — 长 context 场景对 HBM 友好'
+
+description: |
+  MLA (Multi-head Latent Attention) 是 DeepSeek 在 V2 论文中引入的 attention 变体,
+  之后 V3 / V4 / R1 全系列都用. **核心创新**: 不直接缓存每个 head 的 K/V, 而是缓存
+  一个低维 (d_latent ≈ 128) 的 **latent vector**, 在每次 attention 时通过 up-projection
+  实时还原 K/V. 等于把 GQA 的 "shared K/V" 思路推到极致 — 每 token KV 占用从 GQA 的
+  ~64 KB (Llama-70B-like) 降到 ~5-10 KB (DeepSeek V3-like).
+
+  ## MLA vs MHA / MQA / GQA
+  - **MHA**: 每个 query head 独立 K/V, KV cache O(heads × d_head × seq)
+  - **MQA**: 全 head 共享 1 组 K/V, KV cache O(d_head × seq), 质量损失 ~2 pt MMLU
+  - **GQA-8**: 8 组 head 共享 K/V, KV cache O(heads/8 × d_head × seq), 几乎无损
+  - **MLA**: 缓存 latent, 还原成 K/V on-the-fly — KV cache O(d_latent × seq), 比 GQA 还小 4-8x
+
+  ## KV cache 压缩 (DeepSeek V3, 671B)
+  - 标准 MHA: KV ~440 GB / 32K context per session
+  - GQA-8: KV ~55 GB / 32K context
+  - **MLA: KV ~14 GB / 32K context** — 1T MoE 长 context 部署的可行性根源
+
+  ## 何时用
+  - **DeepSeek V3 / V4 / R1**: 模型已经 trained with MLA, 必须用 MLA path
+  - **超长 context**: 100K+ context 部署, KV cache 压缩到几乎无关紧要
+  - **MoE 大模型 + 长 context**: V3-style 1T MoE 不用 MLA 几乎部署不了
+
+  ## 不适用
+  - **非 MLA-trained 模型** (Llama / Mistral / Qwen 主线): 用 MHA / GQA / MQA
+  - **极短 context**: KV cache 不是瓶颈, MLA 增加 up-projection compute
+
+  ## 推理实现
+  - **flash-mla** (DeepSeek 开源 kernel): Hopper 上的 MLA fused kernel, decode 接近 1.6x GQA-baseline
+  - **vLLM 0.6.5+**: 内置 MLA support, autodetect from model config
+  - **SGLang 0.4+**: MLA 路径与 flash-mla kernel 集成
+  - **TRT-LLM 0.13+**: Blackwell + Hopper MLA path
+  - **MindIE 2.0**: Ascend 910C/910D 上 MLA 优化 (DeepSeek-R1 部署 baseline)
+
+variants: [mla-bf16, mla-fp8, mla-deepseek-v3-style, mla-deepseek-v4-style]
+
+fusion_targets: [rope, quantize-dequantize, matmul]
+participates_in_fused_kernels:
+  - flash-mla
+  - fused-rope-qkv
+
+engine_implementations:
+  - name: flash-mla (DeepSeek)
+    hardware_arch: [hopper]
+    url: https://github.com/deepseek-ai/FlashMLA
+    notes: 'DeepSeek 自研 MLA kernel, Hopper sm_90 优化'
+  - name: vLLM MLA path
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://docs.vllm.ai/
+    notes: 'vLLM 0.6.5+ 自动检测 model config 切到 MLA'
+  - name: SGLang Flashinfer MLA
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://github.com/flashinfer-ai/flashinfer
+  - name: TRT-LLM MLA plugin
+    hardware_arch: [hopper, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/
+  - name: MindIE Ascend MLA
+    hardware_arch: [ascend-910c, ascend-910d]
+    url: https://www.hiascend.com/document/detail/zh/mindie
+
+precision_support: [bf16, fp16, fp8-e4m3]
+
+related_patterns: [gqa-mqa-shared-kv, kv-cache-int8]
+
+references:
+  - title: 'DeepSeek-V2: A Strong, Economical, and Efficient MoE LM (introduces MLA)'
+    url: https://arxiv.org/abs/2405.04434
+    source_type: paper
+  - title: 'DeepSeek-V3 Technical Report'
+    url: https://arxiv.org/abs/2412.19437
+    source_type: paper
+  - title: 'flash-mla repository'
+    url: https://github.com/deepseek-ai/FlashMLA
+    source_type: implementation

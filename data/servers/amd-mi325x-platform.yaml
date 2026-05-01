@@ -60,6 +60,19 @@ network_topology:
     跨节点出 8 × 400G RoCE-v2 NIC 走 rail-optimized fat-tree, 但 RDMA 没有 SHARP
     in-network reduction (开放标准 RoCE, 不像 NVIDIA 专有 SHARP). 全 P2P 拓扑是
     AMD 与 NVIDIA NVSwitch 路径的关键架构区别.
+storage_architecture:
+  local_nvme_per_node_tb: 16.0
+  parallel_fs_pb: 4.0
+  parallel_fs_family: weka
+  gpu_direct_storage: false
+  rdma_storage: true
+  checkpoint_strategy: parallel-fs
+  aggregate_read_bandwidth_gbps: 800
+  notes: |
+    MI325X Platform 暂无 NVIDIA GDS 等价物 — AMD ROCm 的"DirectGMA" 仍 experimental.
+    生产部署 weights / dataset 通常走 Weka or Lustre over RoCE-400G RDMA, 但 GPU
+    必须先 DMA 到 host RAM 再 to HBM. 多一跳 round-trip vs GDS 路径. 这是 AMD ROCm
+    storage 软件成熟度上的真实 gap (vs NVIDIA CUDA + GDS).
 cabinet_layout_md: |
   ## AMD MI325X 8-OAM Platform 布局 / Baseboard layout
 

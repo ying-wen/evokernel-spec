@@ -7,12 +7,12 @@
 [![Live](https://img.shields.io/badge/live-yingwen.io%2Fevokernel--spec-success)](https://yingwen.io/evokernel-spec/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![E2E](https://img.shields.io/badge/e2e-346_passing-success)](#)
+[![E2E](https://img.shields.io/badge/e2e-357_passing-success)](#)
 [![Unit](https://img.shields.io/badge/unit-36_passing-success)](#)
-[![Pages](https://img.shields.io/badge/pages-412-blue)](#)
+[![Pages](https://img.shields.io/badge/pages-416-blue)](#)
 [![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
 [![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
-[![Release](https://img.shields.io/badge/release-v1.28.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.29.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ![Home](docs/screenshots/home.png)
 
