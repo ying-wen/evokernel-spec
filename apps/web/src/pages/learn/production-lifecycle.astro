@@ -1,0 +1,426 @@
+---
+/**
+ * /learn/production-lifecycle/ — production lifecycle for LLM inference services.
+ *
+ * Continuation of /learn/observability/ — once you can SEE what's happening,
+ * lifecycle is "how do you change it without breaking it":
+ *
+ *   1. Rollout strategies (canary, blue/green, shadow, progressive)
+ *   2. A/B testing (which model is actually better?)
+ *   3. Version migration (CUDA → ROCm, NVIDIA → Ascend, BF16 → FP8)
+ *   4. Rollback (the moment you wish you'd planned for)
+ *
+ * Closes the gap-3 deployment optimization chain: previously the site had
+ * /learn/deployment-failures/ (what goes wrong) and /learn/observability/
+ * (how to see it), but no playbook for "how to change a live deployment."
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getPatterns, getPlaybooks, getCases } from '~/lib/data';
+
+const [patterns, playbooks, cases] = await Promise.all([
+  getPatterns(), getPlaybooks(), getCases()
+]);
+
+interface RolloutStrategy {
+  name_zh: string;
+  name_en: string;
+  blurb: string;
+  pros: string[];
+  cons: string[];
+  best_for: string;
+  worst_for: string;
+}
+
+const ROLLOUT_STRATEGIES: RolloutStrategy[] = [
+  {
+    name_zh: 'Canary 灰度',
+    name_en: 'Canary',
+    blurb: '把 1-5% 流量指向新版本, 观察 N 小时, 满足 SLO 再扩大. 最常用, 最稳.',
+    pros: [
+      '风险隔离 — 出错只影响小部分用户',
+      '真实流量验证, 比离线 eval 更可信',
+      'Auto-rollback (CI/CD 集成) 容易实现'
+    ],
+    cons: [
+      '需要 traffic-splitting 基础设施 (router / Envoy / Istio)',
+      '小流量样本下 latency 长尾不充分覆盖',
+      '完整 rollout 通常 几天 — 不适合紧急修复'
+    ],
+    best_for: '常规版本升级, FP8 calibration 调整, kernel 优化版本上线',
+    worst_for: '紧急安全 patch, 极小用户量 (canary 1% 可能 = 1 个用户)'
+  },
+  {
+    name_zh: 'Blue / Green 蓝绿',
+    name_en: 'Blue / Green',
+    blurb: '维护两套同等容量集群, 流量瞬时切换. 0 downtime, 但成本翻倍.',
+    pros: [
+      '0 downtime 切换',
+      '回滚瞬时 (流量切回 blue)',
+      '上线流程极简 — 整个 environment 已经预热'
+    ],
+    cons: [
+      '硬件成本翻倍 — 7B 模型 OK, 671B MoE 不现实',
+      '要求 sticky session 兼容 (chat history 跨 environment 复用)',
+      'Database / 状态层往往无法 blue/green'
+    ],
+    best_for: '紧急 patch, 不能容忍 even 1 分钟降级 的关键服务, < 70B 中型模型',
+    worst_for: 'GB200 NVL72 / CloudMatrix 384 级超节点 — 双倍 super-pod 成本不可接受'
+  },
+  {
+    name_zh: 'Shadow / Mirror',
+    name_en: 'Shadow / Mirror',
+    blurb: '把生产流量 100% 复制到新版本, 但不返回响应给用户. 离线对比新旧输出.',
+    pros: [
+      '0 用户影响 — 新版本对用户不可见',
+      '100% 流量分布覆盖 (vs canary 1% 长尾欠采样)',
+      '可以跑 generation-similarity / drift detection'
+    ],
+    cons: [
+      '硬件成本翻倍 (跑两份)',
+      '不验证用户行为变化 — A/B 才行',
+      '复制 long-context 请求时输入 buffer 压力大'
+    ],
+    best_for: '量化精度验证 (BF16 → FP8 切换前), engine 升级 (vLLM 0.6 → 0.7), 大重构',
+    worst_for: '已经 capacity-tight 的服务, 长 context 主导的服务 (复制成本太高)'
+  },
+  {
+    name_zh: 'Progressive 渐进',
+    name_en: 'Progressive (1% → 10% → 25% → 50% → 100%)',
+    blurb: 'Canary 的精细化版本: 多阶段递增比例, 每阶段独立 SLO 验收. 大型上线标配.',
+    pros: [
+      '风险随阶段递增 — 更早发现长尾问题',
+      '为每阶段定义不同 alert 阈值',
+      'Auto-promotion / auto-rollback 易于自动化'
+    ],
+    cons: [
+      'Rollout 时长几天到一周 — 慢',
+      '调度复杂度上升, 需要 progressive deployment controller'
+    ],
+    best_for: '完整模型版本切换 (Llama 4 → Llama 5), 大型量化降级 (BF16 → FP4)',
+    worst_for: '小修小补 (overhead 不值得), 紧急 patch'
+  }
+];
+
+interface AbTestPattern {
+  scenario: string;
+  metric: string;
+  duration: string;
+  sample_size: string;
+  beware: string;
+}
+
+const AB_TEST_PATTERNS: AbTestPattern[] = [
+  {
+    scenario: '量化精度 A/B (BF16 vs FP8)',
+    metric: 'Generation similarity / MMLU eval set / 用户拒绝率',
+    duration: '至少 1 周 (覆盖工作日 + 周末)',
+    sample_size: '≥ 10K 请求 / arm',
+    beware: 'FP8 量化在长输出场景质量漂移更明显 — 别只看短输出 metrics. Refusal rate 是早期信号.'
+  },
+  {
+    scenario: '部署引擎 A/B (vLLM vs SGLang)',
+    metric: 'TTFT / TBT / cost per token / refusal rate',
+    duration: '3-5 天',
+    sample_size: '≥ 5K 请求 / arm',
+    beware: '不同 engine 的 sampling default 不一样 — 配置必须严格一致, 否则 A/B 无效.'
+  },
+  {
+    scenario: '硬件迁移 A/B (H100 → MI325X)',
+    metric: 'Throughput / latency / cost / quality drift',
+    duration: '1-2 周',
+    sample_size: '≥ 50K 请求 / arm',
+    beware: '不同硬件上 numerical 精度差异 → 同 prompt 跑出不同 token 序列, 直接 cosine similarity 会误报.'
+  },
+  {
+    scenario: '模型版本 A/B (Llama 4 → Llama 5)',
+    metric: '用户满意度 + retention + business metric',
+    duration: '至少 2 周',
+    sample_size: '≥ 100K 请求 / arm',
+    beware: '版本升级常变 sampling / prompt format — 必须 align config 才能比较.'
+  }
+];
+
+interface MigrationPath {
+  from_to: string;
+  difficulty: '低' | '中' | '高';
+  blocking_changes: string[];
+  validation_path: string;
+  related_tour_id?: string;
+}
+
+const MIGRATION_PATHS: MigrationPath[] = [
+  {
+    from_to: 'NVIDIA CUDA (H100) → AMD ROCm (MI325X)',
+    difficulty: '中',
+    blocking_changes: [
+      'Engine 必须切到 vLLM ROCm 或 SGLang ROCm (mainline 路径成熟度近似)',
+      'CUDA Graph → HIP Graph (vLLM 0.7+ 自动)',
+      'NCCL → RCCL (透明)',
+      'cuFile / GDS → DirectGMA (experimental, 通常 fallback to host bounce)',
+      'Custom Triton kernels 需要 hipify-perl 转换',
+      'Numerical precision 会有微差 (FP8 calibration 必须重新跑)'
+    ],
+    validation_path: 'Shadow mode 1-2 周, 比较 generation similarity + MMLU + cost',
+    related_tour_id: 'qwen36-plus-mi325x-sglang-fp8'
+  },
+  {
+    from_to: 'NVIDIA CUDA → 华为昇腾 (Atlas 800T A3, 信创)',
+    difficulty: '高',
+    blocking_changes: [
+      'Engine: vLLM/SGLang → MindIE 2.0 (vllm-ascend 是 community port, 生产用 MindIE)',
+      'NCCL → HCCL (拓扑感知不同, 跨节点 perf 需要重新 tune)',
+      'CUDA Graph → MindIE graph (兼容但兼容性偶有 gap)',
+      'GDS → NPU Direct Storage (软件栈不同, OceanStor 只兼容 NPU-DS)',
+      'Triton / CUDA kernels 不可移植 — 用 AscendC 重写 or 等社区 port',
+      '量化路径完全不同 (CANN INT8 path, 不是 AWQ/GPTQ)',
+      '部署门槛高, 国央企信创合规 是主要驱动'
+    ],
+    validation_path: '1-2 周 shadow + 长 eval set + 用户反馈 — 信创部署 ROI 在合规侧, 性能 trade-off 接受',
+    related_tour_id: 'dsv4pro-cloudmatrix-384-mindie'
+  },
+  {
+    from_to: 'BF16 → FP8 (同 GPU)',
+    difficulty: '低',
+    blocking_changes: [
+      '硬件支持 FP8 (Hopper sm_90+, MI300X+, Ascend 910D, Blackwell)',
+      'FP8 calibration 30 min - 1 hour 预热',
+      'Engine 配置 --quantization fp8',
+      '观察长上下文场景 quality drift'
+    ],
+    validation_path: 'Shadow 3 天 + offline eval drop < 0.5 pt → progressive rollout',
+    related_tour_id: 'llama4-scout-h200-vllm-fp8'
+  },
+  {
+    from_to: 'FP16/BF16 → FP4 (Blackwell only)',
+    difficulty: '中',
+    blocking_changes: [
+      '硬件: 必须 Blackwell (B100/B200/GB200/GB300) — Hopper 走 emulation 不划算',
+      '< 70B 模型 FP4 质量损失偏大, 推荐 ≥ 70B 模型才上 FP4',
+      'Engine: TRT-LLM 0.13+ / vLLM 0.7+ FP4 path',
+      'NVFP4 vs MXFP4 选择 — 生产推荐 NVFP4 (NVIDIA 优化更深)'
+    ],
+    validation_path: 'Shadow 1 周 + MMLU 跌幅 < 0.8 pt → progressive 5%/25%/100%',
+    related_tour_id: 'llama4-maverick-nvl72-fp4'
+  },
+  {
+    from_to: 'vLLM → SGLang (engine 切换)',
+    difficulty: '低',
+    blocking_changes: [
+      'API 层 OpenAI-compat 兼容, prompt format 不变',
+      'Sampling default 偶有差异 (temperature / top_p) — 必须 explicit 配置',
+      'RadixAttention / Compressed FSM 等 SGLang-only 特性 — 上线后可独享',
+      '请求负载 distribution 可能 surface 出 SGLang scheduling bug (early release)'
+    ],
+    validation_path: 'A/B 5 天, latency / cost 直接对比'
+  }
+];
+---
+<BaseLayout title="生产生命周期 / Production Lifecycle">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · PRODUCTION LIFECYCLE
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        生产生命周期 · Production Lifecycle
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        部署上线只是开始. 真实问题是 <strong>"怎么在不破坏用户体验的前提下改变它"</strong> —
+        rollout / A/B / 版本迁移 / 回滚. 每个 LLM 推理服务每月都要做 1-3 次这类变更, 没有 playbook
+        就靠赌. 这里把硅谷大厂的实践 + 国产部署的特殊考虑都收齐.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">Rollout 策略: </span><strong>{ROLLOUT_STRATEGIES.length} 种</strong></div>
+        <div><span style="color: var(--color-text-muted);">A/B 模式: </span><strong>{AB_TEST_PATTERNS.length} 个场景</strong></div>
+        <div><span style="color: var(--color-text-muted);">迁移路径: </span><strong>{MIGRATION_PATHS.length} 条</strong></div>
+        <div><span style="color: var(--color-text-muted);">关联 playbook: </span><strong>{playbooks.length}</strong></div>
+      </div>
+    </section>
+
+    <!-- Section 1: rollout strategies -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">1. Rollout 策略 — 4 种部署上线模式</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        没有"最佳"策略, 只有 (变更类型 × 服务规模 × 容错预算) 决定的合适策略. 紧急 patch 走 blue/green;
+        日常版本升级走 canary 或 progressive; 重大架构变更走 shadow.
+      </p>
+
+      <div class="grid lg:grid-cols-2 gap-4">
+        {ROLLOUT_STRATEGIES.map((s, idx) => (
+          <div class="rounded-lg border p-5" data-testid={`rollout-strategy-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <h3 class="text-base font-semibold mb-1" style="color: var(--color-text);">{s.name_zh}</h3>
+            <p class="text-xs font-mono mb-3" style="color: var(--color-text-muted);">{s.name_en}</p>
+            <p class="text-sm mb-4" style="color: var(--color-text);">{s.blurb}</p>
+
+            <div class="grid sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <div class="font-medium uppercase tracking-wider mb-1" style="color: var(--color-accent);">优势</div>
+                <ul class="space-y-1" style="color: var(--color-text);">
+                  {s.pros.map((p) => <li>· {p}</li>)}
+                </ul>
+              </div>
+              <div>
+                <div class="font-medium uppercase tracking-wider mb-1" style="color: var(--color-text-muted);">劣势</div>
+                <ul class="space-y-1" style="color: var(--color-text-muted);">
+                  {s.cons.map((c) => <li>· {c}</li>)}
+                </ul>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t text-xs space-y-1" style="border-color: var(--color-border);">
+              <div><strong style="color: var(--color-text);">最佳场景:</strong> <span style="color: var(--color-text-muted);">{s.best_for}</span></div>
+              <div><strong style="color: var(--color-text);">不适合:</strong> <span style="color: var(--color-text-muted);">{s.worst_for}</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- Section 2: A/B test patterns -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">2. A/B 测试 — 哪个版本更好?</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        Rollout 决定 <em>怎么</em> 切换, A/B 决定 <em>该不该</em> 切换. 4 个常见 LLM 推理 A/B 场景, 每个都附
+        样本量 / 时长 / 该看哪个 metric / 易踩的坑.
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" style="border-collapse: collapse; min-width: 720px;" data-testid="ab-test-matrix">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--color-border);">
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">场景</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">主指标</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">时长</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted);">样本量</th>
+              <th class="text-left py-3 px-4 font-semibold" style="color: var(--color-text-muted); min-width: 240px;">易踩的坑</th>
+            </tr>
+          </thead>
+          <tbody>
+            {AB_TEST_PATTERNS.map((p, idx) => (
+              <tr style="border-bottom: 1px solid var(--color-border);" data-testid={`ab-test-row-${idx + 1}`}>
+                <td class="py-3 px-4 align-top font-medium" style="color: var(--color-text);">{p.scenario}</td>
+                <td class="py-3 px-4 align-top text-xs" style="color: var(--color-text);">{p.metric}</td>
+                <td class="py-3 px-4 align-top text-xs font-mono" style="color: var(--color-text-muted);">{p.duration}</td>
+                <td class="py-3 px-4 align-top text-xs font-mono" style="color: var(--color-text-muted);">{p.sample_size}</td>
+                <td class="py-3 px-4 align-top text-xs" style="color: var(--color-text-muted);">⚠️ {p.beware}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Section 3: migration paths -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">3. 迁移路径 — 跨硬件 / 跨精度 / 跨引擎</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        重大架构变更的"必读". 5 条最常见的迁移路径, 每条都列出 blocking changes (必改的部分) +
+        validation path (上线前怎么验). 关联 tour 给出端到端示例.
+      </p>
+
+      <div class="space-y-3">
+        {MIGRATION_PATHS.map((m, idx) => {
+          const tour = m.related_tour_id;
+          const difficultyColor = m.difficulty === '低' ? 'var(--color-accent)' : m.difficulty === '高' ? 'var(--color-china)' : 'var(--color-text-muted)';
+          return (
+            <div class="rounded-lg border p-5" data-testid={`migration-path-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="flex items-baseline gap-3 flex-wrap mb-2">
+                <h3 class="text-base font-semibold" style="color: var(--color-text);">{m.from_to}</h3>
+                <span class="text-xs px-2 py-0.5 rounded" style={`background: color-mix(in oklch, ${difficultyColor} 12%, var(--color-bg)); color: ${difficultyColor}; font-weight: 600;`}>
+                  难度: {m.difficulty}
+                </span>
+              </div>
+              <div class="mt-3">
+                <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-text-muted);">必改的部分 / Blocking changes</div>
+                <ul class="text-sm space-y-1" style="color: var(--color-text);">
+                  {m.blocking_changes.map((c) => <li>· {c}</li>)}
+                </ul>
+              </div>
+              <div class="mt-3 p-3 rounded" style="background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+                <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-accent);">→ 验证路径 / Validation path</div>
+                <p class="text-sm" style="color: var(--color-text);">{m.validation_path}</p>
+              </div>
+              {tour && (
+                <div class="mt-3 text-xs">
+                  <a href={pathname(`/learn/tours/${tour}/`)} class="hover:underline" style="color: var(--color-accent);">
+                    🚀 端到端示例: {tour} →
+                  </a>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <!-- Section 4: rollback principles -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">4. 回滚 — 你希望提前规划的那一刻</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        回滚不是失败的承认 — 是工程纪律. 没有 documented rollback path 的部署不应该上线.
+      </p>
+
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-base font-semibold mb-2" style="color: var(--color-accent);">回滚 必备 4 件套</h3>
+          <ol class="text-sm space-y-2" style="color: var(--color-text);">
+            <li><strong>1. Rollback runbook:</strong> 上线前写好, 不是出事时现写</li>
+            <li><strong>2. Auto-rollback trigger:</strong> SLO 违反 5 min → 自动切回. 凌晨 3 点的 on-call 不该决定要不要回滚</li>
+            <li><strong>3. 数据 schema 兼容性:</strong> 新版本写入的 KV cache / log / config, 旧版本能不能读? 不能读 = 不能回滚</li>
+            <li><strong>4. Rollback 演练:</strong> 季度演练, 否则 runbook 必然过期</li>
+          </ol>
+        </div>
+
+        <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-base font-semibold mb-2" style="color: var(--color-accent);">什么 触发 自动回滚</h3>
+          <ul class="text-sm space-y-2" style="color: var(--color-text);">
+            <li>· <strong>Tier 1 alerts:</strong> Throughput / Latency / Error / Saturation 任一持续违反 5 min</li>
+            <li>· <strong>Tier 2 alerts:</strong> HBM occupancy > 95% 持续 1 min (即将 OOM)</li>
+            <li>· <strong>Tier 4 alerts:</strong> Quality drift 显著 (MMLU 跌 2+ pt) — 但通常 ticket 不 page</li>
+            <li>· <strong>用户反馈 spike:</strong> 退订率 / 投诉率 突涨, 即使 metric 看似 OK</li>
+          </ul>
+        </div>
+
+        <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-base font-semibold mb-2" style="color: var(--color-accent);">回滚 不应触发的情况</h3>
+          <ul class="text-sm space-y-2" style="color: var(--color-text);">
+            <li>· <strong>单个 noisy neighbor 用户:</strong> 调高 rate limit 而不是回滚</li>
+            <li>· <strong>非用户面 metric 漂移:</strong> 内部 cost 涨了 10% 不该 page</li>
+            <li>· <strong>计划内的 cold start:</strong> Canary 启动时 latency 高是正常的, 排除掉</li>
+            <li>· <strong>已知的 transient API 错误:</strong> 上游 dep 抖动不是新版本的错</li>
+          </ul>
+        </div>
+
+        <div class="rounded-lg border p-5" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <h3 class="text-base font-semibold mb-2" style="color: var(--color-accent);">回滚 的 隐藏成本</h3>
+          <ul class="text-sm space-y-2" style="color: var(--color-text);">
+            <li>· <strong>用户 cache invalidation:</strong> Prefix-radix-cache 切回旧版本要重建</li>
+            <li>· <strong>下游服务 dep:</strong> 调用方可能已经发版适配新版 API</li>
+            <li>· <strong>Engine 配置 drift:</strong> 老 deployment.yaml 可能已经过期 — 测试 rollback 时要用真旧版本</li>
+            <li>· <strong>团队信心 cost:</strong> 频繁回滚团队会变得不敢上线 — 这是最大的隐藏成本</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">完整部署链 (gap-3 路径图)</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          这条链路上的全部 surfaces, 一起组成 LLM inference 部署优化的完整 playbook:
+          <strong>设计 → 实施 → 上线 → 监控 → 维护</strong>.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/picking-engine/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">1. 选引擎 →</a>
+          <a href={pathname('/learn/quantization-decision-tree/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">2. 选量化 →</a>
+          <a href={pathname('/learn/parallelism-cheatsheet/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">3. 选并行 →</a>
+          <a href={pathname('/learn/deployment-failures/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">4. 失败模式 →</a>
+          <a href={pathname('/learn/observability/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">5. 监控 →</a>
+          <a href={pathname('/playbooks/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">{playbooks.length} 个端到端 playbook →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

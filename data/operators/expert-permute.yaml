@@ -1,0 +1,98 @@
+id: expert-permute
+name: Expert Permute (MoE token routing)
+category: communication
+
+flops_formula: '0 (pure index-based shuffle)'
+bytes_formula: 'tokens_per_step * hidden_dim * 2 (one read + one scatter write)'
+arithmetic_intensity_formula: '0 (memory-bound permute)'
+arithmetic_intensity_typical:
+  min: 0.001
+  max: 0.05
+  notes: '纯 index-driven gather/scatter; SM 利用率低, HBM bandwidth 主导'
+
+description: |
+  **Expert Permute** 是 MoE 路由的实际数据搬运 op. `moe-gate` 算出每个 token 该去哪些
+  expert (top-K 选择), expert-permute 按 expert ID 把 token 重新排序 (shuffle), 让
+  目标 expert 拿到连续 batch. 算完后再 **inverse-permute** 把结果按原始 token 顺序还原.
+
+  在 EP (Expert Parallelism) 中, expert-permute 与 `all2all` 紧密耦合 — permute 是
+  每个 GPU 内部的 reorder, all2all 是跨 GPU 的 dispatch.
+
+  ## 完整 MoE forward pass
+  ```
+  scores = moe-gate(input)                         # [B, T, num_experts]
+  top_k_experts = top-k-sampling(scores, k=2)      # [B, T, 2]
+  permuted = expert-permute(input, top_k_experts)  # 按 expert 排序
+  routed = all2all(permuted)                       # 跨 GPU 分发 (EP)
+  output_per_expert = grouped-matmul(routed, expert_weights)
+  unrouted = all2all(output_per_expert)            # 拉回原 GPU
+  output = inverse-permute(unrouted, top_k_experts) # 还原原始顺序
+  ```
+
+  ## 性能特征
+
+  - **Bandwidth-bound**: 纯 memory shuffle, 没有 compute, HBM bandwidth 决定速度
+  - **Top-K=2 典型**: 每 token 复制到 2 个 expert, permute 后 batch 大小 × 2
+  - **Imbalance 是真实问题**: 如果某 expert 被 disproportionately 多 token 选中
+    (比如初期 untrained model), 那个 expert 的 batch 失衡 → 整体吞吐崩
+
+  ## 关键变体
+
+  - **Token-major permute**: 按 (token, expert) 排序, 适合 dense expert
+  - **Expert-major permute**: 按 (expert, token) 排序, 适合 sparse routing
+  - **Bucketed permute**: 把每个 expert 的 batch 限制在固定 bucket size, 超出 drop —
+    DeepSeek V3 用这个保证 EP load balance
+
+  ## DeepSeek-EP 优化
+
+  DeepSeek 开源了 **DeepEP** (DeepSeek Expert Parallelism) 把 expert-permute + all2all
+  fuse 到一个 kernel, 跨节点 EP 收益 30-50%. v1.x 的 fused-moe-dispatch-deepep 就是
+  这条 fused 路径.
+
+  ## 何时是瓶颈
+
+  - **大型 MoE 模型** (DeepSeek V3 671B-A37B, Mixtral 8x22B), EP > 8
+  - **跨节点 EP**: all2all 时 expert-permute 与 all2all 串行执行, latency 叠加
+  - **Token imbalance 不收敛**: 训练早期 / fine-tuning 阶段 expert 选择不均匀
+
+variants: [token-major, expert-major, bucketed]
+
+fusion_targets: [all2all, grouped-matmul]
+participates_in_fused_kernels:
+  - fused-moe-dispatch-deepep
+
+engine_implementations:
+  - name: DeepEP (DeepSeek 开源)
+    hardware_arch: [hopper, blackwell]
+    url: https://github.com/deepseek-ai/DeepEP
+    notes: 'DeepSeek 自研 expert dispatch, 跨节点 EP 当前最优'
+  - name: vLLM expert-permute kernel
+    hardware_arch: [hopper, blackwell, ada, cdna3]
+    url: https://github.com/vllm-project/vllm
+    notes: '内置 MoE path, 与 DeepEP 路径并存'
+  - name: Megatron-LM MoE
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/NVIDIA/Megatron-LM
+    notes: '训练 + 推理通用'
+  - name: SGLang MoE permute
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://github.com/sgl-project/sglang
+  - name: MindIE Ascend MoE
+    hardware_arch: [ascend-910c, ascend-910d]
+    url: https://www.hiascend.com/document/detail/zh/mindie
+    notes: '昇腾 MoE 路径, HCCL all2all 集成'
+
+precision_support: [bf16, fp16, fp8-e4m3, int8]
+
+related_patterns: [moe-expert-routing-on-domestic]
+
+references:
+  - title: 'DeepEP: Expert-Parallelism Communication Library'
+    url: https://github.com/deepseek-ai/DeepEP
+    source_type: implementation
+  - title: 'Mixture-of-Experts Meets Instruction Tuning'
+    url: https://arxiv.org/abs/2305.14705
+    source_type: paper
+  - title: 'DeepSeek-V3 Technical Report (MoE 路由细节)'
+    url: https://arxiv.org/abs/2412.19437
+    source_type: paper

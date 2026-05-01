@@ -576,6 +576,108 @@ test.describe('Hardware-detail in-page TOC', () => {
   });
 });
 
+test.describe('v1.30: production lifecycle gap-3 closure — observability + lifecycle + 2 operators', () => {
+  test('/learn/observability/ renders 4 metric tiers + 5 stack tooling + 6 diagnostic playbooks', async ({ page }) => {
+    await page.goto('/learn/observability/');
+    await expect(page.getByRole('heading', { name: /生产可观测性|Production Observability/i }).first()).toBeVisible();
+    // 4 metric tiers
+    for (let i = 1; i <= 4; i++) {
+      await expect(page.locator(`[data-testid="metric-tier-${i}"]`).first()).toBeVisible();
+    }
+    // 5 stack tooling sections
+    for (let i = 1; i <= 5; i++) {
+      await expect(page.locator(`[data-testid="stack-tooling-${i}"]`).first()).toBeVisible();
+    }
+    // 6 diagnostic playbooks
+    for (let i = 1; i <= 6; i++) {
+      await expect(page.locator(`[data-testid="diagnostic-playbook-${i}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('Observability guide covers golden signals + per-stack tooling (NVIDIA / AMD / Ascend / Cambricon)', async ({ page }) => {
+    await page.goto('/learn/observability/');
+    // Stack-specific tools
+    await expect(page.getByText(/DCGM/i).first()).toBeVisible();
+    await expect(page.getByText(/rocm-smi/i).first()).toBeVisible();
+    await expect(page.getByText(/npu-smi/i).first()).toBeVisible();
+    await expect(page.getByText(/cnmon|cambricon/i).first()).toBeVisible();
+  });
+
+  test('Observability guide cross-links to deployment-failures + patterns', async ({ page }) => {
+    await page.goto('/learn/observability/');
+    await expect(page.locator('a[href*="/learn/deployment-failures"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/patterns/"]').first()).toBeVisible();
+  });
+
+  test('/learn/production-lifecycle/ renders 4 rollout strategies + A/B test matrix + migration paths', async ({ page }) => {
+    await page.goto('/learn/production-lifecycle/');
+    await expect(page.getByRole('heading', { name: /生产生命周期|Production Lifecycle/i }).first()).toBeVisible();
+    // 4 rollout strategies (canary / blue-green / shadow / progressive)
+    for (let i = 1; i <= 4; i++) {
+      await expect(page.locator(`[data-testid="rollout-strategy-${i}"]`).first()).toBeVisible();
+    }
+    // A/B test matrix
+    await expect(page.locator('[data-testid="ab-test-matrix"]').first()).toBeVisible();
+    // 5 migration paths
+    for (let i = 1; i <= 5; i++) {
+      await expect(page.locator(`[data-testid="migration-path-${i}"]`).first()).toBeVisible();
+    }
+  });
+
+  test('Production-lifecycle covers Canary / Blue-Green / Shadow / Progressive', async ({ page }) => {
+    await page.goto('/learn/production-lifecycle/');
+    await expect(page.getByText(/Canary|灰度/i).first()).toBeVisible();
+    await expect(page.getByText(/Blue.*Green|蓝绿/i).first()).toBeVisible();
+    await expect(page.getByText(/Shadow.*Mirror/i).first()).toBeVisible();
+    await expect(page.getByText(/Progressive|渐进/i).first()).toBeVisible();
+  });
+
+  test('Production-lifecycle migration-paths cover NVIDIA→AMD, NVIDIA→Ascend, BF16→FP8, BF16→FP4, vLLM→SGLang', async ({ page }) => {
+    await page.goto('/learn/production-lifecycle/');
+    await expect(page.getByText(/AMD ROCm.*MI325X/i).first()).toBeVisible();
+    await expect(page.getByText(/昇腾|Atlas 800T/i).first()).toBeVisible();
+    await expect(page.getByText(/BF16 → FP8|BF16.*FP8/i).first()).toBeVisible();
+    await expect(page.getByText(/FP4|Blackwell/i).first()).toBeVisible();
+    await expect(page.getByText(/vLLM → SGLang|vLLM.*SGLang/i).first()).toBeVisible();
+  });
+
+  test('Production-lifecycle ends with deployment-chain summary linking to picking-engine + quant-tree + parallelism', async ({ page }) => {
+    await page.goto('/learn/production-lifecycle/');
+    await expect(page.locator('a[href*="/learn/picking-engine"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/quantization-decision-tree"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/parallelism-cheatsheet"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/deployment-failures"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/learn/observability"]').first()).toBeVisible();
+  });
+
+  test('Learn dropdown contains both new guides (observability + lifecycle)', async ({ page }) => {
+    await page.goto('/');
+    const dd = page.locator('[data-dropdown-id="learn"]').first();
+    await expect(dd.locator('a[href*="/learn/observability"]').first()).toHaveCount(1);
+    await expect(dd.locator('a[href*="/learn/production-lifecycle"]').first()).toHaveCount(1);
+  });
+
+  test('Homepage Learn section now has 9 cards (added observability + lifecycle)', async ({ page }) => {
+    await page.goto('/');
+    const sec = page.locator('[data-testid="home-section-learn"]').first();
+    await expect(sec).toBeVisible();
+    await expect(sec.locator('a[href*="/learn/observability"]').first()).toHaveCount(1);
+    await expect(sec.locator('a[href*="/learn/production-lifecycle"]').first()).toHaveCount(1);
+  });
+
+  test('Expert Permute operator visible (MoE token routing)', async ({ page }) => {
+    await page.goto('/operators/expert-permute/');
+    await expect(page.getByText(/Expert Permute|MoE token routing/i).first()).toBeVisible();
+    await expect(page.getByText(/DeepEP|all2all|grouped-matmul/i).first()).toBeVisible();
+  });
+
+  test('Speculative Verify operator visible (草稿 token 验证)', async ({ page }) => {
+    await page.goto('/operators/speculative-verify/');
+    await expect(page.getByText(/Speculative Verify|草稿 token/i).first()).toBeVisible();
+    await expect(page.getByText(/Medusa|EAGLE|MTP/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v1.29: storage_architecture on every super-pod (14/14) + matrix view + weight-streaming pattern + 2 operators', () => {
   test('/servers/storage-matrix/ renders matrix + FS family distribution', async ({ page }) => {
     await page.goto('/servers/storage-matrix/');

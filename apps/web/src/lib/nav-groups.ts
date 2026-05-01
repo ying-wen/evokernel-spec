@@ -81,7 +81,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/learn/parallelism-cheatsheet/', labelKey: 'home.entry.parallelism', desc_zh: 'TP / PP / EP / SP 选择 cheatsheet', desc_en: 'TP / PP / EP / SP cheatsheet' },
       { path: '/learn/picking-engine/', labelKey: 'home.entry.pickEngine', desc_zh: '推理引擎选择 · 硬件 × 任务匹配', desc_en: 'Engine picking · hardware × task fit' },
       { path: '/learn/attention-variants/', labelKey: 'home.entry.attention', desc_zh: 'Attention 变体 · MHA / GQA / MQA / MLA', desc_en: 'Attention variants · MHA / GQA / MQA / MLA' },
-      { path: '/learn/deployment-failures/', labelKey: 'home.entry.failures', desc_zh: '部署失败模式 · 阶段化 gotcha 索引', desc_en: 'Deployment failures · staged gotcha index' }
+      { path: '/learn/deployment-failures/', labelKey: 'home.entry.failures', desc_zh: '部署失败模式 · 阶段化 gotcha 索引', desc_en: 'Deployment failures · staged gotcha index' },
+      { path: '/learn/observability/', labelKey: 'home.entry.observability', desc_zh: '生产可观测性 · 4 层指标 + 5 栈工具 + 6 故障 playbook', desc_en: 'Production observability · 4 metric tiers + 5 stack tools + 6 playbooks' },
+      { path: '/learn/production-lifecycle/', labelKey: 'home.entry.lifecycle', desc_zh: '生产生命周期 · rollout / A/B / 迁移 / 回滚', desc_en: 'Production lifecycle · rollout / A/B / migration / rollback' }
     ]
   },
   {

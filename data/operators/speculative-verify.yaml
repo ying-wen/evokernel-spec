@@ -1,0 +1,108 @@
+id: speculative-verify
+name: Speculative Verify (草稿 token 验证)
+category: attention
+
+flops_formula: '2 * batch * draft_len * d_model * vocab_size + parallel_softmax_cost'
+bytes_formula: 'draft_logits + target_logits + accept_mask'
+arithmetic_intensity_formula: 'd_model / 4 (并行验证 K+1 个 token, 比单 token decode 高 K 倍 arith)'
+arithmetic_intensity_typical:
+  min: 32.0
+  max: 128.0
+  notes: 'Verify K+1 token 同时, arithmetic intensity 接近 prefill 范围 — 这是 speculative decoding 加速的根源'
+
+description: |
+  Speculative Verify 是 speculative decoding 的核心 op — 接受草稿模型 (draft model) 生成的 K
+  个候选 token, 用 target model 一次 forward 验证全部 K+1 个位置 (K 个 draft + 1 个 next token).
+  接受率高时, 一次 target forward 出多个 token, 把原本 memory-bound decode 提升到接近 prefill
+  的算力利用率.
+
+  ## Verify 算法
+
+  对每个 draft token i (from i=1 to K):
+  1. 计算 target model 在位置 i 的 logits → softmax → P_target(token_i)
+  2. 与 draft model 给出的 P_draft(token_i) 比较
+  3. 接受概率 = min(1, P_target / P_draft)
+  4. 用 random sample 决定接受 or 拒绝
+  5. 如果拒绝, 从 (P_target - P_draft)+ 重采样, 后续草稿全部丢弃
+
+  ## 性能特征
+
+  与单步 decode 相比:
+  - **算力利用率提升**: K+1 token 并行 compute, GEMM batch size = K+1
+  - **HBM bandwidth utilization**: 同一份 weight 读一次, 算 K+1 次, AI 提升 K 倍
+  - **Decode latency 不变**: 但每次 step 出多个 token = 等价 1/(1+E[accepted]) 单步 latency
+
+  ## 加速依赖于接受率
+
+  | 接受率 | 加速倍数 (K=4) | 加速倍数 (K=8) |
+  |---|---|---|
+  | 50% | 1.5x | 1.7x |
+  | 70% | 2.0x | 2.5x |
+  | 85% | 2.6x | 3.5x |
+  | 95% | 3.5x | 5.0x |
+
+  接受率 < 60% 时几乎没有收益 (overhead > saving). DeepSeek V3 MTP head 的接受率
+  ~85% — 是 V3 inference 比同 size dense 模型快的主要原因.
+
+  ## 几种 verify 路径
+
+  - **Vanilla speculative**: 独立 small draft model (e.g. 1B + 70B target). 接受率 ~50-60%, 简单.
+  - **Medusa**: 在 target 上加 K 个独立 head, 共享底层. 接受率 ~70-75%.
+  - **EAGLE / EAGLE-2**: 一层 transformer 草稿, 共享 embedding. 接受率 ~70-80%.
+  - **MTP (DeepSeek V3)**: 训练时联合优化 K 个 future-token head. 接受率 ~85%, 当前最优.
+  - **Tree-attention spec**: 草稿是树状结构, 不只是线性 K 个 token. 接受率 ~85-90%, 实现复杂.
+
+  ## 何时启用
+
+  - **Decode 是瓶颈** (memory-bound, HBM bandwidth 已经满, 算力空闲)
+  - **模型本身训练时含 spec head** (DeepSeek V3 MTP, 或后训练加 Medusa head)
+  - **低 latency 应用** — voice agent, 实时交互, P50 latency 30-50% 改善
+
+  ## 不适用
+
+  - **Throughput-heavy serving**: 大 batch + continuous batching 已经把算力用满, spec 的额外
+    overhead 反而拖慢
+  - **接受率 < 60%**: overhead 大于 saving
+  - **Long input prefill 阶段**: 已经算力利用率高, spec 没意义
+
+variants: [vanilla, medusa, eagle, eagle-2, mtp, tree-spec]
+
+fusion_targets: [matmul, softmax, top-k-sampling]
+participates_in_fused_kernels:
+  - fused-spec-decode
+  - fused-mtp-head
+
+engine_implementations:
+  - name: vLLM speculative decoding (medusa / eagle / mtp)
+    engine_id: vllm
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://docs.vllm.ai/en/latest/features/spec_decode.html
+    notes: 'vLLM 0.6+ 支持多种 spec 算法'
+  - name: SGLang speculative
+    engine_id: sglang
+    hardware_arch: [hopper, blackwell, ada]
+    url: https://docs.sglang.ai/backend/speculative_decoding.html
+  - name: TRT-LLM Medusa / EAGLE
+    engine_id: tensorrt-llm
+    hardware_arch: [hopper, blackwell]
+    url: https://nvidia.github.io/TensorRT-LLM/
+  - name: MindIE MTP path (Ascend)
+    engine_id: mindie
+    hardware_arch: [ascend-910c, ascend-910d]
+    url: https://www.hiascend.com/document/detail/zh/mindie
+    notes: 'DeepSeek-R1 / V3 部署默认启用 MTP'
+
+precision_support: [bf16, fp16, fp8-e4m3, int8]
+
+related_patterns: [mtp-multi-token-prediction, speculative-decoding]
+
+references:
+  - title: 'Fast Inference from Transformers via Speculative Decoding'
+    url: https://arxiv.org/abs/2211.17192
+    source_type: paper
+  - title: 'Medusa: Simple LLM Inference Acceleration with Multiple Decoding Heads'
+    url: https://arxiv.org/abs/2401.10774
+    source_type: paper
+  - title: 'EAGLE-2: Faster Inference via Dynamic Draft Tree'
+    url: https://arxiv.org/abs/2406.16858
+    source_type: paper

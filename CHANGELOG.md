@@ -6,7 +6,7 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Planned (v1.30+ horizon)
+### Planned (v1.31+ horizon)
 - Public submission portal (case YAML web form)
 - Per-engine cost calibration matrix (vLLM vs SGLang vs MindIE on same chip)
 - More tours: SD3 / Flux on Hopper (diffusion — needs schema work for non-LLM models)
@@ -14,7 +14,53 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 - "What's new this week" RSS / changelog feed
 - /impact/ → citation auto-import
 - /servers/cluster-internals/ unified view combining host_cpu + network_topology + storage on one page
-- Production lifecycle / observability content (deployment chain gap-3)
+- Capacity planning guide (sizing → headroom → scaling)
+
+---
+
+## [1.30.0] — 2026-05-02
+
+Closes the deployment optimization chain (gap-3) at the post-deployment lifecycle layer. Until now the site covered *how to deploy* (playbooks, cases, patterns) but not *how to operate*. v1.30 adds the missing post-deployment knowledge: observability (what to monitor / which tool / alert thresholds) + lifecycle (rollout / A/B / migration / rollback). Plus 2 more operators completing key MoE + speculative paths.
+
+### Added
+
+**`/learn/observability/`** (NEW educational guide):
+- 4 metric tiers: Golden signals (Tier 1) → GPU/NPU utilization (Tier 2) → Service-level SLO (Tier 3) → Quality drift (Tier 4)
+- Per-stack tooling for 5 ecosystems: NVIDIA (DCGM/Triton/vLLM), AMD (rocm-smi/profiler), Intel Gaudi (hl-smi), Huawei Ascend (npu-smi/MindIE), Cambricon (cnmon)
+- 6 diagnostic playbooks mapping symptom → metric signature → likely causes → fix path. Each cross-links to relevant patterns
+- Alert threshold guidance (page vs ticket vs ignore) baked into every metric
+
+**`/learn/production-lifecycle/`** (NEW educational guide):
+- 4 rollout strategies: Canary / Blue-Green / Shadow / Progressive — with concrete pros/cons/best-for/worst-for
+- A/B test matrix: 4 common LLM scenarios (quant precision / engine / hardware / model version) with sample size + duration + gotchas
+- 5 migration paths with blocking-changes + validation-path: NVIDIA→AMD, NVIDIA→Ascend, BF16→FP8, BF16→FP4 (Blackwell), vLLM→SGLang
+- Rollback principles: 4-piece rollback kit + when-to-trigger / when-not-to-trigger / hidden-costs
+- Closing summary section linking to the full 5-step deployment chain (engine → quant → parallelism → failures → observability)
+
+**2 more operators** (27 → 29):
+- `expert-permute`: MoE token routing op — the actual data shuffle behind moe-gate. Critical for understanding DeepEP and EP scaling. Bound to `fused-moe-dispatch-deepep` fused kernel
+- `speculative-verify`: Speculative decoding's verify step — the op that takes draft model's K candidate tokens and validates against target model in parallel. Acceptance rate determines speedup (50% → 1.5x, 85% → 3.5x). Connected to flash-mla, fused-mtp-head, fused-spec-decode
+
+**Nav + homepage Learn section now exposes 9 guides** (was 7):
+- /learn/ overview, tours, quantization-decision-tree, parallelism-cheatsheet, picking-engine, attention-variants, deployment-failures, **observability** (NEW), **production-lifecycle** (NEW)
+
+### Three architectural axes — 14/14 super-pods covered (no change from v1.29)
+- v1.27: `host_cpu` — compute axis
+- v1.28: `network_topology` — fabric axis
+- v1.29: `storage_architecture` — persistence axis
+
+### Deployment optimization chain — 5-step coverage (gap-3 closed)
+1. **Pick engine** → /learn/picking-engine/
+2. **Pick quantization** → /learn/quantization-decision-tree/
+3. **Pick parallelism** → /learn/parallelism-cheatsheet/
+4. **Anticipate failures** → /learn/deployment-failures/
+5. **Monitor + iterate** → /learn/observability/ + /learn/production-lifecycle/ ← v1.30
+
+### Stats
+- 368/368 site E2E pass (+11 new) · 36/36 unit pass
+- vendor: 28, hardware: 39, server: 14, model: 19, case: 38, fused-kernel: 24, playbook: 24, pattern: 23, **operator: 29**, citation: 1, tour: 8
+- Build: 420 pages
+- /learn/ guides: 9 (was 7) — observability + production-lifecycle added
 
 ---
 

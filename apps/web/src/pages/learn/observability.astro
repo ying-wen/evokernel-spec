@@ -1,0 +1,398 @@
+---
+/**
+ * /learn/observability/ — production observability guide for LLM inference.
+ *
+ * Closes gap-3 (deployment optimization chain unclear) by surfacing the
+ * "what happens after the model is serving traffic" knowledge that's
+ * scattered across vendor docs and tribal experience.
+ *
+ * Structure:
+ *   1. The 4 metric tiers: golden signals → SLI → SLO → root-cause
+ *   2. Per-stack tooling: NVIDIA / AMD / Intel / 国产 — what tool exists where
+ *   3. Alert thresholds: when to page vs ticket vs ignore
+ *   4. Common diagnostic playbooks: GPU underutil / OOM / latency spike / queue depth
+ *
+ * All recommendations cross-link to existing data (deployment-failures,
+ * patterns, fused-kernels) so the guide compounds with the rest of the site.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+import { getCases, getPatterns } from '~/lib/data';
+
+const [cases, patterns] = await Promise.all([getCases(), getPatterns()]);
+
+interface MetricTier {
+  tier_zh: string;
+  tier_en: string;
+  blurb: string;
+  metrics: Array<{ name: string; unit: string; what_it_tells_you: string; alert_threshold?: string }>;
+}
+
+const METRIC_TIERS: MetricTier[] = [
+  {
+    tier_zh: 'Tier 1: 黄金信号 (Golden signals)',
+    tier_en: 'Tier 1: Golden signals',
+    blurb: 'Google SRE 4 件套, 任何 inference service 都该监控. 看不到这 4 个 = 不知道服务是死是活.',
+    metrics: [
+      { name: 'Throughput', unit: 'tok/s/GPU', what_it_tells_you: '每张卡每秒生成多少 token. < expected 70% 时通常 batching/scheduling 问题', alert_threshold: '低于 baseline 50% 持续 5 min → page' },
+      { name: 'Latency', unit: 'ms', what_it_tells_you: 'TTFT P50/P99 + TBT P50/P99. 用户感知最直接.', alert_threshold: 'P99 TTFT > 2x baseline 持续 3 min → page' },
+      { name: 'Error rate', unit: '%', what_it_tells_you: '请求失败率 (HTTP 5xx, OOM, NaN, time-out).', alert_threshold: '> 1% 持续 2 min → page' },
+      { name: 'Saturation', unit: '%', what_it_tells_you: 'Queue depth / pending requests / pending KV slots. 接近 100% = 系统在崩边缘.', alert_threshold: 'Queue depth > 90% 持续 5 min → page' }
+    ]
+  },
+  {
+    tier_zh: 'Tier 2: GPU/NPU 利用率 (Compute-side)',
+    tier_en: 'Tier 2: GPU/NPU utilization',
+    blurb: '"我的 GPU 在做什么?" — 决定是 compute-bound / memory-bound / launch-overhead-bound.',
+    metrics: [
+      { name: 'GPU SM utilization', unit: '%', what_it_tells_you: 'SM 实际跑 kernel 的比例. 长期 < 50% = launch overhead 太多 (CUDA Graph 没启用?)', alert_threshold: '日均 < 40% → ticket (调度问题)' },
+      { name: 'HBM bandwidth utilization', unit: '%', what_it_tells_you: 'Memory 带宽用了多少 (vs 卡的 peak). Decode 阶段 > 70% 是健康, < 50% 通常 batching 不够', alert_threshold: 'Decode P50 < 50% → ticket (batching 调优)' },
+      { name: 'HBM occupancy', unit: 'GB / %', what_it_tells_you: 'KV cache + weights + activations 实际占用. 接近 100% = 离 OOM 一步之遥', alert_threshold: '> 90% 持续 1 min → page' },
+      { name: 'Power draw', unit: 'W', what_it_tells_you: 'GPU 实际功率. 远低于 TDP 可能在等数据 (storage 瓶颈)', alert_threshold: '远低于卡 TDP 的 60% 持续 → 调查' }
+    ]
+  },
+  {
+    tier_zh: 'Tier 3: 服务质量 (Service-level)',
+    tier_en: 'Tier 3: Service-level (SLO)',
+    blurb: 'SLO/SLI: 把 raw metric 编译成"用户感受". 是付费用户合同的依据.',
+    metrics: [
+      { name: 'TTFT P95 < threshold', unit: 'ms', what_it_tells_you: '95% 请求第一 token 的延迟. 典型 chatbot SLO 是 < 500 ms', alert_threshold: 'SLO 违反持续 5 min → page' },
+      { name: 'TBT P99 < threshold', unit: 'ms/token', what_it_tells_you: '99% token-to-token 延迟. 典型 streaming SLO 是 < 50 ms', alert_threshold: 'SLO 违反 → page' },
+      { name: 'Cost per million tokens', unit: '$', what_it_tells_you: '实测 $ /M tok, 与 /pricing/ 排行榜对照. 涨 30%+ 通常 traffic 模式变了', alert_threshold: '7-day average 涨 30%+ → ticket' },
+      { name: 'Capacity headroom', unit: 'reqs/s', what_it_tells_you: '当前 QPS / 系统最大可承受 QPS. 用于容量规划.', alert_threshold: '< 20% headroom 持续 → 扩容' }
+    ]
+  },
+  {
+    tier_zh: 'Tier 4: 模型质量 (Quality drift)',
+    tier_en: 'Tier 4: Model quality drift',
+    blurb: '推理服务性能 OK 但模型本身回答质量崩了 (量化漂移 / cache 污染 / engine bug). 离线评估 + canary 双保险.',
+    metrics: [
+      { name: 'Eval set perplexity / MMLU', unit: 'nat / %', what_it_tells_you: '定期 (每日 / 每次部署) 跑离线 benchmark 对比 baseline. 跌 1+ pt 是量化或 engine 退化信号', alert_threshold: '日 MMLU 跌 > 0.5 pt → ticket' },
+      { name: 'Generation similarity (vs golden)', unit: 'cosine / BLEU', what_it_tells_you: '同 prompt 跑 100 次, 与 golden output 的相似度. 突降 = numerical drift', alert_threshold: 'Drift > 5% → 调查' },
+      { name: 'Refusal rate', unit: '%', what_it_tells_you: '模型拒绝回答率. 突涨往往是 input 分布变化或量化校准问题', alert_threshold: '+ 50% baseline → ticket' },
+      { name: 'Output length distribution', unit: 'tokens', what_it_tells_you: 'P50 输出长度. 突变常是 stop-token 问题或 sampling config 错', alert_threshold: 'P50 漂移 > 30% → 调查' }
+    ]
+  }
+];
+
+interface StackTooling {
+  stack_zh: string;
+  stack_en: string;
+  vendor_chip: string;
+  tools: Array<{ name: string; layer: string; url?: string; notes?: string }>;
+  dashboard_template?: string;
+}
+
+const STACK_TOOLING: StackTooling[] = [
+  {
+    stack_zh: 'NVIDIA CUDA 栈',
+    stack_en: 'NVIDIA CUDA stack',
+    vendor_chip: 'H100 / H200 / B200 / GB200',
+    tools: [
+      { name: 'nvidia-smi', layer: 'Tier 2', url: 'https://docs.nvidia.com/deploy/nvidia-smi/', notes: '基础命令行, GPU 利用率/HBM/温度/功耗' },
+      { name: 'NVIDIA DCGM', layer: 'Tier 2', url: 'https://developer.nvidia.com/dcgm', notes: '生产 monitoring 标准, Prometheus exporter 内置' },
+      { name: 'Nsight Systems / Compute', layer: 'Tier 2 + diagnostic', url: 'https://developer.nvidia.com/nsight-systems', notes: '深度 profiling, 排查 launch overhead / kernel 时间' },
+      { name: 'Triton Inference Server metrics', layer: 'Tier 1 + 3', url: 'https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/metrics.html', notes: '请求级指标 (QPS, latency 直方图)' },
+      { name: 'vLLM Prometheus endpoint', layer: 'Tier 1 + 3', url: 'https://docs.vllm.ai/en/latest/serving/metrics.html', notes: 'Out-of-the-box metrics, /metrics endpoint' }
+    ],
+    dashboard_template: 'NVIDIA Grafana Dashboard ID 12239 (DCGM) + 18674 (Triton)'
+  },
+  {
+    stack_zh: 'AMD ROCm 栈',
+    stack_en: 'AMD ROCm stack',
+    vendor_chip: 'MI300X / MI325X / MI355X',
+    tools: [
+      { name: 'rocm-smi', layer: 'Tier 2', url: 'https://rocm.docs.amd.com/projects/rocm_smi_lib/', notes: 'AMD 等价 nvidia-smi' },
+      { name: 'ROCm Compute Profiler', layer: 'Tier 2 + diagnostic', url: 'https://github.com/ROCm/rocprofiler-compute', notes: '等价 Nsight Compute, kernel-level 分析' },
+      { name: 'AMD SMI Exporter (Prometheus)', layer: 'Tier 2', url: 'https://github.com/ROCm/amd_smi_exporter', notes: '社区维护, 生产部署预留 1-2 周 dashboard build 时间' },
+      { name: 'vLLM ROCm / SGLang ROCm metrics', layer: 'Tier 1 + 3', url: 'https://docs.vllm.ai/en/latest/getting_started/amd-installation.html', notes: '与 NVIDIA vLLM 同 endpoint (功能对齐)' }
+    ],
+    dashboard_template: 'AMD SMI exporter + Grafana dashboard ID 19540 (社区版)'
+  },
+  {
+    stack_zh: 'Intel Gaudi 栈',
+    stack_en: 'Intel Gaudi stack',
+    vendor_chip: 'Gaudi 2 / Gaudi 3',
+    tools: [
+      { name: 'hl-smi', layer: 'Tier 2', url: 'https://docs.habana.ai/en/latest/Management_and_Monitoring/index.html', notes: '基础 HPU monitoring CLI' },
+      { name: 'HPU Profile', layer: 'Tier 2 + diagnostic', notes: 'SynapseAI 内置 profiler, kernel-level' },
+      { name: 'HabanaLabs metrics exporter', layer: 'Tier 2', notes: 'Prometheus exporter, 标准 Grafana 集成' }
+    ],
+    dashboard_template: 'Intel Gaudi Grafana Dashboard (官方)'
+  },
+  {
+    stack_zh: '昇腾 CANN 栈 (国产)',
+    stack_en: 'Huawei Ascend CANN stack',
+    vendor_chip: '910C / 910D / 910B',
+    tools: [
+      { name: 'npu-smi', layer: 'Tier 2', url: 'https://www.hiascend.com/document/detail/zh/canncommercial/', notes: 'NPU 等价 nvidia-smi, CANN 内置' },
+      { name: 'msprof / Ascend Profiler', layer: 'Tier 2 + diagnostic', notes: 'CANN 内置 profiler, kernel + 算子分析' },
+      { name: 'MindIE 监控 endpoint', layer: 'Tier 1 + 3', url: 'https://www.hiascend.com/document/detail/zh/mindie', notes: 'MindIE 2.0+ 暴露 Prometheus endpoint' },
+      { name: 'CANN 监控套件 + Prometheus', layer: 'Tier 2', notes: '华为生态 (FusionInsight 等) 集成路径' }
+    ],
+    dashboard_template: '华为云 Stack 自带 Grafana 模板; 自建部署需要自定义'
+  },
+  {
+    stack_zh: '寒武纪 Neuware 栈 (国产)',
+    stack_en: 'Cambricon Neuware stack',
+    vendor_chip: 'MLU590 / MLU370',
+    tools: [
+      { name: 'cnmon (cambricon-smi)', layer: 'Tier 2', url: 'https://www.cambricon.com/', notes: 'MLU 等价 nvidia-smi' },
+      { name: 'cnperf', layer: 'Tier 2 + diagnostic', notes: 'Cambricon 内置 profiler' },
+      { name: 'Cambricon Prometheus exporter (社区)', layer: 'Tier 2', notes: '社区维护, 第三方 APM 集成最少, 通常需要自定义' }
+    ],
+    dashboard_template: '需自建 — 没有官方模板'
+  }
+];
+
+interface DiagnosticPlaybook {
+  symptom: string;
+  metric_signature: string;
+  likely_causes: string[];
+  fix_path: string;
+  related_pattern_id?: string;
+}
+
+const DIAGNOSTIC_PLAYBOOKS: DiagnosticPlaybook[] = [
+  {
+    symptom: 'GPU SM 利用率 < 30% 但服务负载满',
+    metric_signature: 'SM% 低 + Power 低 + Throughput 低',
+    likely_causes: [
+      'CUDA Graph 没启用 / disabled (--enforce-eager)',
+      'Batch size 太小 (continuous batching 没生效)',
+      'Storage I/O 是瓶颈 (dataloader 跟不上)',
+      'Engine 版本 buggy, kernel launch 路径低效'
+    ],
+    fix_path: '检查 vLLM/SGLang 是否启用 CUDA Graph + continuous batching + paged attention; 如果启用了, profile 看 launch overhead 来源',
+    related_pattern_id: 'continuous-batching'
+  },
+  {
+    symptom: 'HBM 接近满, 偶发 OOM',
+    metric_signature: 'HBM% > 95 + error spike + saturation 警报',
+    likely_causes: [
+      'KV cache page 数估算偏高 (vLLM --max-num-seqs 太大)',
+      '未启用 FP8/INT8 量化, 权重占 HBM 太多',
+      'Long context 场景 KV cache 暴涨, 没启用 hot-cold 分层',
+      'Memory leak (engine bug, 重启每周一次的 workaround)'
+    ],
+    fix_path: '降低 --max-num-seqs 或 --max-model-len; 启用量化 (FP8 → 50% HBM); 启用 hot-cold KV tiering 或 KV-cache INT8',
+    related_pattern_id: 'hot-cold-kv-tiering'
+  },
+  {
+    symptom: 'TTFT P99 突然 5x 上涨',
+    metric_signature: 'TTFT P99 spike + Queue depth 上涨 + Throughput 不变',
+    likely_causes: [
+      '某些请求 prefill 长度爆炸 (用户传超长 input)',
+      'Prefix-cache 命中率掉了 (cache 被 evict)',
+      'Disaggregated 路径 prefill 节点饱和',
+      'KV cache contention (不同 session 抢 page)'
+    ],
+    fix_path: '检查 prefill seq len 直方图; 启用 prefix-radix-cache; 长 input 时考虑 disaggregated prefill/decode',
+    related_pattern_id: 'disaggregated-prefill-decode'
+  },
+  {
+    symptom: 'TBT (token-to-token) 抖动严重',
+    metric_signature: 'TBT P50 OK + TBT P99 ≫ P50 + GPU 利用率不稳',
+    likely_causes: [
+      'Continuous batching 让 short request 与 long request 同 batch',
+      'Speculative decoding 接受率波动',
+      'CPU-side scheduler 是瓶颈 (router / tokenizer)',
+      'Kernel 选择问题 (FlashAttn fallback 到慢路径)'
+    ],
+    fix_path: '检查 batch composition; 启用 chunked prefill; CPU 不够考虑用 EPYC 9654 等高核数 host CPU',
+    related_pattern_id: 'continuous-batching'
+  },
+  {
+    symptom: '量化部署后 MMLU 突跌 2+ pt',
+    metric_signature: 'eval-set quality 跌 + perplexity 涨 + 用户投诉增多',
+    likely_causes: [
+      'PTQ 校准 set 选错 (用了 generic 而非任务相关)',
+      'KV cache INT8 缺乏 per-token scale (long context 漂移)',
+      'FP8 calibration 没收敛',
+      '小模型 (< 13B) PTQ 损失天花板, 需要 QAT'
+    ],
+    fix_path: '<13B 模型走 QAT (LoRA-QAT 4-12 hour 恢复 < 0.5 pt); 大模型重新校准 + 任务相关数据',
+    related_pattern_id: 'quant-aware-finetune'
+  },
+  {
+    symptom: 'Decode tok/s 比预期低 30%',
+    metric_signature: 'Throughput < expected + HBM bandwidth% 低 + SM% 中等',
+    likely_causes: [
+      '没启用 FlashAttention v3 (Hopper) 或对应硬件最优 attention kernel',
+      'Memory bandwidth bound 但 batch 太小 — 无法摊开 weights load',
+      'TP=8 时 all-reduce 没启用 overlap',
+      'KV cache layout 不优 (paged-block-major 没启)'
+    ],
+    fix_path: '确认 FlashAttn 路径 + paged attention; TP 启用 tp-allreduce-overlap; 提高 batch 到 memory-bound saturated',
+    related_pattern_id: 'tp-allreduce-overlap'
+  }
+];
+
+const totalCases = cases.length;
+const totalPatterns = patterns.length;
+---
+<BaseLayout title="生产可观测性 / Production Observability">
+  <Container width="wide">
+    <section class="pt-12 pb-8">
+      <div class="text-xs uppercase tracking-widest font-medium mb-3" style="color: var(--color-accent);">
+        LEARN · PRODUCTION OBSERVABILITY
+      </div>
+      <h1 style="font-size: clamp(2rem, 1.4rem + 4vw, 3.5rem); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em;">
+        生产可观测性 · Production Observability
+      </h1>
+      <p class="text-lg mt-6 max-w-3xl" style="color: var(--color-text-muted);">
+        部署上线只是第一步. 之后的 <strong>"模型还在好好工作吗?"</strong> 才是 SLO 决胜场.
+        这里组织 LLM inference 生产监控的全部所需 — 4 层指标分类 · 5 个软件栈的具体工具 ·
+        6 个常见故障 playbook. 每个都 cross-link 到 <a href={pathname('/learn/deployment-failures/')} style="color: var(--color-accent);" class="hover:underline">部署失败模式</a>
+        和 <a href={pathname('/patterns/')} style="color: var(--color-accent);" class="hover:underline">优化模式</a>.
+      </p>
+      <div class="mt-6 flex gap-6 text-sm flex-wrap">
+        <div><span style="color: var(--color-text-muted);">指标分层: </span><strong>4 层</strong></div>
+        <div><span style="color: var(--color-text-muted);">软件栈覆盖: </span><strong>5 个 (NVIDIA / AMD / Intel / 昇腾 / 寒武纪)</strong></div>
+        <div><span style="color: var(--color-text-muted);">诊断 playbook: </span><strong>{DIAGNOSTIC_PLAYBOOKS.length} 个</strong></div>
+        <div><span style="color: var(--color-text-muted);">案例参考: </span><strong>{totalCases}</strong></div>
+      </div>
+    </section>
+
+    <!-- Section 1: 4 metric tiers -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">1. 指标分层 — 4 层 metric taxonomy</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        从用户感知 (Tier 1) 到模型质量 (Tier 4) 的 4 层. 不是同一时间监控全部 — 各 tier 有不同的
+        告警频率和决策权重. 监控太多反而会麻木 — 这个分层让 on-call 工程师知道什么该即刻 page,
+        什么该走 ticket, 什么该忽略.
+      </p>
+
+      <div class="space-y-6">
+        {METRIC_TIERS.map((tier, idx) => (
+          <div class="rounded-lg border" data-testid={`metric-tier-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="px-5 py-4 border-b" style="border-color: var(--color-border);">
+              <h3 class="text-lg font-semibold" style="color: var(--color-text);">{tier.tier_zh}</h3>
+              <p class="text-sm mt-2" style="color: var(--color-text-muted);">{tier.blurb}</p>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs" style="border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--color-border);">
+                    <th class="text-left py-2 px-4 font-semibold" style="color: var(--color-text-muted); min-width: 180px;">Metric</th>
+                    <th class="text-left py-2 px-4 font-semibold" style="color: var(--color-text-muted);">单位</th>
+                    <th class="text-left py-2 px-4 font-semibold" style="color: var(--color-text-muted);">告诉你什么</th>
+                    <th class="text-left py-2 px-4 font-semibold" style="color: var(--color-text-muted); min-width: 220px;">告警阈值</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tier.metrics.map((m) => (
+                    <tr style="border-bottom: 1px solid var(--color-border);">
+                      <td class="py-2.5 px-4 font-medium" style="color: var(--color-text);">{m.name}</td>
+                      <td class="py-2.5 px-4 font-mono" style="color: var(--color-text-muted);">{m.unit}</td>
+                      <td class="py-2.5 px-4" style="color: var(--color-text);">{m.what_it_tells_you}</td>
+                      <td class="py-2.5 px-4" style="color: var(--color-text-muted);">{m.alert_threshold ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- Section 2: per-stack tooling -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">2. 软件栈与工具 — Per-stack tooling</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        5 个主流 inference 栈的 monitoring 工具. NVIDIA 生态最成熟 (DCGM + Triton + vLLM 三位一体);
+        AMD 接近但 dashboard 模板少; 国产栈 (昇腾 / 寒武纪) 工具齐全但生态滞后, 第三方 APM 集成
+        通常需要自建.
+      </p>
+
+      <div class="grid lg:grid-cols-2 gap-4">
+        {STACK_TOOLING.map((stack, idx) => (
+          <div class="rounded-lg border p-5" data-testid={`stack-tooling-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <h3 class="text-base font-semibold mb-1" style="color: var(--color-text);">{stack.stack_zh}</h3>
+            <p class="text-xs font-mono mb-4" style="color: var(--color-text-muted);">{stack.vendor_chip}</p>
+            <ul class="space-y-2.5 text-xs">
+              {stack.tools.map((t) => (
+                <li>
+                  <div class="flex items-baseline gap-2">
+                    {t.url ? (
+                      <a href={t.url} target="_blank" rel="noopener noreferrer" class="font-medium hover:underline" style="color: var(--color-accent);">{t.name}</a>
+                    ) : (
+                      <span class="font-medium" style="color: var(--color-text);">{t.name}</span>
+                    )}
+                    <span class="text-[10px] px-1.5 py-0.5 rounded" style="background: var(--color-bg); color: var(--color-text-muted);">{t.layer}</span>
+                  </div>
+                  {t.notes && <p class="mt-0.5 ml-0" style="color: var(--color-text-muted);">{t.notes}</p>}
+                </li>
+              ))}
+            </ul>
+            {stack.dashboard_template && (
+              <div class="mt-4 pt-3 border-t text-xs" style="border-color: var(--color-border); color: var(--color-text-muted);">
+                <strong style="color: var(--color-text);">Dashboard 模板:</strong> {stack.dashboard_template}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- Section 3: diagnostic playbooks -->
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">3. 故障诊断 playbook — Diagnostic playbooks</h2>
+      <p class="text-sm max-w-3xl mb-6" style="color: var(--color-text-muted);">
+        从 metric 异常到 root cause 的最短路径. 当 alert 在凌晨 3 点把你叫醒时, 直接对照
+        症状 → 信号 → 可能原因 → 修复路径. 每条都关联具体优化模式, 链接到 cross-reference.
+      </p>
+
+      <div class="space-y-3">
+        {DIAGNOSTIC_PLAYBOOKS.map((pb, idx) => {
+          const pattern = pb.related_pattern_id ? patterns.find((p) => p.id === pb.related_pattern_id) : undefined;
+          return (
+            <div class="rounded-lg border p-5" data-testid={`diagnostic-playbook-${idx + 1}`} style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <div class="flex items-baseline gap-3 flex-wrap mb-2">
+                <span class="text-xs font-mono px-2 py-0.5 rounded" style="background: var(--color-accent); color: white;">⚠️ {idx + 1}</span>
+                <h3 class="text-base font-semibold" style="color: var(--color-text);">{pb.symptom}</h3>
+              </div>
+              <div class="text-xs mt-2" style="color: var(--color-text-muted);">
+                <strong style="color: var(--color-text);">Metric 信号:</strong> <code style="background: var(--color-bg); padding: 1px 6px; border-radius: 3px;">{pb.metric_signature}</code>
+              </div>
+              <div class="mt-3">
+                <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-text-muted);">可能原因 / Likely causes</div>
+                <ul class="text-sm space-y-1" style="color: var(--color-text);">
+                  {pb.likely_causes.map((c) => <li>· {c}</li>)}
+                </ul>
+              </div>
+              <div class="mt-3 p-3 rounded" style="background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+                <div class="text-xs font-medium uppercase tracking-wider mb-1" style="color: var(--color-accent);">→ 修复路径 / Fix path</div>
+                <p class="text-sm" style="color: var(--color-text);">{pb.fix_path}</p>
+              </div>
+              {pattern && (
+                <div class="mt-3 text-xs">
+                  <a href={pathname(`/patterns/${pattern.id}/`)} class="hover:underline" style="color: var(--color-accent);">
+                    🧩 {pattern.name} →
+                  </a>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="py-12 border-t" style="border-color: var(--color-border);">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 5%, var(--color-bg));">
+        <h3 class="text-lg font-semibold mb-2">下一步</h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          上线了, 监控好了, 然后呢? 看 <a href={pathname('/learn/production-lifecycle/')} style="color: var(--color-accent);" class="hover:underline">/learn/production-lifecycle/</a>
+          覆盖 rollout / A/B / 版本迁移 / 回滚 — 让模型的整个生命周期都有 playbook.
+        </p>
+        <div class="flex gap-3 flex-wrap">
+          <a href={pathname('/learn/production-lifecycle/')} class="text-sm px-4 py-2 rounded-md font-medium" style="background: var(--color-accent); color: white;">生产生命周期 →</a>
+          <a href={pathname('/learn/deployment-failures/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">部署失败模式 →</a>
+          <a href={pathname('/patterns/')} class="text-sm px-4 py-2 rounded-md font-medium border" style="border-color: var(--color-border); color: var(--color-text);">{totalPatterns} 个优化模式 →</a>
+        </div>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>
