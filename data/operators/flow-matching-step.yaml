@@ -1,0 +1,130 @@
+id: flow-matching-step
+name: Flow-Matching Step (rectified-flow ODE solver)
+category: misc
+
+flops_formula: 'forward_flops_per_step (depends on backbone DiT/UNet)'
+bytes_formula: '4 * latent_dim * 4 (single state vector + velocity)'
+arithmetic_intensity_formula: 'inherits from backbone forward'
+arithmetic_intensity_typical:
+  min: 100
+  max: 500
+  notes: 'Compute-bound; cost is dominated by backbone forward, not ODE step.'
+
+description: |
+  Flow-matching step is the **sampler iteration** for flow-matching models (rectified
+  flow variant): F5-TTS, Mochi 1, FLUX, Stable Diffusion 3.5, Auraflow. It replaces
+  the classic DDPM denoising step with a velocity-field ODE solve.
+
+  ```
+  # Each step (NFE = num function evaluations):
+  velocity = backbone(x_t, t, conditioning)        # forward pass through DiT/UNet
+  x_{t-1} = x_t + (t_{t-1} - t) * velocity         # Euler step (rectified flow)
+  ```
+
+  Compared to classic DDPM:
+  - **Fewer NFE**: rectified flow can converge in 4-50 steps (vs DDPM 50-1000)
+  - **Simpler math**: no noise schedule β; just linear time interpolation
+  - **Same backbone cost**: each step has identical forward pass cost
+
+  ## Why it's a separate op (not just "another sampler")
+
+  Production diffusion engines (Diffusers, ComfyUI, Stable-Fast) treat the sampler
+  as a hot loop with its own optimization opportunities:
+
+  1. **CUDA Graph capture**: bake the entire NFE loop into one graph (3× lower
+     launch overhead at low-NFE configs like 4-step turbo)
+  2. **Distillation**: condense N steps into 1 (e.g., FLUX Turbo: 8 → 4 NFE)
+  3. **Caching**: skip redundant compute via caching schedulers (TeaCache, DeepCache)
+  4. **Solver choice**: Heun, DPM-Solver++, RK4 — different accuracy/cost trade-offs
+
+  Each of these optimizations is a separate research / engineering frontier.
+
+variants: [euler, heun, dpm-solver-pp, rk4]
+
+fusion_targets: [matmul, attention, layernorm]
+participates_in_fused_kernels:
+  - flow-matching-with-cache  # v3.11+ candidate, not yet in corpus
+
+engine_implementations:
+  - name: Diffusers FlowMatchEulerDiscreteScheduler
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, cdna4]
+    url: https://huggingface.co/docs/diffusers/main/en/api/schedulers/flow_match_euler_discrete
+    notes: 'Reference impl. Most flow-matching deployments use this.'
+  - name: ComfyUI flow-matching nodes
+    hardware_arch: [hopper, ampere, ada, blackwell, cdna3, cdna4]
+    url: https://github.com/comfyanonymous/ComfyUI
+    notes: 'Workflow node abstraction; same underlying math.'
+  - name: TeaCache (caching scheduler)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/LiewFeng/TeaCache
+    notes: 'Skips ~30% of forward passes via residual caching. Compatible with FLUX, Mochi 1, HunyuanVideo.'
+  - name: xFuser (multi-GPU diffusion parallelism)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/xdit-project/xDiT
+    notes: 'Splits flow-matching step across multiple GPUs via Sequence + Tensor parallelism.'
+
+precision_support: [bf16, fp16, fp8-e4m3]
+
+related_patterns: []
+
+references:
+  - title: 'Flow Matching for Generative Modeling (Lipman et al.)'
+    url: https://arxiv.org/abs/2210.02747
+    source_type: paper
+  - title: 'Rectified Flow (Liu et al.)'
+    url: https://arxiv.org/abs/2209.03003
+    source_type: paper
+  - title: 'F5-TTS paper (sway sampling)'
+    url: https://arxiv.org/abs/2410.06885
+    source_type: paper
+
+formal_semantics:
+  signature: |
+    flow_matching_step(x_t: [B, latent_dim], t: float, conditioning: [B, cond_dim],
+                       backbone_forward: callable, dt: float, solver: 'euler' | 'heun' | ...)
+        -> x_{t-dt}: [B, latent_dim]
+    Where x is the latent state being denoised, t is current time (1.0 → 0.0 over NFE steps),
+    and conditioning is the text prompt embedding (or other conditioning).
+
+  edge_cases:
+    - input: 'low NFE (4-8 steps for distilled models like FLUX Turbo)'
+      behaviors:
+        flux-turbo: 'Uses sigmoid time scheduler instead of linear; mandatory for distillation to converge.'
+        mochi-1: '50 NFE default; distilled variant 8 NFE in development.'
+        f5-tts-sway: 'Sway sampling: non-uniform t spacing; concentrates samples where velocity changes most.'
+      mitigation: 'Don"t naively run distilled models at high NFE — quality plateaus and may degrade.'
+
+    - input: 'guidance scale (CFG)'
+      behaviors:
+        all_libs: 'velocity = (1 + cfg) * cond_velocity - cfg * uncond_velocity; doubles backbone cost.'
+        flux-distilled: 'CFG baked into model — single pass; no doubling.'
+      mitigation: 'For FLUX-distilled / Mochi 1: skip CFG (already baked in). For SD 3.5: CFG is mandatory; budget 2× cost.'
+
+  numerical_rules:
+    - aspect: 'velocity_dtype'
+      per_library:
+        diffusers: 'BF16/FP16 backbone output; FP32 ODE state ideally but BF16 acceptable for ≤ 50 NFE.'
+        f5-tts: 'BF16 throughout (sway sampling robust to lower precision).'
+      notes: 'Unlike LLM sampling, flow-matching ODE state can drift slightly without quality loss. BF16 sufficient unless NFE > 100.'
+
+    - aspect: 'cfg_compute_order'
+      per_library:
+        all_libs: 'cond and uncond velocity computed in same forward (batch concat) — saves 1 kernel launch.'
+      notes: 'Standard. Diffusers + ComfyUI both batch this.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def flow_matching_step_euler(x_t, t, cond, uncond, backbone, dt, cfg_scale=7.5):
+          # Batch cond + uncond for single forward pass
+          batched_input = torch.cat([x_t, x_t], dim=0)
+          batched_t = torch.cat([t.expand(x_t.size(0)), t.expand(x_t.size(0))])
+          batched_cond = torch.cat([cond, uncond], dim=0)
+          # Single forward (saves ~50% wall-clock vs separate)
+          velocity = backbone(batched_input, batched_t, batched_cond)
+          v_cond, v_uncond = velocity.chunk(2, dim=0)
+          # Classifier-free guidance
+          guided_velocity = (1 + cfg_scale) * v_cond - cfg_scale * v_uncond
+          # Euler step (rectified flow)
+          x_next = x_t + dt * guided_velocity
+          return x_next

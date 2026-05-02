@@ -6,7 +6,69 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.11 — new op-classes + hardware breadth completion** (`triangle_multiplicative_update` op for AlphaFold/Boltz, `clebsch_gordan_tensor_product` for MACE-MP equivariant path; remaining hardware audit gaps: RTX 5070 Ti, RX 9060 XT, Sophgo BM1684X, Horizon Journey 5).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.12 — hardware breadth completion + apply new v3.11 ops to fused-kernel entries** (`fused-pairformer-block` for Boltz, `fused-mace-message-pass` for MACE, `fused-flow-matching-with-cache` for Mochi/FLUX/F5-TTS; remaining hardware: RTX 5070 Ti, RX 9060 XT, Sophgo BM1684X, Horizon Journey 5).
+
+---
+
+## [3.11.0] — 2026-05-03 — 4 new op-classes from v3.8/v3.10 model breadth
+
+**Theme**: close the gap surfaced by v3.8 + v3.10 model breadth — 4 fundamental ops that don't fit the LLM op set. These are the dominant compute paths for non-LLM workloads (bio, materials, video gen, audio).
+
+### Added — 4 new operators (34 → 38)
+
+**1. `triangle-multiplicative-update`** — pairformer hot path
+
+Used by: Boltz-1, ESMFold, AlphaFold 3, RFAA, RoseTTAFold. Shape: `[B, N, N, c]` pair tensor → `out[i,j,c] = sum_k (a[i,k,c] * b[k,j,c])`. O(N³ · c) — much more expensive than standard matmul. **Consumes ~30% of forward pass in pairformer architectures.** Critical missing op pre-v3.11 — agent couldn't reason about Boltz-1 / ESMFold deployment optimization without it.
+
+Documents: outgoing vs incoming variants, e3nn / OpenFold Triton / AF3 XLA / Boltz-1 PyTorch impls, memory layout challenges (32MB pair tensor at N=500), tensor-core fitness issues, FP32 reduction mandatory.
+
+**2. `clebsch-gordan-tensor-product`** — equivariant GNN core op
+
+Used by: MACE-MP-0, NequIP, Allegro, GNoME, EquiformerV2. Combines two SO(3) irreducible representations preserving rotation equivariance. ~30-50% wall-clock in MACE on H100 (1000-atom MD step).
+
+Documents: sparse CG tensor (~5-10% of triplets non-zero), tensor-core unfriendly shapes, FP32 CG storage required (coefficients span 10+ orders of magnitude).
+
+**3. `mel-spectrogram-encode`** — audio preprocessing for ASR/TTS
+
+Used by: Whisper, Parakeet, F5-TTS. Raw 16-bit PCM → 2D Mel-spectrogram via FFT + Mel filterbank + log-magnitude. Standard params: 16 kHz, 25ms window, 10ms hop, 80 Mel bins.
+
+Documents: CPU vs GPU offload trade-off (10-30ms latency dominates streaming round-trip), NeMo cuFFT / torchaudio / Whisper.cpp SIMD / MLX Metal impls, sample rate mismatch handling, log epsilon clamp, FP32 FFT mandatory (FP16 loses low-frequency speech energy).
+
+**4. `flow-matching-step`** — rectified-flow ODE solver
+
+Used by: F5-TTS, Mochi 1, FLUX, SD 3.5, Auraflow. Replaces classic DDPM denoising with velocity-field ODE solve. Fewer NFE (4-50) than DDPM (50-1000) for similar quality.
+
+Documents: Euler / Heun / DPM-Solver++ / RK4 variants, distillation (FLUX Turbo 8→4 NFE), caching schedulers (TeaCache 30% step skip), xFuser multi-GPU parallelism, CFG batching, sigmoid vs linear time scheduler.
+
+### Why these 4 ops matter
+
+The v2.x op set (matmul, attention, softmax, RMSNorm, RoPE, etc.) was LLM-centric. v3.8/v3.10 model breadth surfaced that non-LLM workloads have **non-overlapping bottleneck ops**:
+
+- Boltz-1 / ESMFold spend 30% in `triangle-multiplicative-update` — invisible to agent without this op entry
+- MACE-MP / Orb-V2 spend 30-50% in `clebsch-gordan-tensor-product`
+- All speech models run `mel-spectrogram-encode` (streaming-critical)
+- All video / image / TTS gen run `flow-matching-step` 4-50× per inference
+
+After v3.11, the agent can reason about non-LLM workload optimization at the same op-class granularity it did for LLM workloads in v2.x.
+
+### Schema observation
+
+All 4 ops use `category: misc` because `OperatorCategorySchema` doesn't have suitable categories. Future v3.13+ candidate: extend with `bio`, `equivariant`, `audio-preprocess`, `sampler`.
+
+### Stats
+
+- **Operators**: 34 → 38 (+4)
+- **Site pages**: 573 → 577 (+4)
+- **Layer D coverage**: 38/38 ops have formal_semantics (each new op includes signature + edge_cases + numerical_rules + reference_impl)
+- **Tests**: still 75/75 passing
+
+### v3.12 next
+
+- Hardware breadth completion (RTX 5070 Ti, RX 9060 XT, BM1684X, Journey 5)
+- Apply v3.11 ops to new fused-kernel entries:
+  - `fused-pairformer-block` (triangle-multiplicative-update + LayerNorm + gating)
+  - `fused-mace-message-pass` (CG tensor product + radial basis + atomic update)
+  - `fused-flow-matching-with-cache` (TeaCache-style + flow-matching step)
 
 ---
 

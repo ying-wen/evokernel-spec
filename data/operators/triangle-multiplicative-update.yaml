@@ -1,0 +1,133 @@
+id: triangle-multiplicative-update
+name: Triangle Multiplicative Update (pairformer hot path)
+category: misc
+
+flops_formula: '4 * N^3 * c (N=residue count, c=channel dim)'
+bytes_formula: '8 * N^2 * c'
+arithmetic_intensity_formula: 'N * c / 2  (compute-bound at large N)'
+arithmetic_intensity_typical:
+  min: 50
+  max: 200
+  notes: 'Compute-bound at N>200. The dominant op in pairformer (~30% wall-clock in Boltz-1, ESMFold, AF3).'
+
+description: |
+  Triangle multiplicative update is a core op in **pairformer architectures** (AlphaFold 3,
+  Boltz-1, ESMFold, RFAA, RoseTTAFold). It updates the pair representation `P[i,j]` by
+  combining contributions through all third residues `k` via a multiplicative interaction:
+
+  ```
+  P[i,j] += sum_k (a[i,k] * b[k,j])    # outgoing variant
+  P[i,j] += sum_k (a[k,i] * b[k,j])    # incoming variant
+  ```
+
+  Where `a, b` are projections of `P`. This is functionally a 4-tensor contraction
+  (N × N × N × c) — much more expensive than standard matmul for large N.
+
+  ## Why it's the bottleneck
+
+  In a 200-residue protein:
+  - Standard self-attention: O(N² · c) = ~5M FLOPs per layer
+  - Triangle update: O(N³ · c) = ~1B FLOPs per layer (200×!)
+
+  At N>500, triangle updates dominate wall-clock. AlphaFold 3 / Boltz-1 / ESMFold all
+  spend ~30% of forward pass in this single op. A fused / well-tuned kernel here
+  changes deployment economics for protein structure prediction.
+
+  ## Implementation challenges
+
+  1. **Memory layout**: `P` is [N, N, c] — for N=500, c=128 this is 32 MB per pair tensor.
+     Two of these (a + b) plus output → 96 MB working set. Doesn't fit in SMEM.
+  2. **Tensor-core fitness**: shape is unusual ([N, N, c] × [N, N, c] → [N, N, c] with
+     reduction over middle dim). cuBLAS BatchGemm works but suboptimal.
+  3. **Numerical precision**: outputs are pair scores that go through softmax later;
+     FP32 accumulator mandatory; intermediate FP16/BF16 OK.
+  4. **Triangle inequality** correctness: the "outgoing" and "incoming" variants have
+     different transposition; engineers often confuse them.
+
+variants: [outgoing, incoming]
+
+fusion_targets: [matmul, layernorm]
+participates_in_fused_kernels: []  # No corpus entry yet — v3.11 candidate to add
+
+engine_implementations:
+  - name: AlphaFold 3 reference (DeepMind)
+    hardware_arch: [hopper, ampere]
+    url: https://github.com/google-deepmind/alphafold3
+    notes: 'Closed-weights, but reference code public. Uses XLA / JAX primitives.'
+  - name: Boltz-1 PyTorch impl
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/jwohlwend/boltz
+    notes: 'Eager PyTorch impl. Significant optimization opportunity (currently slow).'
+  - name: ESMFold (Meta)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/facebookresearch/esm
+    notes: 'Folding module triangle update is in scripts/openfold/triangle_multiplicative_update.py.'
+  - name: OpenFold (community AF2 reimpl)
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/aqlaboratory/openfold
+    notes: 'Has Triton kernel for triangle update — reference perf.'
+
+precision_support: [bf16, fp16, fp32]
+
+related_patterns: []
+
+references:
+  - title: 'AlphaFold 2 (introduces triangle update in Evoformer)'
+    url: https://www.nature.com/articles/s41586-021-03819-2
+    source_type: paper
+  - title: 'AlphaFold 3 (extends to pairformer)'
+    url: https://www.nature.com/articles/s41586-024-07487-w
+    source_type: paper
+  - title: 'OpenFold Triton kernel reference'
+    url: https://github.com/aqlaboratory/openfold/blob/main/openfold/utils/kernel/triangle_multiplicative_update.py
+    source_type: implementation
+  - title: 'Boltz-1 paper (v3.8 corpus entry)'
+    url: https://www.biorxiv.org/content/10.1101/2024.11.19.624167v1
+    source_type: paper
+
+formal_semantics:
+  signature: |
+    triangle_multiplicative_update(P: [B, N, N, c], variant: 'outgoing' | 'incoming')
+        -> P_updated: [B, N, N, c]
+    Where:
+      - outgoing: out[i,j,c] = sum_k (a[i,k,c] * b[k,j,c])
+      - incoming: out[i,j,c] = sum_k (a[k,i,c] * b[k,j,c])
+    a, b are gated linear projections of P (with sigmoid gate).
+
+  edge_cases:
+    - input: 'large N (>500) — pair tensor exceeds SMEM'
+      behaviors:
+        boltz-1: 'PyTorch BatchGemm fallback; slow (~30% wall-clock).'
+        openfold: 'Triton kernel with chunked outer loop over k; ~3× faster than baseline.'
+        af3-jax: 'XLA fuses with surrounding ops; relies on compiler heuristic.'
+      mitigation: 'Above N=500, switch to chunked impl. Below N=200, eager BatchGemm fine.'
+
+    - input: 'masked positions (padding for variable-length protein)'
+      behaviors:
+        all_libs: 'Apply mask via multiply-by-zero on a, b before reduction.'
+      mitigation: 'Standard. Don"t skip the mask — the multiplicative form means masked positions could leak through gates if not zeroed.'
+
+  numerical_rules:
+    - aspect: 'reduction_dtype'
+      per_library:
+        all_libs: 'Sum over k must be FP32 even with BF16 inputs (~30% relative drift otherwise on long contexts).'
+      notes: 'Same FP32-acc rule as attention partial sum + GEMM. No exception.'
+
+    - aspect: 'gate_application_order'
+      per_library:
+        af3-style: 'Apply sigmoid gate BEFORE multiplicative reduction.'
+        eager-pytorch: 'Same.'
+      notes: 'Order matters because gate-after vs gate-before changes which terms get suppressed. AF3 reference is gate-before.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def triangle_multiplicative_update_outgoing(P, gate_proj_a, gate_proj_b, out_proj):
+          # P: [B, N, N, c]
+          a = torch.sigmoid(gate_proj_a(P)) * gate_proj_a(P)  # [B, N, N, c]
+          b = torch.sigmoid(gate_proj_b(P)) * gate_proj_b(P)
+          # Outgoing: out[i,j] = sum_k (a[i,k] * b[k,j])
+          out = torch.einsum('bikc, bkjc -> bijc', a, b)  # [B, N, N, c]
+          out_fp32 = out.to(torch.float32)
+          # FP32 accumulator preserved across einsum
+          return out_proj(out.to(P.dtype))

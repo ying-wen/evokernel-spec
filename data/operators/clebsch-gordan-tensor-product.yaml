@@ -1,0 +1,129 @@
+id: clebsch-gordan-tensor-product
+name: Clebsch-Gordan Tensor Product (equivariant GNN core op)
+category: misc
+
+flops_formula: 'N_atoms * N_neighbors * d_irrep^3 (depends on max angular momentum L)'
+bytes_formula: 'N_atoms * N_neighbors * d_irrep^2 * 4'
+arithmetic_intensity_formula: 'd_irrep / 4 (scales with angular momentum cutoff)'
+arithmetic_intensity_typical:
+  min: 5
+  max: 20
+  notes: 'Memory-bound at L=2 (typical), compute-bound at L≥4 (rare).'
+
+description: |
+  Clebsch-Gordan tensor product is the **core equivariant op** in E(3)-equivariant
+  graph neural networks (MACE-MP, NequIP, Allegro, GNoME, EquiformerV2, MACE-OFF24).
+  It combines two irreducible representations (irreps) of SO(3) into a third while
+  preserving rotation equivariance — without it, the model cannot guarantee correct
+  rotational symmetry of predictions.
+
+  ```
+  c[lm] = sum_{l1, l2, m1, m2} CG[l, l1, l2, m, m1, m2] * a[l1, m1] * b[l2, m2]
+  ```
+
+  Where `CG` are the Clebsch-Gordan coefficients (constants, precomputed at compile
+  time). Each `(l, l1, l2)` triple satisfies `|l1 - l2| ≤ l ≤ l1 + l2`.
+
+  ## Why it's bottleneck
+
+  In MACE-MP-0 (5M params, 4 layers, max L=2):
+  - Standard MLP message passing: O(N · d²) FLOPs per atom
+  - CG tensor product: O(N · d² · L_terms) FLOPs per atom (5-15× more for L=2)
+
+  In MACE on H100, this op consumes ~30-50% wall-clock for typical 1000-atom MD step.
+  GNoME / Orb-V2 (data-augmented, non-equivariant alternatives) sidestep this entirely
+  — sacrificing equivariance for raw speed.
+
+  ## Implementation challenges
+
+  1. **Sparse CG coefficient tensor**: only ~5-10% of CG triplets are non-zero.
+     Naive dense implementation wastes 90% of compute.
+  2. **Tensor-core unfriendly shape**: each (l1, l2, l) triple is a small matmul
+     (e.g., 3×3, 5×5). Doesn't fill tensor-core tiles. CUDA cores often faster.
+  3. **Fusion across L**: ideally fuse all (l1, l2, l) triples into one kernel
+     dispatch. e3nn (PyTorch lib) and MACE both have hand-tuned CUDA kernels.
+  4. **Numerical precision**: CG coefficients have wildly different magnitudes
+     (1e-10 to 1e+5); FP32 typically required, BF16 risks zeroing out small CGs.
+
+variants: [dense, sparse, fused-with-conv]
+
+fusion_targets: [matmul, layernorm]
+participates_in_fused_kernels: []
+
+engine_implementations:
+  - name: e3nn (PyTorch equivariant lib)
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/e3nn/e3nn
+    notes: 'Reference impl. Has hand-tuned CUDA kernels for L≤4.'
+  - name: MACE-MP (CUDA)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/ACEsuit/mace
+    notes: 'Custom CUDA kernel for fused tensor product + atomic basis. ~3× faster than e3nn dense.'
+  - name: MACE-JAX (community port)
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/ACEsuit/mace-jax
+    notes: 'XLA primitives; relies on compiler.'
+  - name: Allegro (Princeton)
+    hardware_arch: [hopper, ampere]
+    url: https://github.com/mir-group/allegro
+    notes: 'Sister project to MACE; same CG tensor product but different message passing.'
+
+precision_support: [fp32, fp16]
+
+related_patterns: []
+
+references:
+  - title: 'MACE: Higher-Order Equivariant Message Passing Neural Networks'
+    url: https://arxiv.org/abs/2206.07697
+    source_type: paper
+  - title: 'NequIP: E(3)-Equivariant Graph Neural Networks'
+    url: https://www.nature.com/articles/s41467-022-29939-5
+    source_type: paper
+  - title: 'e3nn library design (Geiger et al.)'
+    url: https://arxiv.org/abs/2207.09453
+    source_type: paper
+
+formal_semantics:
+  signature: |
+    clebsch_gordan_tensor_product(a: [B, N, irrep_dim_a], b: [B, N, irrep_dim_b],
+                                    cg_table: precomputed_coefficients,
+                                    output_irreps: list_of_l)
+        -> c: [B, N, irrep_dim_c]
+    Where irrep_dim_X = sum over (l, m) channels for irrep representation X.
+
+  edge_cases:
+    - input: 'high angular momentum (L>=4)'
+      behaviors:
+        e3nn-dense: 'Slow at L=4 (irrep_dim grows as L²); falls behind MACE optimized kernel by 5-10×.'
+        mace-cuda: 'Hand-tuned for L=2 (default); falls back to e3nn at L>=4.'
+      mitigation: 'Most production models cap at L=2 (MACE-MP-0 default). L=4 is research-tier.'
+
+    - input: 'sparse CG coefficient table'
+      behaviors:
+        e3nn-sparse: 'Skips zero CG triplets; ~3× faster than dense.'
+        mace-fused: 'Hardcodes non-zero triplets at compile-time; equivalent perf.'
+      mitigation: 'Always use sparse impl. Dense is naive and wastes compute.'
+
+  numerical_rules:
+    - aspect: 'cg_coefficient_dtype'
+      per_library:
+        e3nn: 'CG coefficients stored as FP64 (precomputed); promoted to FP32 for compute.'
+        mace: 'Same.'
+      notes: 'CG coefficients span 10+ orders of magnitude (1e-10 to 1e+5); BF16 storage risks zeroing out small ones, breaking equivariance.'
+
+    - aspect: 'reduction_dtype'
+      per_library:
+        all_libs: 'FP32 accumulator over (l1, l2, m1, m2) reduction. BF16 input OK; FP32 acc mandatory.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      from e3nn.o3 import FullyConnectedTensorProduct, Irreps
+      # Define irreps (e.g., 32 scalars + 16 L=1 vectors + 8 L=2 tensors)
+      irreps_a = Irreps('32x0e + 16x1o + 8x2e')
+      irreps_b = Irreps('32x0e + 16x1o + 8x2e')
+      irreps_out = Irreps('32x0e + 16x1o + 8x2e')
+      tp = FullyConnectedTensorProduct(irreps_a, irreps_b, irreps_out)
+      def cg_tensor_product(a, b):
+          # a, b: [B, N, irrep_dim_a / b]
+          return tp(a, b)
