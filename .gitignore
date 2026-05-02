@@ -16,3 +16,4 @@ agent-deploy-output/
 # v3.4: LLM-generated kernel cache (committable subset goes elsewhere)
 .cache/
 
+scripts/tests/fixtures/dist-bundle-fixture/

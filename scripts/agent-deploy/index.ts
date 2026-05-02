@@ -39,7 +39,8 @@ import {
 } from './production-artifacts';
 import { generateKernels, type GeneratedKernel } from './kernel-codegen';
 // v3.17 — wire in the v3.x productized loop (Layer R/G/V/F).
-import { fetchBundle, BundleNotFoundError } from './fetch-bundle';
+// v3.18 — fuzzy resolveBundleId so users can pass HF ids without exact slug.
+import { fetchBundle, BundleNotFoundError, resolveBundleId } from './fetch-bundle';
 import { generateAndVerify, type GenerateAndVerifyResult } from './feedback';
 import { pickLanguageForArch } from './llm-orchestrator';
 
@@ -957,9 +958,33 @@ Example (v3 productized real-code mode):
     console.error('🤖 Stage 5.5 — productized agent loop (R/G/V/F)...');
     console.error(`   Mode: ${process.env.ANTHROPIC_API_KEY ? 'real' : (process.env.EVOKERNEL_TEST_MODE === 'true' ? 'test' : 'cache/skeleton-fallback')}`);
     try {
-      const fetchResult = await fetchBundle({
-        model: deriveBundleSlug(args.model),
+      // v3.18 — fuzzy resolution: accept HF ids ("meta-llama/Llama-3.3-70B-Instruct"),
+      // partial slugs, or exact canonical slugs. Surface ambiguity to the user.
+      const resolution = await resolveBundleId({
+        model: args.model,
         hardware: args.hardware,
+      });
+      if (!resolution.resolved) {
+        console.error(`   ✗ Could not resolve "${args.model}" to a bundle for ${args.hardware}.`);
+        console.error(`     Normalized form: "${resolution.normalized_model}"`);
+        if (resolution.candidates.length > 0) {
+          console.error(`     Candidates (${resolution.candidates.length}):`);
+          resolution.candidates.slice(0, 6).forEach((c) =>
+            console.error(`       - ${c.model} on ${c.hardware}`)
+          );
+        }
+        console.error(`     Hint: pnpm agent:list-bundles --hardware ${args.hardware}\n`);
+        throw new BundleNotFoundError(
+          { model: args.model, hardware: args.hardware },
+          'see candidates above'
+        );
+      }
+      if (resolution.strategy !== 'exact') {
+        console.error(`   ✓ Resolved "${args.model}" → "${resolution.resolved.model}" (strategy: ${resolution.strategy})`);
+      }
+      const fetchResult = await fetchBundle({
+        model: resolution.resolved.model,
+        hardware: resolution.resolved.hardware,
       });
       console.error(`   ✓ Bundle from ${fetchResult.source}: ${fetchResult.resolved_from}`);
 
@@ -1087,7 +1112,53 @@ Example (v3 productized real-code mode):
     ? `# Generated Kernel Skeletons\n\n${generatedKernels.length} kernel skeleton(s) generated for ${arch_family}. **These are starting points — not production-ready code.** Review the TODO markers and validate against /operators/<op>/ formal_semantics edge cases before shipping.\n\n${generatedKernels.map((k) => `## ${k.op}\n\nFile: \`${k.filename}\` (${k.language})\n\n### Review notes\n\n${k.review_notes.map((n) => `- ${n}`).join('\n')}\n`).join('\n---\n\n')}\n`
     : '';
 
+  // v3.18 — single canonical deploy manifest. Replaces "scrape several files
+  // to reconstruct what happened" with one structured record. Versioned for
+  // forward compatibility (consumers should check manifest.schema_version).
+  const manifest = {
+    schema_version: '0.1',
+    generated_at: new Date().toISOString(),
+    request: {
+      model: args.model,
+      hardware: args.hardware,
+      workload,
+      use_llm_orchestrator: useLlmOrchestrator,
+      target_cost,
+      target_ttft_ms,
+    },
+    classification: {
+      archetype: m.archetype,
+      total_params_b: m.total_params_b,
+      active_params_b: m.active_params_b,
+      attention_variant: m.attention_variant,
+    },
+    recommended,
+    feasibility: { fits: feas.fits, card_count, notes: feas.notes },
+    kernel_gaps_count: gapsReport.gaps.length,
+    productized: productizedResults.length > 0
+      ? {
+          mode: process.env.ANTHROPIC_API_KEY ? 'real' : (process.env.EVOKERNEL_TEST_MODE === 'true' ? 'test' : 'cache-or-skeleton'),
+          shipped: productizedResults.filter((r) => r.outcome === 'shipped').length,
+          partial: productizedResults.filter((r) => r.outcome === 'partial').length,
+          blocked: productizedResults.filter((r) => r.outcome === 'kernel-gap-blocked').length,
+          per_gap: productizedResults.map((r) => ({
+            filename: r.kernel.filename,
+            outcome: r.outcome,
+            attempts: r.attempts.length,
+            source: r.kernel.source,
+          })),
+        }
+      : null,
+    artifacts: {
+      planning: ['deployment_plan.json', 'launch.sh', 'kernel_gaps.md', 'verification_plan.md'],
+      production: ['Dockerfile', 'kubernetes/deployment.yaml', 'monitoring/prometheus-rules.yaml', 'runbook.md', 'rollback-plan.md', 'provenance.json', 'license-audit.md', 'production-checklist.md', 'sbom.json'],
+      knowledge_feedback: ['agent-learning.yaml', ...(productizedResults.length > 0 ? ['agent-learnings-productized.md'] : [])],
+    },
+  };
+
   await Promise.all([
+    // v3.18: canonical manifest first — most-machine-readable summary
+    writeFile(path.join(outputDir, 'evokernel-deploy.json'), JSON.stringify(manifest, null, 2)),
     // Planning artifacts (Stage 1-6)
     writeFile(path.join(outputDir, 'deployment_plan.json'), JSON.stringify(plan, null, 2)),
     writeFile(path.join(outputDir, 'launch.sh'), launchScript, { mode: 0o755 }),

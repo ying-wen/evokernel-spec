@@ -6,7 +6,90 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md) for the prioritized site/UI cleanup queue (timeline overlapping labels, filter panel classification, card metadata richness, dedup of stale entries). Next up: **v3.18 — UI optimization sprint + continue agent harness extension** (timeline fix, filter panel rebuild, card metadata, productized loop docs on landing page).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md) for the prioritized site/UI cleanup queue. Next up: **v3.19 — UI sprint** (timeline overlapping labels, filter panel classification rebuild, hardware/model card metadata richness, Apple m4-max-npu dedup, ROADMAP.md prune).
+
+---
+
+## [3.18.0] — 2026-05-03 — Real Agent Harness extensions: fuzzy-match + auto-PR + install + manifest + walkthrough
+
+**Theme**: User explicitly emphasized "**Agent Harness**" again — keep extending the real product surface, not breadth additions. v3.18 ships 6 harness extensions that take the harness from "wireframe shipped in v3.17" to "real product feel." Zero new corpus YAMLs this release; 100% productized agent surface area.
+
+### H1 — Bundle slug fuzzy-match
+
+`scripts/agent-deploy/fetch-bundle.ts` gains `resolveBundleId()` + `normalizeModelId()`. Pre-v3.18 the user had to know the exact kebab-case slug — typing `meta-llama/Llama-3.3-70B-Instruct` failed. Now the resolver tries:
+
+1. **exact** — `llama-3.3-70b` matches as-is
+2. **normalized** — strip HF org prefix, lowercase, drop `-instruct`/`-chat`/`-base`, `_`→`-`. `meta-llama/Llama-3.3-70B-Instruct` → `llama-3.3-70b`
+3. **substring** — when input matches exactly one bundle as substring (`boltz` → `boltz-1`)
+4. **none** — surface candidates list to user; exit code 2
+
+Wired into `index.ts` Stage 5.5 productized branch. `--use-llm-orchestrator` accepts any of the 4 input forms.
+
+### H2 — Auto-PR CLI (`pnpm agent:auto-pr`)
+
+`scripts/agent-deploy/auto-pr-cli.ts` (NEW, ~210 LOC): reads every `data/agent-learnings/*.yaml`, runs the v3.9 `aggregateLearnings` clustering, emits PR-ready Markdown. Pre-v3.18 the auto-pr functions existed but had no CLI — only unit-tested via `feedback.ts`. Now the F→corpus side of the loop is one command.
+
+Flags: `--output <path>`, `--min-signal N` (default 2), `--include-merged`, `--json`, `--learnings-dir <dir>`. Test runs against fixture learnings produce a 2-signal cluster correctly identifying the kernel-gap pattern.
+
+### H3 — Plugin install script (`pnpm agent:install`)
+
+`scripts/agent-deploy/install-plugin.ts` (NEW, ~200 LOC). Pre-v3.18 the plugins/ directory had only markdown describing manual setup. Now:
+
+```bash
+pnpm agent:install -- --target codex
+  # symlinks evokernel-deploy → ~/.local/bin/, writes ~/.config/evokernel/codex.json
+
+pnpm agent:install -- --target claude-code
+  # symlinks /agent-deploy slash command → ~/.claude/commands/
+
+pnpm agent:install -- --target both --dry-run    # safe preview
+pnpm agent:install -- --target both --uninstall  # reverse
+```
+
+The Claude Code slash command becomes available in **any** Claude Code session, not just sessions started in this repo — this was missing from v3.17.
+
+### H4 — Per-deploy manifest (`evokernel-deploy.json`)
+
+`scripts/agent-deploy/index.ts` writes `evokernel-deploy.json` (schema v0.1) at the start of every output. Single canonical record of what happened: request, classification, recommended plan, feasibility, gap count, productized outcomes (mode + shipped/partial/blocked + per-gap status), full artifact inventory. CI consumers read **one** file instead of scraping 14.
+
+### H5 — `docs/HARNESS.md` walkthrough (NEW, ~200 lines)
+
+Real product docs replacing the thin SKILL.md: 5-min quickstart, output directory tour, closed-loop F-feedback workflow, 4 operating modes (real/cache/test/skeleton) with cost/determinism table, fuzzy-match input cheatsheet, plugin distribution + install/uninstall, manifest format spec, troubleshooting for 3 common failure modes. Linked from CHANGELOG + CLEANUP-TODO.
+
+### H6 — Comprehensive test coverage
+
+`scripts/tests/v3-18-harness-extension.test.ts` (+18 tests):
+
+- `normalizeModelId`: HF prefix strip, lowercase, suffix drop, underscore→hyphen, identity for canonical
+- `resolveBundleId`: exact / normalized / substring / ambiguous (candidates surfaced) / no-match / hardware-isolation
+- `install-plugin.ts`: `--help`, `--dry-run` (no fs effect verified by absent sandbox dirs), unknown-target rejection
+- `auto-pr-cli.ts`: `--help`, fixture run produces signal-2 cluster on rmsnorm, `--json` parseable, "no clusters" empty-dir message
+
+Test totals: **105/105 scripts** (v3.17: 87) · **49/49 web** (unchanged).
+
+### Net impact: harness moves from wireframe to product
+
+| Capability | v3.17 state | v3.18 state |
+|---|---|---|
+| Bundle resolution | exact slug only ("llama-3.3-70b") | accepts HF id, normalized form, substring; surfaces ambiguity |
+| Auto-PR | functions exist but no CLI | `pnpm agent:auto-pr` end-to-end |
+| Plugin install | manual symlink + manual config | `pnpm agent:install` one command (codex / claude-code / both) |
+| Deploy manifest | scattered across 14 files | single `evokernel-deploy.json` schema v0.1 |
+| Documentation | thin SKILL.md (incorrect references pre-v3.17) | real HARNESS.md walkthrough |
+| Tests | 87 (v3.17) | **105** (+18 harness extension) |
+
+### Stats
+
+- **CLI commands**: 5 → **8** (+`agent:auto-pr`, `agent:install`, manifest output)
+- **TypeScript files in scripts/agent-deploy/**: 7 → **10** (+install-plugin, +auto-pr-cli, +list-bundles)
+- **Test count**: 87 → **105** (+18 harness extension tests)
+- **Documentation**: SKILL.md (153 lines) → SKILL.md + HARNESS.md (~200 lines, real product docs)
+
+### v3.19 next
+
+- UI sprint per `docs/CLEANUP-TODO.md`: timeline overlapping labels (HIGH), filter panel classification rebuild (HIGH), hardware/model card metadata expansion + 国产 toggle (HIGH), Apple m4-max-npu dedup (MED).
+- Surface `pnpm agent:deploy` quickstart on the landing page (`apps/web/src/pages/index.astro`).
+- Continue harness: `--profile` flag for real-hardware perf measurement (V3 execution mode), zh i18n for `/agent-deploy` slash command.
 
 ---
 

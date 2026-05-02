@@ -14,6 +14,8 @@
     "agent:deploy": "tsx scripts/agent-deploy/index.ts",
     "agent:deploy:productized": "tsx scripts/agent-deploy/index.ts --use-llm-orchestrator",
     "agent:list-bundles": "tsx scripts/agent-deploy/list-bundles.ts",
+    "agent:auto-pr": "tsx scripts/agent-deploy/auto-pr-cli.ts",
+    "agent:install": "tsx scripts/agent-deploy/install-plugin.ts",
     "test": "pnpm --filter web test && pnpm --filter @evokernel/schemas test && pnpm --filter @evokernel/scripts test",
     "test:e2e": "pnpm --filter web exec playwright test site",
     "lint": "biome check .",

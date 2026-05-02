@@ -242,3 +242,103 @@ export async function listBundles(
   pairs.sort((a, b) => a.slug.localeCompare(b.slug));
   return pairs;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// resolveBundleId — fuzzy-match user input to canonical bundle slug
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * v3.18 — resolve user input (HF id / partial slug / canonical slug) to the
+ * canonical (model, hardware) ids that match a bundle in dist/.
+ *
+ * UX motivation: pre-v3.18 users had to know the exact kebab-case slug
+ * (e.g. "llama-3.3-70b") — typing "Llama-3.3-70B-Instruct" or
+ * "meta-llama/Llama-3.3-70B-Instruct" would fail. Now we accept all of:
+ *
+ *   meta-llama/Llama-3.3-70B-Instruct  → llama-3.3-70b
+ *   Llama-3.3-70B                      → llama-3.3-70b
+ *   llama-3.3                           → llama-3.3-70b (single-match) or null (ambiguous)
+ *   nvidia/nemotron-340b               → nemotron-340b (strip vendor prefix)
+ *
+ * Resolution is greedy:
+ *   1. Exact slug match → return as-is
+ *   2. Normalize input (strip path, lowercase, strip "-instruct"/"-chat" suffix)
+ *      → exact match against listBundles()
+ *   3. Substring match — if exactly ONE bundle has the normalized input as a
+ *      substring of its model id, return that bundle.
+ *   4. Otherwise return { resolved: null, candidates: [...] } so the caller
+ *      can surface the ambiguity to the user.
+ */
+export interface ResolveBundleInput {
+  /** User-supplied model identifier (HF id, kebab slug, or partial). */
+  model: string;
+  /** Hardware id (we accept exact match only — hardware ids are well-known). */
+  hardware: string;
+  /** Override dist path. */
+  dist_path?: string;
+}
+
+export interface ResolveBundleResult {
+  /** Canonical (model, hardware) — null when no/ambiguous match. */
+  resolved: { model: string; hardware: string; slug: string } | null;
+  /** Candidates considered (empty when exact match found). */
+  candidates: Array<{ model: string; hardware: string; slug: string }>;
+  /** Match strategy that picked the resolved candidate (or 'none'). */
+  strategy: 'exact' | 'normalized' | 'substring' | 'none';
+  /** Normalized form of the input model id — useful for diagnostics. */
+  normalized_model: string;
+}
+
+export function normalizeModelId(input: string): string {
+  return input
+    .split('/').pop()!                 // strip "meta-llama/" prefix
+    .toLowerCase()
+    .replace(/-instruct$/i, '')
+    .replace(/-chat$/i, '')
+    .replace(/-base$/i, '')
+    .replace(/_/g, '-');
+}
+
+export async function resolveBundleId(
+  input: ResolveBundleInput
+): Promise<ResolveBundleResult> {
+  const all = await listBundles(input.dist_path);
+  const for_hw = all.filter((p) => p.hardware === input.hardware);
+  const normalized = normalizeModelId(input.model);
+
+  // 1. Exact slug match (user already used the canonical id).
+  const exact = for_hw.find((p) => p.model === input.model);
+  if (exact) {
+    return { resolved: exact, candidates: [], strategy: 'exact', normalized_model: normalized };
+  }
+
+  // 2. Normalized exact match (e.g. "Llama-3.3-70B-Instruct" → "llama-3.3-70b").
+  const normalized_exact = for_hw.find((p) => p.model === normalized);
+  if (normalized_exact) {
+    return {
+      resolved: normalized_exact,
+      candidates: [],
+      strategy: 'normalized',
+      normalized_model: normalized,
+    };
+  }
+
+  // 3. Substring match — only resolves when EXACTLY ONE candidate matches.
+  const substring_matches = for_hw.filter((p) => p.model.includes(normalized));
+  if (substring_matches.length === 1) {
+    return {
+      resolved: substring_matches[0],
+      candidates: [],
+      strategy: 'substring',
+      normalized_model: normalized,
+    };
+  }
+
+  // 4. Ambiguous or zero matches — return candidates for surfacing.
+  return {
+    resolved: null,
+    candidates: substring_matches.length > 0 ? substring_matches : for_hw.slice(0, 8),
+    strategy: 'none',
+    normalized_model: normalized,
+  };
+}
