@@ -89,3 +89,37 @@ references:
   - title: 'GQA paper (Ainslie et al.)'
     url: https://arxiv.org/abs/2305.13245
     source_type: paper
+
+formal_semantics:
+  signature: |
+    repeat_interleave(x: [B, H_kv, S, D], repeats: int) -> y: [B, H_kv * repeats, S, D]
+    Each input head replicated `repeats` times along the head dim. For Llama 3
+    GQA-8 (H_q=32, H_kv=8): repeats=4 to broadcast each KV head across 4 Q heads.
+
+  edge_cases:
+    - input: 'broadcast vs materialize trade-off'
+      behaviors:
+        flash-attention-broadcast: 'Treats GQA as broadcast in attention kernel — never materializes the [H_kv * repeats] tensor. Saves repeats× memory.'
+        legacy-materialize: 'PyTorch repeat_interleave actually allocates the full tensor. ~4× memory waste at GQA-8.'
+      mitigation: 'Modern attention impls (flash-attn ≥ 2, flashinfer, vLLM) use broadcast. Older custom kernels may materialize — check if H_kv == H_q in the kernel signature (broadcast path) or H_kv * repeats == H_q (materialized path).'
+
+    - input: 'beam search expansion (B → B * beam_size)'
+      behaviors:
+        all_libs: 'Same op shape; different semantic — duplicate batch B instead of head H. Used at beam expansion step.'
+      mitigation: 'Beam expansion is rare in modern serving (most LLMs use sampling, not beam). Older NMT-style models still use this path.'
+
+  numerical_rules:
+    - aspect: 'no_arithmetic_no_precision_concern'
+      per_library:
+        all_libs: 'Pure copy/broadcast. Bit-identical output.'
+      notes: 'Same as embedding-lookup, all-gather, all2all — pure data movement, no precision concern.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def repeat_interleave_kv(K, V, repeats):
+          # K, V: [B, H_kv, S, D]; output: [B, H_kv * repeats, S, D]
+          # In modern flash-attention: SKIP this op entirely; broadcast in kernel.
+          K_full = K.repeat_interleave(repeats, dim=1)
+          V_full = V.repeat_interleave(repeats, dim=1)
+          return K_full, V_full

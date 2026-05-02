@@ -6,7 +6,65 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.24 — knowledge feedback loop activated + 49-run validation as CI regression** (wires automatic agent-learnings writeback from `scripts/agent-deploy/`; freezes the 49-run validation matrix as a CI job that catches regressions in codegen / planning agent; closes the v2.x major's "spec → plan → dev → test → feedback → spec" cycle).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.25 — development workflow optimization docs** (the project has grown to ~360 entities + 7-stage agent pipeline + plugin system; CLAUDE.md / README dev section / CONTRIBUTING / DEVELOPMENT.md need to reflect this). Then **v3.0 planning** — consumer/edge HW + multi-modal/molecule/bio model breadth.
+
+---
+
+## [2.24.0] — 2026-05-02 — closes v2.x major
+
+🎯 **MILESTONE: v2.x major closed.** spec → plan → dev → test → feedback → spec cycle is now physically wired. Layer D depth 100% complete (34/34 ops + 24/24 fused-kernels with `formal_semantics`). Agent regression suite green in CI.
+
+### Added
+
+**Layer D depth fill — 9 final operator `formal_semantics` (25 → 34 / 34, 100%):**
+
+- **`cross-entropy`** — huge-vocab tile-over-V or fused CE (Llama 3 V=128K, Qwen 3.6 V=152K naive log_softmax = MB scratch); FP32 log-sum-exp with max-subtract; tied-embedding optimization elides separate matmul.
+- **`dropout`** — must be no-op at inference (engine graph rewrite); per-rank seed for DP correctness; inverted scaling (modern); attention-vs-FFN-vs-residual mask independence.
+- **`embedding-lookup`** — vocab-parallel split across TP ranks (mandatory at TP=8+ with V=128K-256K); tied input/output embedding (Llama 3, Qwen 3.6, GPT-OSS); pad token handling.
+- **`group-norm`** — vision/diffusion (SDXL, FLUX U-Net), num_groups=32 default; channel-last (NHWC) for tensor-core utilization; FP32 partial sum mandatory (BF16 produces visible color banding in image gen).
+- **`grouped-matmul`** — MoE expert-batched GEMM with SM-level imbalance handling; DeepGEMM/GMM block-FP8 variant (DeepSeek V3 671B path).
+- **`lora-bgmv`** — multi-tenant LoRA serving (Punica/S-LoRA primitive); sentinel -1 for base-model traffic; rank/num_loras × HBM budget; 2-step matmul precision.
+- **`mamba-conv1d`** — Mamba SSM companion (kernel=4 hard-coded); streaming inference state; GPU-only viable (Ascend impractical for SSM).
+- **`online-softmax`** — FlashAttention algorithmic core; all-masked-chunk edge case (-inf/-inf NaN trap in naive impls); FP32 (m, s, acc) state mandatory.
+- **`repeat-interleave`** — GQA KV broadcast (modern flash-attention skips entirely; legacy materialize wastes memory); pure data movement, no precision concern.
+
+**Knowledge feedback loop wired in `scripts/agent-deploy/`:**
+
+- **Stage 8 added to agent-deploy pipeline** — emits `agent-learning.yaml` stub with model/hardware/engine/predicted-perf + every detected kernel-gap as a structured `observation`. Documented workflow: human runs deploy, fills actuals, moves YAML into `data/agent-learnings/`, commits → site rebuild surfaces it on `/agents/learnings/`.
+- **`generateAgentLearningStub()` helper** in `scripts/agent-deploy/index.ts` — produces YAML matching `AgentLearningSchema` (v2.20) directly from planning state.
+
+**CI regression suite (`agent-regression` job in `.github/workflows/ci.yml`):**
+
+- **Test 1**: `scripts/tests/kernel-codegen-dispatch.test.ts` — 11 vitest assertions on `classifyOp()` + `emitCudaInnerByOpClass()` op-class dispatch correctness. Catches the most-likely regression class (op-class wrong template).
+- **Test 2**: synthetic `agent-learning.yaml` stub validation — proves the schema accepts `generateAgentLearningStub()` output shape end-to-end. Catches schema drift between `schemas/agent-learning.ts` and the generator function.
+- **Reference fixtures** in `scripts/tests/fixtures/{llama-3-3-70b,deepseek-v4-pro,qwen3-6-plus}/config.json` — committed offline configs for future expansion to full agent-deploy E2E (deferred to v2.25+ nightly job, requires running dev server).
+
+### Why v2.24 closes the v2.x major
+
+Before v2.24, the spec → plan → dev → test cycle had a missing arrow: **feedback didn't flow back automatically**. Agent runs were one-shot artifacts with no path into the corpus. Human reviewers had to remember insights and manually author them.
+
+After v2.24:
+1. **Every agent run emits a `agent-learning.yaml` stub** with predicted perf + observed kernel gaps.
+2. **Human fills actuals + post-deploy observations** (perf-cliff, numerical-mismatch, success-pattern, missing-primitive, etc.).
+3. **Stub commits into `data/agent-learnings/`** → site builds → `/agents/learnings/` page surfaces it.
+4. **Future agent runs query `/api/agent-learnings.json`** for prior knowledge before planning.
+5. **CI catches regressions in any of the above** — codegen dispatch, schema, generator output.
+
+This is the v2.x major's promise concretely realized: **任意模型 → 任意硬件 + 跨硬件泛化的持续优化 + 知识沉淀回流**. The first feedback-loop closure was demonstrated in v2.21 (Qwen on Ascend → `huawei-ascend-vector-fp32` ISA primitive). The mechanism is now production-grade.
+
+### Final v2.x stats
+
+- **Releases**: v2.0 GA → v2.24 (25 minor releases over 1 day)
+- **Layer D coverage**: 100% (34/34 ops + 24/24 fused-kernels with `formal_semantics`)
+- **DSL examples**: 9 (5 GEMM + 1 attention + 1 norm + 1 fused-epilogue + 1 collective)
+- **ISA primitives**: 16 (one new from feedback loop)
+- **Plugins**: 4 (MCP server, Claude Code skill, Cursor rules, Codex prompts)
+- **Agent CLI**: 7-stage pipeline + Stage 8 knowledge writeback
+- **CI jobs**: 7 (validate, type-check, unit, **agent-regression**, build, e2e, deployment-smoke)
+- **Site pages**: 505 · **API endpoints**: 21 (`/api/agent-learnings.json` added)
+- **Tests passing**: schema + dispatch + web + agent-regression
+
+The next major (v3.0) opens model breadth (video / image-gen / speech / molecule / bio / materials) and hardware breadth (consumer GPU / Apple Silicon / edge NPU / 国产 consumer-grade). Scoped post-v2.x.
 
 ---
 

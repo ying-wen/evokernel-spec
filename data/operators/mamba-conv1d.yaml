@@ -97,3 +97,46 @@ references:
   - title: 'Jamba: A Hybrid Transformer-Mamba Model'
     url: https://arxiv.org/abs/2403.19887
     source_type: paper
+
+formal_semantics:
+  signature: |
+    mamba_conv1d(x: [B, L, D], W: [D, kernel_size], bias: [D]) -> y: [B, L, D]
+    Depthwise causal conv1d (kernel typically 4); each channel is convolved
+    independently along the sequence dimension. Causal padding so y[t] depends
+    only on x[t - kernel_size + 1 : t + 1].
+
+  edge_cases:
+    - input: 'kernel_size choice (Mamba 1: kernel=4; Mamba 2: kernel=4 same)'
+      behaviors:
+        all_libs: 'Hard-coded kernel_size=4 in canonical Mamba/Mamba2 impls.'
+      mitigation: 'Don"t generalize without retesting — model arch is tied to kernel=4.'
+
+    - input: 'streaming inference (decode 1 token at a time)'
+      behaviors:
+        mamba-cuda-streaming: 'Maintains a [B, D, kernel_size-1] conv state across decode steps. Per-step cost = O(D * kernel) FLOPs (negligible).'
+      mitigation: 'Conv state must persist across decode steps as part of model state (alongside SSM hidden state). Engine config must allocate space.'
+
+    - input: 'GPU vs Ascend'
+      behaviors:
+        cuda-mamba-conv1d: 'Reference impl on Hopper / Ampere; uses depthwise conv kernel.'
+        triton-mamba-conv1d: 'Portable; comparable perf.'
+        ascend-mamba-conv1d: 'Falls back to per-step Vector unit. Slow.'
+      mitigation: 'Like fused-selective-scan: Mamba conv1d is a GPU-first op. Ascend deploys are impractical for SSM models in 2026.'
+
+  numerical_rules:
+    - aspect: 'compute_dtype'
+      per_library:
+        all_libs: 'BF16 throughout — kernel size 4 makes no precision concern; sum of 4 products in BF16 is fine.'
+      notes: 'Different from selective-scan (which needs FP32 state). Conv1d is a 4-element sum; no accumulation to worry about.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.nn.functional as F
+      def mamba_conv1d(x, W, bias, kernel_size=4):
+          # x: [B, L, D]; W: [D, kernel_size]
+          x_t = x.transpose(1, 2)  # [B, D, L]
+          # Causal pad: prepend kernel_size-1 zeros; conv groups=D (depthwise)
+          y = F.conv1d(F.pad(x_t, (kernel_size - 1, 0)), W.unsqueeze(1),
+                        bias=bias, groups=W.shape[0])
+          return y.transpose(1, 2)  # [B, L, D]

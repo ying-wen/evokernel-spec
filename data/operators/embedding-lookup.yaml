@@ -70,3 +70,38 @@ references:
   - title: 'vLLM vocab parallel embedding'
     url: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/vocab_parallel_embedding.py
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    embedding_lookup(input_ids: [B, S], embedding: [V, D]) -> y: [B, S, D]
+    Pure indexed gather: y[b, s, :] = embedding[input_ids[b, s], :].
+
+  edge_cases:
+    - input: 'vocab parallel — embedding split across TP ranks'
+      behaviors:
+        vllm-vocab-parallel: 'Each TP rank owns V/world_size rows; out-of-range token_id returns zero, then all-reduce sums contributions.'
+        megatron-vocab-parallel: 'Same pattern.'
+      mitigation: 'Mandatory at TP=8+ for huge vocab (V=128K-256K). Without vocab-parallel: 256K * 8K * BF16 = 4 GB embedding fully replicated per rank.'
+
+    - input: 'tied input/output embedding'
+      behaviors:
+        all_libs: 'Most LLMs (Llama 3, Qwen 3.6, GPT-OSS) tie input embedding == output projection W. Saves V*D params.'
+      mitigation: 'Engine must detect tying from config (tie_word_embeddings flag) and avoid duplicate weight load.'
+
+    - input: 'OOV / padding tokens'
+      behaviors:
+        all_libs: 'pad_token_id (typically 0) maps to a row of zeros (or learned pad embedding).'
+      mitigation: 'Standard. No correctness concern unless pad tokens leak into attention compute (mask should exclude them).'
+
+  numerical_rules:
+    - aspect: 'no_arithmetic_no_precision_concern'
+      per_library:
+        all_libs: 'Pure gather; bit-identical. The output dtype matches embedding dtype (typically BF16/FP16).'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.nn.functional as F
+      def embedding_lookup(input_ids, embedding):
+          # input_ids: [B, S] int64; embedding: [V, D]
+          return F.embedding(input_ids, embedding)

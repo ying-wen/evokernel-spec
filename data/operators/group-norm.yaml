@@ -76,3 +76,35 @@ references:
   - title: 'PyTorch GroupNorm documentation'
     url: https://pytorch.org/docs/stable/generated/torch.nn.GroupNorm.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    group_norm(x: [N, C, *], num_groups: int, gamma: [C], beta: [C]) -> y: [N, C, *]
+    Splits C channels into num_groups; normalizes each group across (C/G, *spatial).
+    For images: (N, C, H, W) → group over (C/G, H, W).
+    Used in diffusion U-Nets (SDXL, FLUX), vision encoders.
+
+  edge_cases:
+    - input: 'group_size choice (num_groups=32 default, but 8/16 also common)'
+      behaviors:
+        all_libs: 'Smaller groups = more granular norm; larger groups = closer to LayerNorm. Stable Diffusion uses num_groups=32 for U-Net.'
+      mitigation: 'Match training-time config exactly. GN with wrong group count produces visually-different (but plausible) outputs in diffusion models.'
+
+    - input: 'channel-last vs channel-first layout'
+      behaviors:
+        cudnn-channels-first: 'NCHW (default) — coalesced reduce across (H, W) for each (N, group) pair.'
+        cudnn-channels-last: 'NHWC — used by torch.compile + Inductor for better tensor-core utilization at conv ops.'
+      mitigation: 'For diffusion training: NHWC + AMP is the dominant path. Engine should auto-detect and pick the right kernel variant.'
+
+  numerical_rules:
+    - aspect: 'partial_sum_dtype'
+      per_library:
+        all_libs: 'FP32 partial sum across the group elements, even with BF16 inputs. Same rule as RMSNorm and LayerNorm.'
+      notes: 'For SD-XL / FLUX: BF16 group-norm with FP16 partial sum gives visible artifacts (color banding). FP32 partial sum mandatory for image quality.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.nn.functional as F
+      def group_norm(x, num_groups, gamma, beta, eps=1e-5):
+          return F.group_norm(x, num_groups, weight=gamma, bias=beta, eps=eps)

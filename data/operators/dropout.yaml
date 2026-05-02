@@ -73,3 +73,41 @@ references:
   - title: 'PyTorch Dropout documentation'
     url: https://pytorch.org/docs/stable/generated/torch.nn.Dropout.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    dropout(x: [shape], p: float, training: bool) -> y: [shape]
+    Training: randomly zero each element with prob p; scale survivors by 1/(1-p).
+    Inference: identity (no dropout). Critical: must be no-op at inference.
+
+  edge_cases:
+    - input: 'inference path (training=False)'
+      behaviors:
+        all_libs: 'Pass-through; no compute.'
+      mitigation: 'Engines should DROP the dropout op from the inference graph entirely (graph rewrite). vLLM/TRT-LLM/MindIE all do this. If dropout is firing at inference, engine config is wrong.'
+
+    - input: 'training path with seed reproducibility'
+      behaviors:
+        torch-deterministic: 'torch.manual_seed + cudnn.deterministic=True for reproducible mask.'
+        nccl-different-rank: 'Each rank gets different RNG seed; dropout masks differ per-rank — required for DP correctness.'
+      mitigation: 'For training: explicit seed per rank (torch.distributed initialized seed automatically).'
+
+    - input: 'attention dropout vs FFN dropout vs residual dropout'
+      behaviors:
+        all_libs: 'Three different dropout sites in transformer; each has independent mask. Modern LLMs (Llama, Qwen) often disable all dropouts (p=0).'
+      mitigation: 'For inference: confirm all p=0 in config. Some legacy fine-tunes leave p=0.1 in attention dropout — silently slow.'
+
+  numerical_rules:
+    - aspect: 'inverted_scaling'
+      per_library:
+        all_libs: 'survivor *= 1/(1-p) so expected value is preserved. Standard "inverted dropout".'
+      notes: 'Old-style dropout scaled at inference (1-p). Modern is inverted (scale during training, no-op inference). All current libs use inverted.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.nn.functional as F
+      def dropout(x, p, training):
+          if not training or p == 0:
+              return x  # inference path: identity
+          return F.dropout(x, p=p, training=True)

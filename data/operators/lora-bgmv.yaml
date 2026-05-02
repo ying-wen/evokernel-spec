@@ -80,3 +80,46 @@ references:
   - title: 'vLLM multi-LoRA documentation'
     url: https://docs.vllm.ai/en/latest/features/lora.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    lora_bgmv(x: [B, D_in], A: [num_loras, D_in, r], B: [num_loras, r, D_out],
+              lora_indices: [B], scale: float) -> y: [B, D_out]
+    Batched grouped matrix-vector: each batch row i applies its assigned LoRA
+    (lora_indices[i]) to x[i]. Output y[i] += scale * x[i] @ A[lora_indices[i]] @ B[lora_indices[i]].
+
+  edge_cases:
+    - input: 'no LoRA assigned (lora_index = -1 sentinel)'
+      behaviors:
+        punica: 'Sentinel -1 maps to identity LoRA (zero contribution).'
+        vllm-multi-lora: 'Same — base model output passes through unchanged.'
+      mitigation: 'Standard. Base model traffic mixed with LoRA traffic in same batch; sentinel handling is critical.'
+
+    - input: 'LoRA rank r too large (memory blowup)'
+      behaviors:
+        all_libs: 'r * num_loras * D_in storage cost. Typical r=16-64; num_loras up to 100s in production multi-tenant.'
+      mitigation: 'Cap num_loras × r at HBM budget. For S-LoRA: spill cold LoRAs to DRAM, page-in on demand.'
+
+    - input: 'distinct base models (different shape) requested in same batch'
+      behaviors:
+        vllm: 'Forbidden — all batch rows must use same base model. Use separate engine instances.'
+      mitigation: 'Architecture limitation; don"t mix base models in same batch.'
+
+  numerical_rules:
+    - aspect: 'two_step_matmul_precision'
+      per_library:
+        punica: 'Both A and B matmuls use BF16 inputs + FP32 accumulator (standard).'
+        vllm: 'Same.'
+      notes: 'No LoRA-specific precision concern. The scale factor (typically alpha/r ≈ 1-2) is applied in BF16 — no overflow.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def lora_bgmv(x, A, B, lora_indices, scale):
+          # x: [B, D_in]; A: [num_loras, D_in, r]; B: [num_loras, r, D_out]
+          # Per-row gather + GEMV
+          A_per_row = A[lora_indices]  # [B, D_in, r]
+          B_per_row = B[lora_indices]  # [B, r, D_out]
+          tmp = torch.einsum('bd,bdr->br', x, A_per_row)  # [B, r]
+          out = torch.einsum('br,bro->bo', tmp, B_per_row)  # [B, D_out]
+          return scale * out

@@ -89,3 +89,52 @@ references:
   - title: 'FlashAttention-3 with FP8'
     url: https://arxiv.org/abs/2407.08608
     source_type: paper
+
+formal_semantics:
+  signature: |
+    online_softmax(scores_streamed: stream[N], dim: int) -> probs: [N], state: (m, s)
+    Streaming softmax: maintains (m_running, s_running) state and processes
+    score chunks one at a time. Mathematically equivalent to standard softmax
+    but never materializes full [N] scores in memory.
+    Update rule per chunk:
+       m_new = max(m_old, max(chunk))
+       s_new = exp(m_old - m_new) * s_old + sum(exp(chunk - m_new))
+
+  edge_cases:
+    - input: 'all-masked chunk (entire chunk is -inf)'
+      behaviors:
+        flash-attn-2: 'm_chunk = -inf; rescale = exp(m_old - m_new). If m_old also -inf, exp(0)=1; safe.'
+        flash-attn-naive: 'Some early variants: m_old = -inf and m_chunk = -inf → m_new = -inf → exp(-inf - -inf) = NaN.'
+      mitigation: 'Robust impls (flash-attn ≥ 2.5, flashinfer ≥ 0.1) handle this. Naive custom kernels often have this bug at sliding-window boundary tiles.'
+
+    - input: 'final divide-by-zero (s_total == 0 because all positions masked)'
+      behaviors:
+        all_libs: 'Output is 0 (the entire row was masked); no actual division. Convention: 0/0 = 0 in attention output.'
+      mitigation: 'Check for fully-masked rows before final divide. Prefill with all-causal-mask-rejecting tile is the common case.'
+
+  numerical_rules:
+    - aspect: 'state_dtype'
+      per_library:
+        all_libs: 'm, s, acc MUST be FP32. Hard requirement — BF16 partial_sum loses mantissa fast and accumulates rounding across long sequences.'
+      notes: 'Same rule as flash-attention v3. No library deviates. This is what makes FlashAttention numerically equivalent to standard softmax despite streaming.'
+
+    - aspect: 'overflow_protection_via_max_subtraction'
+      per_library:
+        all_libs: 'exp(scores - m_new) keeps the largest element exp(0) = 1; everything else is bounded.'
+      notes: 'Without max subtraction, exp(large_score) overflows even FP32 at scores > 88. Max subtraction is non-negotiable.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def online_softmax_streaming(score_chunks):
+          # Each chunk: [B, H, BM, BN]; processes K-tiles one at a time
+          m_old = torch.full((B, H, BM, 1), float('-inf'), dtype=torch.float32)
+          s_old = torch.zeros((B, H, BM, 1), dtype=torch.float32)
+          for chunk in score_chunks:
+              m_chunk = chunk.amax(-1, keepdim=True)
+              m_new = torch.max(m_old, m_chunk)
+              p = (chunk - m_new).exp()
+              rescale = (m_old - m_new).exp()
+              s_old = rescale * s_old + p.sum(-1, keepdim=True)
+              m_old = m_new
+          return m_old, s_old  # final state; divide acc by s_old elsewhere

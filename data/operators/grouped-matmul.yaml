@@ -72,3 +72,45 @@ references:
   - title: 'DeepEP: A Communication Library for MoE Models'
     url: https://github.com/deepseek-ai/DeepEP
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    grouped_matmul(tokens: [N, D_in], expert_weights: [num_experts, D_in, D_out],
+                   expert_offsets: [num_experts]) -> outputs: [N, D_out]
+    N independent GEMMs (one per expert); expert i sees tokens[expert_offsets[i] : expert_offsets[i+1]]
+    multiplied by expert_weights[i]. SMs dispatched per (expert, output-tile) pair.
+
+  edge_cases:
+    - input: 'expert occupancy imbalance'
+      behaviors:
+        triton-grouped-mm: 'SMs naturally pick up larger experts; no load-balance issue at SM-level.'
+        cutlass-grouped-mm: 'Same; SM scheduler handles imbalance.'
+      mitigation: 'Imbalance is a router/training-loss concern, not a kernel concern. Alert if max/min occupancy > 4×.'
+
+    - input: 'fused with epilogue (SiLU-Mul, BiasAdd, etc.)'
+      behaviors:
+        all_libs: 'Standard GEMM-epilogue patterns extend to grouped variant — fused-mlp-silu can run as grouped GEMM for MoE FFN.'
+      mitigation: 'For MoE FFN: prefer fused-mlp-silu in grouped variant (saves separate epilogue launch).'
+
+    - input: 'block-quantized variant (DeepGEMM / GMM)'
+      behaviors:
+        deepgemm: 'DeepSeek block-FP8 grouped GEMM; per-expert FP8 scales; ~50% bandwidth reduction vs BF16.'
+      mitigation: 'For DeepSeek V3 671B: use DeepGEMM grouped path. Validates correctly only with same FP8 scaling recipe used in training.'
+
+  numerical_rules:
+    - aspect: 'per_expert_accumulator'
+      per_library:
+        all_libs: 'Each expert"s GEMM uses standard FP32 accumulator with BF16/FP16 inputs. Same rule as standalone matmul.'
+      notes: 'No grouped-specific precision concern. Each expert is an independent GEMM.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def grouped_matmul(tokens, expert_weights, expert_offsets):
+          # tokens: [N, D_in]; expert_weights: [num_experts, D_in, D_out]
+          out = torch.empty(N, D_out, device=tokens.device, dtype=tokens.dtype)
+          for e in range(num_experts):
+              s, t = expert_offsets[e], expert_offsets[e + 1]
+              if t > s:
+                  out[s:t] = tokens[s:t] @ expert_weights[e]
+          return out

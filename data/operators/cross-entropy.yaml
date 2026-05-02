@@ -73,3 +73,38 @@ references:
   - title: 'Tied embedding (Press & Wolf 2017)'
     url: https://arxiv.org/abs/1608.05859
     source_type: paper
+
+formal_semantics:
+  signature: |
+    cross_entropy(logits: [B, V], targets: [B]) -> loss: scalar
+    log_softmax(x) - x[targets]   (per-token NLL).
+    Inference variant (sampling): top-k / nucleus sample from softmax(logits / T).
+
+  edge_cases:
+    - input: 'huge vocab (V=128K-256K) — log_softmax memory'
+      behaviors:
+        all_libs: 'Tile over vocab dim or use fused kernel that streams logits without materializing softmax.'
+      mitigation: 'Llama 3 V=128K, Qwen 3.6 V=152K. Naive log_softmax materializes [B, V] FP32 = ~MB scratch per token. Use Liger-Kernel fused CE for training; vLLM/SGLang sampling kernels for inference.'
+
+    - input: 'numerically unstable inputs (logits with very large magnitudes)'
+      behaviors:
+        all_libs: 'Subtract max(logits) before exp — standard log-sum-exp trick.'
+      mitigation: 'All production impls do this. Hand-rolled CE almost always gets it wrong.'
+
+  numerical_rules:
+    - aspect: 'partial_sum_dtype'
+      per_library:
+        all_libs: 'log-sum-exp computed in FP32 even with BF16/FP16 logits. The exp(large_logit) easily overflows BF16 exponent.'
+
+    - aspect: 'tied_embedding_optimization'
+      per_library:
+        vllm-tied: 'When embedding == output projection (most LLMs): output projection runs in CE kernel, no separate matmul.'
+      notes: 'Saves 1 matmul + 1 [B, V] write. Engine must detect tied embedding from model config.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.nn.functional as F
+      def cross_entropy(logits, targets):
+          # logits: [B, V] FP16/BF16; targets: [B] int64
+          return F.cross_entropy(logits.float(), targets)  # FP32 internal
