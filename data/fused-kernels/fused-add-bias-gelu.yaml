@@ -116,3 +116,43 @@ references:
   - title: 'cuTLASS GEMM + epilogue'
     url: https://github.com/NVIDIA/cutlass/blob/main/media/docs/efficient_gemm.md
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_add_bias_gelu(x: [B, S, D_in], W: [D_in, D_out], bias: [D_out])
+        -> y: [B, S, D_out]
+    Fuses {GEMM x @ W + bias broadcast + GELU activation} into a single GEMM with
+    epilogue. Standard cuBLASLt / CUTLASS path.
+
+  fusion_lifecycle: compile-time-template
+
+  unfused_penalty: |
+    Unfused = GEMM + bias-add kernel + GELU kernel. Each intermediate writes
+    [B, S, D_out] to HBM. For typical Llama 3 70B FFN dims (D_out=8192, B*S=8192,
+    BF16): 256 MB avoidable HBM traffic per layer. 1.2-1.4× speedup at decode.
+
+  edge_cases:
+    - input: 'tanh approximation vs exact erf in GELU'
+      behaviors:
+        cublas-lt-gelu-tanh: 'GELU_TANH epilogue — fast tanh approximation. Default for inference.'
+        cublas-lt-gelu-exact: 'GELU_ERF epilogue — exact erf path. ~5% slower; use only if model trained with exact GELU.'
+        cutlass-gelu: 'Both supported via template parameter.'
+      mitigation: 'Match training-time config. Loading a tanh-trained model with exact GELU gives systematic numerical drift. See operators/gelu/ formal_semantics.'
+
+    - input: 'GPT-style "legacy" (where add-bias-GELU is the FFN gate path)'
+      behaviors:
+        all_libs: 'Used by GPT-2/3, OPT, Bloom; NOT used by Llama 3 (SwiGLU instead). Architecture-dependent.'
+      mitigation: 'For modern LLMs (Llama 3+, Qwen 2+, DeepSeek V3): use fused-mlp-silu instead. fused-add-bias-gelu is for GPT-style architectures only.'
+
+  numerical_rules:
+    - aspect: 'epilogue_compute_dtype'
+      per_library:
+        all_libs: 'Bias add stays in input dtype (BF16/FP16); GELU computed in input dtype. No FP32 round-trip needed (GELU has no accumulation).'
+      notes: 'Different from RMSNorm — GELU does not need FP32 because there is no row reduction. Per-element activation only.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.nn.functional as F
+      def fused_add_bias_gelu(x, W, bias):
+          return F.gelu(x @ W + bias, approximate='tanh')

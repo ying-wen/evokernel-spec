@@ -105,3 +105,52 @@ references:
   - title: 'vLLM TP communication kernels'
     url: https://github.com/vllm-project/vllm/blob/main/csrc/communication
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_tp_allreduce_residual_norm(local_partial: [N, D], residual: [N, D],
+                                      gamma: [D], world_size: int, eps: float)
+        -> output: [N, D]
+    Three-way fusion: TP all-reduce + residual add + RMSNorm. Eliminates 2 HBM
+    round-trips per transformer layer. Used in zero-bubble pipeline parallelism
+    where allreduce overlap with downstream compute is critical.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = AR kernel + residual-add kernel + RMSNorm kernel. Each kernel
+    launches separately with its own HBM read/write of [N, D] activations.
+    At TP=8, D=8192, BF16, B=64: 16 MB of avoidable HBM traffic per layer.
+    For 80-layer Llama 3 70B, that's 1.3 GB/decode-step saved. Speedup 1.5-2× on
+    TP critical path.
+
+  edge_cases:
+    - input: 'norm runs INSIDE all-reduce vs AFTER (DeepSeed Ulysses style)'
+      behaviors:
+        flash-comm-norm-after: 'Norm after the AR completes — standard fusion.'
+        zero-bubble-norm-during: 'Norm interleaved with AG phase of split AR=RS+AG. Pulls FP32 partial sums forward; norm operates on already-reduced data.'
+      mitigation: 'Both correct; norm-during-AG more aggressive overlap. Verify engine variant.'
+
+    - input: 'gamma weight loading'
+      behaviors:
+        all_libs: 'gamma [D] loaded once at kernel start, held in registers/SMEM. No per-token reload.'
+
+  numerical_rules:
+    - aspect: 'reduction_dtype'
+      per_library:
+        all_libs: 'Defer to allreduce formal_semantics — FP32 accumulator for SUM at world_size > 8.'
+
+    - aspect: 'rmsnorm_partial_sum_dtype'
+      per_library:
+        all_libs: 'Same FP32 partial-sum rule as standalone RMSNorm. The all-reduce output passes through FP32 cast before square-sum.'
+      notes: 'Two FP32 boundaries in this fused kernel: AR reduction + RMSNorm partial sum. Both mandatory for correctness at training scale.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_tp_allreduce_residual_norm(local_partial, residual, gamma, eps):
+          dist.all_reduce(local_partial, op=dist.ReduceOp.SUM)
+          x = local_partial + residual
+          x_fp32 = x.to(torch.float32)
+          rms = torch.rsqrt(x_fp32.pow(2).mean(-1, keepdim=True) + eps)
+          return (x_fp32 * rms).to(x.dtype) * gamma

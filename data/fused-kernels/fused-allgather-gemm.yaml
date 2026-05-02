@@ -123,3 +123,48 @@ references:
   - title: 'vLLM TP serving'
     url: https://docs.vllm.ai/en/latest/serving/distributed_serving.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    fused_allgather_gemm(local_x: [N/world_size, D], W: [D, M], world_size: int)
+        -> y: [N, M]
+    Fuses {all-gather of local_x across TP ranks → GEMM} into one kernel pipeline.
+    Each tile of the gathered input arrives over NVLink and is consumed by the next
+    GEMM tile without HBM round-trip.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = (1) launch all-gather kernel; (2) wait for all-gather to complete to
+    HBM; (3) launch GEMM. The HBM write of the gathered tensor is the killer —
+    [N, D] BF16 at N=8K, D=8192, TP=8 = 256 MB written and immediately re-read.
+    Fused saves the HBM round-trip; speedup 1.3-1.8× at TP=8 LLM decode.
+
+  edge_cases:
+    - input: 'tile alignment between all-gather grain and GEMM K-tile'
+      behaviors:
+        flash-comm: 'all-gather grain matches GEMM-K-tile (typically 128 BF16 elements). Each NVLink chunk arrives directly into the K-tile of the next GEMM iteration.'
+        cutlass-tp: 'Same alignment requirement; CUTLASS template parameterizes both grains to match.'
+      mitigation: 'Verify GEMM block-K matches NVLink chunk size. Misalignment forces a sync stall.'
+
+    - input: 'TP > 1 across multiple nodes (NVLink + IB)'
+      behaviors:
+        flash-comm-intranode: 'Pure NVLink path; full bandwidth.'
+        flash-comm-internode: 'Hierarchical: intra-node all-gather first via NVLink, then inter-node via IB. Adds ~30% latency vs intra-only.'
+      mitigation: 'For TP > 8 (forces cross-node): expect 1.3× speedup not 1.8× — IB latency dominates the savings.'
+
+  numerical_rules:
+    - aspect: 'no_reduction_no_precision_concern'
+      per_library:
+        all_libs: 'all-gather is pure shuffle; GEMM accumulator is FP32 by default. No fusion-specific precision rule.'
+      notes: 'Same as standalone GEMM — the all-gather adds no arithmetic.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      # Pseudo: real impl is hand-written CUDA pipelining all-gather chunks
+      # with GEMM K-tile iterations.
+      def fused_allgather_gemm(local_x, W, world_size):
+          x_full = torch.empty(N, D, device=local_x.device, dtype=local_x.dtype)
+          dist.all_gather_into_tensor(x_full, local_x)
+          return x_full @ W

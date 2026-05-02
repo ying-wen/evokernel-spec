@@ -6,7 +6,43 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.22 — fused-kernel formal_semantics depth fill** (remaining 14 entries: fused-spec-decode, fused-mtp-head, mooncake-kv-disaggregation, fused-allreduce-residual, fused-tp-allreduce-residual, fused-allgather-gemm, fused-grouped-gemm, fused-dequant-gemm, fused-kv-quant, fused-rmsnorm-residual-quantize, fused-conv-norm-act, fused-add-bias-gelu, fused-radix-attention, fused-selective-scan).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.23 — fused-kernel formal_semantics depth fill (remaining 7)** (kv-quant + attention-variants families: fused-spec-decode, fused-mtp-head, fused-kv-quant, fused-rmsnorm-residual-quantize, fused-conv-norm-act, fused-radix-attention, fused-selective-scan).
+
+---
+
+## [2.22.0] — 2026-05-02
+
+**Theme**: fused-kernel formal_semantics depth fill — collective-fusion + GEMM-fusion families (7 entries).
+
+Continues the Layer D depth fill from v2.18. After v2.22, fused-kernel `formal_semantics` coverage is **17/24 (71%)** — only 7 entries remaining (kv-quant + attention-variants families) for v2.23.
+
+### Added — formal_semantics on 7 fused kernels (10 → 17 / 24)
+
+**Collective-fusion family (3):**
+
+- **`fused-allgather-gemm`** — tile alignment between NVLink chunk and GEMM K-tile (FlashComm requires 128 BF16 alignment); cross-node TP penalty (~30% latency hit); no fusion-specific precision rule (FP32 GEMM accumulator handles it).
+- **`fused-allreduce-residual`** — residual broadcast across batch dim; reduce-scatter + all-gather split form (FlashComm path); residual-add stays in input dtype (no accumulation).
+- **`fused-tp-allreduce-residual`** — three-way fusion (AR + residual + RMSNorm); norm-after-AR vs norm-during-AG (DeepSpeed Ulysses style); two FP32 boundaries (AR reduction + RMSNorm partial sum).
+
+**GEMM-fusion family (3):**
+
+- **`fused-add-bias-gelu`** — tanh approximation vs exact erf (must match training-time config; loading tanh-trained model with exact = systematic offset); GPT-style only (Llama 3+ uses fused-mlp-silu); epilogue stays in input dtype.
+- **`fused-dequant-gemm`** — group_size=128 sweet spot for AWQ/GPTQ; Marlin (Hopper SOTA) vs cuBLASLt vs CUTLASS path selection; asymmetric (zero-point) vs symmetric INT4; no FP32 dequant needed (BF16 sufficient).
+- **`fused-grouped-gemm`** — handles expert load imbalance via expert_offsets cumsum; heterogeneous experts forbidden (must pad to max shape); DeepGEMM/GMM block-quantized FP8 variant (DeepSeek V3 path); per-expert FP32 accumulator (standard).
+
+**Cross-cutting (1):**
+
+- **`mooncake-kv-disaggregation`** — RDMA over IB-NDR (50ms transfer for 70B 32K ctx) vs NVLink Fabric (5ms intra-rack); layout/dtype/version mismatch = silent corruption; transfer failure must fall back to local prefill (SLO-aware contract).
+
+### Why this matters
+
+The collective-fusion family is the heart of TP-overlap optimization (every transformer layer has 2 of these). Documenting `numerical_rules` makes it possible for the agent to recommend the right variant per workload (training vs inference; intra-node vs cross-node) and per engine (FlashComm vs zero-bubble vs DeepSpeed Ulysses).
+
+The GEMM-fusion family is what every cuBLASLt / CUTLASS user touches. Now the agent can flag the GPT-vs-Llama architecture fork (fused-add-bias-gelu vs fused-mlp-silu), pick Marlin for INT4 on Hopper, and warn about expert load imbalance in MoE deploys.
+
+`mooncake-kv-disaggregation` documents the production-grade disaggregated prefill/decode pattern that's increasingly standard in 2026 (DeepSeek V3, NIXL, vLLM disagg) — the formal_semantics entry makes its layout-version-must-match rule explicit and the transfer-failure fallback contract surface-level.
+
+Site stats: 505 pages built; 11/11 dispatch tests pass; 354 entities validate.
 
 ---
 

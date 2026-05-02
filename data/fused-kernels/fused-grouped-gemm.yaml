@@ -119,3 +119,57 @@ references:
   - title: 'vLLM fused_moe kernel'
     url: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/fused_moe/fused_moe.py
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_grouped_gemm(tokens: [N, D_in], expert_weights: [num_experts, D_in, D_out],
+                       expert_offsets: [num_experts])
+        -> outputs: [N, D_out]
+    Fuses {N independent GEMMs (one per expert)} into a single kernel launch.
+    Each expert sees a contiguous slice of tokens (set by expert_offsets); kernel
+    dispatches expert-batch × expert-weight pairs to GPU SMs in parallel.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = num_experts independent GEMM launches. With 256 experts (DeepSeek V3),
+    that's 256 kernel-launch overheads (~5μs each = 1.3ms wasted) — comparable to
+    the actual compute time at decode. Fused launch overhead is single-digit μs
+    regardless of expert count. Speedup at high expert count: 2-5× decode latency.
+
+  edge_cases:
+    - input: 'expert load imbalance (some experts have many tokens, others zero)'
+      behaviors:
+        triton-grouped-gemm: 'Handles via expert_offsets cumsum; SMs naturally pick up larger experts. No code change needed.'
+        cutlass-grouped-gemm: 'Same — SM scheduling adapts to per-expert size.'
+      mitigation: 'No correctness issue. Perf cliff if 90%+ of tokens go to 1 expert (router collapse). Alert via expert-occupancy metric.'
+
+    - input: 'D_in or D_out differs per expert (heterogeneous experts)'
+      behaviors:
+        all_libs: 'Forbidden by current grouped-GEMM impls. All experts must have same shape.'
+      mitigation: 'For heterogeneous experts (rare): pad to max shape; mask outputs. Inefficient but correct.'
+
+    - input: 'GMM (DeepGEMM block-quantized) variant'
+      behaviors:
+        deepgemm-grouped: 'DeepSeek "GMM" extension: groupwise FP8 quantization PER EXPERT. ~50% bandwidth reduction.'
+      mitigation: 'For DeepSeek V3 671B inference: grouped FP8 is dominant path. Verify engine has DeepGEMM/GMM support.'
+
+  numerical_rules:
+    - aspect: 'per_expert_accumulation'
+      per_library:
+        all_libs: 'Each expert"s GEMM uses standard FP32 accumulator. No cross-expert accumulation.'
+      notes: 'Same as standard GEMM. The grouping is for batching efficiency, not numerical change.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_grouped_gemm(tokens, expert_weights, expert_offsets):
+          # tokens: [N, D_in]; expert_weights: [num_experts, D_in, D_out]
+          # expert_offsets[i] = start of expert i's token slice in tokens
+          outputs = torch.empty(N, D_out, device=tokens.device, dtype=tokens.dtype)
+          for e in range(num_experts):
+              start = expert_offsets[e]
+              end = expert_offsets[e + 1] if e + 1 < num_experts else N
+              if end > start:
+                  outputs[start:end] = tokens[start:end] @ expert_weights[e]
+          return outputs

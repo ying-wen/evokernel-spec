@@ -99,3 +99,48 @@ references:
   - title: 'Reducing Latency of Tensor-Parallel Inference (PR analysis)'
     url: https://github.com/vllm-project/vllm/pull/5219
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_allreduce_residual(local_partial: [N, D], residual: [N, D], world_size: int)
+        -> output: [N, D]
+    Fuses {all-reduce of local_partial → add residual → write output}. The residual
+    add lands inside the all-reduce reduce-scatter+all-gather pipeline so the
+    residual buffer is never re-loaded from HBM.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = (1) all-reduce kernel; (2) HBM round-trip; (3) residual-add kernel.
+    Each layer of the LLM transformer has TWO of these (post-attention + post-MLP)
+    so the savings compound. At TP=8, B=64, D=8192, BF16: 8 MB residual buffer
+    avoided per all-reduce. ~12% TP decode latency win when fused everywhere.
+
+  edge_cases:
+    - input: 'residual broadcast across batch dim (b=1 prefill vs b=N decode)'
+      behaviors:
+        flash-comm: 'Per-token residual; broadcast handled by kernel via BatchPtr.'
+        vllm-fused-ar-residual: 'Same.'
+      mitigation: 'Residual must have same [N, D] shape as activations. Mismatched broadcast is a model bug, not a fusion concern.'
+
+    - input: 'reduce-scatter + all-gather split form (FlashComm path)'
+      behaviors:
+        flash-comm-rs-ar-ag: 'Splits all-reduce = RS + AG. Residual add lands between them, after RS reduce — uses partial sum as the residual base. Saves 1× HBM write.'
+      mitigation: 'Algorithmically equivalent to dense all-reduce + residual; verify split form is enabled in engine config.'
+
+  numerical_rules:
+    - aspect: 'reduction_dtype_for_fp16_inputs'
+      per_library:
+        all_libs: 'Same FP32-accum rule as standalone all-reduce. The residual add is post-reduction so input dtype is fine for that step.'
+      notes: 'Defer to allreduce formal_semantics for the reduction precision rule. Fusion does not change the rule.'
+
+    - aspect: 'residual_add_dtype'
+      per_library:
+        all_libs: 'Residual addition stays in input dtype (BF16/FP16). No precision concern — single addition, no accumulation.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_allreduce_residual(local_partial, residual):
+          dist.all_reduce(local_partial, op=dist.ReduceOp.SUM)
+          return local_partial + residual

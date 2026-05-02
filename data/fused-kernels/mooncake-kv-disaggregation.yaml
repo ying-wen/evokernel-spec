@@ -105,3 +105,62 @@ references:
   - title: 'vLLM disaggregated prefill design doc'
     url: https://docs.vllm.ai/en/latest/serving/disagg_prefill.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    mooncake_kv_disagg(prefill_kv: [num_layers, B, H_kv, S, D_head] (on prefill GPU),
+                       transfer_handle, decode_target_gpu)
+        -> kv_loaded_on_decode_gpu: bool
+    Streams KV cache from a prefill-specialized GPU pool to a decode-specialized
+    GPU pool over GPUDirect RDMA / NVLink Fabric. Allows separate scaling of
+    prefill capacity (compute-heavy) vs decode capacity (memory-heavy).
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Without disaggregation: prefill and decode share GPU resources. At long-prefill
+    workloads (RAG, code), prefill bursts starve decode latency for ~hundreds of
+    ms. With Mooncake: dedicated prefill pool processes the burst; KV transferred
+    via RDMA in <50ms; decode pool stays unaffected.
+
+  edge_cases:
+    - input: 'KV transfer over IB / RoCE vs NVLink Fabric'
+      behaviors:
+        mooncake-rdma: 'Uses GPUDirect RDMA over IB-NDR (400Gbps) or RoCEv2 — typical 50ms for 70B-model 32K-ctx KV.'
+        mooncake-nvlink: 'Intra-rack via NVLink Fabric — 10x faster (5ms).'
+        nixl-internode: 'NVIDIA NIXL backend; equivalent path with KvBlocks abstraction.'
+      mitigation: 'Co-locate prefill and decode pools in same NVLink island when possible (NVL72). Cross-rack disagg only if absolutely needed for capacity.'
+
+    - input: 'KV layout compatibility (paged-attention page size, dtype)'
+      behaviors:
+        all_libs: 'Prefill and decode pools MUST use same page_size, dtype, and num_layers/heads/dim. Otherwise transfer is invalid.'
+      mitigation: 'Single engine version + identical config across pools. Mismatch = silent corruption.'
+
+    - input: 'multi-tenancy (multiple users sharing pool)'
+      behaviors:
+        mooncake-multi-tenant: 'Per-request KV transfer; each request has its own RDMA target.'
+      mitigation: 'Mature: KV ownership tracked via request_id. Concurrent transfers coexist via RDMA queue pairs.'
+
+  numerical_rules:
+    - aspect: 'no_arithmetic_no_precision_concern'
+      per_library:
+        all_libs: 'Pure data movement; bit-identical on both sides.'
+      notes: 'Same as memcpy-async. The only correctness concern is layout/dtype/version match.'
+
+    - aspect: 'transfer_failure_handling'
+      per_library:
+        mooncake: 'On transfer fail: decode pool falls back to running prefill itself (degraded latency but correct output).'
+        nixl: 'Same fallback contract.'
+      notes: 'Critical for production: transfer must be best-effort with fallback, not blocking. SLO-aware design.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      # Pseudo: the actual transfer is via Mooncake/NIXL C++ runtime, not Python
+      class MooncakeKvTransfer:
+          def push_kv(self, kv_tensor, dst_gpu_id, request_id):
+              # Async RDMA put; returns transfer handle
+              return rdma_put(kv_tensor, dst_gpu_id, tag=request_id)
+          def wait(self, handle, timeout_ms=200):
+              # Decode pool blocks here until KV arrives or timeout
+              return rdma_wait(handle, timeout_ms)

@@ -113,3 +113,65 @@ references:
   - title: 'cuBLASLt INT4_AWQ'
     url: https://docs.nvidia.com/cuda/cublas/index.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    fused_dequant_gemm(x_bf16: [N, D_in], W_int4: [D_in/8, D_out], scales: [D_out/group, D_out],
+                       zeros: [D_out/group, D_out], group_size: int)
+        -> y_bf16: [N, D_out]
+    Fuses {INT4 weight dequantization → BF16 GEMM} into a single kernel.
+    Dequant happens INSIDE the GEMM tile's K-loop, in registers; never
+    materializes the full BF16 weight matrix.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = (1) dequant kernel writes [D_in, D_out] BF16 weights to HBM;
+    (2) standard GEMM reads them back. The HBM traffic is the killer — at
+    Llama 3 70B FFN (D=8192, D_out=28672): 460 MB BF16 weights materialized
+    per kernel call, pre-fused. Fused saves the 460 MB round-trip; speedup
+    1.5-2× decode (memory-bound) and matches FP16 GEMM throughput at compute-bound.
+
+  edge_cases:
+    - input: 'group_size = 128 (AWQ default) vs per-tensor scale'
+      behaviors:
+        awq-128: 'group_size=128 along K dim; scale/zero per group. Most accurate.'
+        awq-per-tensor: 'Single scale/zero for entire tensor; degrades quality but smaller scale buffer.'
+        gptq-128: 'Same group_size=128 default.'
+      mitigation: 'group_size=128 is the sweet spot. Smaller (64) marginal accuracy gain at 2× scale buffer; larger (256+) loses ~0.5pp on MMLU.'
+
+    - input: 'Marlin vs cuBLASLt vs CUTLASS path'
+      behaviors:
+        marlin: 'Best on Hopper; uses async copy + WGMMA + INT4-pack-aware register layout.'
+        cublas-lt: 'NVIDIA-blessed but typically 10-20% slower than Marlin on Hopper.'
+        cutlass: 'Reference, configurable; used as Marlin baseline.'
+      mitigation: 'For Hopper INT4 inference: use Marlin (vLLM 0.5+, SGLang 0.3+ default). cuBLASLt fallback if Marlin compatibility issues.'
+
+    - input: 'asymmetric (zero-point) vs symmetric quantization'
+      behaviors:
+        asym-int4: 'AWQ default; uses zero-point. y = (w - zero) * scale.'
+        sym-int4: 'GPTQ symmetric variant; zero=0 implicit. Faster dequant (no zero-add) but lower accuracy.'
+      mitigation: 'Match the original quantization recipe. Asymmetric is standard for INT4 LLM weights.'
+
+  numerical_rules:
+    - aspect: 'dequant_compute_dtype'
+      per_library:
+        all_libs: 'Dequant computed as (w_int4 - zero) * scale in BF16; result fed into BF16 tensor-core MMA with FP32 accumulator.'
+      notes: 'No FP32 dequant needed — INT4 has 4 bits of magnitude, BF16 has 8 bits of exponent + 8 bits of mantissa. The dequant arithmetic does not lose precision.'
+
+    - aspect: 'scale_dtype'
+      per_library:
+        awq: 'scales stored as BF16; suffices for inference accuracy.'
+        gptq: 'Same.'
+        marlin: 'Same; pack-friendly.'
+      notes: 'FP32 scales are overkill — measured accuracy delta is < 0.1pp on MMLU.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_dequant_gemm(x, w_int4, scales, zeros, group_size=128):
+          # w_int4: [D_in/8, D_out] packed; unpack to [D_in, D_out] in tiles
+          D_in_tile = group_size
+          # In real kernel: dequant happens INSIDE the GEMM K-tile loop; never materializes full W
+          w_bf16 = (w_int4.unpack() - zeros.broadcast()) * scales.broadcast()
+          return x @ w_bf16
