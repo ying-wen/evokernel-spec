@@ -1,0 +1,221 @@
+---
+/**
+ * /agents/example/ — End-to-end agent sample (v2.9).
+ *
+ * Demonstrates that the corpus is sufficient for an autonomous deployment
+ * agent to take any HuggingFace model + any hardware → production-grade
+ * deployment plan. Not a hypothetical — a working CLI script ships in
+ * scripts/agent-deploy/.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+---
+<BaseLayout title="Agent E2E Sample — Any HuggingFace Model → Any Hardware">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="AGENTS · E2E SAMPLE · v2.9"
+        title="任意模型 → 任意硬件 端到端 agent 工作样例"
+        subtitle="生产级交付 · 13 个 artifact · 用 corpus JSON API 作为知识库"
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        证明这个 corpus 包含足够数据让自治 deployment agent 端到端工作. 不是 hypothetical —
+        一个可运行的 CLI 脚本 (<code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 1px 6px; border-radius: 3px; font-family: var(--font-mono);">scripts/agent-deploy/</code>) ships in this repo.
+        给任意 HuggingFace model id + 任意 hardware id → 输出 13 个生产级 artifact.
+      </p>
+    </section>
+
+    {/* Quick demo */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🚀 Quick demo</h2>
+      <pre class="rounded-lg p-4 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`# Plan deployment of Llama 4 Scout on H100 cluster
+pnpm tsx scripts/agent-deploy/index.ts \\
+  --model meta-llama/Llama-4-Scout-17B-16E \\
+  --hardware h100-sxm5 \\
+  --workload chat \\
+  --target-cost 1.50 \\
+  --target-ttft 400
+
+# Same model, different hardware (AMD MI300X)
+pnpm tsx scripts/agent-deploy/index.ts \\
+  --model meta-llama/Llama-4-Scout-17B-16E \\
+  --hardware mi300x \\
+  --workload chat
+
+# Or feed an offline config (air-gapped):
+pnpm tsx scripts/agent-deploy/index.ts \\
+  --model meta-llama/Llama-4-Scout-17B-16E \\
+  --hardware ascend-910c \\
+  --workload chat \\
+  --config /path/to/local/config.json
+`}</code></pre>
+    </section>
+
+    {/* The 7-stage pipeline */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🧠 7 阶段 agent pipeline</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        每个阶段调用一个或多个 corpus JSON API. 替换其中任何一步成自家逻辑都行 — 这就是为什么 corpus 是"知识库"而不是"agent".
+      </p>
+      <div class="grid gap-3">
+        {[
+          { n: 1, title: 'Model understanding', what: '从 HF 拉 config.json + 分类为 archetype + 推算 ops × shapes', uses: ['/api/models.json', '/api/operators.json', '/api/model-graphs.json (v2.8)'] },
+          { n: 2, title: 'Hardware understanding', what: 'spec / cooling / ISA primitives / software stack', uses: ['/api/hardware.json', '/api/isa-primitives.json (v2.6)', '/api/kernel-libraries.json (v2.5)'] },
+          { n: 3, title: 'Feasibility check', what: 'memory budget / KV cache / op coverage / quant compat', uses: ['/api/coverage-matrix.json (v2.6)'] },
+          { n: 4, title: 'Plan synthesis', what: 'engine / quant / TP/PP/EP / card count / cost', uses: ['/api/engines.json', '/api/playbooks.json (v2.4)', '/api/solve.json (v2.4)'] },
+          { n: 5, title: 'Codegen', what: '引擎启动命令 + container manifest + kernel gap report', uses: ['/api/cases.json', '/api/dsl-examples.json (v2.7)'] },
+          { n: 6, title: 'Validation plan', what: 'eval suite + 5-stage canary + edge case checks', uses: ['/api/operators/<op>/formal_semantics (v2.5)', '/learn/migrations/'] },
+          { n: 7, title: 'Production-grade artifacts', what: 'Dockerfile / K8s / Prometheus / runbook / SBOM / provenance', uses: ['/api/profiling-tools.json (v2.7)', 'license info (compliance)'] }
+        ].map(({ n, title, what, uses }) => (
+          <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <div class="flex items-baseline gap-3 mb-2 flex-wrap">
+              <span class="font-mono shrink-0 text-lg" style="color: var(--color-accent); font-weight: 700;">{n}.</span>
+              <h3 class="text-base font-semibold">{title}</h3>
+            </div>
+            <p class="text-sm mb-2" style="color: var(--color-text-muted);">{what}</p>
+            <div class="flex gap-2 flex-wrap">
+              {uses.map((u) => (
+                <code class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 10%, transparent); color: var(--color-accent); font-family: var(--font-mono);">{u}</code>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* 13 production artifacts */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📦 13 个生产级 artifact</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        生产级 agent 不只输出 launch.sh — 还需要 reproducibility / observability / security / compliance / lifecycle.
+        13 个 artifact 覆盖 8 个生产级关注点 (license / security / observability / SLA / cost / resilience / lifecycle / replay).
+      </p>
+      <div class="grid gap-3 lg:grid-cols-2">
+        {[
+          { file: 'deployment_plan.json', purpose: '完整结构化 plan', concern: 'replay' },
+          { file: 'launch.sh', purpose: '引擎启动脚本 (engine-specific)', concern: 'execute' },
+          { file: 'kernel_gaps.md', purpose: 'kernel 缺口 + codegen TODO', concern: 'completeness' },
+          { file: 'verification_plan.md', purpose: 'eval suite + 5-stage canary', concern: 'quality' },
+          { file: 'Dockerfile', purpose: 'reproducible build, version-pinned', concern: 'reproducibility' },
+          { file: 'kubernetes/deployment.yaml', purpose: 'K8s deployment + service + HPA + probes', concern: 'orchestration' },
+          { file: 'monitoring/prometheus-rules.yaml', purpose: 'SLA + cost + quality alerts', concern: 'observability' },
+          { file: 'runbook.md', purpose: '凌晨 3 点 on-call 响应程序', concern: 'operations' },
+          { file: 'rollback-plan.md', purpose: '5 分钟 rollback 路径 (DNS/LB/Istio)', concern: 'resilience' },
+          { file: 'provenance.json', purpose: '版本 / SHA / commit / firmware 全记录', concern: 'audit' },
+          { file: 'license-audit.md', purpose: '模型 + 引擎 + 库的合规检查', concern: 'compliance' },
+          { file: 'production-checklist.md', purpose: '53 项 gating checklist (legal/sec/ops/SLA)', concern: 'governance' },
+          { file: 'sbom.json', purpose: 'SPDX 2.3 software bill of materials', concern: 'supply-chain' }
+        ].map(({ file, purpose, concern }) => (
+          <div class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <div class="flex items-baseline justify-between gap-2 mb-1">
+              <code class="text-xs font-mono shrink-0" style="color: var(--color-accent); font-weight: 600;">{file}</code>
+              <span class="text-xs px-2 py-0.5 rounded shrink-0" style="background: color-mix(in oklch, var(--color-border) 30%, transparent); color: var(--color-text-muted); font-size: 0.65rem;">{concern}</span>
+            </div>
+            <p class="text-xs" style="color: var(--color-text-muted);">{purpose}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* Cross-model + cross-hardware reuse */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🔄 跨模型 + 跨硬件经验复用</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        Agent 看到一个新模型 (e.g., Llama 4 Maverick 400B) 不需要从头开始 — 通过三个抽象快速复用已有经验:
+      </p>
+      <div class="grid gap-3 lg:grid-cols-3">
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">1. Model archetype 分类</h4>
+          <p class="text-xs mb-2" style="color: var(--color-text-muted);">
+            未知模型 → 8 个 archetype 之一 (dense-llm-large / moe-llm-large / reasoning / long-context / ssm-mamba / multi-modal / diffusion / spec-target).
+          </p>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            分类后, 同 archetype 的所有 playbook 都适用. <strong>Llama 4 Maverick 400B → moe-llm-large = 复用 DeepSeek V3 的部署经验.</strong>
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">2. Hardware class 分类</h4>
+          <p class="text-xs mb-2" style="color: var(--color-text-muted);">
+            未知硬件 → 12 个 hardware_class 之一 (hopper-cluster / cdna3-cluster / ascend-cluster / blackwell-superpod / etc.).
+          </p>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            分类后, (model_archetype × hardware_class) 96 cell 矩阵给出预编码的 working recipe.
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">3. ISA primitive equivalence</h4>
+          <p class="text-xs mb-2" style="color: var(--color-text-muted);">
+            缺 (op × hardware) 时, 不需重新发明 — 查 <code style="font-family: var(--font-mono);">cross_vendor_equivalents</code>.
+          </p>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            <strong>WGMMA → 4× Cube 16x16x16 on Ascend</strong>. 移植规则被显式 codified, 不是 tribal knowledge.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    {/* What this proves */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">✅ 这证明了什么</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        运行 agent-deploy on (Llama 4 Scout × MI300X) 成功证明:
+      </p>
+      <ol class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>1. Corpus 数据足够</strong> — agent 仅靠 JSON API 就能获得所有需要的输入. 无需读 HTML, 无需 LLM 推理.
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>2. 跨模型复用 work</strong> — archetype 分类让一个 playbook 服务多个模型.
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>3. 跨硬件复用 work</strong> — hardware_class 分类 + ISA equivalents 让 plan 自动适配 vendor.
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>4. 5 层 hw-sw 模型可操作</strong> — agent 实际遍历 Layer A (primitives) ↔ B (DSL) ↔ C (libraries) ↔ D (semantics) ↔ E (coverage).
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>5. 生产级交付可行</strong> — 不只 launch.sh, 而是 13 个 artifact 覆盖 reproducibility / observability / security / compliance / governance.
+        </li>
+      </ol>
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        For an agent vendor (Claude / Cursor / GitHub Copilot / 自建 agent), <strong>this is the integration template</strong> —
+        wire your reasoning loop into these JSON APIs and you have an "any model × any hardware" deployment agent.
+      </p>
+    </section>
+
+    {/* Where it stops short */}
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3" style="color: oklch(70% 0.18 70);">⚠️ Sample 的边界 (有意为之)</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>不实际生成 kernel 代码</strong> — 输出 <code>kernel_gaps.md</code> 描述应该用哪个 ISA equivalent + DSL 但不写 C++/CCE-C. v3.0 可扩展.
+        </li>
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>不实际部署</strong> — 输出 plan + manifests; 不 ssh 进 cluster 跑. 故意分离 — plan 生成是 corpus 的事, 执行是 user CI/CD 的事.
+        </li>
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>provenance.json 含 TODO_PIN</strong> — agent 不能自动 pin 所有版本. 需要 CI 在生产部署时填充.
+        </li>
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>license-audit.md 含 TODO</strong> — license 必须人工 review. agent 标记需要确认的项, 不替代法务.
+        </li>
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>仅 public HF 模型</strong> — private repo / 自家 fine-tuned 模型需要 auth + offline config. 易扩展.
+        </li>
+      </ul>
+      <p class="text-sm mt-4" style="color: var(--color-text-muted);">
+        全部 5 项是 upgrade path, 不是 blocker. Sample 故意是 thin agent, 每一块都可以替换为更智能的逻辑.
+      </p>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Code: <a href="https://github.com/evokernel/evokernel-spec/tree/main/scripts/agent-deploy" target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">scripts/agent-deploy/</a> ·
+        Design: <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 1px 6px; border-radius: 3px;">docs/superpowers/specs/2026-05-02-agent-e2e-sample.md</code> ·
+        See also: <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/ (integration overview)</a>
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

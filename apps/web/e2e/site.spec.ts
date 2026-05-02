@@ -627,6 +627,31 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.9: /agents/example/ — E2E agent sample', () => {
+  test('/agents/example/ renders 7-stage pipeline + 13 artifacts + cross-model/hardware reuse', async ({ page }) => {
+    await page.goto('/agents/example/');
+    await expect(page.getByText(/AGENTS.*E2E SAMPLE|任意模型.*任意硬件/i).first()).toBeVisible();
+    // 7-stage pipeline
+    await expect(page.getByText(/7.*pipeline|7 阶段|Model understanding/i).first()).toBeVisible();
+    // 13 artifacts mention
+    await expect(page.getByText(/13.*artifact|deployment_plan|Dockerfile/i).first()).toBeVisible();
+    // Cross-model + cross-hardware reuse
+    await expect(page.getByText(/archetype|跨模型|cross.model/i).first()).toBeVisible();
+    // Demo command snippet visible
+    await expect(page.getByText(/agent-deploy|scripts\/agent-deploy/i).first()).toBeVisible();
+  });
+
+  test('/api/engines.json returns 200 (was missing before v2.9)', async ({ request }) => {
+    const r = await request.get('/api/engines.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.count).toBeGreaterThanOrEqual(7);
+    const ids = body.items.map((e: any) => e.id);
+    expect(ids).toContain('vllm');
+    expect(ids).toContain('sglang');
+  });
+});
+
 test.describe('v2.8: model execution graphs (bridge from arch → ops)', () => {
   test('/api/model-graphs.json returns 200 with at least 2 graphs', async ({ request }) => {
     const r = await request.get('/api/model-graphs.json');
