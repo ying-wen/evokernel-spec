@@ -124,7 +124,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/contribute/', labelKey: 'nav.contribute', desc_zh: '贡献指南 · 三种 PR 路径', desc_en: 'Contributing · 3 PR tracks' },
       { path: '/contribute/case-form/', labelKey: 'nav.caseForm', desc_zh: '提交部署案例 · 表单生成 PR-ready YAML', desc_en: 'Submit a case · form generates PR-ready YAML' },
       { path: '/about/', labelKey: 'nav.about', desc_zh: '项目设计原则 · evidence tier · 公式', desc_en: 'Design principles · evidence tier · formulas' },
-      { path: '/changelog/', labelKey: 'nav.changelog', desc_zh: '版本日志 · RSS 订阅 · 每个版本一个主题', desc_en: 'Release log · RSS feed · single-theme releases' }
+      { path: '/changelog/', labelKey: 'nav.changelog', desc_zh: '版本日志 · RSS 订阅 · 每个版本一个主题', desc_en: 'Release log · RSS feed · single-theme releases' },
+      { path: '/agents/', labelKey: 'nav.agents', desc_zh: '智能体集成入口 · JSON API · /api/solve.json · MCP 路线图', desc_en: 'Agent integration · JSON API · /api/solve.json · MCP roadmap', theme: 'accent' }
     ]
   }
 ];

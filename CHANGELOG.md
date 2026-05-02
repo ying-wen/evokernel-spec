@@ -10,6 +10,50 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
 
 ---
 
+## [2.4.0] — 2026-05-02
+
+**Theme**: Agent-readiness — make the corpus consumable by autonomous deployment agents. First half of the 3-iteration plan from `docs/superpowers/specs/2026-05-02-agent-readiness.md`.
+
+### Added
+- **`/api/operators.json`** — machine-readable operator catalog (was missing; 34 ops with FLOPs/byte formulas, arithmetic intensity, fusion targets, engine implementations).
+- **`/api/fused-kernels.json`** — 24 fused kernels with operators_folded + per-vendor coverage.
+- **`/api/playbooks.json`** — 24 (model archetype × hardware class) recipes.
+- **`/api/solve.json`** — **constraint-solver endpoint**. Flat enumeration of all 65 known configurations (41 measured cases + 24 playbook recommendations) normalized into a unified shape with derived `dollars_per_m_tokens_estimate` and `default_score` fields. SSG limitation: clients filter the array client-side; query examples included in response.
+- **`/agents/`** — integration page for agent builders. 7-stage pipeline mapping (model understanding → hw understanding → cross-vendor op equivalence → constraint solve → codegen → validation → deploy) with completeness scores per stage. JSON API endpoint reference. `/api/solve.json` worked examples in JS. MCP server roadmap for v2.7+. Known gaps section.
+- **OpenAPI 3.1 spec** bumped to 2.4.0 with all 4 new endpoints documented.
+- **nav-groups.ts**: `Agents` entry in about dropdown (theme: accent).
+- **i18n**: `nav.agents` zh/en.
+- **7 v2.4 E2E tests** covering all new endpoints (status codes / shapes / required fields), `/api/solve.json` derived-cost validation, OpenAPI spec content, `/agents/` page rendering.
+
+### Why
+The user asked: "如何让端到端跨硬件部署智能体直接读取这个网站作为知识库?" The answer's biggest unlock is **API completeness** — operators / fused-kernels / playbooks were each browseable as HTML but not exposed as JSON. Add the missing endpoints + a normalized solver endpoint + a doc page explaining the integration story, and external agents can immediately start consuming the corpus.
+
+### Stats
+- 7 new v2.4 E2E tests pass · full suite green
+- Build: 454 pages (was 453, +1 = `/agents/`)
+- 4 new JSON endpoints · agent-readiness ~40% → ~50%
+- Schema unchanged · 100% derived from existing data
+
+---
+
+## [2.3.0] — 2026-05-02
+
+**Theme**: Cost optimization playbook — answer "I have $X/M tokens, want $Y, which levers fire first?" with concrete impact ranges and decision trees.
+
+### Added
+- **`/learn/cost-optimization/`** — catalog of 14 cost levers across 4 families (compute / memory / serving / scheduling), each with $-impact range, complexity, risk, prereq, cross-links to patterns / fused-kernels / quantizations / migration playbooks.
+- **6 workload-archetype recommendations** (Chat / RAG-Agent / Code-completion / Batch / Multi-tenant fine-tune / Long context) → top-3 levers per archetype.
+- **6 anti-patterns**: levers that DON'T help (or hurt) under wrong conditions — pre-empts wasted iteration.
+- **5-step optimization process**: baseline → 1 lever → shadow→canary → verify → roll into baseline.
+- **nav-groups.ts**: 成本优化 entry in learn dropdown (theme: accent).
+- **i18n**: `home.entry.costOpt` zh/en.
+- **4 v2.3 E2E tests** covering archetype recs, lever families, anti-patterns, cross-links to migrations / engines/compare / hardware/power-thermal-matrix.
+
+### Why
+Existing `/learn` pages tell you HOW to do each lever (patterns / fused-kernels / quantizations / migrations). This page gives the priority ranking *before* you start, plus the explicit "don't do these" list that's typically lost in the prose elsewhere. Cost optimization is a top-3 deployment-chain question; codifying the levers as a structured playbook makes the answer tractable for both humans and agents.
+
+---
+
 ## [2.2.0] — 2026-05-02
 
 **Theme**: Operator × hardware-arch fitness matrix — answer "I have hardware X, which operators have native fast kernels?" without reading 34 operator yamls.

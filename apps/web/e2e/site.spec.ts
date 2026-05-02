@@ -627,6 +627,86 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.4: /api/* agent-readiness endpoints + /agents/ doc page', () => {
+  test('/api/operators.json returns 200 with items array', async ({ request }) => {
+    const r = await request.get('/api/operators.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.count).toBeGreaterThanOrEqual(30);
+    expect(body.license).toBe('CC-BY-SA-4.0');
+    expect(Array.isArray(body.items)).toBe(true);
+  });
+
+  test('/api/fused-kernels.json returns 200 with items array', async ({ request }) => {
+    const r = await request.get('/api/fused-kernels.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.count).toBeGreaterThanOrEqual(20);
+  });
+
+  test('/api/playbooks.json returns 200 with items array', async ({ request }) => {
+    const r = await request.get('/api/playbooks.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.count).toBeGreaterThanOrEqual(20);
+  });
+
+  test('/api/solve.json returns flat configurations + query examples', async ({ request }) => {
+    const r = await request.get('/api/solve.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.schema_version).toBe('1.0');
+    expect(body.count).toBeGreaterThanOrEqual(50); // 41 cases + 24 playbooks ≈ 65
+    expect(body.count_by_tier.measured).toBeGreaterThanOrEqual(30);
+    expect(body.count_by_tier.estimated).toBeGreaterThanOrEqual(15);
+    expect(Array.isArray(body.query_examples)).toBe(true);
+    expect(body.query_examples.length).toBeGreaterThanOrEqual(3);
+    expect(Array.isArray(body.configurations)).toBe(true);
+    // Each entry should have shape {source, source_id, model, hardware, engine, quantization, metrics, tier, default_score}
+    const c = body.configurations[0];
+    expect(c.source).toMatch(/case|playbook/);
+    expect(c.source_id).toBeTruthy();
+    expect(c.tier).toMatch(/measured|estimated/);
+    expect(typeof c.default_score).toBe('number');
+  });
+
+  test('/api/solve.json measured cases have derived dollars_per_m_tokens for known hardware', async ({ request }) => {
+    const r = await request.get('/api/solve.json');
+    const body = await r.json();
+    // At least some H100 cases should have a derived dollar estimate
+    const h100Cases = body.configurations.filter(
+      (c: any) => c.tier === 'measured' && c.hardware.id === 'h100-sxm5'
+    );
+    expect(h100Cases.length).toBeGreaterThanOrEqual(1);
+    const withCost = h100Cases.filter(
+      (c: any) => c.metrics.dollars_per_m_tokens_estimate != null
+    );
+    expect(withCost.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('/agents/ page renders header + 7-stage pipeline + JSON API list', async ({ page }) => {
+    await page.goto('/agents/');
+    // Eyebrow / title both contain "AGENTS"
+    await expect(page.getByText(/AGENTS · v2\.4|给智能体的集成入口/i).first()).toBeVisible();
+    // 7-stage pipeline table
+    await expect(page.getByText(/Model understanding|Hardware understanding/i).first()).toBeVisible();
+    // JSON API list contains solve.json
+    await expect(page.getByText(/\/api\/solve\.json/i).first()).toBeVisible();
+    // Known gaps section
+    await expect(page.getByText(/已知 gap|Known gap|ISA 原语|cross-vendor/i).first()).toBeVisible();
+  });
+
+  test('/api/openapi.json reflects v2.4.0 with new endpoints', async ({ request }) => {
+    const r = await request.get('/api/openapi.json');
+    const spec = await r.json();
+    expect(spec.info.version).toBe('2.4.0');
+    expect(spec.paths['/api/operators.json']).toBeTruthy();
+    expect(spec.paths['/api/fused-kernels.json']).toBeTruthy();
+    expect(spec.paths['/api/playbooks.json']).toBeTruthy();
+    expect(spec.paths['/api/solve.json']).toBeTruthy();
+  });
+});
+
 test.describe('v2.3: /learn/cost-optimization/ — cost-lever playbook', () => {
   test('renders header + workload-archetype recommendations', async ({ page }) => {
     await page.goto('/learn/cost-optimization/');

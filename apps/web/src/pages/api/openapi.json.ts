@@ -10,9 +10,9 @@ export const GET: APIRoute = async ({ site }) => {
     openapi: '3.1.0',
     info: {
       title: 'EvoKernel Spec Open Data API',
-      version: '1.0.0',
+      version: '2.4.0',
       description:
-        'Open data API for AI inference deployment knowledge — hardware, models, cases. Static endpoints regenerated on every site build. Data licensed under CC-BY-SA-4.0.',
+        'Open data API for AI inference deployment knowledge — hardware, models, cases, operators, fused kernels, playbooks, plus a constraint-solver endpoint for agents (/api/solve.json). Static endpoints regenerated on every site build. Data licensed under CC-BY-SA-4.0.',
       license: { name: 'CC-BY-SA-4.0', url: 'https://creativecommons.org/licenses/by-sa/4.0/' },
       contact: { url: 'https://github.com/evokernel/evokernel-spec' }
     },
@@ -68,6 +68,49 @@ export const GET: APIRoute = async ({ site }) => {
           summary: 'RSS feed of newest cases',
           responses: {
             '200': { description: 'RSS 2.0 XML', content: { 'application/rss+xml': { schema: { type: 'string' } } } }
+          }
+        }
+      },
+      '/api/operators.json': {
+        get: {
+          summary: 'All operators with FLOPs/byte formulas, arithmetic intensity, and engine implementations (v2.4)',
+          description:
+            'Each operator carries its FLOPs and bytes formulas (currently as text — evolving to evaluable expressions in v2.5), arithmetic intensity range, fusion targets, and per-engine kernel implementations tagged with hardware_arch. Primary input for agent kernel-codegen.',
+          responses: {
+            '200': {
+              description: 'List response',
+              content: { 'application/json': { schema: { type: 'object' } } }
+            }
+          }
+        }
+      },
+      '/api/fused-kernels.json': {
+        get: {
+          summary: 'All fused kernels (FlashAttention-3, PagedAttention, FusedMoE-DeepEP, etc.) (v2.4)',
+          description:
+            'Production-grade kernels that fold multiple atomic ops. Each entry lists the operators folded, engines that ship it, and hardware archs covered.',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/playbooks.json': {
+        get: {
+          summary: '(model archetype × hardware class) recipes (v2.4)',
+          description:
+            'Pre-encoded recipes giving recommended quantization, parallelism, engine, and expected $/M-token range for each (model archetype × hardware class) cell. Use as a prior before constraint solving.',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/solve.json': {
+        get: {
+          summary: 'Flat enumeration of all configurations (cases + playbooks) for client-side filtering (v2.4)',
+          description:
+            'Static endpoint returning every measured case and every playbook recommendation as a unified `Configuration` shape with derived `dollars_per_m_tokens_estimate` and `default_score` fields. Consumers filter client-side. Includes `query_examples` showing common filter idioms. SSG limitation: no query params; clients filter the array.',
+          responses: {
+            '200': { description: 'Solve response', content: { 'application/json': { schema: { type: 'object' } } } }
           }
         }
       }
