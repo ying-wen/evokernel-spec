@@ -1,0 +1,158 @@
+id: nccl-hccl-allreduce
+language: cuda-cpp
+vendor: nvidia
+arch_family: hopper
+title: 'AllReduce — NCCL (NVIDIA) vs HCCL (Huawei) side-by-side'
+category: other
+
+code: |
+  // ============================================================
+  // AllReduce: NCCL (NVIDIA) vs HCCL (Huawei Ascend) — same op, different APIs.
+  //
+  // Demonstrates the cross-vendor mapping for collective primitives.
+  // The agent uses this to port multi-card LLM deployment between archs.
+  // ============================================================
+
+  // ────────────────────────────────────────────────────────────
+  // PART 1: NCCL — NVIDIA / AMD (RCCL) / Hopper / Blackwell
+  // ────────────────────────────────────────────────────────────
+  #include <nccl.h>
+  #include <cuda_runtime.h>
+
+  void allreduce_nccl_example(ncclComm_t comm, cudaStream_t stream,
+                              float* data_dev, size_t N) {
+      // Note: send_buf == recv_buf (in-place). NCCL handles aliasing safely.
+      ncclResult_t err = ncclAllReduce(
+          /* sendbuff   */ data_dev,
+          /* recvbuff   */ data_dev,
+          /* count      */ N,
+          /* datatype   */ ncclFloat32,    // for FP32 accumulator with FP16 inputs:
+                                            // cast on host side; NCCL ≥ 2.18 supports
+                                            // mixed-prec via NCCL_PROTO=LL128 + accum_dtype
+          /* op         */ ncclSum,        // PRODUCT / MAX / MIN / AVG also supported
+          /* comm       */ comm,
+          /* stream     */ stream
+      );
+      if (err != ncclSuccess) {
+          // Common errors:
+          //   ncclSystemError = OS-level (CUDA driver, IB);
+          //   ncclInternalError = NCCL bug (rare);
+          //   ncclInvalidArgument = wrong dtype/op/world_size mismatch
+          fprintf(stderr, "NCCL allreduce failed: %s\n", ncclGetErrorString(err));
+      }
+
+      // Stream-ordered: the next kernel on `stream` sees the reduced result.
+      // Cross-stream consumer needs an event:
+      //   cudaEvent_t e; cudaEventRecord(e, stream);
+      //   cudaStreamWaitEvent(other_stream, e);
+  }
+
+  // Algorithm hints (set as env vars before ncclCommInitRank):
+  //   NCCL_ALGO=Tree     // small messages (TP allreduce, MB-scale)
+  //   NCCL_ALGO=Ring     // large messages (DP gradient, GB-scale)
+  //   NCCL_PROTO=LL128   // best on Hopper+ (lower latency than LL)
+  //   NCCL_SHARP=1       // in-network reduction on SHARP-capable IB switches
+
+  // ────────────────────────────────────────────────────────────
+  // PART 2: HCCL — Huawei Ascend (910B / 910C / 910D)
+  // ────────────────────────────────────────────────────────────
+  #include <hccl/hccl.h>
+  #include <acl/acl.h>
+
+  void allreduce_hccl_example(HcclComm comm, aclrtStream stream,
+                              float* data_dev, size_t N) {
+      // Note: same in-place pattern. HCCL allows sendBuf == recvBuf.
+      HcclResult err = HcclAllReduce(
+          /* sendBuf  */ data_dev,
+          /* recvBuf  */ data_dev,
+          /* count    */ N,
+          /* dataType */ HCCL_DATA_TYPE_FP32,
+          /* op       */ HCCL_REDUCE_SUM,    // PROD / MAX / MIN supported (no AVG primitive — do SUM/N)
+          /* comm     */ comm,
+          /* stream   */ stream
+      );
+      if (err != HCCL_SUCCESS) {
+          fprintf(stderr, "HCCL allreduce failed: %d\n", (int)err);
+      }
+
+      // Same stream-ordered semantics; cross-stream uses aclrtEvent.
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // PART 3: cross-vendor mapping table
+  // ────────────────────────────────────────────────────────────
+  //
+  //  Concept              NCCL              HCCL                   Notes
+  //  ─────────────────────────────────────────────────────────────────────
+  //  AllReduce            ncclAllReduce     HcclAllReduce          1:1
+  //  AllGather            ncclAllGather     HcclAllGather          1:1
+  //  ReduceScatter        ncclReduceScatter HcclReduceScatter      1:1
+  //  All-to-All-V         ncclSend/Recv     HcclAlltoAllV          HCCL has native v-variant
+  //  Broadcast            ncclBroadcast     HcclBroadcast          1:1
+  //  In-network reduce    NCCL_SHARP=1      (none)                 SHARP is NV-only
+  //  FP8 collective       NCCL ≥ 2.20       (none yet)             Native FP8 path is NV-first
+  //  Topology             NVLink/IB         HCCS/IB                Auto-detected
+  //  Stream type          cudaStream_t      aclrtStream            different opaque handle
+  //  Error type           ncclResult_t      HcclResult             different enum
+  //
+  //  The agent's port plan: replace the API call + handle types; keep the
+  //  call site shape identical. ~5 LOC change per call site.
+
+walkthrough:
+  - step: 'Identify the collective primitive'
+    explanation: 'allreduce / all-gather / reduce-scatter / all-to-all are universal — same shape across vendors. Differentiate by API surface only.'
+  - step: 'NCCL handle setup (NVIDIA)'
+    explanation: 'ncclCommInitRank() per process. NCCL_ALGO + NCCL_PROTO env vars tune algorithm/protocol. Pinned host buffer required for staging if using multi-host setup.'
+  - step: 'HCCL handle setup (Ascend)'
+    explanation: 'HcclCommInitRootInfo() per process. Equivalent of NCCL_ALGO is HCCL_ALGORITHM env var. HCCS is the on-chip equivalent of NVLink — auto-detected.'
+  - step: 'Stream-ordered execution'
+    explanation: 'Both libs are stream-ordered. Cross-stream synchronization needs an explicit event (cudaEvent_t / aclrtEvent). The same race-condition bugs apply on either side.'
+  - step: 'Algorithm selection'
+    explanation: 'Tree (small messages, TP allreduce in LLM) vs Ring (large messages, DP gradient sync). Both libs auto-select; force via env if you know the regime.'
+  - step: 'Precision handling'
+    explanation: 'For FP16/BF16 inputs with op=SUM at world_size > 8, BOTH libraries lose precision. NCCL ≥ 2.18 has FP32 accumulator path; HCCL has precision_mode=high_precision. Set explicitly for training.'
+
+arch_idioms:
+  - 'NCCL: ncclCommInitRank + ncclAllReduce + cudaStream_t — "CUDA stream native"'
+  - 'HCCL: HcclCommInitRootInfo + HcclAllReduce + aclrtStream — "ACL stream native"'
+  - 'NCCL_ALGO=Tree/Ring/CollNet — algorithm hint'
+  - 'HCCL_ALGORITHM env var — Ascend equivalent'
+  - 'SHARP (in-network reduction) — NV-exclusive on supported IB switches'
+  - 'NCCL_SHARP=1 enables; HCCL has no equivalent (no in-network reduce on HCCS yet)'
+  - 'ncclSum/Prod/Max/Min/Avg vs HCCL_REDUCE_SUM/PROD/MAX/MIN — same set minus AVG (HCCL: do SUM then divide by world_size)'
+
+build_command: |
+  # NCCL side
+  nvcc -arch=sm_90 -O3 -std=c++17 nccl_allreduce.cu -lnccl -o nccl_demo
+  # HCCL side
+  cce -O3 hccl_allreduce.cce -lhccl -lascendcl -o hccl_demo
+
+run_command: |
+  # NCCL multi-process (8 GPUs)
+  mpirun -n 8 ./nccl_demo
+  # HCCL multi-process (8 NPUs)
+  msrun --worker_num=8 ./hccl_demo
+
+related_isa_primitives: [nvidia-hopper-tma, huawei-ascend-cube]
+related_kernel_libraries: [cnnl]
+
+source_url: |
+  NCCL: https://github.com/NVIDIA/nccl
+  HCCL: https://www.hiascend.com/document/detail/en/canncommercial/
+
+notes: |
+  This example exists because the agent's most-frequent cross-vendor port is
+  a multi-card LLM deploy from NVIDIA → Huawei or vice-versa. The collective
+  layer is where the most boilerplate changes (every TP layer needs an allreduce
+  call; every DP grad needs an allreduce call) but the structural pattern is
+  identical.
+
+  The ~5 LOC per-call-site rule is reliable: handle type, function name, error
+  type, dtype enum, op enum. Everything else (buffers, streams, algorithms)
+  has the same shape.
+
+  What this example does NOT cover (deferred to v2.21):
+    - DeepEP (DeepSeek's fused all-to-all + GEMM combo) — fundamentally
+      different API; not a 1:1 port from NCCL.
+    - sequence-parallel attention (Ulysses) — uses all-to-all on Q/K/V tensors
+      with custom layout; needs its own example.

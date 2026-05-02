@@ -92,3 +92,65 @@ references:
   - title: 'Pinned Memory Best Practices'
     url: https://developer.nvidia.com/blog/how-optimize-data-transfers-cuda-cc/
     source_type: blog
+
+formal_semantics:
+  signature: |
+    memcpy_async(dst: ptr, src: ptr, bytes: size_t, direction: H2D|D2H|D2D|D2P|P2D, stream: cuStream_t)
+    Asynchronous DMA copy. Returns immediately; ordering enforced by stream + event.
+    Sub-variants:
+      - cp.async (Ampere+): SMEM ← GMEM, register-bypass
+      - TMA cp.async.bulk (Hopper+): full tile transfer, 2D/3D, in-flight at fabric speed
+      - cuMemcpyAsync: any direction; legacy fallback
+
+  edge_cases:
+    - input: 'cp.async vs TMA on Hopper'
+      behaviors:
+        ampere-cp-async: 'Per-thread issue; sync via cp.async.commit_group + wait_group.'
+        hopper-tma: 'Single warp issues for entire tile; cp.async.bulk.tensor; arrives via mbarrier.'
+        blackwell-tma2: 'Same TMA model; faster fabric, same API.'
+      mitigation: 'On Hopper+: TMA is 2-4× faster than cp.async for tiles ≥ 16KB. Use TMA descriptors generated at host. cp.async still useful for small irregular fetches.'
+
+    - input: 'host-to-device pinned vs pageable memory'
+      behaviors:
+        cudaMemcpyAsync-pinned: 'True async; returns immediately; uses GPU DMA engine.'
+        cudaMemcpyAsync-pageable: 'Falls back to synchronous bounce buffer; defeats async.'
+      mitigation: 'Always use cudaMallocHost / cudaHostRegister for HF model loading and KV-cache spill. Pageable host buffer is the #1 cause of "why is my async copy blocking".'
+
+    - input: 'GPUDirect RDMA / GDS (peer-to-peer or storage-direct)'
+      behaviors:
+        nvidia-gds: 'NVMe → GPU HBM directly; bypasses CPU/system RAM. cuFile API.'
+        nvidia-rdma-p2p: 'GPU ↔ GPU across nodes via IB/RoCE; no CPU bounce.'
+        ascend-gds-equiv: 'aclrtMemcpyAsync supports HOST_HBM / DEV_HBM / SVM directions; no direct NVMe-Ascend (still goes through host).'
+      mitigation: 'For checkpoint loading at scale: GDS reduces I/O latency 3-5×. Required for large MoE checkpoint streaming (DeepSeek V3 671B). Verify cuFile + NVMe driver compatibility.'
+
+    - input: 'CUDA Graph capture'
+      behaviors:
+        cudaMemcpyAsync-in-graph: 'Captured as a graph node; replayable. Fully supported.'
+        tma-cp-async-bulk-in-graph: 'Supported (Hopper+); TMA descriptor must be in pinned memory referenced from graph node.'
+      mitigation: 'For decode-step KV-cache writeback: include in CUDA Graph. Saves ~5% per-step latency.'
+
+  numerical_rules:
+    - aspect: 'pure_data_movement_no_arithmetic'
+      per_library:
+        all_libs: 'Bit-identical copy. No precision loss possible.'
+      notes: 'memcpy-async is the one collective-class op with truly zero numerical concerns. Performance and ordering are all that matter.'
+
+    - aspect: 'ordering_via_stream_or_event'
+      per_library:
+        cuda-stream-ordered: 'Sequential within a stream; cross-stream ordering requires explicit cudaEventRecord + cudaStreamWaitEvent.'
+        ascend-event-ordered: 'Same model via aclrtEvent.'
+      notes: |
+        Ordering bugs show up as race-condition data corruption. Common case: KV-cache write
+        on stream A, attention read on stream B without an event sync between → garbage attention.
+        Prefer: 1 stream per logical operation; event-cross-stream only when overlap is required.
+
+  reference_impl:
+    framework: cuda-cpp
+    snippet: |
+      // Hopper+ TMA-based async copy (preferred for tile-bulk loads)
+      // 1. Build descriptor on host:
+      //    cuTensorMapEncodeTiled(&desc, type, rank, gmem_ptr, ...);
+      // 2. Async copy SMEM ← GMEM via TMA, arriving on barrier:
+      //    cp.async.bulk.tensor.2d.shared::cluster.global [smem], [gmem], [bar];
+      // 3. Wait:
+      //    bar.arrive_and_wait();

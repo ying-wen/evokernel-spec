@@ -53,3 +53,69 @@ references:
   - title: 'NCCL Documentation'
     url: https://docs.nvidia.com/deeplearning/nccl/
     source_type: docs
+
+formal_semantics:
+  signature: |
+    allreduce(local_buf: [shape], op: SUM|PROD|MAX|MIN|AVG, dtype) -> reduced_buf: [shape]
+    Each rank contributes a buffer; every rank ends up with the same reduced result.
+    Two-step decomposition (most modern impls): allreduce = reduce-scatter + all-gather.
+
+  edge_cases:
+    - input: 'ring vs tree vs Halving-Doubling algorithm selection'
+      behaviors:
+        nccl: 'Auto-selects based on (message_size, topology). Ring for large; tree for small.'
+        hccl: 'Same auto-selection. Tree variant uses HCCS topology when available (Atlas 800/900).'
+        rccl: 'Inherits NCCL algorithm; AMD-specific tuning for Infinity Fabric.'
+        torch-distributed: 'Wraps backend; user can hint via NCCL_ALGO env var.'
+      mitigation: 'For TP allreduce in LLM (small messages, ~MB scale): tree algorithm. For DP gradient sync (large, GB-scale): ring. Force via NCCL_ALGO=Tree or NCCL_ALGO=Ring.'
+
+    - input: 'in-place vs out-of-place'
+      behaviors:
+        nccl-inplace: 'send_buf == recv_buf — saves memory; supported.'
+        nccl-outplace: 'Separate buffers — required if user code mutates send_buf during the call.'
+      mitigation: 'In-place is the common path. Out-of-place rare except in custom CUDA-Graph captures.'
+
+    - input: 'SHARP (in-network reduction on InfiniBand SHARP-capable switches)'
+      behaviors:
+        nccl-sharp: 'Switch performs the reduction; saves 1 round-trip. Activated via NCCL_SHARP env var + supported topology (NVLink+IB).'
+        hccl-no-sharp: 'No equivalent on Ascend (HCCS does not yet support in-network reduce).'
+      mitigation: 'On NVL72 / H200 / B200 with SHARP-enabled IB: enable. Saves ~30% on large allreduce.'
+
+    - input: 'CUDA Graph capture mode'
+      behaviors:
+        nccl-cuda-graph: 'Supported NCCL ≥ 2.13; persistent buffers + capture-time-fixed comm topology.'
+        hccl-cuda-graph: 'Equivalent on Ascend via aclrtCmdQueue.'
+      mitigation: 'For decode-step latency-critical TP allreduce: use CUDA Graph + NCCL persistent. ~10–20% latency win.'
+
+  numerical_rules:
+    - aspect: 'reduction_dtype_for_fp16_inputs'
+      per_library:
+        nccl-fp16-sum: 'Reduces in FP16. Loses precision when many ranks (8+) sum small values; mantissa overflow possible.'
+        nccl-fp32-accum: 'NCCL ≥ 2.18 supports FP32 reduction with FP16 inputs (env: NCCL_PROTO=LL128 + accum_dtype). Recommended for training.'
+        hccl: 'BF16 reduction by default; promotes to FP32 for op=SUM if precision_mode=high_precision.'
+      notes: |
+        Critical for LLM gradient allreduce on TP > 8: FP16 inputs + FP16 reduction loses
+        precision, causing convergence regressions. Always promote to FP32 for SUM. PROD/MAX/MIN
+        are exact in input dtype, no upcast needed.
+
+    - aspect: 'op_avg_implementation'
+      per_library:
+        nccl-avg: 'Implemented as SUM then divide by world_size. Two-step but exact.'
+        hccl-avg: 'Same.'
+      notes: 'AVG = SUM/N; not a separate primitive. Beware: for non-uniform contributions (padded sequences), AVG-as-SUM-then-div may NOT be desired — multiply by 1/active_rank_count instead.'
+
+    - aspect: 'split_allreduce_for_overlap'
+      per_library:
+        zero-bubble-split: 'allreduce = reduce-scatter (kernel A) → wait → all-gather (kernel B). Allows overlap of A with downstream compute.'
+        flash-comm: 'Same decomposition; embedded into kernel boundary by FlashComm fusion.'
+      notes: 'For TP-overlap optimization (DeepSpeed Ulysses, FlashComm): explicit split avoids the synchronous allreduce barrier. Used in DeepSeek V3 training.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.distributed as dist
+      def allreduce_sum_fp32_accum(buf):
+          # buf: BF16 or FP16 tensor; reduce in FP32 internally
+          buf_fp32 = buf.to(torch.float32)
+          dist.all_reduce(buf_fp32, op=dist.ReduceOp.SUM)
+          return buf_fp32.to(buf.dtype)

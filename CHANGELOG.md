@@ -6,7 +6,34 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.19 — collective-op formal_semantics + first non-GEMM DSL examples** (allreduce / all-gather / all2all / reduce-scatter / memcpy-async + NCCL+HCCL DSL examples).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.20 — agent toolkit visibility + knowledge feedback loop** (`/dev-toolkit/agent-toolkit/` index page + plugins documentation + 5-layer framework visualization + `agent-learnings` schema for write-back from agent runs).
+
+---
+
+## [2.19.0] — 2026-05-02
+
+**Theme**: collective ops complete + first cross-vendor collective DSL example.
+
+Closes Layer D (formal_semantics) on the 5 collective primitives that drive every multi-card deployment, and gives the agent a structural reference for porting collectives between NVIDIA and Huawei Ascend (the most common cross-vendor LLM port).
+
+### Added
+
+- **5 collective op `formal_semantics`** (20 → 25 / 34, 74%): `allreduce`, `all-gather`, `all2all`, `reduce-scatter`, `memcpy-async`.
+  - `allreduce` documents the FP16-input + FP16-reduction precision cliff (NCCL ≥ 2.18 has FP32-accum option; mandatory for SUM at world_size > 8) and the split-allreduce-for-overlap pattern (Zero-Bubble PP, FlashComm).
+  - `all-gather` documents concat vs interleaved output layout and the FlashComm fused-allgather-GEMM SOTA path.
+  - `all2all` documents intra-node (NVLink ~80 GB/s) vs cross-node (RDMA ~50 GB/s) paths and DeepEP's hybrid path that reduces cross-node traffic ~30%.
+  - `reduce-scatter` documents the fused-RS-GEMM epilogue (1.3-1.8× faster than separate RS for TP=8 LLM).
+  - `memcpy-async` documents cp.async vs TMA on Hopper (TMA 2-4× faster for tiles ≥ 16KB), pinned vs pageable host memory (#1 cause of "why is my async copy blocking"), and GPUDirect RDMA / GDS (3-5× checkpoint loading speedup).
+- **`data/dsl-examples/nccl-hccl-allreduce.yaml`** — side-by-side AllReduce in NCCL (NVIDIA) and HCCL (Huawei Ascend), with a cross-vendor mapping table. Documents the ~5-LOC-per-call-site rule for porting collectives between NVIDIA and Huawei.
+
+### Why this matters
+
+Multi-card collective layer is where the most boilerplate changes during a cross-vendor port (every TP layer = 1 allreduce; every DP grad = 1 allreduce). With v2.19's `formal_semantics`, the agent knows:
+1. **Which numerical rule will silently break** (FP16-reduction at large world_size).
+2. **Which optimization path is current SOTA per engine** (FlashComm for NVIDIA, HCCL hierarchical for Huawei).
+3. **What the ~5-LOC patch shape looks like** (the NCCL→HCCL mapping table).
+
+This makes "any model × any hardware" multi-card deploy something the agent can recommend with confidence, not just "try it and see".
 
 ---
 

@@ -46,3 +46,52 @@ references:
   - title: 'DeepEP: Efficient Expert-Parallel Communication'
     url: https://github.com/deepseek-ai/DeepEP
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    all_to_all(local_buf: [world_size, slice_size, D], split_sizes?: [world_size]) -> recv: [world_size, slice_size, D]
+    Each rank sends slice i to rank i, receives slice from rank j into position j.
+    Used for MoE expert dispatch and sequence-parallel attention.
+
+  edge_cases:
+    - input: 'uneven split sizes (variable per rank)'
+      behaviors:
+        nccl-uneven: 'Supported via ncclSendRecv pattern (NCCL ≥ 2.13). Each rank specifies its send/recv counts.'
+        deepep-uneven: 'Native — built around variable expert occupancy by design.'
+        hccl-uneven: 'Supported via hcclAlltoAllV.'
+      mitigation: 'For MoE dispatch with router imbalance: use the v-suffix variant (ncclSendRecv loop or AlltoAllV). Naive equal-split allreduce path drops tokens.'
+
+    - input: 'cross-node vs intra-node path'
+      behaviors:
+        nccl-intranode: 'NVLink/NVSwitch all-to-all; bandwidth ≈ 80 GB/s effective on H100 NVL.'
+        nccl-internode: 'IB/RoCE all-to-all; ≈ 50 GB/s effective; ~2× latency.'
+        deepep-hybrid: 'Hierarchical: intra-node first via NVLink, then inter-node via IB. Reduces cross-node traffic by ~30%.'
+      mitigation: 'For MoE EP > 8 (forces cross-node): use DeepEP hybrid path. NCCL flat all-to-all suboptimal at this scale.'
+
+    - input: 'sequence-parallel attention all-to-all (DeepSpeed Ulysses, Ring Attention)'
+      behaviors:
+        deepspeed-ulysses: 'all-to-all on Q/K/V tensors to redistribute heads ↔ sequence dimension. Fused with attention kernel.'
+        ring-attention: 'all-to-all not used; instead p2p ring of K/V chunks.'
+      mitigation: 'Ulysses path simpler to deploy; Ring scales better at very long contexts (1M+ tokens). Choose based on context budget.'
+
+  numerical_rules:
+    - aspect: 'no_reduction_no_precision_concern'
+      per_library:
+        all_libs: 'Pure shuffle; bit-identical output. FP8 supported for bandwidth savings (DeepEP dispatch path).'
+      notes: 'Same as all-gather: no arithmetic, no precision loss. FP8 dispatch (DeepSeek V3) saves 50% comm bandwidth.'
+
+    - aspect: 'fp8_dispatch_for_moe'
+      per_library:
+        deepep-fp8: 'Token activations cast to FP8 before dispatch; cast back to BF16 inside expert. Saves 50% bandwidth.'
+        nccl-no-fp8: 'NCCL ≤ 2.20 has no native FP8 collective; user manages cast.'
+      notes: 'For DeepSeek V3 inference: FP8 dispatch + BF16 expert is the SOTA path. The cast happens at the kernel boundary, not inside the collective.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.distributed as dist
+      def all_to_all_v(send_chunks, recv_chunks):
+          # send_chunks: list of [N_i, D] tensors (one per dest rank)
+          # recv_chunks: list of [M_i, D] tensors (one per src rank, sized externally)
+          dist.all_to_all(recv_chunks, send_chunks)
+          return torch.cat(recv_chunks, dim=0)

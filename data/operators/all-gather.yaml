@@ -69,3 +69,49 @@ references:
   - title: 'Zero-Bubble Pipeline Parallelism (uses split AR=RS+AG)'
     url: https://arxiv.org/abs/2401.10241
     source_type: paper
+
+formal_semantics:
+  signature: |
+    all_gather(local_buf: [N, ...], world_size: int) -> gathered: [N * world_size, ...]
+    Each rank contributes its slice; every rank ends up with the concatenated full buffer
+    (all rank-i slice at offset i in the destination).
+
+  edge_cases:
+    - input: 'ring vs hierarchical algorithm'
+      behaviors:
+        nccl-ring: 'Pipelined ring; bandwidth-optimal for large messages.'
+        nccl-hierarchical: 'Intra-node first, then inter-node; default for cross-node DP.'
+        hccl-ring: 'Same — HCCS topology may flip ring direction for switch chip locality.'
+      mitigation: 'For TP all-gather (small message, intra-node): hierarchical. For DP weight gather (large, cross-node): ring. NCCL auto-selects.'
+
+    - input: 'output layout: concat vs interleaved'
+      behaviors:
+        nccl-concat: 'Default — rank i"s slice at offset i*N.'
+        sgl-flashcomm-interleaved: 'FlashComm uses interleaved [rank0[0], rank1[0], rank2[0], rank0[1], …] for better cache locality in the consuming GEMM. Requires explicit reshape.'
+      mitigation: 'If consumer is a GEMM that wants column-major layout per rank, interleaved saves a transpose. Otherwise default concat.'
+
+    - input: 'in-place all-gather (output is offset-N from input)'
+      behaviors:
+        nccl-inplace: 'Supported when sendbuff = recvbuff + my_rank * N.'
+      mitigation: 'In-place avoids one buffer alloc — used in TP weight loading. Verify alignment.'
+
+  numerical_rules:
+    - aspect: 'no_reduction_no_dtype_concern'
+      per_library:
+        all_libs: 'All-gather is a pure shuffle; no arithmetic. Output is bit-identical to inputs (modulo ordering).'
+      notes: 'Unlike allreduce, all-gather has no precision loss. Any dtype works as-is.'
+
+    - aspect: 'overlap_with_compute_via_async'
+      per_library:
+        nccl-async: 'AllGather can be issued on a separate stream; overlap with main compute is the dominant TP optimization.'
+        flash-comm-allgather-gemm: 'Fuses all-gather with downstream GEMM: tile-by-tile gather + GEMM in a single kernel. Eliminates the explicit barrier.'
+      notes: 'For TP > 1: always overlap. FlashComm fused-allgather-gemm is the SOTA path on Hopper+; vLLM 0.6+ uses it automatically.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.distributed as dist
+      def all_gather_naive(local_buf, world_size):
+          gathered = [torch.empty_like(local_buf) for _ in range(world_size)]
+          dist.all_gather(gathered, local_buf)
+          return torch.cat(gathered, dim=0)

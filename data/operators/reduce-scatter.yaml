@@ -74,3 +74,51 @@ references:
   - title: 'NVIDIA SHARP collectives'
     url: https://docs.nvidia.com/networking/display/sharpv300
     source_type: docs
+
+formal_semantics:
+  signature: |
+    reduce_scatter(local_buf: [world_size * N, ...], op: SUM|PROD|MAX|MIN, dtype) -> local_chunk: [N, ...]
+    Each rank contributes a full buffer; each rank receives one reduced slice (rank i gets the
+    reduction of slice i across all ranks). Dual to all-gather. allreduce = RS + AG.
+
+  edge_cases:
+    - input: 'algorithm selection (ring vs hierarchical)'
+      behaviors:
+        nccl: 'Auto: ring for large messages, hierarchical for cross-node. Same selection logic as allreduce.'
+        hccl: 'Same.'
+      mitigation: 'Usually inherits the same NCCL_ALGO setting as allreduce. Don’t set them separately.'
+
+    - input: 'split-allreduce (RS+AG with overlap)'
+      behaviors:
+        zero-bubble: 'RS issued; downstream compute overlaps; AG issued before result needed.'
+        flash-comm-rs-gemm: 'Fuses GEMM epilogue with RS — output partial sums get reduced as they emit, no separate kernel.'
+      mitigation: 'For TP > 1 LLM training/inference: explicit RS+AG decomposition with overlap is the dominant optimization. v2.0+ vLLM/SGLang both use FlashComm-style fused RS-GEMM.'
+
+    - input: 'in-place reduce-scatter'
+      behaviors:
+        nccl-inplace: 'recv_buf is at offset rank * N inside send_buf; supported.'
+      mitigation: 'In-place is the default for fused path. Not in-place for separate RS step.'
+
+  numerical_rules:
+    - aspect: 'reduction_dtype_for_fp16_inputs'
+      per_library:
+        all_libs: 'Same rule as allreduce: FP32 accumulator with FP16 inputs prevents precision loss for SUM at world_size > 8.'
+      notes: 'Critical for grad sync at large TP. Match the allreduce setting — same precision class as AR since RS is "half" of an allreduce.'
+
+    - aspect: 'fused_with_gemm_epilogue'
+      per_library:
+        flash-comm-rs-gemm: 'GEMM accumulator emits partial output tile-by-tile; each tile RS-reduced as it emits. Saves a full HBM round-trip vs separate RS.'
+        cublas-rs-epilogue: 'Not in cuBLAS; FlashComm is custom CUDA.'
+      notes: 'On Hopper+: fused-RS-GEMM is 1.3-1.8× faster than separate RS for TP=8 LLM workloads.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.distributed as dist
+      def reduce_scatter_sum_fp32_accum(full_buf, world_size):
+          # full_buf: [world_size * N, D] — each rank contributes full version
+          full_fp32 = full_buf.to(torch.float32)
+          chunk = torch.empty(full_fp32.shape[0] // world_size, *full_fp32.shape[1:],
+                              device=full_fp32.device, dtype=torch.float32)
+          dist.reduce_scatter_tensor(chunk, full_fp32, op=dist.ReduceOp.SUM)
+          return chunk.to(full_buf.dtype)
