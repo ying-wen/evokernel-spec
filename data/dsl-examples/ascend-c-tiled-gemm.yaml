@@ -1,0 +1,107 @@
+id: ascend-c-tiled-gemm
+language: ascend-c
+vendor: huawei
+arch_family: ascend-910c
+title: 'Ascend-C Tiled GEMM (Cube + Vector pipeline)'
+category: memory-pipeline
+
+code: |
+  // Ascend-C tiled GEMM skeleton — fp16 inputs, fp32 accum.
+  // Demonstrates: explicit GM → UB → L1 → L0 staging + Cube pipeline + OE/OQ.
+  #include "kernel_operator.h"
+  using namespace AscendC;
+
+  template <typename ATYPE, typename BTYPE, typename CTYPE>
+  class GemmKernel {
+  public:
+      __aicore__ inline void Init(GM_ADDR a, GM_ADDR b, GM_ADDR c,
+                                   uint32_t M, uint32_t N, uint32_t K) {
+          // Bind GM pointers
+          aGm.SetGlobalBuffer((__gm__ ATYPE*)a, M * K);
+          bGm.SetGlobalBuffer((__gm__ BTYPE*)b, K * N);
+          cGm.SetGlobalBuffer((__gm__ CTYPE*)c, M * N);
+
+          // Allocate local buffers in UB / L1
+          pipe.InitBuffer(inQueueA, BUFFER_NUM, BM * BK * sizeof(ATYPE));
+          pipe.InitBuffer(inQueueB, BUFFER_NUM, BK * BN * sizeof(BTYPE));
+          pipe.InitBuffer(outQueueC, BUFFER_NUM, BM * BN * sizeof(CTYPE));
+      }
+
+      __aicore__ inline void Process(uint32_t M, uint32_t N, uint32_t K) {
+          for (uint32_t m = 0; m < M; m += BM) {
+              for (uint32_t n = 0; n < N; n += BN) {
+                  for (uint32_t k = 0; k < K; k += BK) {
+                      // Stage 1: GM → UB (async DMA)
+                      LocalTensor<ATYPE> aUB = inQueueA.AllocTensor<ATYPE>();
+                      LocalTensor<BTYPE> bUB = inQueueB.AllocTensor<BTYPE>();
+                      DataCopy(aUB, aGm[m * K + k], BM * BK);
+                      DataCopy(bUB, bGm[k * N + n], BK * BN);
+                      inQueueA.EnQue(aUB);
+                      inQueueB.EnQue(bUB);
+
+                      // Stage 2: UB → L1 + L0 (compute-side staging)
+                      LocalTensor<ATYPE> aL1 = inQueueA.DeQue<ATYPE>();
+                      LocalTensor<BTYPE> bL1 = inQueueB.DeQue<BTYPE>();
+
+                      // Stage 3: Cube MMA on L0 — 16x16x16 base, accumulated
+                      LocalTensor<CTYPE> cReg = outQueueC.AllocTensor<CTYPE>();
+                      Mmad(cReg, aL1, bL1, BM, BN, BK);
+
+                      outQueueC.EnQue(cReg);
+                      inQueueA.FreeTensor(aL1);
+                      inQueueB.FreeTensor(bL1);
+                  }
+                  // Stage 4: L0 → UB → GM (epilogue + writeback)
+                  LocalTensor<CTYPE> cOut = outQueueC.DeQue<CTYPE>();
+                  DataCopy(cGm[m * N + n], cOut, BM * BN);
+                  outQueueC.FreeTensor(cOut);
+              }
+          }
+      }
+
+  private:
+      static constexpr uint32_t BM = 128, BN = 128, BK = 16;
+      static constexpr uint32_t BUFFER_NUM = 2;  // double-buffer
+      TPipe pipe;
+      TQue<QuePosition::VECIN, BUFFER_NUM> inQueueA, inQueueB;
+      TQue<QuePosition::VECOUT, BUFFER_NUM> outQueueC;
+      GlobalTensor<ATYPE> aGm;
+      GlobalTensor<BTYPE> bGm;
+      GlobalTensor<CTYPE> cGm;
+  };
+loc: 60
+
+walkthrough:
+  - step: 'Initialize TPipe + Queues'
+    explanation: 'TPipe manages the OE/OQ pipeline. TQue<VECIN/VECOUT> allocates buffers in UB with N-buffering. Different from CUDA shared memory — explicit lifecycle.'
+  - step: 'Stage 1: GM → UB via DataCopy'
+    explanation: 'Async DMA from global memory to unified buffer. DataCopy is the Ascend equivalent of cp.async, but different invocation model — bound to TQue lifecycle.'
+  - step: 'EnQue → DeQue for pipeline sync'
+    explanation: 'Replaces CUDA streams + events. EnQue marks data ready; DeQue blocks until ready. The compiler / runtime orchestrates Cube vs Vector parallelism.'
+  - step: 'Stage 3: Mmad — Cube unit MMA'
+    explanation: "16x16x16 base unit. Multiple Mmad calls accumulate across K dim. Cube unit reads from L1 directly; programmer does not see L1→L0 explicitly here (compiler inserts)."
+  - step: 'Stage 4: L0 → UB → GM writeback'
+    explanation: 'Result staged through UB. Vector unit can fire epilogue ops (scale, add, activation) here without going back to GM.'
+
+arch_idioms:
+  - '__aicore__ qualifier — denotes AI Core kernel (not host code, not GPU thread)'
+  - 'TPipe + TQue<QuePosition> — explicit pipeline orchestration model'
+  - 'GlobalTensor / LocalTensor types — distinguish memory hierarchy levels in type system'
+  - 'Mmad() instead of asm wgmma — high-level intrinsic; compiler maps to Cube ops'
+  - 'No __syncthreads — pipeline sync via EnQue/DeQue'
+
+build_command: 'cce_kernel_compile --soc=Ascend910C ascend_gemm.cpp -o gemm.kernel'
+run_command: './run_kernel gemm.kernel input_a.bin input_b.bin'
+
+related_isa_primitives: [huawei-ascend-cube, huawei-ascend-vector]
+related_kernel_libraries: [aclnn]
+
+source_url: https://gitee.com/ascend/samples
+notes: |
+  Compare to CUDA WGMMA equivalent: structurally similar (load → mma → store)
+  but the TPipe/TQue programming model is fundamentally different. CUDA threads
+  cooperate within a CTA; Ascend AI Core operates as a Cube + Vector + Scalar
+  pipeline where each unit has its own address space and they communicate via
+  explicit memory levels.
+
+  Ratio: 1× WGMMA m64n64k16 ≈ 4× Mmad 16x16x16 (see /isa-primitives/huawei-ascend-cube/).

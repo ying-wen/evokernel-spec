@@ -1,0 +1,51 @@
+id: huawei-msprof
+name: msprof (Mind Studio Profiler)
+vendor: huawei
+category: mixed
+target_archs: [ascend-910b, ascend-910c, ascend-910d, ascend-da-vinci-3, ascend-da-vinci-4]
+modes: [counters, kernel-trace, ai-core-trace, system-trace]
+
+install: 'Part of CANN toolkit; Mind Studio IDE bundles UI viewer'
+invocation_example: |
+  # Full AI Core trace
+  msprof --output=./prof_data --application="python infer.py" \
+         --aic-metrics=PipeUtilization,L0CCacheHitRate,UBCacheHitRate \
+         --ai-core=on --task-time=on
+
+  # Specific Cube/Vector pipeline analysis
+  msprof --aic-metrics=CubeUtilization,VectorUtilization --aiv=on \
+         --output=./pipeline_prof ./my_kernel
+
+  # Open report in Mind Studio: msprof-app or via CANN Studio UI
+
+measures:
+  - 'Cube unit utilization % (separate from Vector unit)'
+  - 'Vector unit utilization %'
+  - 'AI Core occupancy across the chip'
+  - 'L0/L1/UB/GM bandwidth + cache hit rates'
+  - 'OE/OQ pipeline depth + stalls'
+  - 'Per-op kernel timeline'
+  - 'HCCL collective performance (multi-card)'
+  - 'CANN op dispatch latency'
+
+output_formats: [json, csv, msprof-binary, mindstudio-format]
+
+cross_vendor_equivalents:
+  - { vendor: nvidia, tool_id: nvidia-ncu, notes: 'NCU has unified SM utilization; msprof splits Cube vs Vector — richer pipeline view.' }
+  - { vendor: nvidia, tool_id: nvidia-nsys, notes: 'nsys timeline ≈ msprof kernel-trace mode.' }
+  - { vendor: amd, tool_id: amd-rocprof, notes: 'rocprof has unified CU view; msprof Cube/Vector split is unique.' }
+  - { vendor: cambricon, tool_id: cambricon-cnperf, notes: 'cnperf has IPU-level granularity; both target domestic NPUs but different ecosystems.' }
+
+docs_url: https://www.hiascend.com/document/detail/zh/canncommercial/80RC3/devtools/msprof/
+license: vendor-binary
+notes: |
+  Critical insight not in CUDA-equivalent profilers: the Cube + Vector +
+  Scalar pipeline split means a kernel can be Cube-bound, Vector-bound,
+  or pipeline-bound (one unit waiting for another). msprof's pipeline
+  view shows utilization separately, which is the Ascend-specific
+  optimization angle — getting Cube and Vector both >80% busy is the
+  performance ceiling, not just one or the other.
+
+  Mind Studio (the IDE) wraps msprof with a graphical timeline viewer
+  showing OE/OQ events, per-AI-core utilization heatmap, and cross-card
+  HCCL collective performance.

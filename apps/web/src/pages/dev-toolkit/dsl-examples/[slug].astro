@@ -1,0 +1,101 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getDslExamples } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const examples = await getDslExamples();
+  return examples.map((ex) => ({ params: { slug: ex.id }, props: { ex } }));
+}
+const { ex } = Astro.props;
+---
+<BaseLayout title={`${ex.title} — DSL Example`}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href={pathname('/dev-toolkit/')} class="text-sm" style="color: var(--color-text-muted);">← Dev Toolkit</a>
+      <div class="mt-4 flex items-baseline gap-3 flex-wrap">
+        <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{ex.title}</h1>
+        <Badge variant="accent">{ex.language}</Badge>
+        <Badge>{ex.vendor}</Badge>
+        <Badge>{ex.arch_family}</Badge>
+        <Badge>{ex.category}</Badge>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Code skeleton ({ex.loc ?? '?'} LOC)</h3>
+      <pre class="rounded-lg p-4 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{ex.code}</code></pre>
+      {ex.build_command && (
+        <div class="mt-3 text-xs">
+          <span style="color: var(--color-text-muted);">Build:</span> <code style="font-family: var(--font-mono); background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 2px 6px; border-radius: 3px;">{ex.build_command}</code>
+        </div>
+      )}
+      {ex.run_command && (
+        <div class="mt-1 text-xs">
+          <span style="color: var(--color-text-muted);">Run:</span> <code style="font-family: var(--font-mono); background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 2px 6px; border-radius: 3px; white-space: pre;">{ex.run_command}</code>
+        </div>
+      )}
+    </section>
+
+    {ex.walkthrough.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Walkthrough</h3>
+        <ol class="space-y-2">
+          {ex.walkthrough.map((w, i) => (
+            <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex gap-3">
+                <span class="font-mono shrink-0" style="color: var(--color-accent); font-weight: 600;">{i+1}.</span>
+                <div>
+                  <div class="text-sm font-semibold mb-1">{w.step}</div>
+                  <div class="text-xs" style="color: var(--color-text-muted);">{w.explanation}</div>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+    )}
+
+    {ex.arch_idioms.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">⚙️ Arch idioms (things that look unusual to CUDA developers)</h3>
+        <ul class="space-y-1.5 text-sm">
+          {ex.arch_idioms.map((idiom) => (
+            <li class="rounded p-2 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">{idiom}</li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {(ex.related_isa_primitives.length > 0 || ex.related_kernel_libraries.length > 0) && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Related</h3>
+        <div class="flex gap-2 flex-wrap">
+          {ex.related_isa_primitives.map((p) => (
+            <a href={pathname(`/isa-primitives/${p}/`)} class="text-xs px-3 py-1 rounded border hover:bg-white" style="background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-accent);">→ ISA: {p}</a>
+          ))}
+          {ex.related_kernel_libraries.map((l) => (
+            <a href={pathname(`/kernel-libraries/${l}/`)} class="text-xs px-3 py-1 rounded border hover:bg-white" style="background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-accent);">→ lib: {l}</a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {ex.notes && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Notes</h3>
+        <p class="text-sm whitespace-pre-line" style="color: var(--color-text-muted);">{ex.notes}</p>
+      </section>
+    )}
+
+    {ex.source_url && (
+      <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+        <p class="text-xs" style="color: var(--color-text-muted);">
+          Source: <a href={ex.source_url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{ex.source_url}</a>
+        </p>
+      </section>
+    )}
+  </Container>
+</BaseLayout>

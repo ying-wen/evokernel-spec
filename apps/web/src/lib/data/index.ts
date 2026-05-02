@@ -3,10 +3,12 @@ import {
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
   PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
+  DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema,
   type Vendor, type Hardware, type Server, type Interconnect,
   type Operator, type Engine, type Quantization, type ParallelStrategy,
   type Model, type Case, type Pattern, type PipelineStage, type FusedKernel,
-  type Playbook, type Citation, type Tour, type KernelLibrary, type IsaPrimitive
+  type Playbook, type Citation, type Tour, type KernelLibrary, type IsaPrimitive,
+  type DslExample, type ReferenceImplementation, type ProfilingTool
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
@@ -80,6 +82,15 @@ export async function getKernelLibraries(): Promise<KernelLibrary[]> {
 }
 export async function getIsaPrimitives(): Promise<IsaPrimitive[]> {
   return loadAll('isa-primitives/*.yaml', IsaPrimitiveSchema);
+}
+export async function getDslExamples(): Promise<DslExample[]> {
+  return loadAll('dsl-examples/*.yaml', DslExampleSchema);
+}
+export async function getReferenceImpls(): Promise<ReferenceImplementation[]> {
+  return loadAll('reference-impls/*.yaml', ReferenceImplementationSchema);
+}
+export async function getProfilingTools(): Promise<ProfilingTool[]> {
+  return loadAll('profiling-tools/*.yaml', ProfilingToolSchema);
 }
 
 export async function getResolvedHardware(): Promise<ResolvedHardware[]> {

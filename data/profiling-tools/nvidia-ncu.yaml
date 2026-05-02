@@ -1,0 +1,40 @@
+id: nvidia-ncu
+name: NVIDIA Nsight Compute (NCU)
+vendor: nvidia
+category: low-level-counter
+target_archs: [hopper, blackwell, ada, ampere, volta, turing]
+modes: [counters, interactive-ui, hot-path-replay, sampled]
+
+install: 'Comes with CUDA toolkit (apt install nvidia-cuda-toolkit / pip install nvidia-cuda-nvcc-cu12 etc.)'
+invocation_example: |
+  # Run with full counters (slow but exhaustive)
+  ncu --set full --target-processes all -o report.ncu-rep ./my_kernel
+
+  # Specific section: warp scheduler / memory analysis
+  ncu --section MemoryWorkloadAnalysis --section ComputeWorkloadAnalysis ./my_kernel
+
+  # Just one kernel by name + skip iterations
+  ncu --kernel-name regex:flash_attn -k 1 ./my_kernel
+
+measures:
+  - 'SM activity / occupancy / warp issue / stall reasons'
+  - 'Memory throughput at L1/L2/HBM (achieved % of peak)'
+  - 'Per-kernel TFLOPS / TOPS achieved by precision'
+  - 'Warp divergence / branch divergence'
+  - 'Source-line attribution (PTX / SASS / CUDA)'
+  - 'Roofline overlay vs theoretical peaks'
+
+output_formats: [ncu-rep, csv, qdrep, html]
+
+cross_vendor_equivalents:
+  - { vendor: amd, tool_id: amd-rocprof, notes: 'Equivalent depth on CDNA3+; different metric naming.' }
+  - { vendor: huawei, tool_id: huawei-msprof, notes: 'msprof has Cube/Vector unit utilization separately; richer than NCU on the pipeline-split angle but less mature on counter set.' }
+  - { vendor: cambricon, tool_id: cambricon-cnperf, notes: 'CNNL counter access; less granular than NCU.' }
+
+docs_url: https://docs.nvidia.com/nsight-compute/
+license: vendor-binary
+notes: |
+  Default profiler for any NVIDIA kernel work. Pair with Nsight Systems
+  (nsys) for full system trace; NCU is for per-kernel deep-dive.
+  Roofline analysis built-in — directly compares achieved vs theoretical
+  peak per precision.

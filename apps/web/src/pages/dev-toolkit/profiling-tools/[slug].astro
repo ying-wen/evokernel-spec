@@ -1,0 +1,94 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Badge from '~/components/ui/Badge.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import { pathname } from '~/lib/i18n';
+import { getProfilingTools } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const tools = await getProfilingTools();
+  return tools.map((t) => ({ params: { slug: t.id }, props: { tool: t } }));
+}
+const { tool } = Astro.props;
+---
+<BaseLayout title={`${tool.name} — Profiling Tool`}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href={pathname('/dev-toolkit/')} class="text-sm" style="color: var(--color-text-muted);">← Dev Toolkit</a>
+      <div class="mt-4 flex items-baseline gap-3 flex-wrap">
+        <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{tool.name}</h1>
+        <Badge variant="accent">{tool.category}</Badge>
+        <Badge>{tool.vendor}</Badge>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">基本信息</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="Target archs">{tool.target_archs.join(', ')}</SpecRow>
+        {tool.modes.length > 0 && <SpecRow label="Modes">{tool.modes.join(', ')}</SpecRow>}
+        {tool.install && <SpecRow label="Install"><code class="text-xs">{tool.install}</code></SpecRow>}
+        {tool.license && <SpecRow label="License">{tool.license}</SpecRow>}
+        {tool.docs_url && <SpecRow label="Docs"><a href={tool.docs_url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{tool.docs_url}</a></SpecRow>}
+        {tool.source_url && <SpecRow label="Source"><a href={tool.source_url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{tool.source_url}</a></SpecRow>}
+      </div>
+    </section>
+
+    {tool.invocation_example && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Invocation example</h3>
+        <pre class="rounded-lg p-4 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{tool.invocation_example}</code></pre>
+      </section>
+    )}
+
+    {tool.measures.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">📊 Measures</h3>
+        <ul class="space-y-1.5 text-sm">
+          {tool.measures.map((m) => (
+            <li class="rounded p-2 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">{m}</li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {tool.output_formats.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Output formats</h3>
+        <div class="flex gap-2 flex-wrap">
+          {tool.output_formats.map((f) => (
+            <code class="text-xs px-3 py-1 rounded border" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono);">{f}</code>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {tool.cross_vendor_equivalents.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">🔄 跨厂商等价</h3>
+        <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+          "我熟悉 {tool.name}, 那么在另一个 vendor 上对应的工具是?"
+        </p>
+        <div class="grid gap-3">
+          {tool.cross_vendor_equivalents.map((eq) => (
+            <a href={pathname(`/dev-toolkit/profiling-tools/${eq.tool_id}/`)} class="block rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex items-center gap-3 mb-1">
+                <span class="font-semibold" style="color: var(--color-accent);">→ {eq.tool_id}</span>
+                <Badge>{eq.vendor}</Badge>
+              </div>
+              {eq.notes && <p class="text-xs" style="color: var(--color-text-muted);">{eq.notes}</p>}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {tool.notes && (
+      <section class="pb-12">
+        <h3 class="text-lg font-semibold mb-3">Notes</h3>
+        <p class="text-sm whitespace-pre-line" style="color: var(--color-text-muted);">{tool.notes}</p>
+      </section>
+    )}
+  </Container>
+</BaseLayout>

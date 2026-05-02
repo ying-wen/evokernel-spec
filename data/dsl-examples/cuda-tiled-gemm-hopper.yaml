@@ -1,0 +1,92 @@
+id: cuda-tiled-gemm-hopper
+language: cuda-cpp
+vendor: nvidia
+arch_family: hopper
+title: 'Hopper Tiled GEMM with WGMMA + TMA (CUDA C++)'
+category: tiled-gemm
+
+code: |
+  // Hopper tiled GEMM skeleton — fp16 inputs, fp32 accum.
+  // Demonstrates: TMA descriptor build → cp.async.bulk → WGMMA m64nNk16 → store.
+  #include <cuda/std/mma>
+  #include <cuda/barrier>
+  #include <cooperative_groups.h>
+
+  template<int BM=64, int BN=128, int BK=16>
+  __global__ void hopper_gemm(
+      const __half* A, const __half* B, float* C,
+      int M, int N, int K,
+      const __grid_constant__ CUtensorMap tma_a,
+      const __grid_constant__ CUtensorMap tma_b)
+  {
+      using namespace cuda::std;
+      __shared__ __align__(128) __half a_smem[2][BM][BK];   // double-buffered
+      __shared__ __align__(128) __half b_smem[2][BK][BN];
+      __shared__ cuda::barrier<cuda::thread_scope_block> bar[2];
+
+      int tile_m = blockIdx.y * BM;
+      int tile_n = blockIdx.x * BN;
+
+      // Async TMA load of first tile via warp 0 thread 0
+      if (threadIdx.x == 0) {
+          init(&bar[0], blockDim.x);
+          init(&bar[1], blockDim.x);
+          cp_async_bulk_tensor_2d_global_to_shared(&a_smem[0], &tma_a, tile_m, 0, bar[0]);
+          cp_async_bulk_tensor_2d_global_to_shared(&b_smem[0], &tma_b, 0, tile_n, bar[0]);
+      }
+      __syncthreads();
+
+      float c_reg[BM/64][BN/8] = {0};
+
+      for (int k_tile = 0; k_tile < K; k_tile += BK) {
+          // Wait for current tile's TMA loads
+          bar[k_tile % 2].arrive_and_wait();
+
+          // Issue WGMMA: warp-group operates on entire BM×BN×BK tile
+          asm volatile("wgmma.fence.sync.aligned;");
+          mma::wgmma_m64n128k16_f32_f16_f16(c_reg, a_smem[k_tile % 2], b_smem[k_tile % 2]);
+          asm volatile("wgmma.commit_group.sync.aligned;");
+
+          // Async pre-load NEXT tile (overlaps with WGMMA)
+          if (k_tile + BK < K && threadIdx.x == 0) {
+              cp_async_bulk_tensor_2d_global_to_shared(&a_smem[(k_tile+BK)%2], &tma_a, tile_m, k_tile+BK, bar[(k_tile+BK)/BK%2]);
+              cp_async_bulk_tensor_2d_global_to_shared(&b_smem[(k_tile+BK)%2], &tma_b, k_tile+BK, tile_n, bar[(k_tile+BK)/BK%2]);
+          }
+          asm volatile("wgmma.wait_group.sync.aligned 0;");
+      }
+
+      // Store epilogue (omitted: STG.E.128 vectorized stores)
+      // ...
+  }
+loc: 50
+
+walkthrough:
+  - step: 'Build TMA descriptors at host side'
+    explanation: 'cuTensorMapEncodeTiled() creates an opaque descriptor describing tile shape + layout + swizzling. Pass to kernel as __grid_constant__.'
+  - step: 'Issue cp.async.bulk via warp 0 thread 0'
+    explanation: 'Single thread per CTA initiates the TMA load; arrives at barrier when complete. Releases other threads to do compute.'
+  - step: 'WGMMA across warp group (4 warps = 128 threads)'
+    explanation: 'wgmma.mma_async fires the matmul; threads cooperate as a single warp-group. Async — can issue and continue work.'
+  - step: 'Double-buffer next tile load'
+    explanation: 'While WGMMA runs, pre-load the next K-tile into the alternate smem buffer. This is the async pipelining that makes Hopper fast.'
+  - step: 'Epilogue: vectorized STG.E.128 stores'
+    explanation: 'Output staged through smem, then stored as 128-bit vectors. Often fused with relu / silu / scale.'
+
+arch_idioms:
+  - '__grid_constant__ for TMA descriptor passing — Hopper-specific syntax'
+  - 'wgmma.fence + wgmma.commit_group + wgmma.wait_group — explicit pipeline sync'
+  - 'cuda::barrier with thread_scope_block — replaces __syncthreads for async patterns'
+  - 'Warp-group code (128 threads) — different from per-warp WMMA semantics'
+
+build_command: 'nvcc -arch=sm_90a -O3 -std=c++17 hopper_gemm.cu'
+run_command: './hopper_gemm 4096 4096 4096   # M N K'
+
+related_isa_primitives: [nvidia-hopper-wgmma, nvidia-hopper-tma]
+related_kernel_libraries: [cutlass, cublas]
+
+source_url: https://github.com/NVIDIA/cutlass/tree/main/examples
+notes: |
+  Real CUTLASS code is much longer (~1000 lines for full GEMM with epilogue
+  fusion + split-K + persistent kernel scheduling). This 50-line skeleton
+  shows the structure: TMA descriptor + double-buffered smem + WGMMA + async
+  pipelining is the Hopper canonical pattern.

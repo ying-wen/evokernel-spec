@@ -1,0 +1,81 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import Badge from '~/components/ui/Badge.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import { pathname } from '~/lib/i18n';
+import { getReferenceImpls } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const items = await getReferenceImpls();
+  return items.map((r) => ({ params: { slug: r.id }, props: { ref: r } }));
+}
+const { ref } = Astro.props;
+---
+<BaseLayout title={`${ref.name} — Reference Implementation`}>
+  <Container>
+    <section class="pt-12 pb-6">
+      <a href={pathname('/dev-toolkit/')} class="text-sm" style="color: var(--color-text-muted);">← Dev Toolkit</a>
+      <div class="mt-4 flex items-baseline gap-3 flex-wrap">
+        <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{ref.name}</h1>
+        <Badge variant="accent">{ref.operator_class}</Badge>
+        <Badge>{ref.vendor}</Badge>
+        <Badge>{ref.arch_family}</Badge>
+      </div>
+    </section>
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Source</h3>
+      <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+        <SpecRow label="Repo"><a href={ref.source_url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{ref.source_url}</a></SpecRow>
+        {ref.source_file && <SpecRow label="File"><code class="text-xs">{ref.source_file}</code></SpecRow>}
+        {ref.source_ref && <SpecRow label="Ref / commit">{ref.source_ref}</SpecRow>}
+        {ref.core_loc && <SpecRow label="Core LOC">~{ref.core_loc}</SpecRow>}
+        {ref.languages.length > 0 && <SpecRow label="Languages">{ref.languages.join(', ')}</SpecRow>}
+        {ref.ships_in.length > 0 && <SpecRow label="Ships in">{ref.ships_in.join(', ')}</SpecRow>}
+      </div>
+    </section>
+
+    {ref.highlights.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">✨ Highlights</h3>
+        <ul class="space-y-1.5 text-sm">
+          {ref.highlights.map((h) => (
+            <li class="rounded p-2 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">{h}</li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {ref.performance_notes && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">📊 Performance</h3>
+        <pre class="rounded-lg p-4 border text-xs whitespace-pre-line" style="background: var(--color-surface-raised); border-color: var(--color-border);">{ref.performance_notes}</pre>
+      </section>
+    )}
+
+    {(ref.uses_isa_primitives.length > 0 || ref.uses_kernel_libraries.length > 0 || ref.related_dsl_examples.length > 0) && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Composes with</h3>
+        <div class="flex gap-2 flex-wrap">
+          {ref.uses_isa_primitives.map((p) => (
+            <a href={pathname(`/isa-primitives/${p}/`)} class="text-xs px-3 py-1 rounded border" style="background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-accent);">→ ISA: {p}</a>
+          ))}
+          {ref.uses_kernel_libraries.map((l) => (
+            <a href={pathname(`/kernel-libraries/${l}/`)} class="text-xs px-3 py-1 rounded border" style="background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-accent);">→ lib: {l}</a>
+          ))}
+          {ref.related_dsl_examples.map((e) => (
+            <a href={pathname(`/dev-toolkit/dsl-examples/${e}/`)} class="text-xs px-3 py-1 rounded border" style="background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-accent);">→ DSL: {e}</a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {ref.notes && (
+      <section class="pb-12">
+        <h3 class="text-lg font-semibold mb-3">Notes</h3>
+        <p class="text-sm whitespace-pre-line" style="color: var(--color-text-muted);">{ref.notes}</p>
+      </section>
+    )}
+  </Container>
+</BaseLayout>

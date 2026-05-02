@@ -1,0 +1,45 @@
+id: flashattention-ck-mi300x
+operator_class: flash-attention
+name: 'Flash Attention via Composable Kernel (CK) on MI300X'
+vendor: amd
+arch_family: cdna3
+
+source_url: https://github.com/ROCm/composable_kernel
+source_file: example/flash_attention/
+source_ref: 'rocm-6.2'
+
+ships_in: [vllm, ck]
+
+core_loc: 2000
+languages: [hip, cpp-template]
+
+highlights:
+  - 'MI300X-specific tile shapes (matches CDNA3 MFMA 32x32x16)'
+  - 'Pipeline depth via persistent kernel + multiple-wave occupancy (no TMA equivalent)'
+  - 'fp16/bf16/fp8 paths covered; no FP4 native (that comes in CDNA4)'
+  - 'CUTLASS-style template instantiation — but tile shapes are MFMA-aware'
+  - 'Reaches ~65-70% of MI300X peak (compared to ~75% for H100 FA-3)'
+
+performance_notes: |
+  Measured on MI300X OAM (192GB HBM3):
+    - Prefill 4K x 4K x 128 fp16: ~870 TFLOPS achieved (~67% of ~1300 peak)
+    - Pipeline depth limit: 4-stage (vs Hopper FA-3's 2-stage with TMA)
+    - HBM bandwidth bound at long context (5.3 TB/s vs H100's 3.35) — wins on long ctx
+
+uses_isa_primitives: [amd-cdna3-mfma-32x32x16]
+uses_kernel_libraries: [ck, rocblas]
+related_dsl_examples: [hip-mfma-gemm-cdna3]
+
+notes: |
+  AMD's gold-standard reference attention impl for MI300X. The same algorithm
+  as Tri Dao's FA-3 (online softmax + tile-based attention) but the
+  *pipeline structure differs* because CDNA3 lacks TMA-equivalent async copy.
+  Pipeline depth achieved via persistent kernel + multi-wave occupancy +
+  manual __builtin_amdgcn_s_sleep insertions for explicit overlap.
+
+  Read this alongside flashattention-3-hopper to see how the same algorithm
+  manifests in two different ISA + memory-model stacks. The diff is where
+  arch personality lives.
+
+  Cross-vendor caveat: CK template instantiation is more verbose than CUTLASS;
+  more lines (~2000) for similar core logic.

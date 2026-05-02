@@ -1,0 +1,54 @@
+id: flashattention-mindie-ascend910c
+operator_class: flash-attention
+name: 'aclnnPromptFlashAttention / aclnnIncreFlashAttention (Ascend 910C)'
+vendor: huawei
+arch_family: ascend-910c
+
+source_url: https://gitee.com/ascend
+source_file: ATB/flash_attention/
+source_ref: 'CANN 8.0.RC3'
+
+ships_in: [mindie, vllm-ascend]
+
+core_loc: 2500
+languages: [ascend-c, cce-c]
+
+highlights:
+  - 'Prefill (Prompt) and Decode (Incre) variants split — vs CUDA SDPA unified path'
+  - 'Cube + Vector + Scalar pipeline orchestration via OE/OQ'
+  - 'Explicit GM → UB → L1 → L0 staging (compare to Hopper TMA → smem → register)'
+  - 'fp16 / bf16 / int8 paths mature; FP8 limited (910D adds broader FP8)'
+  - 'CloudMatrix 384 super-pod aware: handles cross-card KV cache sharding'
+
+performance_notes: |
+  Measured on Ascend 910C (CloudMatrix 384):
+    - Prefill 4K x 4K x 128 head_dim, fp16: ~280 TFLOPS achieved per card
+      (~70% of ~400 peak fp16 — tight match to peak)
+    - Decode aclnnIncreFlashAttention: Ascend Vector unit handles softmax
+      epilogue in parallel with Cube reading next K-tile from L1
+    - Pipeline efficiency: ~85% (Cube and Vector both >80% utilization
+      on long-context prefill)
+
+uses_isa_primitives: [huawei-ascend-cube, huawei-ascend-vector]
+uses_kernel_libraries: [aclnn]
+related_dsl_examples: [ascend-c-tiled-gemm]
+
+notes: |
+  Huawei's gold-standard FlashAttention. Different from Hopper FA-3 in
+  fundamental ways:
+
+  1. Prefill / Decode split into separate ops (aclnnPromptFlashAttention
+     vs aclnnIncreFlashAttention) — vs CUDA F.scaled_dot_product_attention
+     unified path that picks based on shape.
+
+  2. Memory model is explicit — kernel must orchestrate DMA between GM
+     (global), UB (unified buffer), L1 cache, L0 (compute-side). Hopper's
+     TMA+smem abstraction is replaced by Ascend's TPipe + TQue model.
+
+  3. Compute split across 3 pipelined units (Cube + Vector + Scalar) vs
+     CUDA's unified SM. Vector handles softmax inner loop in parallel
+     with Cube doing next QK^T tile — getting this overlap right is the
+     core engineering challenge.
+
+  Read this alongside flashattention-3-hopper + flashattention-ck-mi300x
+  to see how 3 different programming models implement the same algorithm.

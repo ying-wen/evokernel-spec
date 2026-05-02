@@ -10,6 +10,67 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
 
 ---
 
+## [2.7.0] — 2026-05-02
+
+**Theme**: `/dev-toolkit/` — DSL examples + reference implementations + profiling tools. Addresses the user's pushback: *"DSL 原语示例文档 / 通用高性能算子的具体实现 / 不同硬件的 profiling 入口"*.
+
+This iteration turns the site from "specifications about hardware" into "things developers can actually do". For each of the 3 dimensions, an agent or human can answer: "what does this look like?" → see code; "how does this compare across vendors?" → side-by-side; "is my generated kernel actually fast?" → profiler reference.
+
+### Added — 3 new entity types
+- New `DslExampleSchema`, `ReferenceImplementationSchema`, `ProfilingToolSchema` (`schemas/dsl-example.ts`).
+
+### Added — DSL Examples (Layer B made concrete)
+4 hello-world tiled-GEMM kernels in different programming languages, ~50-60 LOC each + walkthrough + arch idioms:
+- **CUDA C++ on Hopper** — WGMMA + TMA double-buffered async pipelining
+- **Ascend-C on 910C** — Cube + Vector pipeline with explicit GM/UB/L1/L0 DMA staging via TPipe/TQue
+- **HIP on CDNA3** — Wave-level (64-thread) MFMA + LDS double-buffer (no TMA equivalent)
+- **Triton (multi-vendor)** — Same code targets NVIDIA + AMD via `tl.dot` abstraction
+
+### Added — Reference Implementations
+3 production-grade FlashAttention impls across vendors (~1000-2500 core LOC each):
+- **flashattention-3-hopper** — Tri Dao reference (Dao-AILab/flash-attention)
+- **flashattention-ck-mi300x** — AMD CK (Composable Kernel) impl
+- **flashattention-mindie-ascend910c** — Huawei aclnnPromptFlashAttention / aclnnIncreFlashAttention
+
+Each entry has highlights, performance_notes (real measured numbers), uses_isa_primitives, uses_kernel_libraries, related_dsl_examples cross-links.
+
+### Added — Profiling Tools
+6 vendor profiling tool registry entries with invocation examples + cross-vendor equivalents:
+- **NCU (Nsight Compute)** — NVIDIA per-kernel deep dive
+- **nsys (Nsight Systems)** — NVIDIA timeline + system trace
+- **rocprof / rocprofv2** — AMD ROCm profiler (CDNA3+, has ATT trace)
+- **msprof (Mind Studio)** — Huawei Ascend (Cube/Vector pipeline split — unique feature)
+- **cnperf** — Cambricon MLU profiler
+- **suprof** — Birentech BR100/BR104 profiler
+
+Each entry has cross_vendor_equivalents — answering "I know NCU, what's the rocprof / msprof equivalent?"
+
+### Added — Wiring
+- `/api/dsl-examples.json`, `/api/reference-impls.json`, `/api/profiling-tools.json`
+- `/dev-toolkit/` hub + per-entity detail pages (3 detail page routes × N items each)
+- Loader registration + validate-data registration
+- nav-groups.ts: `开发者工具箱` entry in optimize dropdown (theme: accent)
+- i18n: `nav.devToolkit` zh/en
+- 7 v2.7 E2E tests covering API endpoints, hub structure, all 3 detail page types, cross-vendor profiler links
+
+### Why this matters
+Before v2.7, the site told you *what existed* (Layer A primitives, Layer C libraries, Layer D semantics). v2.7 tells you *how to do it*:
+
+- **DSL examples** answer: "I know I should use Ascend-C — what does a real kernel structure look like?"
+- **Reference impls** answer: "Show me the same algorithm on 3 vendors so I can see the structural diff that arch personality lives in."
+- **Profiling tools** answer: "I codegened a kernel — how do I prove it's fast?"
+
+For an autonomous deployment agent, these are the operational data. Generating a kernel without verification path is writing blind. Reading a port without seeing the source isn't a port. Knowing a DSL exists isn't the same as knowing what it looks like.
+
+### Stats
+- 7 new v2.7 E2E tests pass · full suite green
+- Build: 491 pages (was 478, +13 = /dev-toolkit hub + 4 DSL + 3 ref impls + 6 profiling tools + 3 API endpoints)
+- Schema additions all backward-compatible
+- Schema-extension recipe applied **8th time** (DSL example + reference impl + profiling tool — three at once because they're tightly coupled)
+- Agent-readiness ~78% → ~88%
+
+---
+
 ## [2.6.0] — 2026-05-02
 
 **Theme**: hw-sw gap **Layer A + Layer E** — ISA primitives + auto-derived coverage matrix. The keystone unlock for cross-vendor kernel codegen.

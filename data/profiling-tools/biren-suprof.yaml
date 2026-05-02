@@ -1,0 +1,37 @@
+id: biren-suprof
+name: suprof (Biren / Birentech Performance Profiler)
+vendor: biren
+category: mixed
+target_archs: [biren-br100, biren-br104]
+modes: [counters, kernel-trace, sm-utilization]
+
+install: 'Bundled with Birentech BRTC SDK'
+invocation_example: |
+  # Per-kernel detail trace
+  suprof --kernel-detail --output=./prof_data ./my_inference
+
+  # SM (Streaming Multiprocessor) utilization
+  suprof --sm-stats ./my_kernel
+
+measures:
+  - 'BR-SM activity / occupancy'
+  - 'L1 / L2 / HBM bandwidth + miss rate'
+  - 'Per-kernel timeline'
+  - 'Tensor core utilization (Biren-specific)'
+  - 'Cross-card NCCL-equivalent collective stats'
+
+output_formats: [csv, json, suprof-binary]
+
+cross_vendor_equivalents:
+  - { vendor: nvidia, tool_id: nvidia-ncu, notes: 'Closest equivalent in design philosophy; suprof has narrower counter set + less mature UI.' }
+  - { vendor: huawei, tool_id: huawei-msprof, notes: 'Both target domestic accelerators; different chip architectures.' }
+  - { vendor: amd, tool_id: amd-rocprof, notes: 'BR-SM vs CU; similar generic profiling shape.' }
+
+docs_url: https://www.birentech.com/products/
+license: vendor-binary
+notes: |
+  Birentech BR100 / BR104 inference card profiler. Limited public docs;
+  primarily used internally by Biren ecosystem partners. Worth noting
+  for any agent doing 国产 deployment to Biren hardware — the profiling
+  entry point matters for verifying codegen correctness even if the
+  programming model is more CUDA-like than Ascend.

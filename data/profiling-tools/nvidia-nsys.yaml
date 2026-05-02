@@ -1,0 +1,39 @@
+id: nvidia-nsys
+name: NVIDIA Nsight Systems (nsys)
+vendor: nvidia
+category: kernel-trace
+target_archs: [hopper, blackwell, ada, ampere, volta, turing]
+modes: [system-trace, gpu-trace, cpu-trace, nvtx]
+
+install: 'Bundled with CUDA toolkit; standalone download from developer.nvidia.com/nsight-systems'
+invocation_example: |
+  # Full system trace (CPU + GPU)
+  nsys profile -o trace.qdrep -t cuda,nvtx,osrt --cuda-memory-usage=true ./my_app
+
+  # vLLM serving — capture engine event timeline
+  nsys profile -t cuda,nvtx --capture-range=cudaProfilerApi --capture-range-end=stop \
+       --gpu-metrics-device=0 python -m vllm.entrypoints.openai.api_server ...
+
+  # Open the .qdrep in nsys-ui for timeline view
+
+measures:
+  - 'Per-kernel duration on timeline'
+  - 'Memcpy / launch overhead'
+  - 'CPU↔GPU dependency graph'
+  - 'NVTX event ranges (engine-level annotations like "prefill" / "decode")'
+  - 'GPU power / clock state'
+
+output_formats: [qdrep, sqlite, json]
+
+cross_vendor_equivalents:
+  - { vendor: amd, tool_id: amd-rocprof, notes: 'rocprof has timeline mode (rocprof --hsa-trace).' }
+  - { vendor: huawei, tool_id: huawei-msprof, notes: 'msprof timeline view shows Cube/Vector pipeline + AI Core occupancy.' }
+
+docs_url: https://docs.nvidia.com/nsight-systems/
+license: vendor-binary
+notes: |
+  Use nsys for "what's slow at the system level" — engine event order,
+  kernel launch overhead, memcpy serialization, CPU bottlenecks.
+  Use NCU for "this specific kernel is slow, why" — counter-level analysis.
+  Engines like vLLM / SGLang / TRT-LLM emit NVTX ranges that show up in
+  the timeline (prefill / decode / KV transfer phases visible at a glance).

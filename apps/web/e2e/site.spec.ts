@@ -627,6 +627,65 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.7: /dev-toolkit/ — DSL examples + reference impls + profiling tools', () => {
+  test('/api/dsl-examples.json + /api/reference-impls.json + /api/profiling-tools.json all 200', async ({ request }) => {
+    for (const url of ['/api/dsl-examples.json', '/api/reference-impls.json', '/api/profiling-tools.json']) {
+      const r = await request.get(url);
+      expect(r.status()).toBe(200);
+      const body = await r.json();
+      expect(body.count).toBeGreaterThanOrEqual(3);
+      expect(body.license).toBe('CC-BY-SA-4.0');
+    }
+  });
+
+  test('/dev-toolkit/ index renders all 3 sections', async ({ page }) => {
+    await page.goto('/dev-toolkit/');
+    await expect(page.getByText(/DEV TOOLKIT|Kernel.*工具箱|开发者/i).first()).toBeVisible();
+    // 3 sections
+    await expect(page.getByText(/DSL 示例|DSL Example/i).first()).toBeVisible();
+    await expect(page.getByText(/参考实现|Reference/i).first()).toBeVisible();
+    await expect(page.getByText(/Profiling 工具|Profiling Tool/i).first()).toBeVisible();
+  });
+
+  test('CUDA tiled GEMM detail page shows code skeleton + walkthrough + arch idioms', async ({ page }) => {
+    await page.goto('/dev-toolkit/dsl-examples/cuda-tiled-gemm-hopper/');
+    await expect(page.getByText(/Hopper Tiled GEMM/i).first()).toBeVisible();
+    await expect(page.getByText(/Walkthrough/i).first()).toBeVisible();
+    await expect(page.getByText(/Arch idioms|arch idiom/i).first()).toBeVisible();
+    // Code visible
+    await expect(page.getByText(/wgmma|WGMMA|TMA/i).first()).toBeVisible();
+  });
+
+  test('Ascend-C example shows GM/UB/L1 staging + TPipe/TQue idioms', async ({ page }) => {
+    await page.goto('/dev-toolkit/dsl-examples/ascend-c-tiled-gemm/');
+    await expect(page.getByText(/Ascend-C|Cube/i).first()).toBeVisible();
+    await expect(page.getByText(/TPipe|TQue|UB|GM|L0|L1/i).first()).toBeVisible();
+  });
+
+  test('FlashAttention reference impls show across-vendor comparison', async ({ page }) => {
+    await page.goto('/dev-toolkit/reference-impls/flashattention-3-hopper/');
+    await expect(page.getByText(/Tri Dao|FlashAttention/i).first()).toBeVisible();
+    await page.goto('/dev-toolkit/reference-impls/flashattention-mindie-ascend910c/');
+    await expect(page.getByText(/aclnn|Ascend|Cube|Vector/i).first()).toBeVisible();
+    await page.goto('/dev-toolkit/reference-impls/flashattention-ck-mi300x/');
+    await expect(page.getByText(/MI300X|Composable Kernel|MFMA/i).first()).toBeVisible();
+  });
+
+  test('NCU profiling tool detail shows cross-vendor equivalents', async ({ page }) => {
+    await page.goto('/dev-toolkit/profiling-tools/nvidia-ncu/');
+    await expect(page.getByText(/NCU|Nsight Compute/i).first()).toBeVisible();
+    await expect(page.getByText(/跨厂商等价|cross.vendor|equivalent/i).first()).toBeVisible();
+    // Should link to rocprof + msprof
+    await expect(page.locator('a[href$="/dev-toolkit/profiling-tools/amd-rocprof/"]').first()).toBeVisible();
+    await expect(page.locator('a[href$="/dev-toolkit/profiling-tools/huawei-msprof/"]').first()).toBeVisible();
+  });
+
+  test('msprof shows Cube/Vector pipeline split (Ascend-specific feature)', async ({ page }) => {
+    await page.goto('/dev-toolkit/profiling-tools/huawei-msprof/');
+    await expect(page.getByText(/Cube|Vector/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v2.6: /isa-primitives/ Layer A + /api/coverage-matrix.json Layer E', () => {
   test('/api/isa-primitives.json returns 200 with cross_vendor_equivalents', async ({ request }) => {
     const r = await request.get('/api/isa-primitives.json');

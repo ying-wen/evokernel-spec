@@ -1,0 +1,96 @@
+id: hip-mfma-gemm-cdna3
+language: hip
+vendor: amd
+arch_family: cdna3
+title: 'HIP MFMA GEMM on CDNA3 (MI300X)'
+category: wave-level-mma
+
+code: |
+  // CDNA3 MFMA-based GEMM skeleton — fp16 inputs, fp32 accum.
+  // Demonstrates: wave-level (64-thread) MFMA + LDS double-buffer.
+  #include <hip/hip_runtime.h>
+  #include <hip/hip_fp16.h>
+  #include <rocwmma/rocwmma.hpp>
+
+  using namespace rocwmma;
+
+  template<int BM=32, int BN=32, int BK=16>
+  __global__ void cdna3_mfma_gemm(
+      const __half* __restrict__ A, const __half* __restrict__ B,
+      float* __restrict__ C, int M, int N, int K)
+  {
+      __shared__ __half a_lds[2][BM * BK];
+      __shared__ __half b_lds[2][BK * BN];
+
+      int tile_m = blockIdx.y * BM;
+      int tile_n = blockIdx.x * BN;
+      int tid = threadIdx.x;
+
+      // Wave (64 threads on AMD vs 32 on NVIDIA) cooperatively loads tile
+      // via buffer_load_lds_dword (LDS_DIRECT path on CDNA3)
+      for (int k_outer = 0; k_outer < K; k_outer += BK) {
+          // LDS double-buffered load (synchronous; no TMA equivalent on CDNA3)
+          int buf = (k_outer / BK) % 2;
+          for (int i = tid; i < BM * BK; i += blockDim.x) {
+              int row = i / BK, col = i % BK;
+              a_lds[buf][i] = A[(tile_m + row) * K + k_outer + col];
+          }
+          for (int i = tid; i < BK * BN; i += blockDim.x) {
+              int row = i / BN, col = i % BN;
+              b_lds[buf][i] = B[(k_outer + row) * N + tile_n + col];
+          }
+          __syncthreads();
+
+          // Wave-level MFMA — 64 threads cooperate as one wave
+          // 32x32x16 fp16 → fp32 accumulator
+          fragment<accumulator, 32, 32, 16, float> c_frag;
+          fragment<matrix_a, 32, 32, 16, __half, row_major> a_frag;
+          fragment<matrix_b, 32, 32, 16, __half, col_major> b_frag;
+
+          fill_fragment(c_frag, 0.0f);
+          load_matrix_sync(a_frag, a_lds[buf], BK);
+          load_matrix_sync(b_frag, b_lds[buf], BN);
+
+          // The actual MFMA: v_mfma_f32_32x32x16_fp16 — sync, no async equivalent
+          mma_sync(c_frag, a_frag, b_frag, c_frag);
+
+          __syncthreads();
+      }
+
+      // Epilogue: store c_frag back to C
+      // (rocWMMA store_matrix_sync — omitted for brevity)
+  }
+loc: 50
+
+walkthrough:
+  - step: 'LDS allocation (AMD shared-memory equivalent)'
+    explanation: 'LDS = Local Data Share, identical role to NVIDIA shared memory but with different load instructions (buffer_load_lds_dword on CDNA3).'
+  - step: 'Wave-cooperative load (64 threads)'
+    explanation: 'AMD waves are 64 threads vs NVIDIA warps of 32. The loop stride blockDim.x means each thread loads BM*BK / blockDim.x elements.'
+  - step: 'No async copy → __syncthreads after load'
+    explanation: 'Critical difference from Hopper TMA: load and compute cannot fully overlap natively. Pipeline depth managed manually with __builtin_amdgcn_s_sleep or split-K.'
+  - step: 'rocwmma fragment loads from LDS to registers'
+    explanation: 'load_matrix_sync stages fragment from LDS into the register file. Wave-level (not thread-level) — all 64 threads see the same fragment metadata.'
+  - step: 'mma_sync triggers MFMA 32x32x16'
+    explanation: 'Synchronous wave-level MFMA. Wave blocks until completion. To get pipeline overlap, multiple waves must be in flight.'
+
+arch_idioms:
+  - 'Wave = 64 threads (vs NVIDIA warp = 32) — affects coalescing and load patterns'
+  - 'rocWMMA fragment API — direct port of NVIDIA WMMA but to AMD primitives'
+  - 'No async TMA — must overlap with multiple-wave occupancy or split-K'
+  - 'LDS_DIRECT path: data goes directly to LDS, bypassing registers (fast for tiles)'
+  - '__builtin_amdgcn_s_sleep for explicit pipeline overlap (rarely needed; compiler usually handles)'
+
+build_command: 'amdclang++ --offload-arch=gfx942 -O3 -lrocwmma cdna3_mfma_gemm.cpp -o gemm'
+run_command: './gemm 4096 4096 4096'
+
+related_isa_primitives: [amd-cdna3-mfma-32x32x16]
+related_kernel_libraries: [rocblas, ck]
+
+source_url: https://github.com/ROCm/rocWMMA/tree/develop/samples
+notes: |
+  Compare to Hopper WGMMA: same big idea (tile in shared memory, MMA accumulate)
+  but CDNA3 MFMA is sync, no TMA, wave (64) vs warp-group (128). Pipeline
+  depth must be achieved through occupancy + split-K, not through
+  async-with-TMA. Composable Kernel (ck) provides the production-grade
+  template-based abstractions equivalent to CUTLASS.

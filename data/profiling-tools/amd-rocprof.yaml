@@ -1,0 +1,42 @@
+id: amd-rocprof
+name: rocprof / rocprofv2
+vendor: amd
+category: mixed
+target_archs: [cdna3, cdna4, rdna3]
+modes: [counters, hsa-trace, hip-trace, kernel-stats]
+
+install: 'Bundled with ROCm: apt install rocm-profiler / rocm-bandwidth-test'
+invocation_example: |
+  # Per-kernel counters
+  rocprof --stats --hsa-trace -o trace.csv ./my_kernel
+
+  # Counter set for memory analysis (similar to NCU MemoryWorkloadAnalysis)
+  rocprof --pmc TCC_HIT_RD_BANK0 TCC_MISS_RD_BANK0 GRBM_GUI_ACTIVE \
+          -i pmc_input.txt -o report.csv ./my_kernel
+
+  # rocprofv2 (newer, ATT trace mode)
+  rocprofv2 --plugin att flash_attn ./my_kernel
+
+measures:
+  - 'CU activity / wave occupancy / stall reasons'
+  - 'L1/L2/HBM bandwidth + miss rates'
+  - 'Per-kernel timeline (HSA / HIP traces)'
+  - 'MFMA throughput per precision'
+  - 'PMC counters (~150 hardware counters on CDNA3)'
+  - 'ATT trace (Advanced Thread Trace) — per-instruction granularity'
+
+output_formats: [csv, atom-trace, json, sqlite]
+
+cross_vendor_equivalents:
+  - { vendor: nvidia, tool_id: nvidia-ncu, notes: 'NCU equivalent depth; metric naming differs (HBM vs DRAM, CU vs SM).' }
+  - { vendor: nvidia, tool_id: nvidia-nsys, notes: 'rocprof --hsa-trace ≈ nsys timeline view.' }
+  - { vendor: huawei, tool_id: huawei-msprof, notes: 'msprof has richer pipeline-split visualization.' }
+
+docs_url: https://rocm.docs.amd.com/projects/rocprofiler/
+source_url: https://github.com/ROCm/rocprofiler
+license: open-source
+notes: |
+  rocprofv2 is the modern command (rocprof v1 still works). ATT (Advanced
+  Thread Trace) is the closest AMD equivalent to NCU's source-line
+  attribution — gives per-wave per-instruction trace. Less polished UI
+  than NCU but counter coverage on CDNA3+ is comparable.

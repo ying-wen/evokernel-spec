@@ -1,0 +1,151 @@
+---
+/**
+ * /dev-toolkit/ — kernel developer + agent toolkit hub (v2.7).
+ *
+ * Three companion sections that turn the rest of the site from
+ * "specifications about hardware" into "things developers can actually do":
+ *   1. DSL examples (Layer B) — hello-world kernels per language
+ *   2. Reference implementations — production code for the same op across vendors
+ *   3. Profiling tools — verify your kernel is actually fast
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+import { getDslExamples, getReferenceImpls, getProfilingTools } from '~/lib/data';
+
+const [examples, refImpls, tools] = await Promise.all([
+  getDslExamples(),
+  getReferenceImpls(),
+  getProfilingTools()
+]);
+
+// Group examples by language
+const examplesByLang = new Map<string, typeof examples>();
+for (const ex of examples) {
+  if (!examplesByLang.has(ex.language)) examplesByLang.set(ex.language, []);
+  examplesByLang.get(ex.language)!.push(ex);
+}
+
+// Group reference impls by operator class
+const refByClass = new Map<string, typeof refImpls>();
+for (const r of refImpls) {
+  if (!refByClass.has(r.operator_class)) refByClass.set(r.operator_class, []);
+  refByClass.get(r.operator_class)!.push(r);
+}
+
+// Group profiling tools by vendor
+const toolsByVendor = new Map<string, typeof tools>();
+for (const t of tools) {
+  if (!toolsByVendor.has(t.vendor)) toolsByVendor.set(t.vendor, []);
+  toolsByVendor.get(t.vendor)!.push(t);
+}
+
+const VENDOR_LABEL: Record<string, string> = {
+  nvidia: 'NVIDIA', amd: 'AMD', huawei: 'Huawei', cambricon: 'Cambricon',
+  apple: 'Apple', intel: 'Intel', biren: 'Birentech', 'moore-threads': 'Moore Threads'
+};
+---
+<BaseLayout title="Developer Toolkit — DSL examples / reference impls / profiling tools">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="DEV TOOLKIT · v2.7"
+        title="Kernel 开发者 / 智能体工具箱"
+        subtitle={`${examples.length} DSL 示例 · ${refImpls.length} 参考实现 · ${tools.length} profiling 工具 · 让 'specification' 变成 'show me how'`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        这一节回答的是 <strong>"我看了 schema, 看了 ISA 原语, 看了 kernel library, 现在我要写 kernel 怎么动手?"</strong> 三类资源:
+      </p>
+      <ol class="text-sm mt-3 max-w-3xl space-y-2" style="color: var(--color-text);">
+        <li><strong>1. DSL 示例</strong> — 每种 kernel 编程语言一个 hello-world 级别的 tiled GEMM. 看代码结构, 不看完整实现.</li>
+        <li><strong>2. 参考实现</strong> — 同一个高性能 op (Flash Attention / GEMM / MoE) 在不同硬件上的真实生产代码. 比较结构差异.</li>
+        <li><strong>3. Profiling 工具</strong> — codegen 完了以后, 怎么验证你的 kernel 真的快. NCU / msprof / rocprof / cnperf / suprof.</li>
+      </ol>
+    </section>
+
+    {/* 1. DSL Examples */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📜 DSL 示例 ({examples.length})</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        每个示例 ~50-60 行代码 + walkthrough + arch idioms. 显示 kernel STRUCTURE 而非完整实现 (~1000 行).
+        比较跨 vendor 的相同任务 (例: tiled GEMM in CUDA vs Ascend-C vs HIP vs Triton) 来直观感受 arch 差异.
+      </p>
+      <div class="grid gap-3 lg:grid-cols-2">
+        {[...examplesByLang.entries()].map(([lang, exList]) => (
+          <div>
+            <h3 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">{lang}</h3>
+            {exList.map((ex) => (
+              <a href={pathname(`/dev-toolkit/dsl-examples/${ex.id}/`)} class="block rounded-lg p-4 border mb-2 transition-transform hover:-translate-y-0.5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                <div class="flex items-start justify-between gap-2 mb-1">
+                  <h4 class="text-base font-semibold">{ex.title}</h4>
+                  <span class="text-xs px-2 py-0.5 rounded shrink-0" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">{ex.category}</span>
+                </div>
+                <div class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  {ex.vendor} / {ex.arch_family} · {ex.loc ?? '?'} LOC · {ex.arch_idioms.length} arch idioms
+                </div>
+              </a>
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* 2. Reference Implementations */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🔬 参考实现 ({refImpls.length})</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        生产级 kernel 在不同硬件上的真实源码指针. 比 DSL 示例完整得多 (~1000-2500 LOC), 但通过 highlights 标注核心. 横向比较同一算法在不同 vendor 的实现可以最直观看出 arch 个性.
+      </p>
+      <div class="grid gap-3">
+        {[...refByClass.entries()].map(([opClass, impls]) => (
+          <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <h3 class="text-base font-semibold mb-2"><code style="color: var(--color-accent);">{opClass}</code> 跨厂商对比 ({impls.length})</h3>
+            <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {impls.map((impl) => (
+                <a href={pathname(`/dev-toolkit/reference-impls/${impl.id}/`)} class="block rounded p-3 border" style="background: var(--color-bg); border-color: color-mix(in oklch, var(--color-border) 70%, transparent);">
+                  <div class="text-sm font-semibold mb-1">{impl.name}</div>
+                  <div class="text-xs" style="color: var(--color-text-muted);">{impl.vendor} / {impl.arch_family} · {impl.core_loc ?? '?'} core LOC</div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* 3. Profiling Tools */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📊 Profiling 工具 ({tools.length})</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        Codegen 没有 profiling 验证就是写盲. 每个 vendor 有自己的 profiler — NCU/nsight-systems on NVIDIA, rocprof on AMD, msprof on 昇腾, cnperf on 寒武纪, suprof on Birentech.
+        每个条目包含: 安装命令 / invocation 示例 / 测量内容 / 输出格式 / **跨厂商等价对照** (e.g. "rocprof-equivalent of NCU is...").
+      </p>
+      <div class="grid gap-3 lg:grid-cols-2">
+        {[...toolsByVendor.entries()].map(([vendor, vTools]) => (
+          <div>
+            <h3 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">{VENDOR_LABEL[vendor] ?? vendor}</h3>
+            {vTools.map((t) => (
+              <a href={pathname(`/dev-toolkit/profiling-tools/${t.id}/`)} class="block rounded-lg p-4 border mb-2 transition-transform hover:-translate-y-0.5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                <div class="flex items-start justify-between gap-2 mb-1">
+                  <h4 class="text-base font-semibold">{t.name}</h4>
+                  <span class="text-xs px-2 py-0.5 rounded shrink-0" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">{t.category}</span>
+                </div>
+                <div class="text-xs mt-1" style="color: var(--color-text-muted);">
+                  Modes: {t.modes.slice(0, 3).join(', ')} · {t.cross_vendor_equivalents.length} 跨厂商等价
+                </div>
+              </a>
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        v2.7. See <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/</a> · <a href={pathname('/isa-primitives/')} class="underline" style="color: var(--color-accent);">/isa-primitives/ (Layer A)</a> · <a href={pathname('/kernel-libraries/')} class="underline" style="color: var(--color-accent);">/kernel-libraries/ (Layer C)</a>.
+        欢迎 PR 添加更多 DSL 示例 / 参考实现 / profiling 工具至 <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 0 4px; border-radius: 3px;">data/{`{dsl-examples,reference-impls,profiling-tools}`}/</code>.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

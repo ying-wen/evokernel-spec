@@ -1,0 +1,36 @@
+id: cambricon-cnperf
+name: cnperf (Cambricon Performance Profiler)
+vendor: cambricon
+category: mixed
+target_archs: [cambricon-mlu]
+modes: [counters, kernel-trace, ipu-utilization]
+
+install: 'Bundled with Neuware SDK'
+invocation_example: |
+  # Full kernel trace + IPU counters
+  cnperf --task=trace --kernel-detail --output=./prof ./my_inference
+
+  # Per-IPU utilization (IPU = Cambricon compute unit, similar to SM/CU)
+  cnperf --task=stat --ipu-utilization ./my_kernel
+
+measures:
+  - 'IPU activity / occupancy'
+  - 'NRAM / WRAM / SRAM bandwidth'
+  - 'Per-kernel timeline'
+  - 'CNNL op dispatch latency'
+  - 'MLU memory hierarchy hit rates'
+  - 'Cross-MLU communication (CNCL collective)'
+
+output_formats: [csv, json, cnperf-binary]
+
+cross_vendor_equivalents:
+  - { vendor: nvidia, tool_id: nvidia-ncu, notes: 'NCU equivalent depth; cnperf has narrower counter set.' }
+  - { vendor: huawei, tool_id: huawei-msprof, notes: 'Both target domestic NPUs; msprof has richer pipeline-split view.' }
+  - { vendor: amd, tool_id: amd-rocprof, notes: 'IPU vs CU; similar generic profiling shape.' }
+
+docs_url: https://www.cambricon.com/docs/neuware/
+license: vendor-binary
+notes: |
+  Less mature than NCU / msprof but covers the basics. Used by lmdeploy
+  MLU fork developers. Mainly counter-based; lacks ATT/source-attribution
+  equivalent.

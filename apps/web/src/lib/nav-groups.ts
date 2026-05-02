@@ -69,6 +69,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/operators/hardware-fitness/', labelKey: 'nav.opHardwareFitness', desc_zh: '算子 × 硬件 适配矩阵 · "我有 hw, 哪些 op 有 native kernel?"', desc_en: 'Op × HW fitness matrix · "I have hw, which ops have native kernels?"', theme: 'accent' },
       { path: '/kernel-libraries/', labelKey: 'nav.kernelLibraries', desc_zh: '算子库目录 · cuBLAS / cuDNN / aclnn / CK / ... · 跨厂商等价对照', desc_en: 'Kernel library catalog · cuBLAS / cuDNN / aclnn / CK / ... · cross-vendor equivalents', theme: 'accent' },
       { path: '/isa-primitives/', labelKey: 'nav.isaPrimitives', desc_zh: '硬件指令集原语 · WGMMA / TCGEN05 / MFMA / Cube / ... · ISA-to-ISA 映射', desc_en: 'ISA primitives · WGMMA / TCGEN05 / MFMA / Cube / ... · ISA-to-ISA mapping', theme: 'accent' },
+      { path: '/dev-toolkit/', labelKey: 'nav.devToolkit', desc_zh: '开发者工具箱 · DSL 示例 / 参考实现 / profiling 工具 (NCU/msprof/rocprof/...)', desc_en: 'Dev toolkit · DSL examples / reference impls / profiling tools (NCU/msprof/rocprof/...)', theme: 'accent' },
       { path: '/quantizations/', labelKey: 'nav.quantizations', desc_zh: 'BF16 / FP8 / FP4 / INT8 / INT4 全谱', desc_en: 'BF16 / FP8 / FP4 / INT8 / INT4 spectrum' },
       { path: '/engines/', labelKey: 'nav.engines', desc_zh: 'vLLM · SGLang · TRT-LLM · MindIE · …', desc_en: 'vLLM · SGLang · TRT-LLM · MindIE · …' },
       { path: '/engines/compare/', labelKey: 'nav.enginesCompare', desc_zh: '引擎能力矩阵 · 量化 / 并行 / 服务特性 / spec decode', desc_en: 'Engine capability matrix · quant / parallel / serving / spec decode', theme: 'accent' }

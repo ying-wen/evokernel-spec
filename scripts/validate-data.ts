@@ -5,7 +5,8 @@ import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
-  PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema
+  PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
+  DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema
 } from '@evokernel/schemas';
 import { loadYaml } from './lib/load-yaml.ts';
 
@@ -38,7 +39,10 @@ const ENTITY_GLOBS: Array<{ name: string; glob: string; schema: ZodSchema }> = [
   { name: 'citation', glob: 'citations/*.yaml', schema: CitationSchema },
   { name: 'tour', glob: 'tours/*.yaml', schema: TourSchema },
   { name: 'kernel-library', glob: 'kernel-libraries/*.yaml', schema: KernelLibrarySchema },
-  { name: 'isa-primitive', glob: 'isa-primitives/*.yaml', schema: IsaPrimitiveSchema }
+  { name: 'isa-primitive', glob: 'isa-primitives/*.yaml', schema: IsaPrimitiveSchema },
+  { name: 'dsl-example', glob: 'dsl-examples/*.yaml', schema: DslExampleSchema },
+  { name: 'reference-impl', glob: 'reference-impls/*.yaml', schema: ReferenceImplementationSchema },
+  { name: 'profiling-tool', glob: 'profiling-tools/*.yaml', schema: ProfilingToolSchema }
 ];
 
 export async function validateAll(opts: { dataDir: string }): Promise<ValidationReport> {

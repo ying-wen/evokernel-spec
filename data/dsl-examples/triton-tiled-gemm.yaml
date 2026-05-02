@@ -1,0 +1,109 @@
+id: triton-tiled-gemm
+language: triton
+vendor: nvidia        # Triton primarily targets NVIDIA but also AMD/Intel
+arch_family: hopper   # And other archs via same code
+title: 'Triton Tiled GEMM (multi-vendor portable)'
+category: tiled-gemm
+
+code: |
+  # Triton tiled GEMM — same code targets NVIDIA (Hopper/Ampere/Blackwell) +
+  # AMD (CDNA3) + Intel via different backends. Trades some perf for portability.
+  import triton
+  import triton.language as tl
+
+  @triton.autotune(
+      configs=[
+          triton.Config({'BM': 128, 'BN': 128, 'BK': 32, 'GROUP_M': 8}, num_stages=3, num_warps=8),
+          triton.Config({'BM': 64,  'BN': 256, 'BK': 32, 'GROUP_M': 8}, num_stages=4, num_warps=8),
+          # ... typically 10-20 configs that autotuner picks from per shape
+      ],
+      key=['M', 'N', 'K'],
+  )
+  @triton.jit
+  def tiled_gemm_kernel(
+      a_ptr, b_ptr, c_ptr,
+      M, N, K,
+      stride_am, stride_ak,
+      stride_bk, stride_bn,
+      stride_cm, stride_cn,
+      BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr,
+      GROUP_M: tl.constexpr
+  ):
+      # Block-tile id; persistent / grouped scheduling for L2 reuse
+      pid = tl.program_id(axis=0)
+      num_pid_m = tl.cdiv(M, BM)
+      num_pid_n = tl.cdiv(N, BN)
+      num_pid_in_group = GROUP_M * num_pid_n
+      group_id = pid // num_pid_in_group
+      first_pid_m = group_id * GROUP_M
+      group_size_m = min(num_pid_m - first_pid_m, GROUP_M)
+      pid_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
+      pid_n = (pid % num_pid_in_group) // group_size_m
+
+      # Index ranges
+      offs_m = (pid_m * BM + tl.arange(0, BM)) % M
+      offs_n = (pid_n * BN + tl.arange(0, BN)) % N
+      offs_k = tl.arange(0, BK)
+
+      a_ptrs = a_ptr + offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak
+      b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn
+
+      # Accumulator in fp32 even when inputs are fp16/bf16
+      accumulator = tl.zeros((BM, BN), dtype=tl.float32)
+
+      # Main K-loop. tl.dot maps to WGMMA on Hopper, MFMA on AMD, etc.
+      for k in range(0, tl.cdiv(K, BK)):
+          a = tl.load(a_ptrs, mask=offs_k[None, :] < K - k * BK, other=0.0)
+          b = tl.load(b_ptrs, mask=offs_k[:, None] < K - k * BK, other=0.0)
+          accumulator = tl.dot(a, b, accumulator)
+          a_ptrs += BK * stride_ak
+          b_ptrs += BK * stride_bk
+
+      c = accumulator.to(tl.float16)
+      offs_cm = pid_m * BM + tl.arange(0, BM)
+      offs_cn = pid_n * BN + tl.arange(0, BN)
+      c_ptrs = c_ptr + stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
+      c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
+      tl.store(c_ptrs, c, mask=c_mask)
+loc: 55
+
+walkthrough:
+  - step: '@triton.autotune with config grid'
+    explanation: 'Triton picks the best (BM, BN, BK, num_stages, num_warps) automatically per shape. Eliminates manual tile sweep but adds first-call overhead.'
+  - step: 'Persistent / grouped block scheduling'
+    explanation: 'GROUP_M trick reuses the same A rows across multiple N tiles, hitting L2 cache. Standard performance optimization.'
+  - step: 'tl.dot — the magic abstraction'
+    explanation: 'Maps to WGMMA on Hopper, mma.sync on Ampere, MFMA on CDNA3, AMX on Apple. Triton compiler picks based on backend. Trade-off: ~5-10% slower than hand-written CUTLASS in best case.'
+  - step: 'fp32 accumulator default'
+    explanation: 'Even with fp16/bf16 inputs, accumulator defaults to fp32 for numerical safety. Matches CUDA cuBLASLt behavior.'
+  - step: 'Mask-based bounds handling'
+    explanation: 'tl.load with mask handles non-aligned shapes without separate epilogue. Trade-off: ~2% perf vs perfectly-aligned hand-tuned kernel.'
+
+arch_idioms:
+  - '@triton.autotune — config space exploration at JIT time'
+  - 'tl.constexpr for compile-time block sizes — propagated through type system'
+  - 'tl.dot abstracts WGMMA/MFMA/MMA differences — multi-vendor portable'
+  - 'No __syncthreads — Triton compiler inserts'
+  - 'Vectorization implicit via tl.load with arange — no manual half/float vectorization'
+
+build_command: 'pip install triton  # Triton ships with PyTorch; or via pypi'
+run_command: |
+  python -c "
+  import torch
+  a = torch.randn(4096, 4096, dtype=torch.float16, device='cuda')
+  b = torch.randn(4096, 4096, dtype=torch.float16, device='cuda')
+  c = torch.empty_like(a)
+  tiled_gemm_kernel[(4096*4096 // (128*128),)](a, b, c, 4096, 4096, 4096, ...)
+  "
+
+related_isa_primitives: [nvidia-hopper-wgmma, amd-cdna3-mfma-32x32x16, nvidia-ampere-mma-sync]
+related_kernel_libraries: [cublas, rocblas]
+
+source_url: https://github.com/triton-lang/triton/tree/main/python/tutorials
+notes: |
+  Triton is the closest thing to "write once, run on any vendor" for kernels.
+  Trade-off: ~5-10% slower than hand-tuned CUTLASS / CK in best case, but
+  saves you from writing 4 different kernels for 4 vendors. vLLM / SGLang
+  use Triton extensively for non-attention ops (norms, MoE gating, etc.).
+  Cross-vendor caveat: hipTriton (AMD backend) maturity lags CUDA backend
+  by ~1 year typically.

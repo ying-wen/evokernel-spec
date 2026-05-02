@@ -1,0 +1,43 @@
+id: flashattention-3-hopper
+operator_class: flash-attention
+name: FlashAttention-3 (Hopper, Tri Dao reference)
+vendor: nvidia
+arch_family: hopper
+
+source_url: https://github.com/Dao-AILab/flash-attention
+source_file: csrc/flash_attn/src/flash_fwd_hdim64_bf16_sm90_kernel.cu
+source_ref: 'v2.7.x'
+
+ships_in: [vllm, sglang, tensorrt-llm]
+
+core_loc: 1200
+languages: [cuda-cpp, cute-dsl]
+
+highlights:
+  - 'Hopper-only via WGMMA + TMA pipelining (sm_90+)'
+  - '2-stage warp-group async pipelining (Cooperative Groups)'
+  - 'FP8 path with per-tensor scaling (Tri Dao FA3 paper)'
+  - 'Reaches ~75% of H100 peak fp16 TFLOPS on long-context prefill'
+  - 'Adopted as default in vLLM Hopper path, SGLang flashinfer, TRT-LLM'
+  - 'Online softmax in registers — never materializes O(seq²) attention matrix'
+
+performance_notes: |
+  Measured on H100 SXM5 (real production data):
+    - Prefill 4K x 4K x 128 head_dim, fp16: ~712 TFLOPS achieved (74% of 989 peak)
+    - Prefill 8K x 8K, fp8-e4m3: ~1450 TFLOPS achieved (73% of 1979 peak)
+    - Decode (paged-attn): ~83% memory-bandwidth-bound on H200
+
+uses_isa_primitives: [nvidia-hopper-wgmma, nvidia-hopper-tma]
+uses_kernel_libraries: [cutlass]
+related_dsl_examples: [cuda-tiled-gemm-hopper]
+
+notes: |
+  Reference of references. Tri Dao's implementation is the gold standard
+  for Hopper attention. Read the actual source to understand: how warp-group
+  async + TMA + online softmax compose; where the WGMMA fences are placed;
+  how FP8 scaling is integrated. Roughly 1200 LOC for one head_dim variant
+  (multiplied across head_dim=64/128/256 kernels).
+
+  Cross-vendor note: there is no single "FA-3 equivalent" on AMD because
+  CDNA3 lacks TMA. CK (Composable Kernel) ships an equivalent with
+  different pipeline structure. See /reference-impls/flashattention-ck-mi300x/.
