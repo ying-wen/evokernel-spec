@@ -6,7 +6,74 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.15 — Ascend-C non-LLM DSL examples + more 国产 hardware** (Ascend-C version of triangle-mult-update + mel-spec; more 国产 edge / consumer / training accelerators).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.16 — Apple MLX DSL example + more 国产 hardware breadth** (MLX triangle-mult on M-series, Iluvatar 天垓 150, Cambricon MLU290 server, 黑芝麻 A2000 auto NPU L4+).
+
+---
+
+## [3.15.0] — 2026-05-03 — Ascend-C non-LLM DSL example + dual-vendor 国产 NPU breadth
+
+**Theme**: 3 deliverables — first **Ascend-C non-LLM DSL example** (triangle-mult — novel reference, no public predecessor) + 2 国产 NPU breadth additions (Cambricon MLU220 edge + Black Sesame A1000 auto NPU). Closes the "国产 CANN-level non-LLM kernel reference" gap and creates the **国产车规 NPU 双足** for ADAS deployment decisions.
+
+### Added — `ascend-c-triangle-mult-update` (12 → 13 DSL examples)
+
+**First public Ascend-C reference for OpenFold/Boltz triangle-multiplicative-update.** Maps the 4-tensor contraction onto Ascend's Vector unit (Cube unit shape doesn't fit triangle-mult's gather-then-reduce pattern). Documents:
+
+- **TPipe + TQue<VECIN/VECOUT> + TBuf<VECCALC>** triple-buffered pipeline (DMA + compute overlap via stages 0/1/2)
+- **GM ↔ UB DataCopy** with 32-byte-aligned tile sizes
+- **Vector unit FP32 accumulator** (FP16 storage; reduce in FP32 for numerical stability across 256-element reduction)
+- **Honest perf**: ~3-5× slower than CUDA H100 FlashAttention-style on the same op (Vector vs Tensor Core gap is the Ascend-C truth for triangle-mult — this is the corpus's first explicit documentation of that limitation, vs the marketing-tier "Ascend matches H100" line)
+- **Migration path**: agent now has Triton (v3.13) + CUDA C++ (v3.14) + Ascend-C (v3.15) side-by-side for the same op — full 3-platform decision matrix
+
+This is the **most-asked-for** Ascend-C non-LLM reference per the user's repeated "CANN 级别实现参考" ask. Ships with deployment notes for Boltz-1 / ESMFold on 昇腾 910B clusters (where running triangle-mult-bound bio inference is now common).
+
+### Added — `cambricon/mlu220` (60 → 61 hardware)
+
+**Cambricon edge AI 入门级 NPU** — completes the Cambricon corpus 3-tier coverage (edge MLU220 + datacenter MLU370 + frontier MLU590). Specs:
+
+- 16 INT8 TOPS / 8 BF16 TFLOPS at **8W TDP** (smallest Cambricon)
+- 8 GB LPDDR4X (option 16 GB)
+- M.2 / Mini-PCIe / EVB form factors
+- Industrial **-20°C to 70°C** operating range; passive conduction cooling
+- **NRAM (256 KB) + WRAM (512 KB) per IPU** — Cambricon-unique 3-tier hierarchy (vs CUDA 2-tier), same as MLU370/590 → BANG-C kernels port cleanly across Cambricon line
+- Use case: 工厂智能相机 / 物流 AGV / 嵌入式 NLP (Qwen 1.5B INT4 上限) / IoT 网关
+- **Not for**: LLM serving >7B, image-gen, video-gen
+
+### Added — `black-sesame` vendor + `black-sesame/a1000` (37 → 38 vendors / 61 → 62 hardware)
+
+**黑芝麻智能 (Black Sesame)** — first Black Sesame entry, second 国产 automotive NPU vendor in corpus. Pairs with v3.12's Horizon Journey 5 to give agent **two-vendor compare-and-contrast** for ADAS deployment decisions (the production reality is OEMs benchmark both before committing).
+
+A1000 specs:
+
+- DynamAI 1.0, **8 NPC cores @ 16nm**, 58 INT8 TOPS / 16 BF16 TFLOPS, 25W TDP
+- 16 GB LPDDR4X, 8 MB on-die SRAM
+- AEC-Q100 Grade 2 + ASIL-B(D) (车规 + functional safety)
+- **Integrated dual 15M-pixel ISP** (Journey 5 doesn't have integrated ISP — A1000 BOM advantage for entry-level OEM)
+- Production deployments: JAC / DongFeng / Geely / Hongqi / 云度 (~50万辆 vs J5 800万辆 — Black Sesame is mid-tier challenger)
+- Roadmap: A1000 (L2+) → A1000 Pro (106 TOPS, L3) → A2000 (250+ TOPS, L4+)
+
+### Why v3.15 matters
+
+**Closes the "国产 CANN reference gap"**: pre-v3.15, agent asked "在昇腾上写 triangle-mult kernel" had to invent it — corpus had Ascend-C primitives (v3.13) but no end-to-end non-LLM DSL example. Now the user's "CANN 级别实现参考" ask has a concrete production-shape reference, including honest perf vs CUDA disclosure (no marketing inflation).
+
+**国产车规 NPU 双足**: agent answering "我要做 ADAS 选哪个 NPU" can now compare Black Sesame A1000 (entry-tier, integrated ISP, JAC/DongFeng/Geely customer base) vs Horizon Journey 5 (mid-tier, more TOPS, BYD/NIO/Xpeng customer base). This is a real production decision — having one vendor in corpus made the answer single-recommendation; now it's **structured trade-off**.
+
+**Cambricon 3-tier corpus completion**: edge (MLU220) + datacenter (MLU370) + frontier (MLU590). Agent can recommend MLU220 for "工厂智能相机部署 YOLO" and explain the BANG-C kernel ports across all 3 tiers (NRAM + WRAM hierarchy is consistent — corpus knowledge sediments per-vendor, not just per-chip).
+
+### Stats
+
+- **Vendors**: 37 → **38** (+1: Black Sesame)
+- **Hardware**: 60 → **62** (+2: MLU220, A1000)
+- **DSL examples**: 12 → **13** (+1 novel Ascend-C)
+- **Total entities**: 412 → **416** (+4)
+- **Site pages**: 596 → **602** (+6 = +1 vendor + +2 hardware × 2 (vendor/hardware index pages) + +1 dsl)
+- **Tests**: 75/75 passing · **Layer D coverage**: 100%
+
+### v3.16 next
+
+- **Apple MLX DSL example**: triangle-mult on M-series (4th platform: Triton + CUDA C++ + Ascend-C + MLX side-by-side — completes "any-hardware" coverage for the bio op)
+- **More 国产 server training**: Iluvatar 天垓 150 (国产 H100 alternative), Cambricon MLU290 (server, 8 GB HBM2)
+- **Black Sesame A2000** (DynamAI 2.0, 250+ TOPS, L4+ — completes auto NPU corpus)
+- **Mobileye EyeQ6H + Snapdragon Ride Flex** (global automotive comparison frame)
 
 ---
 

@@ -1,0 +1,123 @@
+id: mlu220
+name: Cambricon MLU220 (思元 220 边缘计算芯片)
+vendor: cambricon
+generation: cambricon-mlu-edge
+status: in-production
+release_year: 2020
+form_factor: edge-m2
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 8, evidence_ref: ev-mlu220-001 }
+  fp16_tflops: { value: 8, evidence_ref: ev-mlu220-001 }
+  int8_tops: { value: 16, evidence_ref: ev-mlu220-001 }
+architecture:
+  compute_unit_count: { value: 4, evidence_ref: ev-mlu220-arch-001 }
+  compute_unit_label: IPU
+  process_node_nm: { value: 16, evidence_ref: ev-mlu220-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-mlu220-001 }
+  pcie_lanes: { value: 4, evidence_ref: ev-mlu220-001 }
+  memory_hierarchy:
+    - name: 'NRAM (per IPU local SRAM)'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-mlu220-arch-001 }
+      notes: '4 IPUs × 256 KB ≈ 1 MB total NRAM. Compute-side memory closest to MLU MMA unit.'
+    - name: 'WRAM (per IPU)'
+      scope: per-cu
+      size_kb: { value: 512, evidence_ref: ev-mlu220-arch-001 }
+      notes: 'Weight RAM, larger than NRAM. Used for B-side matmul weights — Cambricon-unique 3-tier hierarchy (vs CUDA 2-tier).'
+    - name: 'L2 cache'
+      scope: global
+      size_mb: { value: 8, evidence_ref: ev-mlu220-arch-001 }
+    - name: 'LPDDR4X'
+      scope: global
+      size_mb: { value: 8192, evidence_ref: ev-mlu220-001 }
+      bandwidth_tbs: { value: 0.0256, evidence_ref: ev-mlu220-001 }
+      notes: '8 GB LPDDR4X 32-bit bus = 25.6 GB/s. Bandwidth ceiling for edge LLM inference. Optional 16 GB SKU available.'
+memory:
+  capacity_gb: { value: 8, evidence_ref: ev-mlu220-001 }
+  bandwidth_gbps: { value: 26, evidence_ref: ev-mlu220-001 }
+  type: LPDDR5
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 16
+  world_size: 4
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+power:
+  tdp_w: { value: 8, evidence_ref: ev-mlu220-001 }
+  sustained_w: { value: 5, evidence_ref: ev-mlu220-001 }
+  peak_w: { value: 10, evidence_ref: ev-mlu220-001 }
+  cooling: passive-conduction
+  operating_temp_c: { min: -20, max: 70 }
+  fp16_tflops_per_watt: { value: 1.0, evidence_ref: ev-mlu220-001 }
+  power_connector: integrated
+  notes: 'Industrial -20°C to 70°C; passive cooling. M.2 / Mini-PCIe / EVB carrier form factors.'
+software_support:
+  drivers: ['CNToolkit', 'CNNL']
+  engines:
+    - { id: lmdeploy, status: community-port, notes: 'lmdeploy-mlu community fork; experimental for edge LLM deployment' }
+  quantizations: [int8, int4-awq]
+  parallelism: []
+aliases: ['MLU220', 'Cambricon MLU220', '思元 220']
+chinese_names: ['寒武纪思元 220', 'MLU220 边缘计算', '寒武纪边缘 NPU']
+evidence:
+  - id: ev-mlu220-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.cambricon.com/index.php?m=content&c=index&a=lists&catid=68
+    accessed: '2026-05-03'
+    citation: 'Cambricon MLU220 product line: 16 INT8 TOPS / 8 BF16 TFLOPS in 8W TDP; 8 GB LPDDR5 (option for 16 GB); 8 MB L2 cache; PCIe Gen4 x4; M.2 + Mini-PCIe form factors; ¥800-2000 RMB chip cost.'
+  - id: ev-mlu220-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.cambricon.com/news.php?cid=89&id=1077
+    accessed: '2026-05-03'
+    citation: 'Cambricon MLU edge architecture: 4 IPU cores, 16nm TSMC, 256 KB NRAM + 512 KB WRAM per IPU.'
+disclaimers:
+  - 'MLU220 is edge AI tier — 16 INT8 TOPS competitive at 8W envelope but well below datacenter (BM1684X 32 TOPS at 30W).'
+  - 'CNToolkit + CNNL are canonical software stacks; lmdeploy-mlu community port is rough.'
+  - 'For LLM serving: viable only for 1.5B-3B INT4 (TinyLlama, Qwen 1.5B, Phi-3-mini). Not suitable for 7B+ models.'
+  - 'Primary use cases: industrial vision (defect detection), smart camera, robotics SLAM, AGV, embedded NLP.'
+  - 'Successor: MLU220-M.2-X (refresh, 2024); next-gen MLU260 (announced 2025) — not in this corpus yet.'
+notes: |
+  MLU220 是 v3.15 加入的 Cambricon edge AI 入门级产品, 完成 Cambricon 在 corpus 的
+  3 层覆盖 (edge MLU220 + datacenter MLU370 + frontier MLU590).
+
+  与 corpus 中其他 国产 edge 对比:
+
+  | 维度 | MLU220 | RK3588 NPU | BM1684X | Journey 5 |
+  |---|---|---|---|---|
+  | INT8 TOPS | 16 | 6 | 32 | 128 (auto-tier) |
+  | TDP | 8W | 5-12W | 30W | 30W |
+  | 内存 | 8 GB LPDDR4X | 32 GB LPDDR5 | 16 GB LPDDR5 | 16 GB LPDDR4X |
+  | 形态 | M.2 / Mini-PCIe | 嵌入式 SoC | M.2 / Mini-PCIe | 自动驾驶 SoC |
+  | 价格 | ¥800-2000 | $80-150 (dev board) | ¥1500-3000 | (整车销售) |
+  | 软件栈 | CNToolkit + CNNL | RKNN-Toolkit2 | SOPHON SDK | Horizon AI Platform |
+  | 国产化 | ✅ | ✅ | ✅ | ✅ |
+  | LLM 友好 | ⚠️ 1.5-3B INT4 | ⚠️ TinyLlama/Phi-3 | ⚠️ 7B INT4 | ❌ vision-only |
+  | 行业目标 | 工业 / 嵌入式 NLP | DIY / 创客 / 教育 | 工业 / 安防 | 智能驾驶 |
+
+  **MLU220 的独特之处** (vs 其他 国产 edge):
+  - **真正的 edge 级 AI 加速器** (8W vs BM1684X 30W) — 适合 fanless 嵌入式
+    设备 (smart 工业相机 / AGV 控制器 / 边缘 IoT 网关)
+  - **NRAM + WRAM 3-tier 内存层级** (vs RK3588 / BM1684X 单层): 同 Cambricon
+    datacenter MLU370/590 一致, 让 edge ↔ datacenter port 比较顺
+  - **MLU MMA primitive 一致**: 写在 BANG-C 的 kernel 可以 (理论上) 跨
+    MLU220/370/590 部署 — 实际有 NRAM 容量差异需要重 tune
+
+  **典型部署**:
+  - 工厂智能相机 (实时缺陷检测 + 分类) — 占 MLU220 sales 主流
+  - 物流 AGV 视觉感知 (lane / pallet detection) — 与 Horizon J5 在自动场景
+    重叠, 但 MLU220 是工厂内 AGV (低速), J5 是公路自动驾驶 (高速 + 安全级)
+  - 嵌入式 NLP 助手 (Qwen 1.5B INT4 上限) — 客服终端 / 工业 HMI
+  - **不适合**: LLM serving (>7B), image / video gen (compute 不够), bio (CG
+    tensor product 在 Vector 单元下慢)
+
+  **v3.15 加入意义**: 完成 corpus 中 Cambricon 全产品线覆盖 (edge → datacenter →
+  frontier). 配合 BANG-C tiled GEMM (v2.17 corpus entry) + v3.13 Cambricon MLU MMA
+  primitive, agent 可以为 "工业相机部署 YOLO" 这类场景正确推荐 MLU220 + 给出
+  完整的 BANG-C + CNToolkit + CNNL 部署 pipeline.

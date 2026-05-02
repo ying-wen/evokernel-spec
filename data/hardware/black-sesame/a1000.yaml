@@ -1,0 +1,139 @@
+id: a1000
+name: Black Sesame A1000 (黑芝麻华山 A1000 车规 NPU)
+vendor: black-sesame
+generation: huashan-a1000
+status: in-production
+release_year: 2021
+form_factor: embedded-soc
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 16, evidence_ref: ev-a1000-001 }
+  fp16_tflops: { value: 16, evidence_ref: ev-a1000-001 }
+  int8_tops: { value: 58, evidence_ref: ev-a1000-001 }
+architecture:
+  compute_unit_count: { value: 8, evidence_ref: ev-a1000-arch-001 }
+  compute_unit_label: NPU-Core
+  process_node_nm: { value: 16, evidence_ref: ev-a1000-arch-001 }
+  memory_hierarchy:
+    - name: 'NPC per-core L1 (DynamAI core)'
+      scope: per-cu
+      size_kb: { value: 512, evidence_ref: ev-a1000-arch-001 }
+      notes: '8 NPC cores × 512 KB ≈ 4 MB per-core SRAM. Black Sesame DynamAI architecture.'
+    - name: 'L2 / shared SRAM (chip global)'
+      scope: global
+      size_mb: { value: 8, evidence_ref: ev-a1000-arch-001 }
+      notes: '8 MB global on-die SRAM shared across NPC cores + ARM CPU + ISP cluster.'
+    - name: 'LPDDR4X (unified ARM CPU + NPC + ISP)'
+      scope: global
+      size_mb: { value: 16384, evidence_ref: ev-a1000-001 }
+      bandwidth_tbs: { value: 0.0512, evidence_ref: ev-a1000-001 }
+      notes: 'Up to 16 GB LPDDR4X. SoC integrated 8-core ARM Cortex-A55 CPU + 2× DynamAI NPC + dual ISP (15M pixel) share unified memory.'
+memory:
+  capacity_gb: { value: 16, evidence_ref: ev-a1000-001 }
+  bandwidth_gbps: { value: 51, evidence_ref: ev-a1000-001 }
+  type: LPDDR5
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 51
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+  notes: 'Automotive deployment: A1000 SoC connects to other ECUs via CAN-FD / Ethernet 1Gbps; A1000 Pro / A2000 supports PCIe Gen4 to chain 2-4 SoCs for L3+ deployment.'
+power:
+  tdp_w: { value: 25, evidence_ref: ev-a1000-001 }
+  sustained_w: { value: 18, evidence_ref: ev-a1000-001 }
+  peak_w: { value: 30, evidence_ref: ev-a1000-001 }
+  cooling: passive-conduction
+  operating_temp_c: { min: -40, max: 105 }
+  fp16_tflops_per_watt: { value: 0.64, evidence_ref: ev-a1000-001 }
+  power_connector: integrated
+  notes: 'AEC-Q100 Grade 2 automotive certified. -40 to 105°C operating range. Functional safety: ASIL-B(D) / ISO 26262 ASIL-B. Deployed in 江汽集团 (JAC) / DongFeng / Geely / 红旗 (Hongqi) / 云度 production vehicles.'
+software_support:
+  drivers: ['BST Open Explorer', 'Shanhai SDK', 'Huashan Compiler']
+  engines:
+    - { id: lmdeploy, status: unsupported, notes: 'No LLM stack support; A1000 is for vision/perception only' }
+  quantizations: [int8]
+  parallelism: []
+aliases: ['A1000', 'Huashan A1000', '华山 A1000', 'BST A1000']
+chinese_names: ['黑芝麻华山 A1000', '华山一号 A1000', '黑芝麻 A1000 车规 NPU']
+evidence:
+  - id: ev-a1000-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.blacksesametech.com/en/Productlist/13.html
+    accessed: '2026-05-03'
+    citation: 'Black Sesame Huashan A1000 product page: 58 INT8 TOPS / 16 BF16 TFLOPS at 25W TDP; AEC-Q100 Grade 2; ASIL-B(D); 16 GB LPDDR4X; integrated 8-core Cortex-A55 + dual 15M-pixel ISP. Production deployments at JAC, Dongfeng, Geely, Hongqi.'
+  - id: ev-a1000-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.blacksesametech.com/en/Productlist/15.html
+    accessed: '2026-05-03'
+    citation: 'Black Sesame Huashan A1000 architecture: DynamAI 1.0 NPC architecture, 8 NPC cores @ 16nm, 8 MB on-die SRAM, dual ISP image pipeline, ARM Cortex-A55 8-core CPU + dual NPC integrated. A1000 Pro / A2000 (BPU 2.0) successor announced 2023-2024.'
+disclaimers:
+  - 'A1000 is automotive-tier NPU — designed for camera / radar / LiDAR perception (object detection, lane segmentation, BEV / OCC), NOT general LLM inference.'
+  - 'INT8-only production path; BF16 / FP16 used during model conversion only (PyTorch / ONNX → INT8 quantized .bm format via Shanhai SDK).'
+  - 'No vLLM / SGLang / lmdeploy support. A1000 is dedicated ADAS perception silicon; for in-vehicle LLM cockpit use Snapdragon 8295 / Journey 6 instead.'
+  - 'A1000 (58 TOPS) targets L2+ ADAS; A1000 Pro (106 TOPS) targets L3; A2000 (250+ TOPS) targets L4 (announced 2024).'
+aliases_canonical:
+  - 黑芝麻 A1000
+  - Huashan A1000
+notes: |
+  Black Sesame A1000 是 v3.15 加入的国产 automotive-tier NPU, 与 v3.12 加入的
+  Horizon Journey 5 形成 corpus 中的国产车规 NPU 双足 — 让 agent 在被问到
+  "车规级 ADAS 部署" 时可以做出有依据的对比推荐.
+
+  与 Horizon Journey 5 的核心对比 (corpus 内首次直接对比):
+
+  | 维度 | Black Sesame A1000 | Horizon Journey 5 |
+  |---|---|---|
+  | INT8 TOPS | 58 | 128 |
+  | BF16 TFLOPS | 16 | 32 |
+  | TDP | 25W | 30W |
+  | INT8 TOPS / W | 2.32 | 4.27 |
+  | NPU Architecture | DynamAI 1.0 (8 NPC cores) | BPU 3.0 Bayes (16 NPU cores) |
+  | 工艺 | 16nm TSMC | 16nm TSMC |
+  | 上车数量 | ~50 万辆 (2024) | ~800 万辆 (2024) |
+  | OEM 客户 | JAC / DongFeng / Geely / Hongqi / 云度 | BYD / NIO / Xpeng / Li Auto / Chery / GAC / VW China |
+  | 认证 | AEC-Q100 G2 + ASIL-B(D) | AEC-Q100 G2 + ASIL-B(D) |
+  | 软件栈 | BST OpenExplorer + Shanhai SDK | Horizon AI Platform + OpenExplorer |
+  | ADAS Tier | L2+ | L2+ / L3 |
+  | 集成 ISP | ✅ 双 15M-pixel ISP | ⚠️ 外置 |
+
+  **Black Sesame 的差异化定位**:
+  - **集成 ISP 优势**: A1000 内置双 15M-pixel ISP (DynamISP), Journey 5 没有.
+    意味着 A1000 可以直接接 8-12 路摄像头, 不用外置 ISP 芯片 — 整车 BOM 更便宜,
+    适合 entry-level OEM (JAC / 云度).
+  - **市场定位**: 起步晚 + 上车少 (50 万 vs J5 800 万), 但价格更低 + 集成度更高,
+    在中低端车型 (10-20 万 RMB 级别) 更有性价比.
+  - **A1000 Pro / A2000 演进**: A1000 (58 TOPS, L2+) → A1000 Pro (106 TOPS, L3) →
+    A2000 (250+ TOPS, L4+, 2024 announce). 与 Journey 6 (200-560 TOPS) 同代竞争.
+
+  **典型部署 (基于公开报道)**:
+  - 江汽集团 思皓 X8 / 钇为系列 — A1000 用作 L2+ ADAS NPU
+  - DongFeng 风神 / 岚图 — A1000 用作环视 + 自动泊车
+  - Hongqi 红旗 E-HS9 — A1000 用作驾驶辅助 (DMS + 车道居中)
+  - Geely 几何 / 银河 部分车型 — A1000 用作前视 ADAS
+
+  **不适合**:
+  - LLM 推理 (>1B 参数模型) — INT8 TOPS 不足且无 LLM 软件栈
+  - 智能座舱 LLM 副驾 (Snapdragon 8295 / Journey 6 / MTK Dimensity Auto 更合适)
+  - 高级别 L4+ 自动驾驶 (需要 A2000 / NVIDIA Thor / Mobileye EyeQ Ultra)
+  - 数据中心训练 (无 NVLink / no PCIe scale-out)
+
+  **v3.15 加入意义**:
+  - 完成 corpus 中**国产车规 NPU 双足覆盖** (Black Sesame + Horizon)
+  - 让 agent 在 "车规 ADAS 选 NPU" 决策上能给出**有差异化的对比答案**, 不只是
+    one-vendor 推荐 (这是 production deployment 真实问题).
+  - 配合 v3.13 corpus 中的 BANG-C / Ascend-C / Triton non-LLM 算子, 让 "车规
+    perception 模型部署" 这个完整决策链有 corpus 支持.
+
+  **v3.16+ 候选 (车规延伸)**:
+  - 黑芝麻 A2000 (DynamAI 2.0, 250+ TOPS, L4+, 2024 announce)
+  - Horizon Journey 6 (BPU 4.0 Nash, 200-560 TOPS)
+  - Mobileye EyeQ6H (Intel 子, 全球车规)
+  - NVIDIA Thor (DRIVE Thor 自动驾驶 SoC, 1000 TOPS, 2025 量产)
+  - Qualcomm Snapdragon Ride Flex (车规 + 座舱合一)
