@@ -1,4 +1,27 @@
 ---
+/**
+ * Hardware release timeline (v3.20 rebuild).
+ *
+ * Pre-v3.20 layout stacked all per-year hardware on lanes inside a single
+ * scrolling row — at 60+ entries crammed into 6 years, labels overlapped
+ * vertically and adjacent years' chips bled into each other (user complaint:
+ * "时间轴展示，很多字重合了").
+ *
+ * v3.20 rebuild:
+ *   • One vertical column per release year.
+ *   • Cards inside each column show:
+ *       — coloured dot (red = CN, accent = international)
+ *       — name (truncated with line-clamp-1, full on hover)
+ *       — perf chip (BF16 TFLOPS) + memory chip (capacity GB) for richer info
+ *   • Within a column, max N visible (default 6) — overflow folded into a
+ *     "+K more" chip that expands on click via <details>. No more 30-card
+ *     vertical towers.
+ *   • Year header anchored at the top; horizontal-scroll for narrow viewports.
+ *   • Vendor country flag on hover (data-tooltip pattern).
+ *
+ * Why not d3 / chart lib: this is pure DOM + CSS grid. Zero JS at parse.
+ * The per-column expand uses native <details> — no React island needed.
+ */
 import type { Hardware, Vendor } from '@evokernel/schemas';
 import { pathname } from '~/lib/i18n';
 
@@ -7,58 +30,160 @@ type ResolvedHw = Omit<Hardware, 'vendor'> & { vendor: Vendor };
 interface Props { hardware: ResolvedHw[]; }
 const { hardware } = Astro.props;
 
-const sorted = [...hardware].sort((a, b) => a.release_year - b.release_year);
-const yearMin = sorted[0]?.release_year ?? 2022;
-const yearMax = sorted[sorted.length - 1]?.release_year ?? 2026;
-const span = Math.max(1, yearMax - yearMin);
-const years = Array.from({ length: span + 1 }, (_, i) => yearMin + i);
+const VISIBLE_PER_COL = 6;
 
-// Lay out: bucket by year, then stagger within bucket
-type Lane = Array<ResolvedHw & { x: number; y: number }>;
-const byYear = new Map<number, ResolvedHw[]>();
-for (const h of sorted) {
-  const arr = byYear.get(h.release_year) ?? [];
-  arr.push(h);
-  byYear.set(h.release_year, arr);
-}
-const placed: Lane = [];
-for (const [year, items] of byYear) {
-  items.forEach((h, i) => {
-    const x = (year - yearMin) / span;
-    placed.push({ ...h, x, y: i });
-  });
-}
-const maxLane = Math.max(0, ...placed.map((p) => p.y)) + 1;
-const heightRem = Math.max(8, maxLane * 1.8 + 4);
+// Group by release_year, sorted ascending.
+type ByYear = Array<{ year: number; items: ResolvedHw[] }>;
+const grouped: ByYear = (() => {
+  const m = new Map<number, ResolvedHw[]>();
+  for (const h of hardware) {
+    const arr = m.get(h.release_year) ?? [];
+    arr.push(h);
+    m.set(h.release_year, arr);
+  }
+  // Within a year: sort by BF16 TFLOPS desc (frontier first), CN before international as tiebreak
+  for (const arr of m.values()) {
+    arr.sort((a, b) => {
+      const tflopsA = a.compute.bf16_tflops?.value ?? 0;
+      const tflopsB = b.compute.bf16_tflops?.value ?? 0;
+      if (tflopsA !== tflopsB) return tflopsB - tflopsA;
+      // CN first as tiebreak (national champion gets primacy in 国产 column)
+      const cnA = a.vendor.country === 'CN' ? 0 : 1;
+      const cnB = b.vendor.country === 'CN' ? 0 : 1;
+      return cnA - cnB;
+    });
+  }
+  return [...m.entries()]
+    .sort(([y1], [y2]) => y1 - y2)
+    .map(([year, items]) => ({ year, items }));
+})();
 
-const vendorColor = (country: string) => country === 'CN' ? 'var(--color-china)' : 'var(--color-accent)';
+const totalYears = grouped.length;
+const cnCount = hardware.filter((h) => h.vendor.country === 'CN').length;
+
+const vendorColor = (country: string) =>
+  country === 'CN' ? 'var(--color-china)' : 'var(--color-accent)';
+
+const fmtTflops = (v?: number) =>
+  v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}P` : `${v}T`;
 ---
 <div class="rounded-lg border p-4 overflow-x-auto" style="border-color: var(--color-border); background: var(--color-surface-raised);">
-  <div class="text-xs mb-3" style="color: var(--color-text-muted);">
-    硬件发布时间线 — {yearMin}–{yearMax} · {hardware.length} 张卡 · 红色 = 国产
+  <div class="text-xs mb-3 flex items-center gap-3 flex-wrap" style="color: var(--color-text-muted);">
+    <span>硬件发布时间线 · {hardware.length} 张卡 · {cnCount} 张国产 · {totalYears} 年代际</span>
+    <span class="inline-flex items-center gap-1">
+      <span class="w-2 h-2 rounded-full" style="background: var(--color-china);" aria-hidden="true"></span>国产
+    </span>
+    <span class="inline-flex items-center gap-1">
+      <span class="w-2 h-2 rounded-full" style="background: var(--color-accent);" aria-hidden="true"></span>国际
+    </span>
+    <span style="font-family: var(--font-mono);">点击 +N 展开</span>
   </div>
-  <div class="relative" style={`min-width: 56rem; height: ${heightRem}rem;`}>
-    <div class="absolute left-0 right-0" style="bottom: 1.25rem; height: 1px; background: var(--color-border);"></div>
-    {years.map((y) => {
-      const x = (y - yearMin) / span;
+
+  <div
+    class="grid gap-3"
+    style={`min-width: ${Math.max(56, totalYears * 12)}rem; grid-template-columns: repeat(${totalYears}, minmax(11rem, 1fr));`}
+  >
+    {grouped.map(({ year, items }) => {
+      const visible = items.slice(0, VISIBLE_PER_COL);
+      const overflow = items.slice(VISIBLE_PER_COL);
       return (
-        <div class="absolute" style={`left: ${x * 100}%; bottom: 0; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.65rem; color: var(--color-text-muted);`}>
-          <div style="height: 0.5rem; width: 1px; background: var(--color-border); margin: 0 auto;"></div>
-          <div style="margin-top: 0.25rem;">{y}</div>
-        </div>
-      );
-    })}
-    {placed.map((p) => {
-      const yPx = `calc(${p.y * 1.8}rem + 0.5rem)`;
-      return (
-        <a href={pathname(`/hardware/${p.id}/`)}
-           class="absolute group transition-transform hover:scale-105"
-           style={`left: ${p.x * 100}%; top: ${yPx}; transform: translateX(-50%);`}>
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full inline-block flex-shrink-0" style={`background: ${vendorColor(p.vendor.country)};`} aria-hidden="true"></span>
-            <span class="text-xs whitespace-nowrap font-medium hover:underline" style={`color: ${vendorColor(p.vendor.country)};`}>{p.name}</span>
+        <div class="flex flex-col gap-1.5" data-testid={`hw-timeline-year-${year}`}>
+          <div
+            class="text-xs font-mono pb-2 mb-1 border-b text-center"
+            style="border-color: var(--color-border); color: var(--color-text);"
+          >
+            {year} <span style="color: var(--color-text-muted);">· {items.length}</span>
           </div>
-        </a>
+
+          {visible.map((h) => {
+            const tflops = h.compute.bf16_tflops?.value;
+            const memGB = h.memory.capacity_gb?.value;
+            const country = h.vendor.country;
+            return (
+              <a
+                href={pathname(`/hardware/${h.id}/`)}
+                class="block rounded-md border p-2 transition-transform hover:-translate-y-0.5"
+                style={`border-color: var(--color-border); background: var(--color-bg);`}
+                title={`${h.name} · ${h.vendor.name}${tflops ? ` · ${tflops} BF16 TFLOPS` : ''}${memGB ? ` · ${memGB} GB` : ''}`}
+                data-testid={`hw-timeline-card-${h.id}`}
+              >
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span
+                    class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={`background: ${vendorColor(country)};`}
+                    aria-hidden="true"
+                  ></span>
+                  <span
+                    class="text-xs font-medium truncate"
+                    style={`color: ${vendorColor(country)};`}
+                  >{h.name}</span>
+                </div>
+                <div class="flex items-center gap-1 text-[10px]" style="color: var(--color-text-muted); font-family: var(--font-mono);">
+                  {tflops != null && (
+                    <span class="px-1.5 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                      {fmtTflops(tflops)}
+                    </span>
+                  )}
+                  {memGB != null && (
+                    <span class="px-1.5 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                      {memGB}GB
+                    </span>
+                  )}
+                </div>
+              </a>
+            );
+          })}
+
+          {overflow.length > 0 && (
+            <details class="group">
+              <summary
+                class="text-[11px] cursor-pointer text-center py-1.5 rounded-md border list-none transition-colors"
+                style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-bg);"
+                data-testid={`hw-timeline-overflow-${year}`}
+              >
+                <span class="group-open:hidden">+{overflow.length} more →</span>
+                <span class="hidden group-open:inline">↑ collapse</span>
+              </summary>
+              <div class="flex flex-col gap-1.5 mt-1.5">
+                {overflow.map((h) => {
+                  const tflops = h.compute.bf16_tflops?.value;
+                  const memGB = h.memory.capacity_gb?.value;
+                  const country = h.vendor.country;
+                  return (
+                    <a
+                      href={pathname(`/hardware/${h.id}/`)}
+                      class="block rounded-md border p-2 transition-transform hover:-translate-y-0.5"
+                      style={`border-color: var(--color-border); background: var(--color-bg);`}
+                      title={`${h.name} · ${h.vendor.name}`}
+                      data-testid={`hw-timeline-card-${h.id}`}
+                    >
+                      <div class="flex items-center gap-1.5 mb-1">
+                        <span
+                          class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={`background: ${vendorColor(country)};`}
+                          aria-hidden="true"
+                        ></span>
+                        <span class="text-xs font-medium truncate" style={`color: ${vendorColor(country)};`}>{h.name}</span>
+                      </div>
+                      <div class="flex items-center gap-1 text-[10px]" style="color: var(--color-text-muted); font-family: var(--font-mono);">
+                        {tflops != null && (
+                          <span class="px-1.5 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                            {fmtTflops(tflops)}
+                          </span>
+                        )}
+                        {memGB != null && (
+                          <span class="px-1.5 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                            {memGB}GB
+                          </span>
+                        )}
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </details>
+          )}
+        </div>
       );
     })}
   </div>

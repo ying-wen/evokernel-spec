@@ -17,6 +17,7 @@
     "agent:auto-pr": "tsx scripts/agent-deploy/auto-pr-cli.ts",
     "agent:install": "tsx scripts/agent-deploy/install-plugin.ts",
     "agent:doctor": "tsx scripts/agent-deploy/doctor.ts",
+    "agent:status": "tsx scripts/agent-deploy/status.ts",
     "test": "pnpm --filter web test && pnpm --filter @evokernel/schemas test && pnpm --filter @evokernel/scripts test",
     "test:e2e": "pnpm --filter web exec playwright test site",
     "lint": "biome check .",

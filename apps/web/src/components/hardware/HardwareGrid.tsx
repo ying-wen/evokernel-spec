@@ -12,8 +12,48 @@ type Country = 'all' | 'CN' | 'overseas';
 type Form = 'all' | 'sxm' | 'oam' | 'pcie' | 'nvl' | 'proprietary';
 type Status = 'all' | 'in-production' | 'discontinued' | 'taping-out' | 'announced';
 
+// v3.20 — additional filter dimensions per user ask: process node + memory
+// type + software stack + TDP range. Each derived from existing YAML fields,
+// no schema change needed.
+type ProcessNode = 'all' | '3nm' | '5nm' | '7nm' | '12nm' | '16nm';
+type MemType = 'all' | 'HBM3e' | 'HBM3' | 'HBM2e' | 'HBM2' | 'GDDR7' | 'GDDR6' | 'LPDDR5X' | 'LPDDR5' | 'LPDDR4X' | 'unified';
+type SwStack = 'all' | 'cuda' | 'rocm' | 'cann' | 'neuware' | 'corex' | 'musa' | 'mlx' | 'metal';
+
 const FORM_OPTS: Form[] = ['all', 'sxm', 'oam', 'pcie', 'nvl', 'proprietary'];
 const STATUS_OPTS: Status[] = ['all', 'in-production', 'discontinued', 'taping-out', 'announced'];
+const PROCESS_NODE_OPTS: ProcessNode[] = ['all', '3nm', '5nm', '7nm', '12nm', '16nm'];
+const MEM_TYPE_OPTS: MemType[] = ['all', 'HBM3e', 'HBM3', 'HBM2e', 'HBM2', 'GDDR7', 'GDDR6', 'LPDDR5X', 'LPDDR5', 'LPDDR4X', 'unified'];
+const SW_STACK_OPTS: SwStack[] = ['all', 'cuda', 'rocm', 'cann', 'neuware', 'corex', 'musa', 'mlx', 'metal'];
+
+/**
+ * Map a hardware entry's drivers list to the set of recognized software
+ * stacks. Drivers are free-form strings (e.g. "CUDA 12.4", "ROCm 6.2",
+ * "CNToolkit") so we substring-match. Returns lowercase stack ids.
+ */
+function detectSwStacks(drivers: string[] | undefined): Set<SwStack> {
+  const out = new Set<SwStack>();
+  if (!drivers) return out;
+  const joined = drivers.join(' ').toLowerCase();
+  if (joined.includes('cuda')) out.add('cuda');
+  if (joined.includes('rocm')) out.add('rocm');
+  if (joined.includes('cann') || joined.includes('ascend')) out.add('cann');
+  if (joined.includes('neuware') || joined.includes('cntoolkit') || joined.includes('cnnl') || joined.includes('bang')) out.add('neuware');
+  if (joined.includes('corex') || joined.includes('ixrt')) out.add('corex');
+  if (joined.includes('musa')) out.add('musa');
+  if (joined.includes('mlx')) out.add('mlx');
+  if (joined.includes('metal')) out.add('metal');
+  return out;
+}
+
+/** Bucket a measured nm value into one of the PROCESS_NODE_OPTS labels. */
+function bucketProcessNode(nm: number | undefined): ProcessNode | null {
+  if (nm == null) return null;
+  if (nm <= 3) return '3nm';
+  if (nm <= 5) return '5nm';
+  if (nm <= 7) return '7nm';
+  if (nm <= 12) return '12nm';
+  return '16nm';
+}
 const STATUS_LABEL_ZH: Record<Status, string> = {
   all: '全部', 'in-production': '在售', discontinued: '停产', 'taping-out': '流片中', announced: '已发布'
 };
@@ -38,6 +78,12 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
   const [minMem, setMinMem] = useState(0); // GB
   const [minBf16, setMinBf16] = useState(0); // TFLOPS
   const [search, setSearch] = useState('');
+  // v3.20 — new dimensions (memory type / process node / software stack / max TDP)
+  const [memType, setMemType] = useState<MemType>('all');
+  const [processNode, setProcessNode] = useState<ProcessNode>('all');
+  const [swStack, setSwStack] = useState<SwStack>('all');
+  const [maxTdp, setMaxTdp] = useState(2000); // W; 2000 = effectively no cap
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const filtered = useMemo(() => {
     return hardware.filter((h) => {
@@ -52,6 +98,17 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
       if (fp4 && !h.compute.fp4_tflops) return false;
       if (minMem > 0 && (h.memory.capacity_gb?.value ?? 0) < minMem) return false;
       if (minBf16 > 0 && (h.compute.bf16_tflops?.value ?? 0) < minBf16) return false;
+      // v3.20 — new dimensions
+      if (memType !== 'all' && h.memory.type !== memType) return false;
+      if (processNode !== 'all') {
+        const bucketed = bucketProcessNode(h.architecture?.process_node_nm?.value);
+        if (bucketed !== processNode) return false;
+      }
+      if (swStack !== 'all') {
+        const stacks = detectSwStacks(h.software_support?.drivers);
+        if (!stacks.has(swStack)) return false;
+      }
+      if (maxTdp < 2000 && (h.power?.tdp_w?.value ?? 0) > maxTdp) return false;
       if (search) {
         const needle = search.toLowerCase();
         const haystack = [
@@ -64,7 +121,7 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
       }
       return true;
     });
-  }, [hardware, country, form, status, fp8, fp4, minMem, minBf16, search]);
+  }, [hardware, country, form, status, fp8, fp4, minMem, minBf16, search, memType, processNode, swStack, maxTdp]);
 
   const cn = filtered.filter((h) => h.vendor.country === 'CN').sort((a, b) => b.release_year - a.release_year);
   const overseas = filtered.filter((h) => h.vendor.country !== 'CN').sort((a, b) => b.release_year - a.release_year);
@@ -72,6 +129,7 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
   const reset = () => {
     setCountry('all'); setForm('all'); setStatus('all');
     setFp8(false); setFp4(false); setMinMem(0); setMinBf16(0); setSearch('');
+    setMemType('all'); setProcessNode('all'); setSwStack('all'); setMaxTdp(2000);
   };
 
   const exportCsv = () => {
@@ -173,6 +231,84 @@ export default function HardwareGrid({ hardware, locale = 'zh' }: Props) {
             <input type="range" min={0} max={5000} step={250} value={minBf16} onChange={(e) => setMinBf16(+e.target.value)}
                    aria-label={en ? 'Min BF16 TFLOPS' : '最小 BF16 TFLOPS'} className="flex-1" />
           </label>
+        </div>
+
+        {/* v3.20 — advanced filter dimensions, collapsed by default */}
+        <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--color-border)' }}>
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="text-xs flex items-center gap-1 underline"
+            style={{ color: 'var(--color-accent)', cursor: 'pointer' }}
+            data-testid="hw-filter-advanced-toggle"
+          >
+            <span>{advancedOpen ? '▾' : '▸'}</span>
+            <span>{en ? 'Advanced filters' : '更多筛选维度'}</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>
+              ({en ? 'memory type · process node · software stack · TDP' : '内存类型 · 制程 · 软件栈 · TDP'})
+            </span>
+          </button>
+          {advancedOpen && (
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="hw-filter-advanced-panel">
+              <select
+                aria-label={en ? 'Filter by memory type' : '按内存类型筛选'}
+                value={memType}
+                onChange={(e) => setMemType(e.target.value as MemType)}
+                className="px-2 py-1 rounded border text-xs"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+              >
+                {MEM_TYPE_OPTS.map((m) => (
+                  <option key={m} value={m}>
+                    {m === 'all' ? (en ? 'Memory: all' : '内存: 全部') : m}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label={en ? 'Filter by process node' : '按制程筛选'}
+                value={processNode}
+                onChange={(e) => setProcessNode(e.target.value as ProcessNode)}
+                className="px-2 py-1 rounded border text-xs"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+              >
+                {PROCESS_NODE_OPTS.map((p) => (
+                  <option key={p} value={p}>
+                    {p === 'all' ? (en ? 'Process: all' : '制程: 全部') : p}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label={en ? 'Filter by software stack' : '按软件栈筛选'}
+                value={swStack}
+                onChange={(e) => setSwStack(e.target.value as SwStack)}
+                className="px-2 py-1 rounded border text-xs"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+              >
+                {SW_STACK_OPTS.map((s) => (
+                  <option key={s} value={s}>
+                    {s === 'all' ? (en ? 'Stack: all' : '软件栈: 全部') : s.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+
+              <label className="text-xs flex items-center gap-2">
+                <span style={{ color: 'var(--color-text-muted)', minWidth: '6rem' }}>
+                  {en ? `Max TDP: ${maxTdp >= 2000 ? '∞' : maxTdp + ' W'}` : `最大 TDP: ${maxTdp >= 2000 ? '∞' : maxTdp + ' W'}`}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={2000}
+                  step={50}
+                  value={maxTdp}
+                  onChange={(e) => setMaxTdp(+e.target.value)}
+                  aria-label={en ? 'Max TDP' : '最大 TDP'}
+                  className="flex-1"
+                />
+              </label>
+            </div>
+          )}
         </div>
       </div>
 

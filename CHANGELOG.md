@@ -6,7 +6,78 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.20 — UI sprint** (timeline overlapping labels, filter panel classification rebuild, hardware/model card metadata richness) + harness extension (`--profile` flag for V3 execution-mode perf measurement, zh i18n for `/agent-deploy`).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.21** — model index timeline rebuild (mirror v3.20's hardware bento), card metadata richness (process node + sw stack badges), Apple m4-max-npu dedup + harness extension (`--profile` flag for V3 execution-mode perf, zh i18n for `/agent-deploy`).
+
+---
+
+## [3.20.0] — 2026-05-03 — Hardware UI sprint (bento timeline + 4 new filter dims) + agent:status
+
+**Theme**: First UI sprint after 3 harness-focused releases (v3.17/v3.18/v3.19). Addresses the user's earliest explicit complaint ("时间轴展示，很多字重合了" + "filter panel及后面的模型/硬件 Card更丰富的分类信息和筛选方式") while continuing harness extension via `agent:status`.
+
+### H1 — HwTimeline bento rebuild (UI fix)
+
+`apps/web/src/components/hardware/HwTimeline.astro` rewritten. Pre-v3.20 the timeline stacked all per-year cards on lanes inside one scrolling row — at 60+ entries crammed into 6 years, labels overlapped vertically and adjacent years' chips bled into each other.
+
+v3.20 layout:
+- **One vertical column per release year** (CSS grid with `min-width` per column)
+- **Cards inside each column** show: vendor-coloured dot + name (truncated, tooltip on hover) + perf chip (BF16 TFLOPS) + memory chip (capacity GB)
+- **Max 6 visible per column**; overflow folded into native `<details>`-based "+K more" disclosure (zero JS at parse — pure HTML/CSS)
+- **Within-year sort**: BF16 TFLOPS desc, with CN-first tiebreak (national champion gets primacy)
+- **Color legend** in header — red dot = 国产, accent dot = 国际
+
+Visual result: every label readable at any density, even with 30+ cards in 2024-2025.
+
+### H2 — HardwareGrid filter expansion (4 new dimensions)
+
+`apps/web/src/components/hardware/HardwareGrid.tsx` gains:
+
+- **`memType`**: HBM3e / HBM3 / HBM2e / HBM2 / GDDR7 / GDDR6 / LPDDR5X / LPDDR5 / LPDDR4X / unified
+- **`processNode`** (bucketed): 3nm / 5nm / 7nm / 12nm / 16nm
+- **`swStack`** (substring-detected from drivers): cuda / rocm / cann / neuware / corex / musa / mlx / metal
+- **`maxTdp`** (slider 0-2000W; `>=2000` means no cap)
+
+Each derived from existing YAML fields (no schema change). UI shape: collapsed-by-default disclosure ("更多筛选维度") to avoid overwhelming first-time visitors. Reset button covers all 4 new dimensions.
+
+User can now filter "all 国产 7nm HBM2e cards under 350W with CANN support" — that's exactly the cross-cut the v3.13-v3.16 国产 hardware breadth made possible but the filter UI couldn't surface.
+
+### H3 — `pnpm agent:status` (harness extension)
+
+`scripts/agent-deploy/status.ts` (NEW). The 6th harness CLI command. Pre-v3.20 users had to `cat` each `evokernel-deploy.json` by hand to know "what did I deploy lately?" Now:
+
+```bash
+pnpm agent:status                       # scan ./agent-deploy-output/
+pnpm agent:status -- --root ./outputs   # scan sub-dirs
+pnpm agent:status -- --json             # machine-readable
+pnpm agent:status -- --limit 5
+```
+
+Output is a sorted table (newest-first) with model · hardware · outcome (shipped/partial/blocked/no-gaps/skeleton-mode) · gap counts (`shipped+partial+blocked/total`) · mode (real/cache/test/skeleton) · source dir, plus per-deploy gap breakdown when productized data is present.
+
+Real product feel: the loop now closes from "what's available" (`agent:list-bundles`) → "deploy" (`agent:deploy:productized`) → "what did I deploy" (`agent:status`) → "feedback" (`agent:auto-pr`) without the user ever leaving the CLI.
+
+### H4 — Tests
+
+`scripts/tests/v3-20-status-and-filters.test.ts`: +7 tests covering agent:status `--help`, no-manifests path, fixture-manifest table output, `--json` array shape, `--limit` cap, outcome derivation (shipped/partial/blocked), per-gap breakdown.
+
+### Bug fix worth remembering
+
+While writing `status.ts`, hit a subtle esbuild bug: any `*/` inside backtick'd path snippets (e.g. `\`*/evokernel-deploy.json\``) inside a `/** ... */` block comment ends the comment **early** in esbuild's TS parser. The error fires far away (line 116 instead of line 12) because the parser's already corrupted by then. Fixed; lesson captured here as a future prevention note.
+
+### Stats
+
+- **CLI commands**: 9 → **10** (+`agent:status`)
+- **Hardware filter dimensions**: 5 → **9** (memType, processNode, swStack, maxTdp added)
+- **Test count**: 113 → **120** (+7 status)
+- **Site pages**: 608 → **608** (UI changes only, no new entries)
+- **TypeScript files in scripts/agent-deploy/**: 10 → **11** (+status.ts)
+
+### v3.21 next
+
+- **Model timeline rebuild**: mirror v3.20's hardware bento layout for `/models/` index.
+- **Card metadata richness**: process node + sw stack badges on hardware/model cards (not just in filters).
+- **Apple m4-max / m4-max-npu dedup** per CLEANUP-TODO.md.
+- **Harness `--profile` flag**: V3 execution-mode real-hardware perf measurement.
+- **zh i18n** for `/agent-deploy` slash command.
 
 ---
 
