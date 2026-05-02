@@ -70,3 +70,82 @@ references:
   - title: 'TensorRT-LLM gpt_attention_plugin'
     url: https://nvidia.github.io/TensorRT-LLM/architecture/core-concepts.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    fused_rope_qkv(x: [B,S,D], W_qkv: [D, 3*D_head*H], pos_ids: [B,S],
+                   freq_table: [max_seq, D_head/2]) -> q_rot, k_rot, v
+    Fuses {qkv matmul, split, RoPE rotation on Q+K, KV-cache write} into 1-2 kernels.
+    GQA/MQA: H_q != H_kv supported via broadcast in the split stage.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = 3 kernel launches (QKV GEMM, RoPE element-wise, KV-write) + 2 intermediate
+    HBM writes ([B*S*3*D_head*H] for QKV, [B*S*D_head*H] for K_rot). At decode (B=concurrency,
+    S=1) this dominates the entire attention prefix step — 1.15-1.4× speedup typical.
+
+  edge_cases:
+    - input: 'GQA / MQA (H_q != H_kv, e.g. Llama 3 H_q=32 H_kv=8)'
+      behaviors:
+        vllm-rotary: 'Broadcasts cos/sin across Q heads; K uses fewer heads correctly'
+        flashinfer-rope: 'Same — explicit H_q / H_kv args'
+        trtllm-gpt-attn: 'Encoded in plugin config; KV head count drives broadcast pattern'
+      mitigation: 'Verify head_dim_q == head_dim_kv (it always is in practice). Mismatch on H is fine; mismatch on D_head is a model bug.'
+
+    - input: 'YaRN / NTK-aware RoPE (extended context > training context)'
+      behaviors:
+        vllm-rotary-yarn: 'freq_table precomputed with YaRN scaling; selected by config flag'
+        flashinfer-yarn: 'Same — pass scaling factor at compile time'
+        trtllm-yarn: 'Plugin variant per scaling type — must rebuild engine on config change'
+      mitigation: 'YaRN/NTK tables differ per (base_seq_len, scale, alpha, beta). Recompute when context budget changes; keep precomputed table in HBM not regenerated per step.'
+
+    - input: 'partial RoPE (only first D_rot dims rotated, rest passthrough — Phi-3 / GPT-NeoX style)'
+      behaviors:
+        all_libs: 'Supported via D_rot < D_head config; remaining channels copy-through'
+      mitigation: 'Verify rope_dim is ≤ head_dim. Common bug: model config has rope_dim_pct=0.5 but engine expects absolute D_rot.'
+
+  numerical_rules:
+    - aspect: 'cos_sin_table_dtype'
+      per_library:
+        vllm: 'FP32 freq_table cached in HBM; cast to FP16/BF16 on load to SMEM'
+        flashinfer: 'FP32 always — table is small (max_seq * D_head/2 ≈ 8 MB at 32K ctx), cost negligible'
+        trtllm: 'BF16 if model dtype is BF16; FP32 if FP16 (avoid double rounding)'
+        aclnn-rope: 'FP16 freq_table on Ascend (smaller SMEM budget)'
+      notes: 'FP32 table is the safe default. BF16 table OK for ctx ≤ 8K; FP16 starts losing precision around ctx ≥ 32K (sin/cos at large theta accumulate rounding).'
+
+    - aspect: 'rotation_compute_dtype'
+      per_library:
+        vllm: 'Stays in input dtype throughout. Reads BF16/FP16 q/k, multiplies by FP16-cast cos/sin in registers, writes back BF16/FP16. Upcasts only when input is FP8 (Blackwell) — required because FP8 mantissa cannot represent intermediate cos·q + sin·q correctly.'
+        flashinfer: 'Same — input-dtype throughout for BF16/FP16 paths. The vec_t<dtype, 2> template stores intermediates in input precision. FP8 input also forces BF16 internal compute.'
+        trtllm: 'Configurable via gpt_attention_plugin "rope_dtype" param. Default: input dtype. Long-context (>32K) configs in TRT-LLM 0.13+ enable FP32 scratch for the rotation per Engine Config Wizard recommendation.'
+        aclnn-rope: 'FP16 throughout on Ascend (no fast FP32 path on Cube/Vector for elementwise ops). Long-ctx (>32K) on Ascend → use Vector unit FP32 fallback (~3× slower).'
+      notes: |
+        Default = input dtype. The rotation is only 2 fused-multiply-adds per element, so rounding does NOT accumulate the way attention dot-products do — input dtype is fine up to ctx ≈ 32K.
+
+        Three real risk cases require upcast:
+          1. FP8 weights (Blackwell tcgen05.mma path): q/k arrive in FP8, but cos/sin × q in FP8 has insufficient mantissa — must upcast to BF16 for the rotation, then re-quantize before KV cache write.
+          2. Long context (≥ 64K): even BF16 starts losing precision at very large position theta; flashinfer's "long_rope" config switches to FP32.
+          3. Aggressive YaRN scaling (>4× extension): scaled frequencies push trigonometric values into low-precision-fragile regime.
+
+        Agent recommendation matrix (precondition → backend):
+          - BF16 weights, ctx ≤ 32K → vLLM / flashinfer (any default path)
+          - BF16 weights, ctx ≥ 64K → flashinfer with long_rope=True OR TRT-LLM with rope_dtype=FP32
+          - FP8 weights, any ctx → require BF16-internal rotation (flashinfer/vLLM auto-detect; TRT-LLM needs explicit config)
+          - Ascend → aclnn-rope FP16 default; only switch to Vector-FP32 fallback if /learn/troubleshooting/ flags long-ctx attention quality regression
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_rope_qkv(x, W_qkv, pos_ids, freq_table):
+          # x: [B, S, D];  W_qkv: [D, 3*D_head*H]
+          B, S, _ = x.shape
+          qkv = x @ W_qkv                                  # [B, S, 3*D_head*H]
+          q, k, v = qkv.chunk(3, dim=-1)                   # each [B, S, D_head*H]
+          q = q.view(B, S, -1, D_head)                     # [B, S, H, D_head]
+          k = k.view(B, S, -1, D_head)
+          freqs = freq_table[pos_ids]                      # [B, S, D_head/2]
+          cos, sin = freqs.cos(), freqs.sin()
+          q_rot = apply_rotary(q, cos, sin)
+          k_rot = apply_rotary(k, cos, sin)
+          return q_rot, k_rot, v

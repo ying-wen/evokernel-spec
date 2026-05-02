@@ -95,3 +95,69 @@ references:
   - title: 'FlashAttention window_size param'
     url: https://github.com/Dao-AILab/flash-attention
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_attn_sliding_window(q: [B, H, S, D], K: [B, H_kv, S, D], V: [B, H_kv, S, D],
+                              window: int, sink_tokens: int = 0) -> out: [B, H, S, D]
+    Each query position i attends to keys in range [max(0, i - window), i].
+    Optional "attention sinks" pin the first `sink_tokens` keys to always be visible
+    (StreamingLLM trick) — prevents quality collapse at very long generation.
+
+  fusion_lifecycle: compile-time-template
+
+  unfused_penalty: |
+    Unfused = (a) materialize full mask [S, S] in HBM (S² space — quadratic), (b) standard
+    attention with full mask. At S=128K this is 16 GB just for the mask. Fused version
+    computes the mask on-the-fly in registers via index comparison; cost = O(1) per element.
+    Speedup at S=32K: 3-5×, mostly from skipping out-of-window K-tile loads entirely
+    (sparse attention pattern lets you not even fetch those tiles).
+
+  edge_cases:
+    - input: 'window > seq_len (effectively dense attention)'
+      behaviors:
+        flash-attn-window: 'Falls through to dense path — checks window > seq_len at kernel launch and dispatches accordingly.'
+        flashinfer-window: 'Same — branches to dense kernel when window covers full sequence.'
+      mitigation: 'No correctness issue, but verify the engine takes the dense fast path (not the masked-window-with-no-skipping path which is slower).'
+
+    - input: 'attention sinks (sink_tokens > 0, StreamingLLM)'
+      behaviors:
+        flash-attn-streaming-llm: 'window=W but always-visible first K tokens. Mask becomes: visible if (i-W ≤ j ≤ i) OR (j < sink_tokens).'
+        sglang-streaming: 'Same — passes sink_tokens through to flash-attn kernel.'
+        gemma-2-hybrid: 'Different: alternates SWA and global layers per layer index, not per-token. Engine config specifies layer pattern.'
+      mitigation: 'For Mistral/Gemma 1, no sinks needed (architectural). For pure StreamingLLM (long-running chat without context reset), sink_tokens=4 prevents attention-score collapse after ~10K generations.'
+
+    - input: 'KV cache eviction in streaming mode'
+      behaviors:
+        streaming-llm-evict: 'Drops K/V slots outside the sliding window AS THEY EXIT — KV cache stays bounded at (window + sink) tokens.'
+        vllm-sliding-window: 'Currently does NOT evict (all KV kept in cache, mask just hides them). Memory grows unbounded.'
+        sglang-sliding-window: 'Same as vLLM as of 0.4.5 — eviction is on roadmap.'
+        trtllm-sliding-window: 'Optional KV-eviction enabled by --use_streaming_llm flag.'
+      mitigation: 'For long-running deployments (chat sessions ≥ 1 hour), prefer engines with KV eviction. Without it, OOM is inevitable at ~128K cumulative tokens.'
+
+  numerical_rules:
+    - aspect: 'mask_application_dtype'
+      per_library:
+        all_libs: 'Mask applied as additive: scores += (-inf) for masked positions. Done in FP32 inside online-softmax for safety.'
+      notes: 'Standard. Same as flash-attention dense — no SWA-specific surprise.'
+
+    - aspect: 'partial_softmax_with_sparse_mask'
+      per_library:
+        flash-attn-sparse-skip: 'Skips entire K-tiles when ALL positions in that tile are masked — major perf win, but partial_max init must check "did any column survive?". If all-masked, partial_sum = 0 and the merge step skips the contribution.'
+      notes: |
+        Subtle bug class: naive flash-attn variants initialize partial_max = -inf and forget
+        to handle "no survivors in this tile". Final softmax then gets divide-by-zero.
+        Robust impls (flash-attn ≥ 2.5, flashinfer ≥ 0.1) handle this; older custom kernels may not.
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_attn_sliding_window(q, K, V, window, sink_tokens=0):
+          B, H, S, D = q.shape
+          scores = (q @ K.transpose(-1, -2)) * (D ** -0.5)
+          # Build mask: visible if within window OR within sink prefix
+          i = torch.arange(S, device=q.device).view(-1, 1)
+          j = torch.arange(S, device=q.device).view(1, -1)
+          visible = (j <= i) & ((i - j) < window | (j < sink_tokens))
+          scores = scores.masked_fill(~visible, float('-inf'))
+          return scores.softmax(-1) @ V

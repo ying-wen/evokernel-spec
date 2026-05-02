@@ -96,3 +96,67 @@ references:
   - title: 'FlashMLA repository'
     url: https://github.com/deepseek-ai/FlashMLA
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    flash_mla(c_kv: [B, S, d_c], W_uk: [d_c, H*D], W_uv: [d_c, H*D], q: [B, 1, H, D])
+        -> out: [B, 1, H, D]
+    MLA = compressed KV cache: store low-rank c_kv (d_c≈512) instead of full K/V.
+    Decompresses K = c_kv @ W_uk and V = c_kv @ W_uv lazily inside attention kernel.
+    Saves ~85% KV-cache memory at decode (DeepSeek V3: d_c=512 vs full 16384/head).
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = (1) decompress K = c_kv @ W_uk to HBM, (2) decompress V = c_kv @ W_uv to
+    HBM, (3) standard attention. The two decompressions write H*D*S floats to HBM PER
+    DECODE STEP — for 32K ctx × 128 heads × 128 D × BF16 ≈ 1 GB written and re-read
+    per token. Fusion keeps decompression in registers/SMEM.
+
+  edge_cases:
+    - input: 'c_kv decompression matrix layout (W_uk, W_uv) shape and dtype'
+      behaviors:
+        flash-mla-deepseek: 'W_uk, W_uv stored as BF16; loaded once per kernel and held in SMEM. d_c=512 → W_uk size ≈ 8 MB per layer (fits SMEM on H100/H200).'
+        sglang-mla: 'Same layout; uses FlashInfer integration.'
+        vllm-mla: 'Calls flash-mla path on Hopper/Blackwell; falls back to "absorb" trick on Ampere (W_uk pre-multiplied into q at compile time, removes runtime decompression but loses some flexibility).'
+      mitigation: 'Verify W_uk/W_uv shapes match c_kv dim. Common bug: loading a non-MLA model (Llama) into an MLA path crashes here.'
+
+    - input: 'rope split — MLA only RoPEs the first d_rope dims, not full d_c'
+      behaviors:
+        flash-mla-rope-aware: 'Splits c_kv into [c_no_rope (d_c - d_rope), c_rope (d_rope)]. Only c_rope gets rotated. d_rope=64 in DeepSeek V3.'
+      mitigation: 'Critical: regular RoPE applied to full c_kv produces garbage. Engine config must specify "mla_rope_dim" not just "rope_dim".'
+
+    - input: 'speculative decode integration (multi-token generation)'
+      behaviors:
+        flash-mla-spec-decode: 'Q tile becomes [B, k, H, D] (k = speculative tree width). Same kernel, larger M dim.'
+        flashmla-mtp: 'DeepSeek MTP head: similar shape, k = num_predict_tokens.'
+      mitigation: 'Spec decode + MLA combo benefits 2× from compute concentration. Engine must call the multi-Q variant.'
+
+  numerical_rules:
+    - aspect: 'decompression_compute_dtype'
+      per_library:
+        flash-mla-deepseek: 'BF16 matmul for c_kv @ W_uk inside SMEM; results stay in BF16 for the attention dot-product. FP32 accumulator in tensor core preserves precision.'
+        vllm-mla: 'Same.'
+      notes: 'Standard tensor-core BF16xBF16→FP32-acc rule. The decompression is just another GEMM — no MLA-specific numerical surprise here.'
+
+    - aspect: 'softmax_scale_with_compressed_kv'
+      per_library:
+        all_libs: 'Scale = 1/sqrt(D_head), NOT 1/sqrt(d_c). The "effective" K dimension after decompression is D_head, so softmax scale uses D_head.'
+      notes: |
+        Easy bug: applying scale based on c_kv dim corrupts attention. Confirm engine
+        sets softmax_scale = 1/sqrt(head_dim_qk) where head_dim_qk = D_head + d_rope
+        for the rope-split MLA variant.
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def flash_mla(c_kv, W_uk, W_uv, q):
+          # c_kv: [B, S, d_c], W_uk/W_uv: [d_c, H*D], q: [B, 1, H, D]
+          B, S, d_c = c_kv.shape
+          H = q.shape[2]; D = q.shape[3]
+          # Decompress (lazy in fused kernel — kept in SMEM)
+          K = (c_kv @ W_uk).view(B, S, H, D)
+          V = (c_kv @ W_uv).view(B, S, H, D)
+          scores = (q.transpose(1, 2) @ K.transpose(1, 2).transpose(-1, -2)) * (D ** -0.5)
+          attn = scores.softmax(-1)
+          return (attn @ V.transpose(1, 2)).transpose(1, 2)

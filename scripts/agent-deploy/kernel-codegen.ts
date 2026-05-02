@@ -129,6 +129,7 @@ export function generateKernels(input: KernelCodegenInput): GeneratedKernel[] {
       ?? findEquivalent(primitives, 'cdna3', target_arch)
       ?? findEquivalent(primitives, 'ampere', target_arch);
 
+    const opClass = classifyOp(gap.op, op);
     generated.push({
       op: gap.op,
       filename: `${gap.op}_${target_arch}.${extension(language)}`,
@@ -136,7 +137,15 @@ export function generateKernels(input: KernelCodegenInput): GeneratedKernel[] {
       code: emitKernelSkeleton(gap, op, target_arch, language, example, equiv),
       review_notes: [
         `Generated from kernel_gaps for op "${gap.op}" on ${target_arch}.`,
+        `Op class: ${opClass} — inner-loop body specialized accordingly (v2.18+).`,
         equiv ? `Source primitive: ${equiv.source.id} → target primitive: ${equiv.target.id} (${equiv.mapping_ratio ?? 'no ratio doc'}).` : `No cross-vendor primitive equivalence found — base template is generic.`,
+        opClass === 'scatter-permute'
+          ? `${gap.op} is index-driven (no MMA). The WGMMA scaffolding in the skeleton is dead code — strip it. Real impl: warp-level radix sort by destination index, then bulk vectorized scatter.`
+          : opClass === 'norm'
+          ? `${gap.op} is row-reduction-shaped. The K-tile loop runs once; replace with single-pass over hidden_dim. FP32 partial-sum mandatory.`
+          : opClass === 'attention'
+          ? `${gap.op} uses online softmax across K-tile pairs. (m, s, acc) state must be FP32 even for BF16/FP16 inputs.`
+          : `${gap.op} follows GEMM tile-pair pattern. Standard tensor-core path.`,
         op?.formal_semantics?.numerical_rules?.length
           ? `Critical numerical rules: ${op.formal_semantics.numerical_rules.map((r) => r.aspect).join(', ')}. See /operators/${gap.op}/ formal_semantics block.`
           : `No formal_semantics documented yet for ${gap.op} — review source kernel for invariants.`,
@@ -145,8 +154,8 @@ export function generateKernels(input: KernelCodegenInput): GeneratedKernel[] {
           : `No DSL example matched — see /dev-toolkit/ for general patterns.`,
         `TODO: tile shape autotuning. Output skeleton uses M=128 N=128 K=64 placeholder.`,
         `TODO: numerical edge cases. Verify behavior matches /operators/${gap.op}/ formal_semantics.edge_cases against unit tests.`,
-        `TODO: profile with target-arch profiler (NCU / rocprof / msprof / cnperf / suprof) before shipping.`
-      ]
+        `TODO: profile with target-arch profiler (NCU / rocprof / msprof / cnperf / suprof) before shipping.`,
+      ],
     });
   }
 
@@ -164,6 +173,153 @@ function extension(language: string): string {
     case 'metal': return 'metal';
     default: return 'cpp';
   }
+}
+
+/**
+ * Op classification — drives template dispatch (v2.18).
+ *
+ * v2.16 used a single GEMM template for every op, which is wrong for ops where
+ * the inner-loop pattern is fundamentally different (scatter, reduction,
+ * tile-pair iteration). This dispatch picks the right structural skeleton.
+ *
+ * The 4 classes capture compute-pattern, not just op-id:
+ *   - gemm:            tensor-MMA-bound matmul-shaped (matmul, grouped-matmul, lora-bgmv)
+ *   - attention:       tile-pair iteration with online softmax (attention, MLA, SDPA, paged)
+ *   - norm:            row-reduction + per-row rescale (rmsnorm, layer-norm, group-norm, softmax)
+ *   - scatter-permute: index-driven gather/scatter, no MMA (expert-permute, index-put, repeat-interleave)
+ *   - default:         falls through to gemm (collective ops, activations — gemm template still useful as starting point)
+ */
+export type OpClass = 'gemm' | 'attention' | 'norm' | 'scatter-permute' | 'default';
+
+const ATTENTION_OPS = new Set([
+  'attention', 'mla-attention', 'scaled-dot-product-attention',
+  'paged-attention-decode', 'online-softmax',
+]);
+const NORM_OPS = new Set([
+  'rmsnorm', 'layer-norm', 'group-norm', 'softmax',
+]);
+const SCATTER_PERMUTE_OPS = new Set([
+  'expert-permute', 'index-put', 'repeat-interleave', 'embedding-lookup',
+]);
+const GEMM_OPS = new Set([
+  'matmul', 'grouped-matmul', 'lora-bgmv', 'block-quantize',
+]);
+
+export function classifyOp(opId: string, op?: Operator): OpClass {
+  if (ATTENTION_OPS.has(opId)) return 'attention';
+  if (NORM_OPS.has(opId)) return 'norm';
+  if (SCATTER_PERMUTE_OPS.has(opId)) return 'scatter-permute';
+  if (GEMM_OPS.has(opId)) return 'gemm';
+  // Fall back to category hint when explicit op-id list misses.
+  const cat = op?.category ?? '';
+  if (cat === 'attention') return 'attention';
+  if (cat === 'normalization' || cat === 'norm') return 'norm';
+  if (cat === 'communication') return 'scatter-permute';
+  if (cat === 'matmul' || cat === 'gemm') return 'gemm';
+  return 'default';
+}
+
+/**
+ * Emit the inner compute-loop body for a given op-class in CUDA-C++.
+ *
+ * Returned string is inserted INSIDE the `for (k_tile ...)` loop of the kernel
+ * skeleton. Other languages currently fall through to the GEMM body — Ascend-C
+ * and HIP op-class specialization is queued for v2.21.
+ */
+function emitCudaInnerByOpClass(opClass: OpClass, opId: string): string {
+  const opSafe = opId.replace(/-/g, '_');
+
+  switch (opClass) {
+    case 'attention':
+      return `        // ========== ATTENTION INNER LOOP (online softmax + tile-pair iteration) ==========
+        // Q-tile fixed in registers; K/V tiles streamed K-tile by K-tile.
+        // Online softmax tracks (m_i, s_i) per row across K-tiles.
+        //
+        // Pattern: per K-tile,
+        //   (1) qk = Q @ K_tile^T              ${equivPrim('hopper-wgmma-mma_async')}
+        //   (2) m_new = max(m_old, max(qk))    // per-row scalar
+        //   (3) p = exp(qk - m_new)
+        //   (4) s_new = exp(m_old - m_new) * s_old + sum(p)
+        //   (5) acc = exp(m_old - m_new) * acc + p @ V_tile
+        //
+        // CRITICAL: m and s MUST be FP32. partial_sum loses mantissa otherwise.
+
+        float p[BM/64][BK];                        // FP32 attention scores tile
+        float m_new = m_old;                       // per-row max (broadcast)
+        // TODO: emit WGMMA Q @ K^T into 'qk_acc' fp32 register tile
+        // TODO: row-wise max-reduce qk_acc, update m_new
+        // TODO: p = exp(qk_acc - m_new)
+        // TODO: rescale = exp(m_old - m_new); acc *= rescale; s_old *= rescale; s_old += sum(p)
+        // TODO: emit WGMMA p @ V into acc (accumulating)
+        m_old = m_new;
+        // TODO: pre-load next K_tile, V_tile (double-buffered async pipelining via TMA)
+        asm volatile("wgmma.wait_group.sync.aligned 0;");`;
+
+    case 'norm':
+      return `        // ========== NORM INNER LOOP (row reduction + per-row rescale) ==========
+        // Each thread-block owns one row; warp-reduce sums across hidden_dim.
+        //
+        // Pattern (RMSNorm shown — LayerNorm adds mean subtraction):
+        //   (1) thread-local: square_sum = sum(x[i] * x[i] for i in my_chunk)
+        //   (2) warp-reduce square_sum across all threads in the warp
+        //   (3) block-reduce across warps via SMEM
+        //   (4) rms = rsqrt(square_sum / hidden_dim + eps)
+        //   (5) thread-local: y[i] = x[i] * rms * weight[i]
+        //
+        // CRITICAL: square_sum MUST be FP32 even with BF16/FP16 inputs (mantissa).
+
+        float thread_sq_sum = 0.0f;
+        // TODO: each thread accumulates squares across its slice of hidden_dim
+        // TODO: warp-shuffle reduction (shfl_xor_sync 16, 8, 4, 2, 1)
+        // TODO: cross-warp reduction via SMEM scratch
+        float row_rms = rsqrtf(thread_sq_sum / float(hidden_dim) + epsilon);
+        // TODO: re-scan slice and write y[i] = x[i] * row_rms * weight[i]
+        // No K-tile loop — norm is single-pass over hidden_dim
+        break;  // Single iteration suffices — exit the K-tile loop`;
+
+    case 'scatter-permute':
+      return `        // ========== SCATTER-PERMUTE INNER LOOP (index-driven gather, no MMA) ==========
+        // Each thread handles one source token; reads its destination index;
+        // performs vectorized gather + scatter to dst buffer.
+        //
+        // Pattern (expert-permute shown):
+        //   (1) my_token = blockIdx.x * blockDim.x + threadIdx.x
+        //   (2) my_expert = topk_indices[my_token]
+        //   (3) dst_offset = atomicAdd(&expert_counter[my_expert], 1)
+        //   (4) for d in 0..D step 8:  // vectorized 8x BF16 = 128 bits
+        //         dispatched[expert_offsets[my_expert] + dst_offset][d:d+8] = tokens[my_token][d:d+8]
+        //
+        // CRITICAL: atomicAdd serializes — for high-throughput, use cooperative_groups
+        // sort-based permute (warp-level radix sort by expert_id, then bulk scatter).
+
+        if (token_idx >= num_tokens) return;
+        int expert_id = topk_indices[token_idx];
+        int dst_offset = atomicAdd(&expert_counter[expert_id], 1);
+        int dst_idx = expert_offsets[expert_id] + dst_offset;
+        // TODO: vectorized 128-bit copy from tokens[token_idx] to dispatched[dst_idx]
+        // TODO: consider warp-level radix sort path for low-imbalance MoE configs
+        break;  // No K-tile loop — scatter is one-shot per token
+        // NOTE: ${opSafe} does NOT use tensor cores; the WGMMA scaffolding
+        //       in this skeleton is dead code — strip it before shipping.`;
+
+    case 'gemm':
+    case 'default':
+    default:
+      return `        // ========== GEMM INNER LOOP (tensor-core MMA, default template) ==========
+        // TODO: emit WGMMA matmul here
+        // Example: wgmma.mma_async.sync.aligned.m64n128k16 ...
+        asm volatile("wgmma.fence.sync.aligned;");
+        // ... mma instructions ...
+        asm volatile("wgmma.commit_group.sync.aligned;");
+
+        // TODO: pre-load next K-tile (double-buffered async pipelining)
+        asm volatile("wgmma.wait_group.sync.aligned 0;");`;
+  }
+}
+
+/** Helper to format a primitive-id reference in generated code comments. */
+function equivPrim(primId: string): string {
+  return `(${primId})`;
 }
 
 function emitKernelSkeleton(
@@ -229,14 +385,7 @@ __global__ void ${gap.op.replace(/-/g, '_')}_kernel(
     for (int k_tile = 0; k_tile < K; k_tile += BK) {
         bar[k_tile % 2].arrive_and_wait();
 
-        // TODO: emit ${equiv?.target.id ?? 'WGMMA'} matmul here
-        // Example: wgmma.mma_async.sync.aligned.m64n128k16 ...
-        asm volatile("wgmma.fence.sync.aligned;");
-        // ... mma instructions ...
-        asm volatile("wgmma.commit_group.sync.aligned;");
-
-        // TODO: pre-load next K-tile (double-buffered async pipelining)
-        asm volatile("wgmma.wait_group.sync.aligned 0;");
+${emitCudaInnerByOpClass(classifyOp(gap.op, op), gap.op)}
     }
 
     // ============================================================

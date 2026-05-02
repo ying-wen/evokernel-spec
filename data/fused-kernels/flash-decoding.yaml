@@ -97,3 +97,72 @@ references:
   - title: 'vLLM long-context optimization'
     url: https://docs.vllm.ai/en/latest/configuration/optimization.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    flash_decoding(q: [B, H, 1, D], K: [B, H_kv, S, D], V: [B, H_kv, S, D],
+                   chunk_size: int) -> out: [B, H, 1, D]
+    Splits the KV-sequence into chunks; each chunk computed in parallel across SMs.
+    Per-chunk: partial_max, partial_sum, partial_out. Final: online-softmax merge.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Standard attention decode launches 1 SM per (batch, head) — at H100 132 SM with
+    Llama 3 GQA-8, only 8 SMs occupied per step → 6% utilization. Flash-Decoding with
+    chunk_size=512 over 32K ctx splits into 64 chunks × 8 heads = 512 SM-blocks,
+    saturates the chip. Speedup at 32K ctx, B=1, GQA: 4–8× decode throughput.
+
+  edge_cases:
+    - input: 'partial_max / partial_sum reduction across chunks'
+      behaviors:
+        flash-attention-2-decode: 'Two-pass: pass-1 computes per-chunk partials; pass-2 merges via online-softmax (m_global = max(m_chunks); s_global = Σ exp(m_chunk - m_global) * s_chunk).'
+        flashinfer-decode: 'Same algorithm; uses cooperative groups for the cross-chunk reduction.'
+        vllm-flash-decode: 'Calls flash-attention-2 path; no custom merge.'
+        trtllm-mmha: 'Multi-block mode: same online-softmax merge; chunk count = grid.y.'
+      mitigation: 'The merge MUST use online-softmax across chunks, not naive sum — naive overflows at large ctx. All real implementations get this right.'
+
+    - input: 'KV cache page boundary crosses chunk boundary (with paged-attention)'
+      behaviors:
+        flash-decoding-paged: 'Chunk granularity must be ≥ page_size (default 16). Smaller chunks would read partial pages, hurting cache lines.'
+      mitigation: 'Set chunk_size = max(min_chunk_for_parallelism, page_size). vLLM default 256 ≥ all common page sizes (16/32/64/128).'
+
+    - input: 'GQA / MQA — multiple Q heads per KV head'
+      behaviors:
+        flash-decoding-gqa: 'Q heads sharing a KV head can be batched into a single SM-block (small B-dim GEMM instead of GEMV) — adds ~2× perf on top of chunking for GQA-4/GQA-8.'
+      mitigation: 'Verify the engine takes the GQA path (vLLM ≥ 0.5, flashinfer ≥ 0.1). Older flash-attn versions did not batch GQA heads.'
+
+  numerical_rules:
+    - aspect: 'partial_sum_dtype'
+      per_library:
+        all_libs: 'FP32 mandatory. partial_sum can become very small (e^{-large}) and lose mantissa in BF16/FP16.'
+      notes: 'This is the same FP32-online-softmax rule as flash-attention-v3. Hard requirement, no library deviates.'
+
+    - aspect: 'chunk_count_for_short_context'
+      per_library:
+        flash-decoding-auto: 'chunks = max(1, ceil(seq_len / chunk_size)). For seq_len < chunk_size, uses 1 chunk → falls back to standard attention path.'
+      notes: 'Engines auto-select. Manual override is rarely correct — let the heuristic decide based on (seq_len, batch_size, num_sm).'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def flash_decoding(q, K, V, chunk_size=512):
+          # q: [B, H, 1, D], K/V: [B, H_kv, S, D]
+          B, H, _, D = q.shape
+          S = K.shape[2]
+          n_chunks = (S + chunk_size - 1) // chunk_size
+          chunk_outs, chunk_max, chunk_sum = [], [], []
+          for c in range(n_chunks):
+              k_c = K[:, :, c*chunk_size:(c+1)*chunk_size]
+              v_c = V[:, :, c*chunk_size:(c+1)*chunk_size]
+              scores = (q @ k_c.transpose(-1, -2)) * (D ** -0.5)
+              m = scores.max(-1, keepdim=True).values         # [B, H, 1, 1]
+              p = (scores - m).exp()
+              s = p.sum(-1, keepdim=True)
+              chunk_outs.append(p @ v_c); chunk_max.append(m); chunk_sum.append(s)
+          # Online-softmax merge across chunks (FP32!)
+          m_global = torch.stack(chunk_max).amax(0)
+          rescale = [(cm - m_global).exp() for cm in chunk_max]
+          s_global = sum(r * cs for r, cs in zip(rescale, chunk_sum))
+          out = sum(r * co for r, co in zip(rescale, chunk_outs)) / s_global
+          return out

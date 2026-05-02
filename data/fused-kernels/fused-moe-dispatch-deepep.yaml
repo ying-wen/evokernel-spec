@@ -101,3 +101,87 @@ references:
   - title: 'DeepEP design notes'
     url: https://github.com/deepseek-ai/DeepEP/blob/main/README.md
     source_type: docs
+
+formal_semantics:
+  signature: |
+    fused_moe_dispatch_deepep(tokens: [N, D], topk_indices: [N, K], topk_weights: [N, K],
+                               num_experts: int, ep_size: int, ep_rank: int)
+        -> dispatched: [N_local_dispatched, D], expert_offsets: [num_local_experts]
+    Fuses {expert-permute, all-to-all (intra-node + inter-node), expert grouping}
+    into a single CUDA kernel + comm primitive call. Each rank ends up with a contiguous
+    batch per local expert.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused MoE dispatch = (1) compute permutation indices [N*K], (2) gather permuted
+    tokens, (3) NCCL all-to-all, (4) regroup by expert. Steps 2-4 each launch separate
+    kernels with HBM round-trips. DeepEP fuses 2 and 3 (RDMA-direct from gather output)
+    and overlaps 1 with the previous layer's compute. Speedup vs unfused at EP=64,
+    cross-node: 30-50%; intra-node EP=8: 15-25%.
+
+  edge_cases:
+    - input: 'token routed to single expert (degenerate top-k or extreme load imbalance)'
+      behaviors:
+        deepep: 'Handled — that expert receives N*K tokens, others zero. Per-expert scratch buffers padded to max_per_expert=ceil(N*K*1.5/num_experts) by default.'
+        vllm-moe: 'Same.'
+        mindie-moe: 'Same; flagged in expert-occupancy metric.'
+      mitigation: 'Auxiliary load-balance loss during training. At inference: alert if max/min expert occupancy > 4× — likely indicates routing collapse.'
+
+    - input: 'cross-node EP (NICs vs NVLink)'
+      behaviors:
+        deepep-intranode: 'Pure NVLink/NVSwitch path; uses cuMemFabric symmetric memory; ~80 GB/s effective.'
+        deepep-internode: 'IB/RoCE RDMA path; uses GPUDirect RDMA; ~50 GB/s effective. ~2× latency vs intranode.'
+        mindie-moe: 'Uses HCCS (Huawei Collective Communication) + HCCL; comparable bandwidth but higher software overhead.'
+      mitigation: |
+        For best EP throughput: keep all experts of one MoE layer in same NVLink island
+        (≤ 8 GPUs intra-node). Cross-node EP only when expert count > 8 forces it.
+        DeepSeek V3 uses EP=64 cross-node — accepts the latency hit because the model
+        is too big to fit in one node anyway.
+
+    - input: 'duplicate routing (same token sent to same expert via top-K)'
+      behaviors:
+        all_libs: 'Forbidden by router contract — top-K must produce unique experts per token.'
+      mitigation: 'Verify router config has top_k_unique=True. Some early MoE implementations allowed duplicates; modern routers (DeepSeek, Mixtral, Qwen) all enforce unique.'
+
+    - input: 'CUDA-Graph mode'
+      behaviors:
+        deepep-cuda-graph: 'Supported — uses persistent buffers + capture-time-fixed comm topology.'
+        vllm-moe-cuda-graph: 'Supported on H100+; not on Ampere (Ampere lacks fast cooperative-group RDMA).'
+      mitigation: 'For decode latency-critical MoE deploys (DeepSeek V3 chat), CUDA Graph + DeepEP combo gives ~30% latency win. Verify both enabled.'
+
+  numerical_rules:
+    - aspect: 'topk_weight_application'
+      per_library:
+        deepep: 'Weights multiplied AFTER expert compute, BEFORE inverse permute. Done in BF16 (input dtype).'
+        vllm-moe: 'Same — post-expert weighted sum.'
+        triton-moe: 'Same; sometimes done in FP32 for high-quality settings.'
+      notes: 'No accumulation, just per-token scaling. BF16 sufficient. The weights themselves come from softmax on router logits — those should be FP32 for numerical stability of the softmax, then cast to BF16 for the multiply.'
+
+    - aspect: 'token_count_imbalance_handling'
+      per_library:
+        deepep-padded: 'Pads each expert"s batch to max_per_expert (set at engine-init based on routing entropy estimate). Wasted compute on padding tokens.'
+        deepep-bucketed: 'Buckets — drops tokens beyond max_per_expert. Used in DeepSeek V3 for strict load balance. Dropped tokens get zero output (sparse residual handles it).'
+      notes: |
+        Two valid choices, different correctness contracts:
+          - Padded: every token reaches its top-K experts. Slight perf cost for padding.
+            Default for inference where we trust the router.
+          - Bucketed: hard cap per expert. Loses some tokens, but bounds compute and
+            communication. Used in training and in DeepSeek-V3 when EP > 32.
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_moe_dispatch_deepep(tokens, topk_indices, topk_weights, num_experts):
+          # tokens: [N, D],  topk_indices: [N, K],  topk_weights: [N, K]
+          N, K = topk_indices.shape
+          flat_idx = topk_indices.reshape(-1)                 # [N*K]
+          flat_tok = tokens.unsqueeze(1).expand(-1, K, -1).reshape(-1, tokens.size(-1))
+          flat_w = topk_weights.reshape(-1)
+          # Sort by expert id; each expert sees a contiguous slice
+          sort_order = flat_idx.argsort()
+          dispatched = flat_tok[sort_order]                   # [N*K, D]
+          weights_sorted = flat_w[sort_order]
+          expert_offsets = torch.bincount(flat_idx, minlength=num_experts).cumsum(0)
+          # In real DeepEP: all-to-all here splits dispatched across EP ranks
+          return dispatched, weights_sorted, expert_offsets, sort_order

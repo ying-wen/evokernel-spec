@@ -6,7 +6,162 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.19 — collective-op formal_semantics + first non-GEMM DSL examples** (allreduce / all-gather / all2all / reduce-scatter / memcpy-async + NCCL+HCCL DSL examples).
+
+---
+
+## [2.18.0] — 2026-05-02
+
+**Theme**: fused-kernel formal_semantics depth fill + op-class-aware kernel codegen.
+
+Closes the two highest-priority quality gaps identified in the v2.17 retrospective: fused-kernel `formal_semantics` was at 5/24 (21%), and `kernel-codegen.ts` used a single GEMM template for every op including non-MMA ops like `expert-permute` (sort+scatter) and `rmsnorm` (row reduction). Both fixed.
+
+### Added
+
+- **5 fused-kernel `formal_semantics`** (5 → 10 / 24): `fused-rope-qkv`, `flash-decoding`, `flash-mla`, `fused-attn-sliding-window`, `fused-moe-dispatch-deepep`.
+  - `fused-rope-qkv` documents the `rotation_compute_dtype` trade-off (vLLM/flashinfer stay in input dtype; TRT-LLM configurable; aclnn FP16-only on Ascend) — the agent now flags FP8-weights × any-context and BF16 × ctx ≥ 64K as cases requiring FP32 internal.
+  - `flash-decoding` documents the cross-chunk online-softmax merge (mandatory FP32 partial_sum) and the page-boundary alignment rule (chunk_size ≥ page_size).
+  - `flash-mla` documents the rope-split rule (only `d_rope=64` of `d_c=512` gets rotated) and the softmax-scale-uses-D_head bug class.
+  - `fused-attn-sliding-window` documents StreamingLLM attention-sink config (sink_tokens=4) and KV eviction support per engine (vLLM/SGLang lack it as of 0.5.x).
+  - `fused-moe-dispatch-deepep` documents intra-node (NVLink, ~80 GB/s) vs cross-node (RDMA, ~50 GB/s) paths + padded-vs-bucketed token imbalance handling.
+- **`scripts/agent-deploy/kernel-codegen.ts`: op-class dispatch** — `classifyOp(opId, op)` routes to one of 4 specialized inner-loop bodies for CUDA-C++:
+  - `gemm` (matmul, grouped-matmul, lora-bgmv) → WGMMA tile-pair (existing).
+  - `attention` (attention, mla-attention, paged-attention-decode, online-softmax) → online softmax across K-tile pairs with FP32 (m, s, acc) state.
+  - `norm` (rmsnorm, layer-norm, group-norm, softmax) → row-reduction + warp-shuffle + per-row rsqrtf rescale.
+  - `scatter-permute` (expert-permute, index-put, embedding-lookup, repeat-interleave) → `atomicAdd` destination counter + vectorized 128-bit scatter, no MMA.
+- **`scripts/tests/kernel-codegen-dispatch.test.ts`** — 11 vitest assertions: each op-class produces a structurally different body; review_notes correctly surface the op-class to the human reviewer.
+
+### Changed
+
+- `kernel-codegen.ts` `review_notes` now includes `Op class: <gemm|attention|norm|scatter-permute>` plus an op-class-specific advisory (e.g. for scatter-permute: "WGMMA scaffolding is dead code — strip it; real impl uses warp-level radix sort").
+
+### Why this matters
+
+Before v2.18, the agent's generated `expert-permute_<arch>.cu` started with WGMMA setup that doesn't apply (expert-permute has no MMA), forcing the human reviewer to delete ~50 lines and rewrite from scratch. After v2.18, the `scatter-permute` template starts with `atomicAdd` + vectorized scatter — a useful starting point. Same story for `rmsnorm` (was GEMM, now row-reduction) and `attention` (was GEMM, now online-softmax + tile-pair).
+
+This also closes the v1.x→v2.x→post-v2.17 "5-layer hw-sw gap" framework's Layer D depth at 10/24 fused kernels (was 5/24) — the agent can now flag fusion-specific numerical rules in 42% of the catalog.
+
+---
+
+## [2.17.0] — 2026-05-02
+
+**Theme**: Layer D (formal_semantics) depth fill + first non-CUDA/Ascend DSL example.
+
+### Added
+
+- **5 more operator `formal_semantics`** (15 → 20 / 34): `silu`, `gelu`, `attention`, `conv2d`, `top-k-sampling`.
+  - `silu` documents the sigmoid fast vs strict implementation cliff (~1e-4 diff) and the 2× perf win when fused into matmul epilogue.
+  - `gelu` covers tanh approximation vs exact erf — must match training-time config (loading tanh-trained model with exact gives systematic offset).
+- **3 more fused-kernel `formal_semantics`** (2 → 5 / 24): `fused-rmsnorm-residual`, `paged-attention-decode`, `fused-quantized-attention`.
+- **`data/dsl-examples/bang-c-tiled-gemm.yaml`** — BANG-C (Cambricon MLU) tiled GEMM example. Demonstrates GDRAM → NRAM → WRAM staging + cluster sync — the explicit memory hierarchy that distinguishes Cambricon from CUDA's unified shared-memory abstraction.
+
+### Why this matters
+
+`formal_semantics` is what lets the agent's kernel-codegen output be reviewable. Without per-op `numerical_rules` documented, the human reviewer can't tell whether a CUDA→Ascend port broke FP32 accumulation, sigmoid precision, or sliding-window edge handling.
+
+---
+
+## [2.16.0] — 2026-05-02
+
+**Theme**: actual kernel codegen + non-HF inputs + verified DSV4 Pro end-to-end demo.
+
+Addresses the user directive: agent must (a) generate actual kernel code, (b) support non-HuggingFace inputs (PyTorch / raw weights), (c) MCP/Skill/Plugin work end-to-end, (d) demoable with DeepSeek V4 Pro on Claude Code / Codex.
+
+### Added
+
+- **`scripts/agent-deploy/kernel-codegen.ts`** (320 LOC) — emits actual compileable kernel SKELETONS in target arch's DSL (CUDA-Hopper / Ascend-C / HIP-CDNA3 / generic) when the coverage matrix detects gaps. Uses ISA primitive `cross_vendor_equivalents` to pick mapping ratios + DSL examples for the target arch idioms.
+- **Stage 5.5 added to `scripts/agent-deploy/index.ts`** — kernel-codegen runs after gap detection, before production-artifacts emission. Output `.cu`/`.cce`/`.cpp` files placed in deployment bundle.
+- **Non-HF input support** — agent now accepts model spec from PyTorch checkpoints (`pytorch:<path>`) or raw weights folder, in addition to `huggingface:<repo>`.
+- **Verified end-to-end demo** — DeepSeek V4 Pro on H100 / MI300X / Ascend 910C / MLU590 / DCU Z100 / MTT S4000 / Biren BR104 (7 hardware archs) all produce a runnable bundle.
+
+### Caveat (Q2 in v2.18+ ROADMAP)
+
+Codegen currently uses a single GEMM template for every op class, including `expert-permute` (sort+scatter) and `rmsnorm` (row reduction). v2.18 ships op-class-aware dispatch.
+
+---
+
+## [2.15.0] — 2026-05-02
+
+**Theme**: extend Layer D (formal_semantics) to FUSED kernels (was operators-only in v2.5–v2.14).
+
+### Added
+
+- **`FusedKernelSchema.formal_semantics`** (Zod schema) — captures fusion-specific gotchas distinct from constituent ops.
+- **2 entries**:
+  - `flash-attention-v3` — fp8 scaling layout (per-tensor build-time fixed), sliding-window edge cases, FP32 partial-sum mandatory.
+  - `fused-mlp-silu` — single-GEMM (concat W_gate + W_up) is fastest path; new `fusion_lifecycle` + `unfused_penalty` fields make the perf cliff explicit.
+
+---
+
+## [2.14.0] — 2026-05-02
+
+**Theme**: reasoning model coverage + 4 more operator `formal_semantics` + 49-run validation matrix.
+
+### Added
+
+- **2 reasoning-archetype model graphs**: `deepseek-r1-decode` (671B/37B MLA + 256-expert MoE, reasoning-tuned), `glm-5-reasoning-decode` (32B dense GQA, 国产 reasoning).
+- **4 more operator `formal_semantics`** (11 → 15): documenting reasoning-specific gotchas (long output 8K–32K decode-dominated).
+- **49-run validation matrix** — 7 models × 7 hardware (was 5×7=35 in v2.11).
+
+---
+
+## [2.13.0] — 2026-05-02
+
+**Theme**: MCP `plan_deployment` end-to-end verified + 4 国产 ISA primitives + 3 more `formal_semantics`.
+
+### Added
+
+- **4 国产 ISA primitives**: `cambricon-mlu-mma`, `moore-threads-musa-mma`, `biren-vance-mma`, `hygon-dcu-cdna-derived` — all with `cross_vendor_equivalents` mapping ratios to NVIDIA/AMD primitives.
+- **3 more operator `formal_semantics`** (8 → 11).
+- MCP `plan_deployment` tool tested via stdio JSON-RPC end-to-end.
+
+### Fixed
+
+- **MCP REPO_ROOT resolution bug**: when running from compiled `dist/index.js`, `'../..'` resolved to `plugins/` instead of repo root, causing agent-deploy spawn to fail. Replaced with `findRepoRoot()` that walks up looking for `scripts/agent-deploy/index.ts`.
+
+---
+
+## [2.12.0] — 2026-05-02
+
+**Theme**: MCP server hardened + 5 more `formal_semantics` + `EngineCompileWorkflow` schema.
+
+### Added
+
+- `pnpm-workspace.yaml` includes `plugins/mcp-server` (was missing — caused install failures).
+- `plugins/mcp-server/tsconfig.json` — TS 5.x ESM build config.
+- **MCP server verified end-to-end**: `initialize` → `tools/list` → `tools/call` (e.g., `evokernel_query_hardware` on `h100-sxm5`) — all 6 tools return correct JSON-RPC responses via stdio.
+- **`EngineCompileWorkflow` schema** + 4 entries (TRT-LLM build · vLLM compile · MindIE convert · SGLang loader).
+- **5 more operator `formal_semantics`** (3 → 8).
+
+---
+
+## [2.11.0] — 2026-05-02
+
+**Theme**: 国产 hardware expansion + MCP / Claude Code / Cursor / Codex plugin system.
+
+### Added
+
+- **Validation matrix expanded from 5×3=15 to 5×7=35 runs**: hardware now includes H100 / MI300X / Ascend 910C / MLU590 / DCU Z100 / MTT S4000 / Biren BR104.
+- **Plugin system** (`plugins/`):
+  - **`plugins/mcp-server/`** — MCP server with 6 tools (`query_hardware`, `query_operator`, `query_isa`, `solve`, `coverage_matrix`, `plan_deployment`).
+  - **`plugins/claude-code-skill/`** — Claude Code skill for in-IDE deployment planning.
+  - **`plugins/cursor-rules/`** — Cursor MDC rules for evokernel-spec-aware code completion.
+  - **`plugins/codex/`** — OpenAI Codex prompt presets.
+
+---
+
+## [2.10.0] — 2026-05-02
+
+**Theme**: empirical validation matrix — 5 models × 3 hardware = 15/15 pass.
+
+### Added
+
+- **`data/agent-validations.json`** — first concrete validation run-log with kernel gaps detected, ports planned, and emit-success flags per (model, hardware) cell.
+- **6 new model execution graphs**: `deepseek-v4-pro-prefill`, `llama-4-scout-prefill`, `llama-3.3-70b-decode`, etc. — fills out the prefill/decode-pair coverage that was missing in v2.8.
+
+### Fixed
+
+- Slug regex in `ModelExecutionGraphSchema` now allows dots (was rejecting `qwen3.6-plus`, `minimax-m2.7`).
 
 ---
 

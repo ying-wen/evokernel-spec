@@ -1,20 +1,20 @@
 # EvoKernel Spec
 
-> AI 推理硬件 × 模型 × 部署的开源知识库 — 国产芯片覆盖最全 / 可信度可引证 / 计算器透明
+> AI 推理硬件 × 模型 × 部署 + **任意模型 → 任意硬件 agent toolkit** 的开源知识库 — 国产芯片覆盖最全 / formal_semantics 可形式化 / kernel skeleton 可生成 / MCP+plugin 可调用
 >
-> 🎉 **v2.0.0 GA** (2026-05-02) — first stable public release · API + URL + schema 公开稳定承诺. 详见 [RELEASE-v2.0.md](docs/RELEASE-v2.0.md).
+> 🎉 **v2.0.0 GA** (2026-05-02) · 🔧 **v2.17.0** post-GA quality fill (2026-05-02) — formal_semantics depth + agent toolkit · 📐 详见 [ROADMAP](docs/ROADMAP.md) / [RELEASE-v2.0](docs/RELEASE-v2.0.md) / [CHANGELOG](CHANGELOG.md)
 
-**🌐 在线访问 / Live site: [yingwen.io/evokernel-spec](https://yingwen.io/evokernel-spec/)** · [📖 /contribute 贡献入口](https://yingwen.io/evokernel-spec/contribute/) · [📊 /pricing TCO 排名](https://yingwen.io/evokernel-spec/pricing/)
+**🌐 在线访问 / Live site: [yingwen.io/evokernel-spec](https://yingwen.io/evokernel-spec/)** · [📖 /contribute 贡献入口](https://yingwen.io/evokernel-spec/contribute/) · [📊 /pricing TCO 排名](https://yingwen.io/evokernel-spec/pricing/) · [🤖 /agents/ Agent toolkit](https://yingwen.io/evokernel-spec/agents/) · [🔌 /api/ JSON API](https://yingwen.io/evokernel-spec/api/)
 
 [![Live](https://img.shields.io/badge/live-yingwen.io%2Fevokernel--spec-success)](https://yingwen.io/evokernel-spec/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![E2E](https://img.shields.io/badge/e2e-520_passing-success)](#)
-[![Unit](https://img.shields.io/badge/unit-36_passing-success)](#)
+[![E2E](https://img.shields.io/badge/e2e-470%2B_passing-success)](#)
 [![Pages](https://img.shields.io/badge/pages-494-blue)](#)
-[![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
+[![API](https://img.shields.io/badge/JSON_API-20_endpoints-blueviolet)](#)
+[![Plugins](https://img.shields.io/badge/plugins-MCP_%2B_Claude_%2B_Cursor_%2B_Codex-orange)](#)
 [![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
-[![Release](https://img.shields.io/badge/release-v2.9.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
+[![Release](https://img.shields.io/badge/release-v2.17.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ![Home](docs/screenshots/home.png)
 
@@ -40,8 +40,23 @@
 - **国产芯片专题**: 矩阵热力图 + 代际谱系 + 软件生态对照
 - **数据可信度三档**: 📄 官方声称 · ✅ 实测验证 · ⚠️ 社区估算
 
+**🤖 Agent toolkit (v2.4 → v2.17) — 任意模型 → 任意硬件**:
+- **5-layer hw-sw gap framework** ([`docs/superpowers/specs/2026-05-02-hw-sw-gap.md`](docs/superpowers/specs/2026-05-02-hw-sw-gap.md)) — Layer A ISA primitives · Layer B DSL · Layer C kernel libraries · Layer D formal_semantics · Layer E coverage matrix
+- **15 ISA primitives** (8 vendors, all with `cross_vendor_equivalents` mapping ratios) — WGMMA / TMA / MFMA / Cube / MMA / Vance-MMA / DCU-MMA, etc. (`/isa-primitives/`)
+- **5 DSL examples** — CUDA-Hopper · Ascend-C · HIP-CDNA3 · Triton · BANG-C (Cambricon) — all GEMM-shape, attention/norm next (`/dev-toolkit/dsl-examples/`)
+- **8 kernel libraries** + **3 reference impls** + **6 profiling tools** + **4 engine compile workflows** (`/kernel-libraries/`, `/dev-toolkit/`)
+- **20/34 ops** with `formal_semantics` (signature + edge_cases + numerical_rules + reference_impl) — biggest remaining gap is fused-kernels at 5/24
+- **`/operators/coverage-matrix/`** — op × arch fitness heatmap shows where the kernel exists vs where the agent needs to port it
+- **`scripts/agent-deploy/`** (2,177 LOC) — 7-stage CLI agent: detect kernel gaps → plan ports → **generate actual CUDA/Ascend-C/HIP skeleton code** → emit production artifacts (Dockerfile / K8s / runbook / SBOM / license-audit) → 49-cell validation matrix. Verified end-to-end on DeepSeek V4 Pro across 7 hardware archs.
+
+**🔌 Plugins — call this from any LLM IDE (v2.11)**:
+- **`plugins/mcp-server/`** — MCP server with 6 tools: `query_hardware`, `query_operator`, `query_isa`, `solve`, `coverage_matrix`, `plan_deployment`. Verified end-to-end via stdio JSON-RPC.
+- **`plugins/claude-code-skill/`** — Claude Code skill for in-IDE deployment planning
+- **`plugins/cursor-rules/`** — Cursor MDC rules for evokernel-spec-aware code completion
+- **`plugins/codex/`** — OpenAI Codex prompt presets
+
 **🔌 外部接口 + 部署**:
-- **6 个 JSON API**: `/api/{index,hardware,models,cases,openapi}.json` + `/api/health.json`+`/api/healthz` (CC-BY-SA 4.0)
+- **20 个 JSON API**: `/api/{hardware,models,operators,fused-kernels,isa-primitives,dsl-examples,kernel-libraries,engines,engine-compile-workflows,model-graphs,profiling-tools,reference-impls,playbooks,coverage-matrix,cases,solve,index,openapi,health,healthz}.json` (CC-BY-SA 4.0)
 - **生产级本地部署**: `./launch.sh` 一键 build+health-poll+17 路由 smoke / `pack:dist` 离线 tar.gz + sha256 sidecar
 - **WCAG 2 AA 兼容**, 中文+英文双语, 支持深色主题
 - **完整 CI 6 jobs**: validate · type-check · unit · build · e2e (470 测试, axe a11y, Lighthouse) · deployment-smoke · 周度 evidence 链接健康检查
