@@ -1,0 +1,248 @@
+---
+/**
+ * /agents/learnings/ — knowledge feedback loop surface (v2.20).
+ *
+ * Every agent run that goes through `scripts/agent-deploy/` can write back
+ * a structured learning entry: kernel gaps discovered, perf cliffs hit,
+ * numerical mismatches caught, success patterns to reuse.
+ *
+ * This page surfaces the accumulated knowledge so:
+ *   - Future agent runs can avoid repeating the same gap-discovery work
+ *   - Human reviewers see a triage queue of corpus updates to land
+ *   - The loop "spec → plan → dev → test → feedback → spec" closes visibly
+ *
+ * v2.20 ships the schema + page + 3 seed entries (real past runs).
+ * v2.24 will wire automatic write-back from agent CLI.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { getAgentLearnings } from '~/lib/data';
+
+const learnings = (await getAgentLearnings()).sort(
+  (a, b) => b.agent_run_at.localeCompare(a.agent_run_at)
+);
+
+// Aggregate: how many of each observation kind across all learnings?
+const kindCounts = new Map<string, number>();
+for (const learning of learnings) {
+  for (const obs of learning.observations) {
+    kindCounts.set(obs.kind, (kindCounts.get(obs.kind) ?? 0) + 1);
+  }
+}
+const kindsSorted = [...kindCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+// Triage queue: open observations
+const openLearnings = learnings.filter((l) => l.triage_status === 'open');
+const totalOpenObs = openLearnings.reduce((sum, l) => sum + l.observations.length, 0);
+
+// Outcome breakdown
+const outcomeCounts = new Map<string, number>();
+for (const l of learnings) {
+  outcomeCounts.set(l.outcome, (outcomeCounts.get(l.outcome) ?? 0) + 1);
+}
+
+const OUTCOME_COLORS: Record<string, string> = {
+  shipped: 'oklch(70% 0.18 145)',
+  partial: 'oklch(72% 0.16 80)',
+  'kernel-gap-blocked': 'oklch(70% 0.16 50)',
+  'compile-failed': 'oklch(60% 0.20 25)',
+  'precision-regression': 'oklch(60% 0.20 25)',
+  'oom-or-fits-failure': 'oklch(60% 0.18 10)',
+};
+
+const KIND_ICONS: Record<string, string> = {
+  'kernel-gap': '🔧',
+  'perf-cliff': '📉',
+  'numerical-mismatch': '🔢',
+  'version-skew': '🔀',
+  'config-drift': '⚙️',
+  'success-pattern': '✅',
+  'missing-primitive': '🧩',
+  'fusion-opportunity': '🔗',
+};
+---
+<BaseLayout title="Agent Learnings · 知识反馈回路">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="AGENTS · v2.20"
+        title="Agent Learnings — 知识反馈回路"
+        subtitle="每次 agent 部署运行的结构化沉淀 · 让下一次 agent 起点更高 · spec ↔ plan ↔ dev ↔ test ↔ feedback 闭环"
+      />
+
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        本页是项目"持续沉淀跨硬件泛化知识"的入口 (v2.20 落地). 每次 agent CLI 运行
+        (<code class="text-xs px-1 rounded" style="background: var(--color-surface-subtle);">scripts/agent-deploy/</code>)
+        都可以写回一条结构化 learning — kernel gap, perf cliff, 数值不一致, 版本飘移, 成功模式 — 直接喂回 corpus.
+        v2.24 会接通自动 writeback; 当前 3 条来自历史运行的 seed entries.
+      </p>
+    </section>
+
+    {/* Stats strip */}
+    <section class="pb-8">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="rounded-lg p-4" style="background: var(--color-surface-subtle); border: 1px solid var(--color-border);">
+          <div class="text-3xl font-semibold" style="color: var(--color-text);">{learnings.length}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">agent runs logged</div>
+        </div>
+        <div class="rounded-lg p-4" style="background: var(--color-surface-subtle); border: 1px solid var(--color-border);">
+          <div class="text-3xl font-semibold" style="color: var(--color-text);">
+            {learnings.reduce((s, l) => s + l.observations.length, 0)}
+          </div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">observations captured</div>
+        </div>
+        <div class="rounded-lg p-4" style="background: var(--color-surface-subtle); border: 1px solid var(--color-border);">
+          <div class="text-3xl font-semibold" style="color: var(--color-text);">{totalOpenObs}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">open triage items</div>
+        </div>
+        <div class="rounded-lg p-4" style="background: var(--color-surface-subtle); border: 1px solid var(--color-border);">
+          <div class="text-3xl font-semibold" style="color: var(--color-text);">{kindCounts.size}</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">distinct learning kinds</div>
+        </div>
+      </div>
+    </section>
+
+    {/* Outcome breakdown */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📊 Outcome 分布</h2>
+      <div class="flex flex-wrap gap-3">
+        {[...outcomeCounts.entries()].map(([outcome, count]) => (
+          <div class="rounded px-3 py-1.5 text-sm" style={`background: ${OUTCOME_COLORS[outcome] ?? 'var(--color-surface-subtle)'}; color: oklch(15% 0 0);`}>
+            <span class="font-mono">{outcome}</span>
+            <span class="ml-2 font-semibold">{count}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* Observation kind breakdown */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🧠 Observation kinds</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {kindsSorted.map(([kind, count]) => (
+          <div class="rounded p-3" style="background: var(--color-surface-subtle); border: 1px solid var(--color-border);">
+            <div class="text-2xl">{KIND_ICONS[kind] ?? '•'}</div>
+            <div class="text-sm mt-1 font-mono">{kind}</div>
+            <div class="text-xs mt-1" style="color: var(--color-text-muted);">{count} {count === 1 ? 'observation' : 'observations'}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* Learning entries */}
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📋 Agent run log (most recent first)</h2>
+      <div class="flex flex-col gap-4">
+        {learnings.map((learning) => (
+          <article class="rounded-lg p-5" style="background: var(--color-surface-subtle); border: 1px solid var(--color-border);">
+            <header class="flex flex-wrap items-baseline gap-3 mb-3">
+              <h3 class="text-lg font-semibold font-mono">{learning.id}</h3>
+              <span class="text-xs px-2 py-0.5 rounded" style={`background: ${OUTCOME_COLORS[learning.outcome] ?? 'var(--color-surface)'}; color: oklch(15% 0 0);`}>
+                {learning.outcome}
+              </span>
+              <span class="text-xs" style="color: var(--color-text-muted);">{learning.agent_run_at.split('T')[0]}</span>
+            </header>
+
+            <dl class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm mb-4">
+              <div>
+                <dt class="text-xs uppercase tracking-wide" style="color: var(--color-text-muted);">Model</dt>
+                <dd class="font-mono mt-0.5">{learning.model_id}</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wide" style="color: var(--color-text-muted);">Hardware</dt>
+                <dd class="font-mono mt-0.5">{learning.hardware_id}</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wide" style="color: var(--color-text-muted);">Engine</dt>
+                <dd class="font-mono mt-0.5">{learning.engine_id}</dd>
+              </div>
+            </dl>
+
+            {learning.perf_delta && (
+              <div class="text-xs mb-3 rounded p-2" style="background: var(--color-surface);">
+                <span class="font-semibold">Perf delta:</span>
+                {learning.perf_delta.decode_tok_per_s_predicted && learning.perf_delta.decode_tok_per_s_actual && (
+                  <span class="ml-2">
+                    decode: {learning.perf_delta.decode_tok_per_s_actual} tok/s actual
+                    <span style="color: var(--color-text-muted);"> (predicted {learning.perf_delta.decode_tok_per_s_predicted})</span>
+                  </span>
+                )}
+                {learning.perf_delta.worst_delta_pct !== undefined && (
+                  <span class="ml-3" style={`color: ${learning.perf_delta.worst_delta_pct > 20 ? 'oklch(60% 0.20 25)' : learning.perf_delta.worst_delta_pct > 5 ? 'oklch(72% 0.16 80)' : 'oklch(70% 0.18 145)'};`}>
+                    worst Δ: {learning.perf_delta.worst_delta_pct.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            )}
+
+            <h4 class="text-sm font-semibold mb-2">Observations ({learning.observations.length})</h4>
+            <ul class="flex flex-col gap-2">
+              {learning.observations.map((obs) => (
+                <li class="text-sm rounded p-3" style="background: var(--color-surface);">
+                  <div class="flex items-start gap-2">
+                    <span class="text-lg">{KIND_ICONS[obs.kind] ?? '•'}</span>
+                    <div class="flex-1">
+                      <div class="text-xs font-mono mb-1" style="color: var(--color-text-muted);">
+                        {obs.kind}
+                        {obs.op_or_kernel && <span class="ml-2 px-1.5 py-0.5 rounded" style="background: var(--color-surface-subtle);">op: {obs.op_or_kernel}</span>}
+                        {obs.isa_primitive && <span class="ml-2 px-1.5 py-0.5 rounded" style="background: var(--color-surface-subtle);">isa: {obs.isa_primitive}</span>}
+                      </div>
+                      <p class="whitespace-pre-line">{obs.description.trim()}</p>
+                      {obs.proposed_corpus_update && (
+                        <div class="mt-2 text-xs rounded p-2" style="background: var(--color-surface-subtle); border-left: 3px solid oklch(68% 0.21 250);">
+                          <span class="font-semibold">📝 Proposed corpus update:</span>
+                          <p class="mt-1 whitespace-pre-line">{obs.proposed_corpus_update.trim()}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {learning.notes && (
+              <details class="mt-3">
+                <summary class="text-xs cursor-pointer" style="color: var(--color-text-muted);">Notes</summary>
+                <p class="text-xs mt-2 whitespace-pre-line" style="color: var(--color-text-muted);">{learning.notes.trim()}</p>
+              </details>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+
+    {/* How to contribute */}
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🤝 How to contribute</h2>
+      <p class="text-sm mb-3 max-w-3xl" style="color: var(--color-text-muted);">
+        Run an agent deployment? Found a kernel gap or perf cliff? Add a YAML entry under
+        <code class="text-xs px-1 rounded" style="background: var(--color-surface-subtle);">data/agent-learnings/</code>:
+      </p>
+      <pre class="text-xs rounded p-4 overflow-x-auto" style="background: var(--color-surface-subtle); border: 1px solid var(--color-border);"><code>id: my-model-on-my-hw-2026-MM-DD
+agent_run_at: '2026-MM-DDTHH:MM:SSZ'
+model_id: org/model-name
+hardware_id: hw-slug
+engine_id: vllm | sglang | mindie | trtllm | ...
+outcome: shipped | partial | kernel-gap-blocked | ...
+
+observations:
+  - kind: kernel-gap | perf-cliff | numerical-mismatch | ...
+    op_or_kernel: optional-op-id
+    description: 'plain prose: what was learned'
+    evidence: 'log excerpt or NCU report snippet'
+    proposed_corpus_update: 'PR-style suggestion'
+
+perf_delta:
+  decode_tok_per_s_predicted: 100
+  decode_tok_per_s_actual: 95
+  worst_delta_pct: 5.0
+
+triage_status: open</code></pre>
+      <p class="text-xs mt-2" style="color: var(--color-text-muted);">
+        Schema: <code class="text-xs px-1 rounded" style="background: var(--color-surface-subtle);">schemas/agent-learning.ts</code> ·
+        v2.24 will wire automatic writeback from <code class="text-xs px-1 rounded" style="background: var(--color-surface-subtle);">scripts/agent-deploy/</code>.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

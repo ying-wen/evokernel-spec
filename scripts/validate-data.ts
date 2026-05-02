@@ -7,7 +7,7 @@ import {
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
   PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
   DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema,
-  ModelExecutionGraphSchema, EngineCompileWorkflowSchema
+  ModelExecutionGraphSchema, EngineCompileWorkflowSchema, AgentLearningSchema
 } from '@evokernel/schemas';
 import { loadYaml } from './lib/load-yaml.ts';
 
@@ -45,7 +45,8 @@ const ENTITY_GLOBS: Array<{ name: string; glob: string; schema: ZodSchema }> = [
   { name: 'reference-impl', glob: 'reference-impls/*.yaml', schema: ReferenceImplementationSchema },
   { name: 'profiling-tool', glob: 'profiling-tools/*.yaml', schema: ProfilingToolSchema },
   { name: 'model-graph', glob: 'model-graphs/*.yaml', schema: ModelExecutionGraphSchema },
-  { name: 'engine-compile-workflow', glob: 'engine-compile-workflows/*.yaml', schema: EngineCompileWorkflowSchema }
+  { name: 'engine-compile-workflow', glob: 'engine-compile-workflows/*.yaml', schema: EngineCompileWorkflowSchema },
+  { name: 'agent-learning', glob: 'agent-learnings/*.yaml', schema: AgentLearningSchema },
 ];
 
 export async function validateAll(opts: { dataDir: string }): Promise<ValidationReport> {

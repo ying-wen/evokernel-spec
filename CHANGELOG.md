@@ -6,7 +6,35 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.20 — agent toolkit visibility + knowledge feedback loop** (`/dev-toolkit/agent-toolkit/` index page + plugins documentation + 5-layer framework visualization + `agent-learnings` schema for write-back from agent runs).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.21 — DSL examples horizontal expansion** (attention-on-Hopper, rmsnorm-on-Ascend, fused-rope-qkv-on-Triton, all2all-on-NCCL/HCCL — covers Layer B horizontally, not just GEMM-shape).
+
+---
+
+## [2.20.0] — 2026-05-02
+
+**Theme**: knowledge feedback loop foundation — `agent-learning` schema + `/agents/learnings/` surface.
+
+This is the v2.x major's keystone release: it lays the data shape and the public surface for **continuous knowledge accumulation** — every agent deployment run can now write back structured observations (kernel gaps, perf cliffs, numerical mismatches, success patterns) so future agent runs start smarter and human reviewers have a triage queue of corpus updates.
+
+### Added
+
+- **`schemas/agent-learning.ts`** — new schema (Layer F: feedback). Captures per-run agent learnings with structured observations (8 kinds: kernel-gap, perf-cliff, numerical-mismatch, version-skew, config-drift, success-pattern, missing-primitive, fusion-opportunity) + perf delta vs prediction + triage status.
+- **`data/agent-learnings/`** — 3 seed YAML entries from real past agent runs:
+  - `dsv4-pro-on-mlu590-2026-05-02` — DeepSeek V4 Pro on Cambricon MLU590 (shipped, 21.4% perf delta from missing fused-moe-dispatch-deepep equivalent on Ascend → proposed `fused-moe-dispatch-hccl` corpus addition).
+  - `llama-4-scout-on-h100-2026-05-02` — Llama 4 Scout on H100 (shipped clean, single page-size playbook update PR).
+  - `qwen3-6-on-ascend-910c-2026-05-02` — Qwen 3.6 on Ascend 910C at 64K ctx (partial: numerical mismatch caught by aclnn-rope FP16 path → vindicates v2.18 rotation_compute_dtype rule; surfaces missing `huawei-ascend-vector-fp32` ISA primitive).
+- **`/agents/learnings/`** Astro page — surfaces all learnings sorted by date, with stats strip (runs / observations / open triage / kinds), outcome breakdown, observation-kind breakdown, per-entry perf-delta indicator (color-coded by severity), and a "How to contribute" section showing the YAML shape.
+- **`/api/agent-learnings.json`** — JSON endpoint for external agent consumption (CC-BY-SA 4.0).
+
+### Why this matters
+
+The user's directive was explicit:
+
+> 持续沉淀丰富完善跨硬件泛化的知识回来，并能持续优化部署。
+
+v2.20 is the *foundation* for that: schema + surface + 3 worked examples. v2.24 will wire the automatic writeback from `scripts/agent-deploy/` so the loop closes without human-mediated YAML authoring.
+
+The first 3 seed entries already prove the value: the Qwen 3.6 on Ascend learning vindicates v2.18's `rotation_compute_dtype` rule (the agent now correctly flags this case), and surfaces a real missing ISA primitive (`huawei-ascend-vector-fp32`) that was invisible before this run.
 
 ---
 

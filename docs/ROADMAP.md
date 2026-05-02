@@ -192,22 +192,89 @@ no attention/norm/all2all examples yet.
 
 ---
 
-## v2.18+ trajectory
+## v2.18 → v2.24 trajectory — current big version
 
-| Sprint | Theme | Concrete deliverables |
-|---|---|---|
-| **v2.18** | Fused-kernel depth + op-class codegen | 5 fused-kernel `formal_semantics` (flash-decoding, flash-mla, fused-rope-qkv, fused-attn-sliding-window, fused-moe-dispatch-deepep) + 4-way op-class codegen dispatch (gemm / attention / norm / scatter-permute) |
-| v2.19 | Collective ops complete | 5 op `formal_semantics` (allreduce, all-gather, all2all, reduce-scatter, memcpy-async) + NCCL+HCCL DSL example |
-| v2.20 | Agent toolkit visibility | `/dev-toolkit/agent-toolkit/` index page + plugins documentation + 5-layer framework visualization |
-| v2.21 | DSL examples horizontal expansion | 4 new DSL examples (attention-on-Hopper, rmsnorm-on-Ascend, fused-rope-qkv-on-Triton, all2all-on-NCCL/HCCL) |
-| v2.22 | Fused-kernel depth fill cont. | Remaining 14 fused-kernel `formal_semantics` |
+**Theme of the v2.x major**: *agent can take **any model** and ship it on **any hardware**, with cross-hardware generalization, accumulated knowledge feeding back to the corpus, and continuous deployment optimization.* The skills/plugins in Codex / Claude Code / Cursor / MCP must be production-grade end-to-end.
+
+This was the user's directive (2026-05-02):
+
+> 实现 agent 端到端的任意模型到任意硬件能跨硬件泛化的交付、部署和持续优化，提供所有必要的信息，在 codex / claude code 提供完整能端到端交付的 skill 或 plugin，然后除了能部署之外，还能持续沉淀丰富完善跨硬件泛化的知识回来，并能持续优化部署。
+
+The trajectory:
+
+| Sprint | Theme | Concrete deliverables | Status |
+|---|---|---|---|
+| **v2.18** | Fused-kernel depth + op-class codegen | 5 fused-kernel `formal_semantics` (flash-decoding, flash-mla, fused-rope-qkv, fused-attn-sliding-window, fused-moe-dispatch-deepep) + 4-way op-class codegen dispatch (gemm / attention / norm / scatter-permute) + 11 dispatch unit tests | ✅ shipped |
+| **v2.19** | Collective ops complete | 5 op `formal_semantics` (allreduce, all-gather, all2all, reduce-scatter, memcpy-async) + NCCL+HCCL side-by-side DSL example with cross-vendor mapping table | ✅ shipped |
+| **v2.20** | Agent toolkit visibility + knowledge feedback schema | `/dev-toolkit/agent-toolkit/` index page · plugins documentation · 5-layer framework visualization · `agent-learnings` schema (capture what the agent discovered per run for write-back to the corpus) | next |
+| v2.21 | DSL examples horizontal expansion | 4 new DSL examples (attention-on-Hopper, rmsnorm-on-Ascend, fused-rope-qkv-on-Triton, all2all-on-NCCL/HCCL) — covers Layer B horizontally, not just GEMM-shape |
+| v2.22 | Fused-kernel depth fill cont. | Remaining 14 fused-kernel `formal_semantics` (fused-spec-decode, fused-mtp-head, mooncake-kv-disaggregation, fused-allreduce-residual, fused-tp-allreduce-residual, fused-allgather-gemm, fused-grouped-gemm, fused-dequant-gemm, fused-kv-quant, fused-rmsnorm-residual-quantize, fused-conv-norm-act, fused-add-bias-gelu, fused-radix-attention, fused-selective-scan) |
 | v2.23 | Operator depth fill cont. | Remaining 9 op `formal_semantics` (embedding-lookup, cross-entropy, dropout, repeat-interleave, layer-norm, group-norm, swiglu, softmax, mla-attention) |
-| v2.24 | E2E agent regression suite | Frozen 49-run validation as CI job — catches regressions in codegen / planning agent |
+| v2.24 | Knowledge feedback loop activated + E2E regression CI | (a) wire `agent-learnings` write-back from `scripts/agent-deploy/` (every agent run logs back what it discovered: kernel gaps, perf cliffs, missing primitives, version skew); (b) frozen 49-run validation matrix as CI job — catches regressions in codegen / planning |
 
-When all of v2.18-v2.24 ship, the agent layer's "any model × any hardware" promise
-will be reproducibly verifiable from CI alone, and the post-deployment optimization
-chain (Gap 3 of v1.x) will be backed by formal_semantics for every (op, kernel)
-the agent might suggest.
+When v2.24 ships, **the spec/plan/dev/test loop closes**:
+
+```text
+   spec        plan       dev       test       feedback
+    │           │           │          │           │
+    └─ docs/specs ── ROADMAP ── code ── CI ── agent-learnings ──┐
+                                                                │
+            ┌───────────────────────────────────────────────────┘
+            ▼
+   /agents/learnings/  ← accumulated cross-deploy knowledge surface
+            │
+            ▼
+   Next agent run starts smarter → continuous optimization
+```
+
+Every agent deployment becomes a corpus-enriching event. The agent that
+ships DeepSeek V4 Pro to Cambricon MLU590 today writes back what gaps it
+hit (e.g. "MLU590 has no fused-rope-qkv equivalent — port required") so
+the *next* DeepSeek-on-Cambricon agent run starts with that knowledge
+already in the coverage matrix.
+
+---
+
+## v3.0 — next big version (planned, scoped post-v2.24)
+
+**Two breadth axes** the user explicitly called out (2026-05-02):
+
+> 扩展更多的模型和硬件，模型不止是这些大语言模型或者视觉语言模型，还有更多开源的视频、图像生成模型、语音模型、大分子/小分子材料模型，生物相关模型等等，硬件不止这些服务器级别的 CPU/NPU/TPU 等，还有消费级显卡，端侧推理芯片等等
+
+### Model breadth (today is **20 LLM/VLM**, planned ~50+)
+
+| Family | Examples | Why |
+|---|---|---|
+| Video generation | Sora, Wan 2.1, HunyuanVideo, Mochi 1, OpenSora, CogVideoX | Compute-bound; very different fusion topology (3D conv + temporal attention) — drives separate playbooks |
+| Image generation | FLUX.1 (already), SDXL, SD3.5, Auraflow, PixArt-Σ | Already partial; fill out scheduler variants + ControlNet |
+| Speech (TTS / ASR) | F5-TTS, Step-Audio, GPT-SoVITS, Whisper-Turbo, Parakeet, FunASR | Streaming inference shape; very different from LLM decode |
+| Molecule (small) | Boltz-1, RFAA, ESMFold (already), GNINA | AlphaFold 3 already in corpus — extend to docking + property prediction |
+| Molecule (large) / Bio | Geneformer, scGPT, Evo-1.5, ProGen3 | Genomic transformer family; extreme context (>1M) |
+| Materials | MACE-MP, M3GNet, GNoME, Orb-V2 | Equivariant GNN architectures; fundamentally different from transformer playbook |
+
+### Hardware breadth (today is **39 server-grade**, planned ~70+)
+
+| Class | Examples | Why |
+|---|---|---|
+| Consumer GPU | RTX 5090, RTX 4090/4080, RX 9070 XT, RX 7900 XTX, ARC B580 | Hobby + small-team deploys; very different memory/tdp envelope |
+| Apple Silicon | M3 Ultra, M4 Max, M4 Pro (already partial), iPad M4 | Unified memory, AMX, Metal — own ISA-primitives lineage |
+| Edge inference | Jetson Thor, Jetson Orin Nano, Hailo-10, Coral Dev Board, Rockchip RK3588 NPU, Sophon SE9 | Power-budget + integer-only paths; drives quantization aggressiveness |
+| 国产 consumer / edge | Moore Threads MTT S80, Innosilicon Fenghua No.3, Cambricon MLU220-edge, Iluvatar Tianhang-S, Biren BR105 | Domestic edge market; closed ecosystems, partial CUDA compatibility |
+| ARM server CPUs | Grace Hopper (already partial), Ampere One M, Yitian 710 | CPU-only inference still relevant for small models + memory-bound batches |
+
+### v3.0 work breakdown (placeholder)
+
+The v3.0 plan will be drafted at the close of v2.24 — likely:
+
+- **v3.0–v3.2**: Hardware breadth (consumer GPUs, Apple Silicon, edge NPUs)
+  — extend `HardwareSchema` for consumer-tier (TDP < 250W, no NVLink)
+- **v3.3–v3.5**: Model breadth (video / speech / bio / molecule / materials)
+  — extend `ModelExecutionGraphSchema` for non-transformer architectures
+  (3D conv, equivariant GNN, streaming-ASR)
+- **v3.6**: Cross-cutting calculator updates — TCO and roofline for consumer
+  pricing tiers, edge power constraints, residential electricity rates
+
+**Out of scope for v2.x** (deferred to v3.x to keep the current major focused).
 
 ---
 

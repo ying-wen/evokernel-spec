@@ -1,0 +1,51 @@
+id: llama-4-scout-on-h100-2026-05-02
+agent_run_at: '2026-05-02T16:45:00Z'
+model_id: meta-llama/Llama-4-Scout-17B-16E
+hardware_id: h100-sxm5
+engine_id: vllm
+outcome: shipped
+
+observations:
+  - kind: success-pattern
+    op_or_kernel: fused-moe-dispatch-deepep
+    description: |
+      Llama 4 Scout (17B activated, 16-expert MoE) on H100 used vLLM 0.6.6+
+      with --moe-backend deepep flag. Decode latency 31% better than NCCL fallback;
+      matched predicted perf within 4%.
+    evidence: 'NCU profile confirmed DeepEP path activated; perf delta 4.1%.'
+
+  - kind: config-drift
+    op_or_kernel: paged-attention-decode
+    description: |
+      Engine silently used page_size=128 (vLLM default) instead of the predicted
+      page_size=64. Result was actually better (KV cache fragmentation lower
+      at higher page_size for this workload), but the agent's prediction was off.
+    evidence: |
+      vLLM startup log: "Using paged attention with block_size=128".
+      Predicted block_size=64 based on /playbooks/llama-4-scout-h100/.
+    proposed_corpus_update: |
+      Update /playbooks/llama-4-scout-h100/ to recommend page_size=128 for
+      this workload (chat, mixed sequence lengths). The 64-default was correct
+      for code/math workloads but suboptimal here.
+
+  - kind: success-pattern
+    op_or_kernel: flash-attention-v3
+    description: |
+      FA3 fp8 path activated automatically on H100; no kernel-gap. Predicted
+      perf matched within 2%.
+
+perf_delta:
+  decode_tok_per_s_predicted: 285
+  decode_tok_per_s_actual: 297
+  ttft_ms_predicted: 145
+  ttft_ms_actual: 152
+  cost_per_m_tokens_predicted: 12.3
+  cost_per_m_tokens_actual: 11.8
+  worst_delta_pct: 4.8
+
+triage_status: open
+
+notes: |
+  Clean shipped run on Tier-1 hardware. Single corpus update PR
+  (page_size playbook hint) opened. Useful as a reference for other Llama 4
+  on Hopper deploys — most of the agent's plan held up.

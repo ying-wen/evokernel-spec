@@ -1,0 +1,58 @@
+id: dsv4-pro-on-mlu590-2026-05-02
+agent_run_at: '2026-05-02T15:30:00Z'
+model_id: deepseek-ai/DeepSeek-V4-Pro
+hardware_id: mlu590
+engine_id: mindie
+outcome: shipped
+
+observations:
+  - kind: kernel-gap
+    op_or_kernel: fused-rope-qkv
+    description: |
+      MLU590 has no fused-rope-qkv equivalent — kernel-codegen emitted a BANG-C
+      skeleton with the WGMMA→Cube mapping. Human reviewer needed to swap
+      __memcpy_async direction enums and adapt SMEM size to NRAM (smaller buffer).
+      Took 2-3 hours of porting work; result was 1.18× speedup vs unfused path.
+    evidence: |
+      kernel_gaps.md flagged "fused-rope-qkv missing on cambricon-mlu" with
+      cross-vendor primitive mapping cambricon-mlu-mma. NCU-equivalent (cnperf)
+      profile confirmed RoPE fused-epilogue path activated.
+    proposed_corpus_update: |
+      data/dsl-examples/bang-c-fused-rope-qkv.yaml — add as v2.21 deliverable.
+      Already exists for tiled-gemm; this is the natural next BANG-C example.
+
+  - kind: success-pattern
+    op_or_kernel: paged-attention-decode
+    description: |
+      MindIE's paged-attention-decode on MLU590 worked first-try with vLLM-style
+      page_size=64. No port required — Cambricon's MLU MMA primitive maps
+      cleanly to the existing kernel template.
+    evidence: 'agent-deploy-output/launch.sh ran clean; no kernel-codegen needed.'
+
+  - kind: perf-cliff
+    op_or_kernel: fused-moe-dispatch-deepep
+    description: |
+      No DeepEP equivalent on Cambricon (HCCS does not yet expose RDMA-direct
+      from kernel). MoE dispatch fell back to standard HCCL all-to-all + separate
+      permute kernel — observed 35% slower than predicted vs DeepEP-on-Hopper baseline.
+    evidence: 'msprof equivalent (cnperf) shows HCCL all-to-all takes 1.8x predicted time.'
+    proposed_corpus_update: |
+      Add `fused-moe-dispatch-hccl` fused-kernel entry as the Cambricon analog
+      to fused-moe-dispatch-deepep. Document the perf gap explicitly.
+
+perf_delta:
+  decode_tok_per_s_predicted: 184
+  decode_tok_per_s_actual: 167
+  ttft_ms_predicted: 420
+  ttft_ms_actual: 510
+  cost_per_m_tokens_predicted: 38.5
+  cost_per_m_tokens_actual: 41.2
+  worst_delta_pct: 21.4
+
+triage_status: open
+
+notes: |
+  This run is the canonical "国产 hardware first port" example. Took 2 days of
+  human-in-the-loop work; agent did the planning + skeleton; human did the port
+  + numerical validation. v2.21+ will add the missing BANG-C DSL examples; v2.22+
+  will document fused-moe-dispatch-hccl explicitly.
