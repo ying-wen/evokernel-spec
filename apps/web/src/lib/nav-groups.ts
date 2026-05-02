@@ -131,7 +131,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/agents/', labelKey: 'nav.agents', desc_zh: '智能体集成入口 · JSON API · /api/solve.json · MCP 路线图', desc_en: 'Agent integration · JSON API · /api/solve.json · MCP roadmap', theme: 'accent' },
       { path: '/agents/example/', labelKey: 'nav.agentsExample', desc_zh: 'E2E 工作样例 · HF 模型 → 任意硬件 · 13 个生产级 artifact', desc_en: 'E2E working sample · HF model → any hardware · 13 production-grade artifacts', theme: 'accent' },
       { path: '/agents/validations/', labelKey: 'nav.agentsValidations', desc_zh: '实测验证矩阵 · 5 模型 × 7 硬件 (含 4 国产) = 35 runs · 100% pass', desc_en: 'Validation matrix · 5 models × 7 hardware (incl 4 Chinese vendors) = 35 runs · 100% pass', theme: 'accent' },
-      { path: '/agents/integrations/', labelKey: 'nav.agentsIntegrations', desc_zh: 'Plugin / Skill 集成 · MCP / Claude Code / Cursor / Codex', desc_en: 'Plugin / skill integrations · MCP / Claude Code / Cursor / Codex', theme: 'accent' }
+      { path: '/agents/integrations/', labelKey: 'nav.agentsIntegrations', desc_zh: 'Plugin / Skill 集成 · MCP / Claude Code / Cursor / Codex', desc_en: 'Plugin / skill integrations · MCP / Claude Code / Cursor / Codex', theme: 'accent' },
+      { path: '/agents/demo/', labelKey: 'nav.agentsDemo', desc_zh: 'DSV4 Pro 端到端 demo · 实测 Claude Code/MCP 调用 · kernel codegen', desc_en: 'DSV4 Pro E2E demo · live Claude Code/MCP invocation · kernel codegen', theme: 'accent' }
     ]
   }
 ];

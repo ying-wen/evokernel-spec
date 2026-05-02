@@ -37,6 +37,7 @@ import {
   generateProductionChecklist,
   generateSBOM
 } from './production-artifacts';
+import { generateKernels, type GeneratedKernel } from './kernel-codegen';
 
 // ============================================================
 // Types
@@ -159,6 +160,49 @@ async function fetchHFConfig(hfId: string, localPath?: string): Promise<HFConfig
     );
   }
   return await r.json();
+}
+
+/**
+ * v2.16 — load model config from local PyTorch checkpoint or weights dir
+ * (non-HF inputs). Looks for config.json / pytorch_config / model.safetensors.json
+ * metadata to extract architecture.
+ */
+async function loadLocalModelConfig(localDir: string): Promise<{ id: string; cfg: HFConfig }> {
+  const configCandidates = ['config.json', 'pytorch_config.json', 'model_config.json'];
+  for (const name of configCandidates) {
+    const p = path.join(localDir, name);
+    if (existsSync(p)) {
+      console.error(`  Reading local config from ${p}`);
+      const cfg = JSON.parse(await readFile(p, 'utf-8'));
+      // Synthesize an "id" from the directory name
+      const id = `local:${path.basename(path.resolve(localDir))}`;
+      return { id, cfg };
+    }
+  }
+  // Fallback — try to read a safetensors index for metadata
+  const safetensorsIdx = path.join(localDir, 'model.safetensors.index.json');
+  if (existsSync(safetensorsIdx)) {
+    console.error(`  Reading safetensors index ${safetensorsIdx}`);
+    const idx = JSON.parse(await readFile(safetensorsIdx, 'utf-8'));
+    const meta = idx.metadata ?? {};
+    const cfg: HFConfig = {
+      architectures: ['UnknownLocalModel'],
+      hidden_size: meta.hidden_size ?? 4096,
+      num_attention_heads: meta.num_attention_heads ?? 32,
+      num_key_value_heads: meta.num_key_value_heads ?? meta.num_attention_heads ?? 32,
+      num_hidden_layers: meta.num_hidden_layers ?? 32,
+      intermediate_size: meta.intermediate_size ?? 11008,
+      vocab_size: meta.vocab_size ?? 32000,
+      max_position_embeddings: meta.max_position_embeddings ?? 8192
+    };
+    return { id: `local:${path.basename(path.resolve(localDir))}`, cfg };
+  }
+  throw new Error(
+    `Local source path "${localDir}" does not contain config.json or model.safetensors.index.json. ` +
+    `Provide either: (1) a HuggingFace-format directory with config.json, OR (2) the original PyTorch ` +
+    `model directory with metadata. To analyze raw .pt / .pth weights, run: python -m evokernel.extract_arch ` +
+    `<weights.pt> > config.json then pass --config /path/to/config.json.`
+  );
 }
 
 function classifyModel(hfId: string, cfg: HFConfig): ParsedModel {
@@ -643,9 +687,24 @@ Example:
   console.error(`\n🤖 agent-deploy: ${args.model} → ${args.hardware}\n`);
 
   // ===== Stage 1: Fetch + classify =====
-  console.error('📥 Stage 1 — fetching HuggingFace config...');
-  const cfg = await fetchHFConfig(args.model, args.config);
-  const m = classifyModel(args.model, cfg);
+  // v2.16 — supports 3 input modes:
+  //   --source-type=hf     (default; pulls config.json from HuggingFace)
+  //   --source-type=local  (--model is a local dir with config.json/safetensors)
+  //   --source-type=pytorch (alias for local; future: parse modeling_*.py)
+  const sourceType = args['source-type'] ?? 'hf';
+  let modelHFId: string;
+  let cfg: HFConfig;
+  if (sourceType === 'local' || sourceType === 'pytorch') {
+    console.error(`📥 Stage 1 — loading local model from ${args.model}...`);
+    const loaded = await loadLocalModelConfig(args.model);
+    modelHFId = loaded.id;
+    cfg = loaded.cfg;
+  } else {
+    console.error('📥 Stage 1 — fetching HuggingFace config...');
+    cfg = await fetchHFConfig(args.model, args.config);
+    modelHFId = args.model;
+  }
+  const m = classifyModel(modelHFId, cfg);
   console.error(
     `  Classified: ${m.archetype}, ${m.total_params_b.toFixed(1)}B params ` +
     `(${m.active_params_b.toFixed(1)}B active), ${m.attention_variant.toUpperCase()} attention\n`
@@ -734,6 +793,33 @@ Example:
   console.error(`  Launch script: ${launchScript.split('\n').length} lines`);
   console.error(`  Kernel gaps: ${gapsReport.gaps.length} ops need codegen on ${arch_family}\n`);
 
+  // ===== Stage 5.5: Kernel codegen (v2.16) =====
+  // For each detected gap, emit an actual kernel skeleton in the target arch's
+  // DSL. This is NOT production code — it's a starting point that captures
+  // the structural pattern (memory hierarchy, ISA primitive choice, edge cases)
+  // for an LLM agent + human engineer to refine + ship.
+  let generatedKernels: GeneratedKernel[] = [];
+  if (gapsReport.gaps.length > 0) {
+    console.error('🔧 Stage 5.5 — generating kernel skeletons for gaps...');
+    try {
+      const [opsResp, primitivesResp, dslResp] = await Promise.all([
+        queryAPI<any>('operators.json', apiBase),
+        queryAPI<any>('isa-primitives.json', apiBase),
+        queryAPI<any>('dsl-examples.json', apiBase)
+      ]);
+      generatedKernels = generateKernels({
+        gaps: gapsReport.gaps,
+        target_arch: arch_family,
+        primitives: primitivesResp.items,
+        dsl_examples: dslResp.items,
+        operators: opsResp.items
+      });
+      console.error(`  Generated ${generatedKernels.length} kernel skeleton${generatedKernels.length !== 1 ? 's' : ''}\n`);
+    } catch (e) {
+      console.error(`  ⚠ Kernel codegen failed (continuing): ${(e as Error).message}\n`);
+    }
+  }
+
   // ===== Stage 6: Verification =====
   console.error('🔬 Stage 6 — generating verification plan...');
   const verificationPlan = generateVerificationPlan(plan);
@@ -756,6 +842,17 @@ Example:
   await mkdir(outputDir, { recursive: true });
   await mkdir(path.join(outputDir, 'kubernetes'), { recursive: true });
   await mkdir(path.join(outputDir, 'monitoring'), { recursive: true });
+  if (generatedKernels.length > 0) {
+    await mkdir(path.join(outputDir, 'kernels-generated'), { recursive: true });
+  }
+
+  const kernelWrites = generatedKernels.map((k) =>
+    writeFile(path.join(outputDir, 'kernels-generated', k.filename), k.code)
+  );
+  // Aggregate review notes index
+  const kernelIndex = generatedKernels.length > 0
+    ? `# Generated Kernel Skeletons\n\n${generatedKernels.length} kernel skeleton(s) generated for ${arch_family}. **These are starting points — not production-ready code.** Review the TODO markers and validate against /operators/<op>/ formal_semantics edge cases before shipping.\n\n${generatedKernels.map((k) => `## ${k.op}\n\nFile: \`${k.filename}\` (${k.language})\n\n### Review notes\n\n${k.review_notes.map((n) => `- ${n}`).join('\n')}\n`).join('\n---\n\n')}\n`
+    : '';
 
   await Promise.all([
     // Planning artifacts (Stage 1-6)
@@ -772,7 +869,10 @@ Example:
     writeFile(path.join(outputDir, 'provenance.json'), provenance),
     writeFile(path.join(outputDir, 'license-audit.md'), licenseAudit),
     writeFile(path.join(outputDir, 'production-checklist.md'), checklist),
-    writeFile(path.join(outputDir, 'sbom.json'), sbom)
+    writeFile(path.join(outputDir, 'sbom.json'), sbom),
+    // v2.16: kernel skeletons + index
+    ...kernelWrites,
+    kernelIndex ? writeFile(path.join(outputDir, 'kernels-generated', 'README.md'), kernelIndex) : Promise.resolve()
   ]);
 
   console.error(`✅ Done — outputs in ${outputDir}/\n`);

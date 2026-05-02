@@ -1,0 +1,290 @@
+---
+/**
+ * /agents/demo/ — DeepSeek V4 Pro end-to-end walkthrough (v2.16).
+ *
+ * Concrete walkthrough: how a user invokes the agent via Claude Code /
+ * Cursor / Codex via MCP server / skill / rules, with actual outputs
+ * captured from running the system locally.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+---
+<BaseLayout title="Agent E2E Demo — DeepSeek V4 Pro on Claude Code / Cursor / Codex">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="AGENTS · DEMO · v2.16"
+        title="DeepSeek V4 Pro 端到端 demo — 在 Claude Code / Cursor / Codex 里跑通"
+        subtitle="MCP server + Claude Code Skill + Cursor Rules · 跨 NVIDIA / Ascend 的实际输出"
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        以下所有输出都是在本机实际运行得到的, 不是 hypothetical. 流程: 用户在
+        Claude Code / Cursor / Codex 里发自然语言请求 → 工具调用 MCP server 上的 <code style="font-family:var(--font-mono);">evokernel_plan_deployment</code> tool → 返回 13 个生产级 artifact + 2 个 generated kernel skeleton.
+      </p>
+    </section>
+
+    {/* Setup */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">⚙️ 1. Setup (一次性)</h2>
+      <h3 class="text-base font-semibold mb-2 mt-4">a) Claude Desktop</h3>
+      <p class="text-xs mb-2" style="color: var(--color-text-muted);">
+        Edit <code style="font-family: var(--font-mono);">~/Library/Application Support/Claude/claude_desktop_config.json</code>:
+      </p>
+      <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`{
+  "mcpServers": {
+    "evokernel-spec": {
+      "command": "node",
+      "args": ["/path/to/evokernel-spec/plugins/mcp-server/dist/index.js"],
+      "env": {
+        "EVOKERNEL_API_BASE": "https://yingwen.io/evokernel-spec/api"
+      }
+    }
+  }
+}`}</code></pre>
+
+      <h3 class="text-base font-semibold mb-2 mt-4">b) Claude Code</h3>
+      <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`mkdir -p ~/.claude/skills/evokernel-deploy
+cp /path/to/evokernel-spec/plugins/claude-code-skill/SKILL.md \\
+   ~/.claude/skills/evokernel-deploy/`}</code></pre>
+
+      <h3 class="text-base font-semibold mb-2 mt-4">c) Cursor</h3>
+      <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`cp /path/to/evokernel-spec/plugins/cursor-rules/.cursorrules \\
+   /path/to/your/project/`}</code></pre>
+
+      <h3 class="text-base font-semibold mb-2 mt-4">d) Codex CLI (MCP option)</h3>
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Add to <code style="font-family: var(--font-mono);">~/.config/codex/mcp.json</code> with same schema as Claude Desktop. See <code style="font-family: var(--font-mono);">plugins/codex/README.md</code>.
+      </p>
+    </section>
+
+    {/* User prompt */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">💬 2. User asks the agent</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        In any of Claude Desktop / Claude Code / Cursor / Codex (with MCP wired):
+      </p>
+      <div class="rounded-lg p-4 border" style="background: color-mix(in oklch, var(--color-accent) 5%, var(--color-surface-raised)); border-color: var(--color-accent);">
+        <p class="text-sm font-mono">
+          帮我把 <strong>deepseek-ai/DeepSeek-V4-Pro</strong> 部署到 <strong>H100 SXM5</strong> 集群上, chat 工作负载. 给出生产级方案.
+        </p>
+      </div>
+      <p class="text-xs mt-2" style="color: var(--color-text-muted);">
+        Agent 自动识别 deployment task, 调 <code style="font-family: var(--font-mono);">evokernel_plan_deployment</code> tool 通过 MCP.
+      </p>
+    </section>
+
+    {/* Agent calls MCP tool */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🔧 3. Agent calls MCP tool (通过 stdio JSON-RPC)</h2>
+      <pre class="rounded p-4 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`// Tool invocation
+{
+  "name": "evokernel_plan_deployment",
+  "arguments": {
+    "model": "deepseek-ai/DeepSeek-V4-Pro",
+    "hardware": "h100-sxm5",
+    "workload": "chat"
+  }
+}
+
+// Server side: spawns scripts/agent-deploy/index.ts and returns:
+✅ Plan generated. Output dir: /tmp/evokernel-mcp-output-XXX
+
+Recommended:
+  Engine: sglang
+  Quantization: fp4-nvfp4
+  Parallelism: TP=8 EP=8
+  Cards: 8
+  Expected: 764 tok/s/card · $2.10/M tokens
+  Kernel gaps: 2
+
+Artifacts (all in output dir):
+  - deployment_plan.json
+  - launch.sh
+  - kernel_gaps.md
+  - verification_plan.md
+  - Dockerfile
+  - kubernetes/deployment.yaml
+  - monitoring/prometheus-rules.yaml
+  - runbook.md
+  - rollback-plan.md
+  - provenance.json
+  - license-audit.md
+  - production-checklist.md
+  - sbom.json
+  - kernels-generated/expert-permute_hopper.cu     ← v2.16 NEW
+  - kernels-generated/moe-gate_hopper.cu           ← v2.16 NEW
+  - kernels-generated/README.md                     ← review notes`}</code></pre>
+    </section>
+
+    {/* Compare across hardware */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🔄 4. 同一模型 → 不同硬件 (跨厂商一键切换)</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        Real outputs from running agent-deploy locally:
+      </p>
+
+      <div class="grid gap-3 lg:grid-cols-2">
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h3 class="text-base font-semibold mb-2">DSV4 Pro × <strong>H100 SXM5</strong></h3>
+          <ul class="text-xs space-y-1" style="color: var(--color-text-muted);">
+            <li>· Engine: <strong>sglang</strong></li>
+            <li>· Quant: <strong>fp4-nvfp4</strong></li>
+            <li>· Parallelism: TP=8, EP=8 (全 expert 平铺)</li>
+            <li>· 卡数: <strong>8</strong></li>
+            <li>· 预期: 764 tok/s/card · $2.10/M tok</li>
+            <li>· Kernel gaps: <strong>2</strong> (expert-permute, moe-gate)</li>
+            <li>· Generated 2 .cu skeletons in <code style="font-family:var(--font-mono); font-size:0.65rem;">kernels-generated/</code></li>
+          </ul>
+        </div>
+
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h3 class="text-base font-semibold mb-2">DSV4 Pro × <strong>Ascend 910C (国产)</strong></h3>
+          <ul class="text-xs space-y-1" style="color: var(--color-text-muted);">
+            <li>· Engine: <strong>mindie</strong> (national stack)</li>
+            <li>· Quant: <strong>fp4-nvfp4</strong></li>
+            <li>· Parallelism: TP=4, EP=4 (smaller — Ascend has more native MoE coverage)</li>
+            <li>· 卡数: <strong>4</strong> (half of H100!)</li>
+            <li>· 预期: 129 tok/s/card · $56/M tok</li>
+            <li>· Kernel gaps: <strong>0</strong> (aclnn covers everything)</li>
+            <li>· No codegen needed</li>
+          </ul>
+        </div>
+      </div>
+
+      <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+        Same agent invocation, different hardware id → completely different production-ready plan. Cross-vendor "any model × any hardware" automatic.
+      </p>
+    </section>
+
+    {/* Generated kernel example */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">⚙️ 5. v2.16 NEW: 实际生成 kernel skeleton</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        当 coverage matrix 检测到 (op × hw) gap, agent 现在 emit 实际 CUDA / Ascend-C / HIP 代码骨架 (不仅仅是 TODO 标记). 用 ISA primitive cross_vendor_equivalents + DSL example + formal_semantics 三个数据源.
+      </p>
+      <p class="text-xs mb-2" style="color: var(--color-text-muted);">
+        Example: <code style="font-family: var(--font-mono);">expert-permute_hopper.cu</code> (head):
+      </p>
+      <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre; max-height: 380px;"><code>{`// ============================================================
+// Generated kernel skeleton: expert-permute on hopper
+// Generated by evokernel-spec/scripts/agent-deploy/kernel-codegen
+//
+// THIS IS A STARTING POINT — NOT PRODUCTION-READY CODE.
+// ============================================================
+//
+// Source op: expert-permute (Expert Permute (MoE token routing))
+// Signature:
+//   expert_permute(tokens: [B*S, D], indices: [B*S, K]) -> dispatched: [B*S*K, D]
+//   Sorts tokens by their assigned expert id; each expert sees a contiguous slice.
+//   Inverse op (combine) reverses the permutation, weighted by router weights.
+//
+// Cross-vendor primitive mapping:
+//   amd-cdna3-mfma-32x32x16 → nvidia-hopper-wgmma
+//   Mapping ratio: 2× MFMA 32x32x16 ≈ 1 WGMMA m64n64k16 (per-throughput)
+//
+// DSL reference example: /dev-toolkit/dsl-examples/cuda-tiled-gemm-hopper/
+// ============================================================
+
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <cuda/std/mma>
+#include <cuda/barrier>
+
+template<int BM=128, int BN=128, int BK=64>
+__global__ void expert_permute_kernel(...) {
+    __shared__ __align__(128) __half a_smem[2][BM][BK];
+    __shared__ __align__(128) __half b_smem[2][BK][BN];
+    __shared__ cuda::barrier<cuda::thread_scope_block> bar[2];
+
+    // TODO: TMA descriptor loading (Hopper+) — see nvidia-hopper-wgmma
+    if (threadIdx.x == 0) { ... }
+
+    for (int k_tile = 0; k_tile < K; k_tile += BK) {
+        bar[k_tile % 2].arrive_and_wait();
+        // TODO: emit nvidia-hopper-wgmma matmul here
+        asm volatile("wgmma.fence.sync.aligned;");
+        // ... mma instructions ...
+        asm volatile("wgmma.commit_group.sync.aligned;");
+    }
+
+    // EPILOGUE — TODO: implement op-specific epilogue
+    //   - For moe-routing ops, this is where token re-ordering happens
+}`}</code></pre>
+      <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+        Skeleton is <strong>~3-5KB / kernel</strong>, ~80 lines. Captures: ISA primitive choice (WGMMA), memory hierarchy staging (smem + barriers), pipeline pattern (double-buffered async),
+        critical TODOs from formal_semantics. <strong>Not production code</strong> — but a well-grounded starting point that an LLM agent + human can iterate on, vs starting from blank.
+      </p>
+    </section>
+
+    {/* Non-HF inputs */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📂 6. v2.16 NEW: 非 HF 输入 (PyTorch / 本地权重)</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        Agent 现在支持 3 种输入模式:
+      </p>
+      <ul class="text-sm space-y-2 mb-3" style="color: var(--color-text);">
+        <li>· <code style="font-family: var(--font-mono);">--source-type=hf</code> (默认, 拉 HuggingFace config.json)</li>
+        <li>· <code style="font-family: var(--font-mono);">--source-type=local</code> (本地目录含 config.json / safetensors index)</li>
+        <li>· <code style="font-family: var(--font-mono);">--source-type=pytorch</code> (alias for local; 未来扩展为解析 modeling_*.py)</li>
+      </ul>
+      <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`# Public HuggingFace model
+pnpm tsx scripts/agent-deploy/index.ts \\
+  --model deepseek-ai/DeepSeek-V4-Pro --hardware h100-sxm5
+
+# Private / local PyTorch model (no HF API access needed)
+pnpm tsx scripts/agent-deploy/index.ts \\
+  --source-type local \\
+  --model /path/to/your/local/model_dir \\
+  --hardware ascend-910c
+
+# Air-gapped: pre-extract config and pass directly
+pnpm tsx scripts/agent-deploy/index.ts \\
+  --model my-internal/private-llm \\
+  --config /path/to/extracted/config.json \\
+  --hardware mlu590`}</code></pre>
+    </section>
+
+    {/* Verification */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">✅ 7. Verified end-to-end</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        v2.13 测试了 MCP server 的 query tools; v2.16 实测了 <strong>plan_deployment tool 通过 stdio JSON-RPC 端到端</strong>:
+      </p>
+      <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`$ echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"evokernel_plan_deployment","arguments":{"model":"meta-llama/Llama-4-Scout-17B-16E","hardware":"h100-sxm5","workload":"chat","config_path":"/tmp/llama-4-scout-config.json"}}}' \\
+   | EVOKERNEL_API_BASE=http://localhost:4329/api \\
+     node plugins/mcp-server/dist/index.js
+
+{"result":{"content":[{"type":"text","text":"✅ Plan generated. ..."}]},"jsonrpc":"2.0","id":2}`}</code></pre>
+      <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+        Same flow works in Claude Desktop UI: user asks question → MCP tool fires → 13 artifacts appear in /tmp/evokernel-mcp-output-XXX/ → agent reads + summarizes.
+      </p>
+    </section>
+
+    {/* Limitations */}
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3" style="color: oklch(70% 0.18 70);">⚠️ 8. 当前边界 (有意为之)</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>Generated kernel skeletons 不是 production code</strong> — 有 TODO 标记 + arch idiom hints, 但需要 LLM agent + 人类工程师迭代填实 inner loop, 跑 unit tests 验 formal_semantics edge cases, profile 到目标硬件再 ship.
+        </li>
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>实际部署执行不在 agent scope</strong> — agent 输出 launch.sh + K8s manifest + Dockerfile, 但不 ssh 进 cluster 跑. 这是 user CI/CD pipeline 的事. 设计有意为之, 隔离 plan generation 与 execution.
+        </li>
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>provenance.json 含 TODO_PIN markers</strong> — agent 不能自动 pin 所有版本 (CUDA driver, kernel-lib commits). 标记给 CI 在生产部署时填充.
+        </li>
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+          <strong>PyTorch source-type 仅读 metadata</strong> — 当前只读 config.json / safetensors index. 未来扩展为完整解析 modeling_*.py (走 ast 提取 architecture).
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Code: <a href="https://github.com/evokernel/evokernel-spec/tree/main/scripts/agent-deploy" target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">scripts/agent-deploy/</a> · MCP: <a href="https://github.com/evokernel/evokernel-spec/tree/main/plugins/mcp-server" target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">plugins/mcp-server/</a> · Skill: <code style="font-family: var(--font-mono);">plugins/claude-code-skill/SKILL.md</code> · Cursor: <code style="font-family: var(--font-mono);">plugins/cursor-rules/.cursorrules</code> · See: <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/</a> · <a href={pathname('/agents/example/')} class="underline" style="color: var(--color-accent);">/agents/example/</a> · <a href={pathname('/agents/validations/')} class="underline" style="color: var(--color-accent);">/agents/validations/</a> · <a href={pathname('/agents/integrations/')} class="underline" style="color: var(--color-accent);">/agents/integrations/</a>
+      </p>
+    </section>
+  </Container>
+</BaseLayout>
