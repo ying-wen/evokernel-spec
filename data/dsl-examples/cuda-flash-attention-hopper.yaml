@@ -1,0 +1,199 @@
+id: cuda-flash-attention-hopper
+language: cuda-cpp
+vendor: nvidia
+arch_family: hopper
+title: 'Flash Attention on Hopper (CUDA C++) — TMA + WGMMA + online softmax'
+category: flash-attention
+
+code: |
+  // ============================================================
+  // Flash Attention skeleton on Hopper — fp16 inputs, fp32 partial sums.
+  //
+  // Demonstrates: TMA descriptor build → cp.async.bulk → WGMMA Q@K^T →
+  // online softmax (m, s, acc in FP32) → WGMMA P@V → epilogue.
+  //
+  // The structural pattern that distinguishes attention from GEMM:
+  //   - tile-pair iteration (Q-tile fixed, K/V tiles streamed)
+  //   - (m, s, acc) FP32 state survives across K-tile boundaries
+  //   - online-softmax merge math at every K-tile transition
+  // ============================================================
+  #include <cuda/std/mma>
+  #include <cuda/barrier>
+  #include <cuda_fp16.h>
+
+  template<int BM=64, int BN=128, int BK=64, int D=128>
+  __global__ void flash_attention_kernel(
+      const __half* __restrict__ Q,       // [B, H, S, D]
+      const __half* __restrict__ K,       // [B, H_kv, S, D]
+      const __half* __restrict__ V,       // [B, H_kv, S, D]
+      __half* __restrict__ O,             // [B, H, S, D]
+      int B, int H, int H_kv, int S,
+      float scale                         // 1 / sqrt(D)
+  ) {
+      // Shared memory tiles — Hopper has 228 KB SMEM/SM available
+      __shared__ __align__(128) __half q_smem[BM][D];
+      __shared__ __align__(128) __half k_smem[2][BN][D];   // double-buffered
+      __shared__ __align__(128) __half v_smem[2][BN][D];
+      __shared__ cuda::barrier<cuda::thread_scope_block> bar[2];
+
+      // Output state — KEPT IN FP32 across K-tile iterations
+      float acc[BM/64][D/8] = {{0}};        // accumulator output
+      float m_old[BM] = {-INFINITY};        // per-row max
+      float s_old[BM] = {0.0f};             // per-row partial sum
+
+      int tile_m = blockIdx.y * BM;
+      int batch_head = blockIdx.x;
+
+      // ──────────────────────────────────────────
+      // Stage 1: TMA load of Q-tile (fixed for entire kernel lifetime)
+      // ──────────────────────────────────────────
+      if (threadIdx.x == 0) {
+          // TODO: cp.async.bulk.tensor.2d.shared::cluster.global Q-tile [tile_m:tile_m+BM, 0:D]
+          init(&bar[0], blockDim.x);
+          init(&bar[1], blockDim.x);
+      }
+      __syncthreads();
+      bar[0].arrive_and_wait();
+
+      // ──────────────────────────────────────────
+      // Stage 2: Tile-pair loop over K-sequence dimension
+      // ──────────────────────────────────────────
+      int n_tiles = (S + BN - 1) / BN;
+      for (int kt = 0; kt < n_tiles; kt++) {
+          int buf = kt % 2;
+
+          // 2a. TMA load K[kt*BN : kt*BN+BN, :], V[kt*BN : kt*BN+BN, :] async
+          if (threadIdx.x == 0) {
+              // TODO: cp.async.bulk.tensor.2d K-tile, V-tile → k_smem[buf], v_smem[buf]
+          }
+          bar[buf].arrive_and_wait();
+
+          // 2b. WGMMA Q @ K^T → qk_acc (FP32 register tile)
+          float qk_acc[BM/64][BN/8];
+          // TODO: emit wgmma.mma_async.sync.aligned.m64n128k16.f32.f16.f16 ...
+          asm volatile("wgmma.fence.sync.aligned;");
+          // ... mma instructions (Q×K^T) ...
+          asm volatile("wgmma.commit_group.sync.aligned;");
+          asm volatile("wgmma.wait_group.sync.aligned 0;");
+
+          // ──────────────────────────────────────────
+          // 2c. ONLINE SOFTMAX merge — the heart of FlashAttention
+          // ──────────────────────────────────────────
+          // For each row in this Q-tile:
+          //   m_new   = max(m_old, max(qk_acc * scale))
+          //   p       = exp(qk_acc * scale - m_new)   // FP32 throughout
+          //   rescale = exp(m_old - m_new)
+          //   s_new   = rescale * s_old + sum(p)
+          //   acc_new = rescale * acc + p @ V
+          //
+          // CRITICAL: m, s, acc, p MUST be FP32. Doing this in FP16 corrupts
+          // long-context attention (mantissa loss in s_new accumulation).
+
+          for (int row = 0; row < BM; row++) {
+              // Row-wise max (warp reduce across BN)
+              float row_max = -INFINITY;
+              for (int j = 0; j < BN/8; j++) {
+                  // qk_acc[row/64][j] holds 8 FP32 values for this row
+                  // TODO: butterfly-reduce max across the 8 values + warp shuffle
+              }
+              row_max *= scale;
+              float m_new = fmaxf(m_old[row], row_max);
+
+              // Compute rescale factor for old (m_old, s_old, acc) state
+              float rescale = expf(m_old[row] - m_new);
+
+              // Update s_old and acc with rescale
+              s_old[row] *= rescale;
+              for (int d = 0; d < D/8; d++) {
+                  acc[row/64][d] *= rescale;  // rescale all D-channels
+              }
+
+              // Compute p = exp(qk - m_new) and accumulate into s_new
+              float row_sum_p = 0.0f;
+              // TODO: for each col in qk_acc[row]: p_col = expf(qk*scale - m_new); row_sum_p += p_col
+              s_old[row] += row_sum_p;
+
+              m_old[row] = m_new;  // commit new max
+          }
+
+          // 2d. WGMMA p @ V (V is k_smem[buf]) → acc (accumulating!)
+          asm volatile("wgmma.fence.sync.aligned;");
+          // ... mma instructions (P × V), accumulate into acc ...
+          asm volatile("wgmma.commit_group.sync.aligned;");
+          asm volatile("wgmma.wait_group.sync.aligned 0;");
+
+          // 2e. Pre-load next K, V tile (double-buffered)
+          // TODO: kick off async TMA for buffer (1 - buf) for the next iteration
+      }
+
+      // ──────────────────────────────────────────
+      // Stage 3: Final normalize — divide acc by s_old (per-row)
+      // ──────────────────────────────────────────
+      for (int row = 0; row < BM; row++) {
+          float inv_s = 1.0f / s_old[row];
+          for (int d = 0; d < D/8; d++) {
+              acc[row/64][d] *= inv_s;
+          }
+      }
+
+      // ──────────────────────────────────────────
+      // Stage 4: Vectorized store back to O
+      // ──────────────────────────────────────────
+      // TODO: cast FP32 acc → FP16 and bulk-store to O[tile_m:tile_m+BM, :]
+  }
+
+  // ============================================================
+  // Build:
+  //   nvcc -arch=sm_90a -O3 -std=c++17 flash_attention_hopper.cu
+  // Profile:
+  //   ncu --set full --target-processes all -o report.ncu-rep ./test_kernel
+  // Reference: flash-attention v3 (Tri Dao); FlashInfer; cuDNN 9.x flash path
+  // ============================================================
+
+walkthrough:
+  - step: 'TMA descriptor + Q-tile preload'
+    explanation: 'On Hopper+, TMA bulk transfer is 2-4× faster than cp.async for tiles ≥ 16 KB. Q-tile is loaded once and reused for all K-tile iterations — kept in SMEM for the entire kernel lifetime.'
+  - step: 'Double-buffered K/V tile streaming'
+    explanation: 'k_smem[2] and v_smem[2] alternate buffers so async TMA load of tile (kt+1) overlaps with WGMMA compute of tile kt. cuda::barrier orchestrates the producer/consumer warps.'
+  - step: 'WGMMA Q @ K^T into FP32 register tile'
+    explanation: 'WGMMA m64n128k16 mma.async outputs to FP32 accumulators in registers. No SMEM round-trip for the QK product — directly used by online softmax.'
+  - step: 'Online softmax — the FP32 invariant'
+    explanation: 'm (per-row max), s (per-row partial sum), acc (output running tally) MUST be FP32. The rescale = exp(m_old - m_new) trick lets running state survive across K-tile boundaries without storing all attention scores in HBM.'
+  - step: 'WGMMA P @ V accumulating into acc'
+    explanation: 'Second WGMMA accumulates p @ v_tile into the already-rescaled acc. Same FP32 accumulator carries forward.'
+  - step: 'Final normalize before store'
+    explanation: 'After all K-tiles processed, acc /= s gives the true softmax-weighted output. Cast FP32 → FP16 only at the very end (TMA bulk store).'
+
+arch_idioms:
+  - 'TMA cp.async.bulk.tensor.2d — Hopper bulk-tile load with descriptor'
+  - 'cuda::barrier<cuda::thread_scope_block> — async copy coordination'
+  - 'wgmma.mma_async.sync.aligned.m64n128k16.f32.f16.f16 — Hopper warp-group MMA'
+  - 'wgmma.fence + commit_group + wait_group — async pipeline ordering'
+  - 'Double-buffered SMEM tiles for compute-comm overlap'
+  - 'FP32 (m, s, acc) state across K-tile boundaries — DIFFERENT from GEMM'
+  - 'Online softmax rescale trick (exp(m_old - m_new)) — FlashAttention algorithmic core'
+
+build_command: 'nvcc -arch=sm_90a -O3 -std=c++17 flash_attention_hopper.cu -o flash_attn'
+run_command: './run_test_attention --B=4 --H=32 --S=8192 --D=128'
+
+related_isa_primitives: [nvidia-hopper-wgmma, nvidia-hopper-tma]
+related_kernel_libraries: [cudnn, cutlass]
+
+source_url: https://github.com/Dao-AILab/flash-attention
+
+notes: |
+  Compare to cuda-tiled-gemm-hopper (also Hopper, also TMA+WGMMA): same
+  primitives, fundamentally different inner-loop pattern. GEMM has a
+  monotonic accumulator over K-tiles; attention has the rescale trick that
+  lets the running (m, s, acc) state stay in registers indefinitely.
+
+  This is the canonical structural reference for the agent's `attention`
+  op-class kernel template (v2.18 added the dispatch). When kernel-codegen
+  emits an attention skeleton, this is the shape it targets.
+
+  What this skeleton does NOT cover (intentionally — keep ≤ 200 LOC):
+    - causal masking (1 line: skip K[col >= row + tile_m] in softmax)
+    - GQA broadcast (k_smem stride per-head broadcasts)
+    - sliding-window (mask K[col < tile_m + row - window])
+    - paged KV-cache (replace direct K, V indexing with page-table lookup)
+    - MLA's c_kv decompression (extra GEMM before WGMMA)

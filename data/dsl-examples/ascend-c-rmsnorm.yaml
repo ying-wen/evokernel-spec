@@ -1,0 +1,180 @@
+id: ascend-c-rmsnorm
+language: ascend-c
+vendor: huawei
+arch_family: ascend-910
+title: 'RMSNorm on Ascend (Ascend-C) — Vector unit + FP32 partial sum'
+category: reduction
+
+code: |
+  // ============================================================
+  // RMSNorm on Ascend AI Core — bf16 input, FP32 partial sum, bf16 output.
+  //
+  // Demonstrates Ascend's split compute model:
+  //   - Vector unit handles the elementwise + reduction work
+  //   - Cube unit IS UNUSED here (RMSNorm has no MMA component)
+  //   - UB (unified buffer) is the staging memory; no Cube/L1 round-trip
+  //
+  // CRITICAL: partial sum_sq MUST be FP32 even with BF16 input. This is the
+  //           same rule as flash-attention's online softmax — accumulating
+  //           squares in BF16 loses mantissa fast.
+  //
+  // For long-context (ctx ≥ 32K) or world_size ≥ 8 use cases, consider
+  // huawei-ascend-vector-fp32 path throughout (3× slower but precision-safe).
+  // ============================================================
+  #include "kernel_operator.h"
+  using namespace AscendC;
+
+  template <typename T>
+  class RmsNormKernel {
+  public:
+      __aicore__ inline void Init(GM_ADDR x_gm, GM_ADDR weight_gm, GM_ADDR y_gm,
+                                   uint32_t M, uint32_t N, float eps) {
+          xGm.SetGlobalBuffer((__gm__ T*)x_gm, M * N);
+          wGm.SetGlobalBuffer((__gm__ T*)weight_gm, N);
+          yGm.SetGlobalBuffer((__gm__ T*)y_gm, M * N);
+          this->M = M;
+          this->N = N;
+          this->eps = eps;
+
+          // UB allocations — double-buffered for compute/DMA overlap
+          pipe.InitBuffer(inQueX, BUFFER_NUM, N * sizeof(T));
+          pipe.InitBuffer(inQueW, 1, N * sizeof(T));            // weight loaded once
+          pipe.InitBuffer(outQueY, BUFFER_NUM, N * sizeof(T));
+          pipe.InitBuffer(scratchSqSum, 1, N * sizeof(float));  // FP32 scratch — KEY!
+          pipe.InitBuffer(scratchCast, 1, N * sizeof(float));   // FP32 cast of x
+      }
+
+      __aicore__ inline void Process() {
+          // Load weight once (reused across all M rows)
+          LocalTensor<T> wUB = inQueW.AllocTensor<T>();
+          DataCopy(wUB, wGm, N);
+          inQueW.EnQue(wUB);
+          LocalTensor<T> wLocal = inQueW.DeQue<T>();
+
+          // ──────────────────────────────────────────
+          // Per-row compute loop — each row is independent
+          // ──────────────────────────────────────────
+          for (uint32_t row = 0; row < M; row++) {
+              // Stage 1: GM → UB (async DMA via TQue)
+              LocalTensor<T> xUB = inQueX.AllocTensor<T>();
+              DataCopy(xUB, xGm[row * N], N);
+              inQueX.EnQue(xUB);
+              LocalTensor<T> xLocal = inQueX.DeQue<T>();
+
+              // ──────────────────────────────────────────
+              // Stage 2: cast to FP32, compute squared sum
+              //   sq_sum = sum(x[i]^2 for i in 0..N)
+              // ──────────────────────────────────────────
+              LocalTensor<float> xFp32 = scratchCast.Get<float>();
+              LocalTensor<float> sqBuf = scratchSqSum.Get<float>();
+              Cast(xFp32, xLocal, RoundMode::CAST_NONE, N);  // BF16/FP16 → FP32
+              Mul(sqBuf, xFp32, xFp32, N);                    // x^2 elementwise
+
+              // Vector unit reduce: sum sqBuf into a single scalar (FP32)
+              LocalTensor<float> reduceOut = scratchSqSum.Get<float>();
+              ReduceSum(reduceOut, sqBuf, sqBuf, N);
+              float sq_sum = reduceOut.GetValue(0);
+
+              // ──────────────────────────────────────────
+              // Stage 3: compute rms = rsqrt(sq_sum / N + eps)
+              //   Then scale: y[i] = x[i] * rms * weight[i]
+              // ──────────────────────────────────────────
+              float rms = 1.0f / sqrtf(sq_sum / float(N) + eps);
+
+              // Stage 4: scale + apply weight (in input dtype is OK here —
+              // no accumulation, just two multiplies per element)
+              LocalTensor<T> yUB = outQueY.AllocTensor<T>();
+              // y = x * rms (broadcast scalar) — Vector unit Muls
+              Muls(yUB, xLocal, T(rms), N);
+              // y = y * weight (elementwise)
+              Mul(yUB, yUB, wLocal, N);
+              outQueY.EnQue(yUB);
+
+              // Stage 5: UB → GM
+              LocalTensor<T> yLocal = outQueY.DeQue<T>();
+              DataCopy(yGm[row * N], yLocal, N);
+
+              inQueX.FreeTensor(xLocal);
+              outQueY.FreeTensor(yLocal);
+          }
+
+          inQueW.FreeTensor(wLocal);
+      }
+
+  private:
+      static constexpr uint32_t BUFFER_NUM = 2;
+      uint32_t M, N;
+      float eps;
+      TPipe pipe;
+      TQue<QuePosition::VECIN, BUFFER_NUM> inQueX;
+      TQue<QuePosition::VECIN, 1> inQueW;
+      TQue<QuePosition::VECOUT, BUFFER_NUM> outQueY;
+      TBuf<QuePosition::VECCALC> scratchSqSum;  // FP32 scratch — survives across stages
+      TBuf<QuePosition::VECCALC> scratchCast;
+      GlobalTensor<T> xGm, wGm, yGm;
+  };
+
+  // Host launch
+  extern "C" __global__ __aicore__ void rmsnorm_kernel(
+      GM_ADDR x, GM_ADDR weight, GM_ADDR y,
+      uint32_t M, uint32_t N, float eps) {
+      RmsNormKernel<bfloat16_t> op;
+      op.Init(x, weight, y, M, N, eps);
+      op.Process();
+  }
+
+  // ============================================================
+  // Build:
+  //   bisheng -O3 -mtarget=ascend910C rmsnorm_ascend.cce -o rmsnorm.kernel
+  // Profile:
+  //   msprof --aiv=on --aic-metrics=VectorUtilization,UbDmaBandwidth ./test_kernel
+  // ============================================================
+
+walkthrough:
+  - step: 'Allocate UB scratch buffers — explicit precision split'
+    explanation: 'inQueX/Y are in input dtype (BF16/FP16); scratchSqSum is FP32. Ascend-C makes the precision boundary explicit in the type system — no implicit promotion like CUDA cores have.'
+  - step: 'Load weight once, reuse for all rows'
+    explanation: 'Weight tensor [N] is loaded once and held in UB across the entire kernel (no per-row reload). UB is large enough on Ascend 910B+ to hold weight for hidden_dim ≤ 16384.'
+  - step: 'Per-row Vector compute — Cube unit idle'
+    explanation: 'RMSNorm has no MMA component; Cube unit is unused here. This is fundamentally different from a GEMM-shaped kernel where Cube does most of the work. Vector unit handles the entire computation.'
+  - step: 'Cast BF16 → FP32 BEFORE squaring'
+    explanation: 'CRITICAL: must cast x to FP32 before computing x^2. BF16 squared overflows the 8-bit exponent range for typical activation magnitudes (|x| > sqrt(2^127) is rare but possible after layer-norm scaling).'
+  - step: 'ReduceSum on FP32 buffer'
+    explanation: 'Vector unit ReduceSum primitive does a tree-reduce across the buffer in FP32. For ctx ≥ 32K or world_size ≥ 8, even FP32 single-buffer reduce may need a hierarchical decomposition.'
+  - step: 'Compute rms scalar, broadcast multiply'
+    explanation: "rms = 1/sqrt(sq_sum/N + eps) is a scalar; Vector Muls broadcasts it across the row. Output write goes back through outQueY's DMA pipeline to GM."
+
+arch_idioms:
+  - 'AscendC::TPipe — orchestrates Cube + Vector + Scalar units'
+  - 'AscendC::TQue<QuePosition::VECIN/VECOUT> — UB-staged input/output queues'
+  - 'AscendC::TBuf<QuePosition::VECCALC> — Vector-unit scratch (no DMA)'
+  - 'AscendC::Cast<float>(...) — explicit BF16 ↔ FP32 conversion'
+  - 'AscendC::ReduceSum — tree-reduce on Vector unit'
+  - 'No __syncthreads() — Vector ops are sequential within a TPipe'
+  - 'Cube unit IDLE for non-MMA ops — different utilization model from CUDA SM'
+
+build_command: 'bisheng -O3 -mtarget=ascend910C rmsnorm_ascend.cce -o rmsnorm.kernel'
+run_command: './run_ascend_kernel rmsnorm.kernel input_x.bin weight.bin'
+
+related_isa_primitives: [huawei-ascend-vector, huawei-ascend-vector-fp32]
+related_kernel_libraries: [cnnl]
+
+source_url: https://www.hiascend.com/document/detail/zh/ascend-c-api/
+
+notes: |
+  Compare to a CUDA RMSNorm (e.g. vLLM's csrc/layernorm_kernels.cu): structurally
+  similar (per-row reduction + rescale), but CUDA fuses the cast + reduce in
+  registers via warp shuffle. Ascend explicitly stages through UB scratch and
+  uses ReduceSum primitive — programmer orchestrates the precision boundary.
+
+  Cross-vendor mapping:
+    1× CUDA warp shuffle reduce ≈ 1× Ascend ReduceSum on UB scratch
+    1× CUDA __shared__ FP32 scratch ≈ 1× Ascend TBuf<VECCALC>
+    No CUDA equivalent for explicit Cube/Vector unit split
+
+  Used by: MindIE RMSNorm op, ascend-mindie-llm baseline. CANN library
+  ships an equivalent in aclnnRmsNorm but with less programmer control.
+
+  Used by kernel-codegen as the structural template for op-class=norm on
+  Ascend (v2.18 added the dispatch; this example is the structural
+  reference for that template).

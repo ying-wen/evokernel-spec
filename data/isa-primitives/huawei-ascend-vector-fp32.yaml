@@ -1,0 +1,66 @@
+id: huawei-ascend-vector-fp32
+vendor: huawei
+arch_family: ascend-910
+class: matrix-vector
+name: Vector Unit FP32 fallback path (Ascend AI Core)
+
+description: |
+  Vector unit's FP32 elementwise compute path on Huawei Ascend AI Core. Distinct
+  from the default FP16/BF16 Vector path: ~3× slower throughput but maintains
+  precision for long-context numerical-fragile ops (RoPE rotation at ctx ≥ 32K,
+  online-softmax partial sums, residual accumulation in mixed-precision training).
+
+  Surfaced as a separate primitive (vs `huawei-ascend-vector`) because the agent
+  needs to reason about precision-fallback as a *deliberate* choice — falling
+  back to FP32 is what fixes Qwen 3.6 long-context output divergence on Ascend
+  910C, but with a real perf cliff (e.g., 89 → 31 tok/s observed on
+  qwen3-6-on-ascend-910c-2026-05-02 agent run).
+
+  This primitive entry was created as a direct corpus update from a v2.20
+  agent-learning observation — first end-to-end demonstration of the
+  knowledge feedback loop closing.
+
+shapes_supported:
+  - { N: [256, 512, 1024, 2048], dtype_a: fp32, dtype_b: fp32, dtype_c: fp32, notes: "Vectorized FP32 elementwise; 1/3 throughput vs FP16 path" }
+
+memory_model:
+  operand_a_source: other  # UB
+  operand_b_source: other
+  result_destination: other  # UB
+  async: true
+  notes: 'Same UB-direct path as huawei-ascend-vector but with FP32 SIMD lanes. Pipelines identically with Cube via OE/OQ.'
+
+calling_convention:
+  asm_intrinsic: 'vmla.f32 / vadd.f32 / vexp.f32 (compiler-generated)'
+  cpp_intrinsic_header: '<kernel_operator.h>'
+  template_tag: 'AscendC::Cast<float>(...) before Vector ops; or use AscendC::Vector primitives with float dtype'
+  recommended_compiler: 'bisheng'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    notes: 'CUDA cores natively do FP32 elementwise at full rate (no fallback penalty). The "FP32 fallback" concept is Ascend-specific because Cube/Vector units are dtype-specialized.'
+  - vendor: cambricon
+    arch_family: cambricon-mlu
+    primitive_id: cambricon-mlu-mma
+    notes: 'Cambricon Vector unit also has FP32 path with similar ~2-3× throughput penalty vs FP16.'
+
+used_by_kernels:
+  - fused-rope-qkv         # long-ctx rotation_compute_dtype rule
+  - flash-attention-v2     # online-softmax partial sum (m, s, acc)
+  - fused-rmsnorm-residual # FP32 partial sum + rescale
+
+docs_url: https://www.hiascend.com/document/detail/zh/ascend-c-api/
+notes: |
+  Decision rule for the agent:
+    - default to huawei-ascend-vector (FP16/BF16) for ctx ≤ 32K and short-batch decode
+    - switch to huawei-ascend-vector-fp32 when ANY of:
+        * ctx ≥ 32K AND op involves trig/exp (RoPE, softmax)
+        * world_size ≥ 8 AND op is reduction (allreduce SUM)
+        * mixed-precision training residual accumulation
+        * model output divergence > 1% L2 vs reference at any layer
+
+  Provenance: surfaced by qwen3-6-on-ascend-910c-2026-05-02 agent run via
+  /agents/learnings/. Corpus PR landed 2026-05-02. First v2.20 feedback-loop
+  closure on record.

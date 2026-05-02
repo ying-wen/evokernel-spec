@@ -1,0 +1,241 @@
+id: triton-fused-rope-qkv
+language: triton
+vendor: nvidia
+arch_family: hopper
+title: 'Fused RoPE + QKV projection on Triton (JIT, Hopper / Ampere portable)'
+category: fused-epilogue
+
+code: |
+  # ============================================================
+  # Fused RoPE + QKV projection in Triton — JIT-compiled, dtype-generic.
+  #
+  # Demonstrates Triton's strengths over CUDA C++:
+  #   - dtype-generic (one source for FP16, BF16, FP8 — chosen at JIT)
+  #   - portable across Hopper / Ampere / Ada (autotune handles arch differences)
+  #   - explicit blocking, no manual SMEM management
+  #
+  # Demonstrates Triton's WEAKNESS:
+  #   - first call latency: 200ms-2s autotuning JIT
+  #   - no TMA equivalent (Hopper-specific perf left on the table)
+  # ============================================================
+  import triton
+  import triton.language as tl
+  import torch
+
+  @triton.autotune(
+      configs=[
+          triton.Config({'BM': 64,  'BN': 128, 'BK': 32}, num_warps=4, num_stages=3),
+          triton.Config({'BM': 128, 'BN': 128, 'BK': 32}, num_warps=4, num_stages=3),
+          triton.Config({'BM': 128, 'BN': 256, 'BK': 32}, num_warps=8, num_stages=2),
+          triton.Config({'BM': 64,  'BN': 64,  'BK': 64}, num_warps=4, num_stages=4),
+      ],
+      key=['B', 'S', 'D_head', 'D_in'],
+  )
+  @triton.jit
+  def fused_rope_qkv_kernel(
+      x_ptr,            # [B*S, D_in]
+      W_qkv_ptr,        # [D_in, 3 * D_head * H]
+      cos_ptr,          # [max_seq, D_head/2]   (FP32 freq table)
+      sin_ptr,          # [max_seq, D_head/2]
+      pos_ids_ptr,      # [B*S]                 (int32)
+      q_out_ptr,        # [B*S, H, D_head]      (rotated)
+      k_out_ptr,        # [B*S, H_kv, D_head]   (rotated)
+      v_out_ptr,        # [B*S, H_kv, D_head]   (passthrough)
+      B, S, H, H_kv, D_in, D_head,
+      stride_x_token, stride_x_d,
+      stride_w_d_in, stride_w_qkv,
+      stride_cos_pos,
+      BM: tl.constexpr,
+      BN: tl.constexpr,
+      BK: tl.constexpr,
+      DTYPE_OUT: tl.constexpr,        # tl.float16 or tl.bfloat16 — JIT-time
+      ROTATION_FP32: tl.constexpr,    # If True: upcast q/k to FP32 before rotation
+                                       # (use for ctx ≥ 32K / FP8 weights / aggressive YaRN)
+  ):
+      """
+      Fuses qkv = x @ W_qkv → split → RoPE-rotate Q/K → concat output.
+      One block computes BM tokens × BN output channels.
+      """
+      pid_token = tl.program_id(0)   # which BM-block of tokens
+      pid_n = tl.program_id(1)       # which BN-block of output channels
+
+      offs_m = pid_token * BM + tl.arange(0, BM)        # [BM] token indices
+      offs_n = pid_n * BN + tl.arange(0, BN)            # [BN] output channel indices
+      offs_k = tl.arange(0, BK)                         # [BK] reduction-dim chunk
+
+      # Mask out-of-bounds tokens
+      mask_m = offs_m < B * S
+      mask_n = offs_n < (3 * D_head * H)
+
+      # ──────────────────────────────────────────
+      # Stage 1: GEMM accumulation x @ W_qkv → qkv_out
+      # ──────────────────────────────────────────
+      acc = tl.zeros((BM, BN), dtype=tl.float32)        # FP32 accumulator
+      for k_offset in range(0, D_in, BK):
+          x_tile = tl.load(
+              x_ptr + offs_m[:, None] * stride_x_token + (k_offset + offs_k[None, :]) * stride_x_d,
+              mask=mask_m[:, None] & ((k_offset + offs_k[None, :]) < D_in),
+              other=0.0
+          )
+          w_tile = tl.load(
+              W_qkv_ptr + (k_offset + offs_k[:, None]) * stride_w_d_in + offs_n[None, :] * stride_w_qkv,
+              mask=((k_offset + offs_k[:, None]) < D_in) & mask_n[None, :],
+              other=0.0
+          )
+          acc += tl.dot(x_tile, w_tile)                 # tl.dot maps to WGMMA on Hopper
+
+      # ──────────────────────────────────────────
+      # Stage 2: split into Q/K/V regions of the output
+      # ──────────────────────────────────────────
+      # offs_n indexes into [3 * D_head * H]:
+      #   [0, D_head*H)         → Q
+      #   [D_head*H, 2*D_head*H)→ K
+      #   [2*D_head*H, 3*D_head*H) → V
+      # In a real kernel: separate kernel launches per region, OR mask-out within one block.
+      # Skipping the fully-elaborated dispatch here — focus on the RoPE rotation pattern below.
+
+      # ──────────────────────────────────────────
+      # Stage 3: RoPE rotation on the Q half (and K half similarly)
+      # ──────────────────────────────────────────
+      # For each token in this block, we need its position id to look up cos/sin.
+      pos = tl.load(pos_ids_ptr + offs_m, mask=mask_m, other=0)  # [BM]
+
+      # The rotation pairs adjacent (2i, 2i+1) channels. Within each token,
+      # extract the cos[pos, i] and sin[pos, i] for i in [0, D_head/2).
+      # NOTE: this assumes BN dim aligns with D_head pairs; in a real kernel,
+      # we'd structure the BN tile to respect D_head boundaries.
+
+      d_pair = tl.arange(0, BN // 2)                    # [BN/2]
+      cos_vals = tl.load(
+          cos_ptr + pos[:, None] * stride_cos_pos + d_pair[None, :],
+          mask=mask_m[:, None],
+          other=0.0
+      )  # [BM, BN/2]  — FP32 from the freq table
+      sin_vals = tl.load(
+          sin_ptr + pos[:, None] * stride_cos_pos + d_pair[None, :],
+          mask=mask_m[:, None],
+          other=0.0
+      )
+
+      # Optionally upcast acc to FP32 for the rotation (ROTATION_FP32 JIT-time flag)
+      if ROTATION_FP32:
+          acc_for_rot = acc                            # already FP32
+      else:
+          acc_for_rot = acc.to(DTYPE_OUT).to(tl.float32)  # round-trip through input dtype
+
+      # Apply rotation:
+      #   q_rot[2i]   = q[2i] * cos[i] - q[2i+1] * sin[i]
+      #   q_rot[2i+1] = q[2i] * sin[i] + q[2i+1] * cos[i]
+      #
+      # Use tl.where to handle even/odd channel pairs in vectorized fashion.
+      # Pseudo: split acc into [..., 2, BN/2] view, take pairs.
+      acc_even = acc_for_rot[:, 0::2]                  # [BM, BN/2]  channels 0, 2, 4, ...
+      acc_odd  = acc_for_rot[:, 1::2]                  # [BM, BN/2]  channels 1, 3, 5, ...
+      rot_even = acc_even * cos_vals - acc_odd * sin_vals
+      rot_odd  = acc_even * sin_vals + acc_odd * cos_vals
+
+      # Interleave back: rotated[0::2] = rot_even, rotated[1::2] = rot_odd
+      # Triton lacks a clean interleave primitive; pseudo-code shown.
+      # In practice: use two stores with strided offsets.
+      rotated = tl.zeros_like(acc_for_rot)
+      # TODO: tl.store with strided pattern — see Triton FlashAttention impl
+
+      # ──────────────────────────────────────────
+      # Stage 4: cast to output dtype + store
+      # ──────────────────────────────────────────
+      out = rotated.to(DTYPE_OUT)
+      # Compute (q_out / k_out / v_out) destination based on which region of N we're in.
+      # Store with masks for boundary tiles.
+      # tl.store(q_out_ptr + ..., out, mask=...)
+
+
+  # ============================================================
+  # Host-side launch wrapper
+  # ============================================================
+  def fused_rope_qkv(x: torch.Tensor, W_qkv: torch.Tensor,
+                     cos: torch.Tensor, sin: torch.Tensor,
+                     pos_ids: torch.Tensor, H: int, H_kv: int,
+                     long_ctx: bool = False) -> tuple:
+      B, S, D_in = x.shape if x.dim() == 3 else (1, x.shape[0], x.shape[1])
+      D_head = W_qkv.shape[1] // (3 * H)
+      x_flat = x.reshape(-1, D_in)
+      q_out = torch.empty((B*S, H,    D_head), dtype=x.dtype, device=x.device)
+      k_out = torch.empty((B*S, H_kv, D_head), dtype=x.dtype, device=x.device)
+      v_out = torch.empty((B*S, H_kv, D_head), dtype=x.dtype, device=x.device)
+
+      grid = lambda meta: (
+          triton.cdiv(B * S, meta['BM']),
+          triton.cdiv(3 * D_head * H, meta['BN']),
+      )
+      fused_rope_qkv_kernel[grid](
+          x_flat, W_qkv, cos, sin, pos_ids,
+          q_out, k_out, v_out,
+          B, S, H, H_kv, D_in, D_head,
+          x_flat.stride(0), x_flat.stride(1),
+          W_qkv.stride(0), W_qkv.stride(1),
+          cos.stride(0),
+          DTYPE_OUT=tl.bfloat16 if x.dtype == torch.bfloat16 else tl.float16,
+          ROTATION_FP32=long_ctx,                 # ← v2.18 rotation_compute_dtype rule
+      )
+      return q_out, k_out, v_out
+
+
+  # ============================================================
+  # Build / run:
+  #   pip install triton  # auto-installs JIT compiler
+  #   python test_fused_rope_qkv.py
+  # First call: 200ms-2s autotuning. Subsequent calls: cached, < 1μs launch.
+  # ============================================================
+
+walkthrough:
+  - step: '@triton.autotune with multiple BM/BN/BK configs'
+    explanation: 'Triton picks the best block shape per (B, S, D_head, D_in) combination at first call. Caches the choice for the rest of the program. Trades first-call latency for portable peak performance.'
+  - step: 'Single source for FP16 / BF16 / FP8 via JIT'
+    explanation: 'DTYPE_OUT is a tl.constexpr — passed at launch, baked into the JIT-compiled kernel. No source duplication for different dtypes (CUDA C++ would need 3 template instantiations or 3 separate kernels).'
+  - step: 'tl.dot maps to WGMMA on Hopper, MMA on Ampere'
+    explanation: 'Same source compiles to WGMMA (Hopper) or older MMA (Ampere). Triton handles the architectural mapping. You give up TMA-bulk-load (Hopper-specific) but gain portability.'
+  - step: 'rotation_compute_dtype as a JIT-time flag'
+    explanation: 'ROTATION_FP32 (tl.constexpr) lets the host code decide based on context length and dtype whether to upcast q/k to FP32 for the rotation. This implements v2.18 fused-rope-qkv formal_semantics rotation_compute_dtype rule directly in the kernel.'
+  - step: 'Even/odd channel pair extraction for the rotation'
+    explanation: 'RoPE rotates adjacent channel pairs (2i, 2i+1). Triton expresses this as tensor slicing acc[:, 0::2] / acc[:, 1::2], cleaner than CUDA C++ index arithmetic but slower than a hand-tuned register layout.'
+  - step: 'Multi-region output dispatch (Q/K/V)'
+    explanation: 'The output region [Q | K | V] is split based on BN-block index. Real kernels separate Q rotation, K rotation, V passthrough into 3 logical paths within the same kernel (or 3 launches). Skipped fully here for clarity.'
+
+arch_idioms:
+  - '@triton.autotune — search over block shapes, num_warps, num_stages at launch'
+  - '@triton.jit + tl.constexpr — JIT-time specialization on dtype + flags'
+  - 'tl.load(ptr, mask=) — bounds-checked vectorized load'
+  - 'tl.dot(a, b) — maps to WGMMA / MMA / wave-MFMA depending on target'
+  - 'No explicit SMEM management — compiler decides'
+  - 'No TMA bulk load equivalent — Hopper-specific TMA peak perf unreachable'
+  - 'First-call autotune latency 200ms-2s — production warmup required'
+
+build_command: 'pip install triton  # JIT compilation; no build step proper'
+run_command: 'python -c "import torch, fused_rope_qkv; ... # see flashinfer / vLLM Triton MoE patterns"'
+
+related_isa_primitives: [nvidia-hopper-wgmma, nvidia-ampere-mma-sync]
+related_kernel_libraries: [cuda-graphs]
+
+source_url: https://github.com/triton-lang/triton/blob/main/python/tutorials/06-fused-attention.py
+
+notes: |
+  Triton occupies a unique niche: more portable than hand-tuned CUDA C++,
+  more performant than naive PyTorch ops, with shorter dev cycle than CUTLASS.
+
+  Production engines that ship Triton kernels:
+    - vLLM: fused-MoE, paged-attention prefill, fused-RoPE-QKV
+    - SGLang: similar via FlashInfer integration
+    - PyTorch torch.compile: emits Triton kernels by default for many ops
+
+  When to use Triton vs CUDA C++:
+    - Triton: portable across Hopper/Ampere, dev-cycle critical, dtype-generic
+    - CUDA C++: peak Hopper TMA performance, FP8 specialization, hand-tuned register layout
+
+  When to use Triton vs Ascend-C / BANG-C:
+    - Triton: NVIDIA / AMD only — no Ascend or Cambricon support yet
+    - Ascend-C / BANG-C: required for non-NVIDIA NPU paths
+    (Triton-CPU and Triton-Ascend are early/experimental as of 2026)
+
+  This example is the structural reference for triton-language portable
+  kernel agents (e.g., when kernel-codegen target_arch is "ada" or "ampere"
+  and the agent picks Triton over CUDA C++ for portability).

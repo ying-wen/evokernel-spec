@@ -6,7 +6,35 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.21 — DSL examples horizontal expansion** (attention-on-Hopper, rmsnorm-on-Ascend, fused-rope-qkv-on-Triton, all2all-on-NCCL/HCCL — covers Layer B horizontally, not just GEMM-shape).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.22 — fused-kernel formal_semantics depth fill** (remaining 14 entries: fused-spec-decode, fused-mtp-head, mooncake-kv-disaggregation, fused-allreduce-residual, fused-tp-allreduce-residual, fused-allgather-gemm, fused-grouped-gemm, fused-dequant-gemm, fused-kv-quant, fused-rmsnorm-residual-quantize, fused-conv-norm-act, fused-add-bias-gelu, fused-radix-attention, fused-selective-scan).
+
+---
+
+## [2.21.0] — 2026-05-02
+
+**Theme**: Layer B (DSL) horizontal expansion + first knowledge-feedback-loop closure.
+
+This release does two things at once: (a) fills out the DSL example catalog beyond GEMM-shape (3 new non-GEMM examples), and (b) demonstrates the v2.20 knowledge-feedback loop physically closing — an agent-learning observation from a real past run flowed into a corpus update, and the observation is now marked `triage_status: merged`.
+
+### Added
+
+- **`data/isa-primitives/huawei-ascend-vector-fp32.yaml`** — ISA primitive for Ascend Vector unit's FP32 fallback path (~3× slower than FP16, used for ctx ≥ 32K / world_size ≥ 8 / mixed-prec training residuals). Carries explicit decision rule documenting when the agent should switch to it.
+  - **Provenance**: surfaced by `qwen3-6-on-ascend-910c-2026-05-02` agent-learning entry (v2.20 seed). The observation `kind: missing-primitive` proposed `huawei-ascend-vector-fp32`; v2.21 ships it. **First v2.20 feedback-loop closure on record.**
+- **`data/dsl-examples/cuda-flash-attention-hopper.yaml`** — Flash Attention skeleton on Hopper showing TMA + WGMMA + online softmax (FP32 m/s/acc state across K-tile pairs). The structural reference for the agent's `attention` op-class kernel template (v2.18 dispatch).
+- **`data/dsl-examples/ascend-c-rmsnorm.yaml`** — RMSNorm on Ascend Vector unit with explicit BF16 → FP32 cast → ReduceSum → rescale → BF16 store. Demonstrates Cube-unit-idle pattern (RMSNorm has no MMA component) and explicit precision boundary (UB scratch FP32, queues BF16). Structural reference for the `norm` op-class on Ascend.
+- **`data/dsl-examples/triton-fused-rope-qkv.yaml`** — Fused QKV+RoPE in Triton with `@triton.autotune` over 4 block configs and `ROTATION_FP32` JIT-time flag (implements v2.18 `rotation_compute_dtype` rule directly). Demonstrates Triton's portable-but-not-peak-Hopper trade-off.
+
+### Changed
+
+- **`data/agent-learnings/qwen3-6-on-ascend-910c-2026-05-02.yaml`** — `triage_status: open` → `merged`. Updated the missing-primitive observation with `proposed_corpus_update: "✅ MERGED in v2.21..."` linking to the new ISA primitive page.
+
+### Why this matters
+
+DSL examples are 5/5 GEMM-shape pre-v2.21, which artificially limited what the agent's kernel-codegen could reference. With 3 non-GEMM examples (attention / norm / fused-rope-qkv) now in the corpus, the kernel-codegen op-class dispatch has structural reference templates for every dispatch class — gemm (5 examples), attention (1), norm (1), scatter-permute (still 0; will add in v2.22-v2.23 alongside the fused-kernel depth fill).
+
+The feedback-loop closure is more important than the DSL examples themselves: it demonstrates the spec→plan→dev→test→**feedback**→spec cycle works end-to-end. A real deployment ran, hit a real precision bug, surfaced a real corpus gap, and the gap is now filled with provenance back to the agent run. This pattern repeats indefinitely as more agent runs land — the corpus grows from real production use, not from speculative authoring.
+
+Site stats: 505 pages built (was 501); 11/11 dispatch tests pass; 354 entities validate (was 351 with 3 agent-learnings; now 354 with 1 ISA primitive + 3 DSL examples added).
 
 ---
 

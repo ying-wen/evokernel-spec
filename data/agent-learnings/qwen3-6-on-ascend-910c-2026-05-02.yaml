@@ -23,14 +23,18 @@ observations:
       Agent should auto-flag this for Ascend × ctx ≥ 32K configs going forward.
 
   - kind: missing-primitive
-    isa_primitive: ascend-vector-unit-fp32
+    isa_primitive: huawei-ascend-vector-fp32
     description: |
-      Discovered: Ascend Vector unit has FP32 path but it's not surfaced in
-      `data/isa-primitives/huawei-ascend-vector.yaml` as a separate primitive.
-      Agent had no way to reason about "FP32 vector fallback" without it.
+      Discovered: Ascend Vector unit has FP32 path but it was not surfaced as a
+      separate primitive in the corpus. Agent had no way to reason about "FP32
+      vector fallback" before this run. RESOLVED in v2.21 — added
+      data/isa-primitives/huawei-ascend-vector-fp32.yaml with the 3-condition
+      decision rule for when to switch from FP16 to FP32 Vector path.
+    evidence: 'See /isa-primitives/huawei-ascend-vector-fp32/ — entry created from this observation.'
     proposed_corpus_update: |
-      Add `huawei-ascend-vector-fp32` ISA primitive entry; cross-reference
-      from huawei-ascend-vector with class:precision-fallback.
+      ✅ MERGED in v2.21: data/isa-primitives/huawei-ascend-vector-fp32.yaml
+      now exists with cross_vendor_equivalents pointing back to huawei-ascend-vector
+      and used_by_kernels: [fused-rope-qkv, flash-attention-v2, fused-rmsnorm-residual].
 
   - kind: perf-cliff
     op_or_kernel: fused-rope-qkv
@@ -48,7 +52,7 @@ perf_delta:
   cost_per_m_tokens_actual: 148.0
   worst_delta_pct: 184.6
 
-triage_status: open
+triage_status: merged
 
 notes: |
   Outcome: "partial" because deployment SHIPPED (output quality fixed) but at
