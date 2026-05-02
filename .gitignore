@@ -12,3 +12,7 @@ test-results/
 .pnpm-store/
 .runtime/
 agent-deploy-output/
+
+# v3.4: LLM-generated kernel cache (committable subset goes elsewhere)
+.cache/
+

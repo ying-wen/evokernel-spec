@@ -6,7 +6,76 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.4 — Layer G real-code generator** (refactor `kernel-codegen.ts` from skeleton emitter to LLM-orchestrator using the v3.3 agent-context bundle as RAG context; emit code that compiles).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.5 — Layer V verification harness** (build + correctness vs PyTorch + perf gates for generated kernels; closes the "real code that passes tests" promise).
+
+---
+
+## [3.4.0] — 2026-05-03 — Layer G real-code generator (LLM-orchestrator)
+
+**Theme**: response to user directive — agent must generate **real production code**, not skeletons. v3.4 ships the LLM-orchestrator architecture with a 4-mode dispatch design.
+
+### User directive (from v3.3 spec)
+
+> 这个 agent 能完成真实生产算子及部署代码 (not just kernel skeletons).
+
+### Added
+
+**`scripts/agent-deploy/llm-orchestrator.ts`** — new module replacing the v2.16/v2.18 skeleton emitter for production paths. **4-mode dispatch** (selected by env vars):
+
+| Mode | Trigger | Behavior |
+|---|---|---|
+| **real** | `ANTHROPIC_API_KEY` set | Calls Claude Sonnet 4.5+ via Anthropic API with the v3.3 agent-context bundle as system prompt (formal_semantics + edge_cases + numerical_rules + reference_impl + DSL example as exemplar + ISA primitives + cross-vendor mappings + prior agent-learnings). Caches result. |
+| **cache** | `EVOKERNEL_OFFLINE_ONLY=true` | Reads from `.cache/generated-kernels/<arch>__<op>__<hash>.json`. Falls back to skeleton if no cache hit. |
+| **test** | `EVOKERNEL_TEST_MODE=true` | Deterministic stub for unit tests (no I/O, no API calls). |
+| **skeleton** | None of above (no API key) | v2.16 skeleton fallback path. Marked clearly as fallback in output. |
+
+Why 4 modes: CI must be deterministic (test mode), contributors without API keys must work (skeleton fallback), API-key users must get real code (real mode), reproducible builds need cache (cache mode).
+
+**`scripts/tests/llm-orchestrator.test.ts`** — 26 vitest assertions covering:
+- `hashInput()` is stable, distinguishes ops/arches/diagnostics
+- `pickLanguageForArch()` maps 14 arch families correctly
+- Test mode produces deterministic stubs (bit-stable across runs)
+- Skeleton fallback fires when no API key and not test mode
+- Cache mode honors `EVOKERNEL_OFFLINE_ONLY=true`
+
+Combined with v2.18 dispatch tests: **37/37 unit tests pass** in CI.
+
+### Prompt structure (real mode)
+
+The system prompt to Claude includes 7 sections built from the agent-context bundle:
+
+1. **Operator** — name, signature, edge_cases, numerical_rules, reference_impl
+2. **Available ISA primitives** — id + class + cross_vendor_equivalents
+3. **DSL examples** (top 2 matching) — title, idioms, code (truncated to 4KB)
+4. **Prior agent-learnings** — observations from past runs of similar ops
+5. **Prior attempt diagnostic** (optional, for retry after Layer V failure)
+6. **Task** — generate complete COMPILEABLE code, no TODO markers, no pseudocode
+7. **Output format** — fenced code block + bullet list of references_used
+
+The "no TODO, no pseudocode" constraint is the architectural win over v2.16: with the bundle's formal_semantics + reference_impl + DSL example as exemplars, the LLM has enough context to emit real code.
+
+### Cache architecture
+
+`.cache/generated-kernels/<arch>__<op>__<hash[0:12]>.json` — keyed by content hash of (op, target_arch, op.formal_semantics, matching_dsl, matching_isa, prior_attempt_diagnostic). **Hash invariant**: same input → same hash → cache hit. Different input → different hash → regeneration.
+
+The cache is in `.gitignore` by default (LLM output not committed). Future v3.5+ can promote validated cache entries (those that pass Layer V verification) to a `data/generated-kernels/` corpus directory for permanent storage + community sharing.
+
+### Stats
+
+- **New module**: 432 LOC (`llm-orchestrator.ts`)
+- **New tests**: 26 assertions (`llm-orchestrator.test.ts`)
+- **Total dispatch + orchestrator tests**: 37/37 passing
+- **Site pages**: still 542 (no SSG changes)
+- **Layer D coverage**: still 100%
+
+### v3.5 next
+
+**Layer V verification harness** — `scripts/agent-deploy/verify/{build,correctness,perf}.ts`. Wraps:
+- V1: build (nvcc/hipcc/cce/bisheng/cncc) — quick gate
+- V2: correctness vs PyTorch reference_impl on small input — accuracy gate
+- V3: perf profile (NCU/rocprof/msprof/cnperf) — perf gate
+
+If V fails, retry Layer G with the diagnostic. **This closes the "code that passes verification tests" promise.**
 
 ---
 
