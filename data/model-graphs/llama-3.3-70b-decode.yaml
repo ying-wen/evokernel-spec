@@ -1,0 +1,55 @@
+id: llama-3.3-70b-decode
+model_id: llama-3.3-70b
+phase: decode
+layer_count: 80
+
+placeholder_definitions:
+  B: 'batch_size'
+  S: 'seq_len (1 for decode)'
+  D: 'd_model (8192)'
+  H: 'num_attention_heads (64)'
+  H_kv: 'num_kv_heads (8 — GQA)'
+  D_h: 'head_dim (128)'
+  D_ff: 'ffn_intermediate (28672)'
+  V: 'vocab_size (128256)'
+
+default_dimensions: { B: 1, S: 1, D: 8192, H: 64, H_kv: 8, D_h: 128, D_ff: 28672, V: 128256 }
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm pre-attn', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 2, op_id: matmul, label: 'Q proj', shape_template: { input: '[B, S, D]', weight: '[D, H*D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 3, op_id: matmul, label: 'K proj (GQA)', shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+  - { order: 4, op_id: matmul, label: 'V proj (GQA)', shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+  - { order: 5, op_id: rope, label: 'RoPE', shape_template: { input: '[B, S, H, D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 6, op_id: scaled-dot-product-attention, label: 'GQA flash attention',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, ctx_len, H_kv, D_h]', V: '[B, ctx_len, H_kv, D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 7, op_id: matmul, label: 'Attn output proj', shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+  - { order: 8, op_id: rmsnorm, label: 'RMSNorm pre-FFN', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  # Dense FFN — gate / up / down (SwiGLU)
+  - { order: 9, op_id: matmul, label: 'FFN gate proj', shape_template: { input: '[B, S, D]', weight: '[D, D_ff]', output: '[B, S, D_ff]' } }
+  - { order: 10, op_id: matmul, label: 'FFN up proj', shape_template: { input: '[B, S, D]', weight: '[D, D_ff]', output: '[B, S, D_ff]' } }
+  - { order: 11, op_id: swiglu, label: 'SwiGLU', fused_with: [matmul], shape_template: { gate: '[B, S, D_ff]', up: '[B, S, D_ff]', output: '[B, S, D_ff]' } }
+  - { order: 12, op_id: matmul, label: 'FFN down proj', shape_template: { input: '[B, S, D_ff]', weight: '[D_ff, D]', output: '[B, S, D]' } }
+  - { order: 13, op_id: allreduce, label: 'TP allreduce', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only, shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head', layer_scope: lm-head-only, shape_template: { input: '[B, S, D]', weight: '[D, V]', output: '[B, S, V]' } }
+  - { order: 102, op_id: top-k-sampling, label: 'Sampling', layer_scope: lm-head-only, shape_template: { input: '[B, S, V]', output_token: '[B, S]' } }
+
+notes: |
+  Llama 3.3 70B Instruct — flagship dense LLM with GQA (H/H_kv=8).
+  This is the canonical "no-MoE" baseline graph — FFN is single dense path
+  (gate / up / down via SwiGLU), no expert routing, no expert permute.
+
+  Per-token decode FLOPs ≈ 140 GFLOP (= 2 × 70B params).
+  Per-token decode bytes ≈ 140 GB (BF16 weight reads).
+  → Memory-bandwidth-bound at decode (arith intensity ~ 1).
+
+  All ops have native kernel coverage on Hopper / Blackwell / CDNA3 / Ascend 910.
+
+reference_url: https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct

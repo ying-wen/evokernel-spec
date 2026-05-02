@@ -1,0 +1,103 @@
+id: llama-4-scout-prefill
+model_id: llama-4-scout
+phase: prefill
+layer_count: 80
+
+placeholder_definitions:
+  B: 'batch_size'
+  S: 'seq_len (prompt length)'
+  D: 'd_model (8192)'
+  H: 'num_attention_heads (64)'
+  H_kv: 'num_kv_heads (8 — GQA factor 8)'
+  D_h: 'head_dim (128)'
+  E: 'num_experts (16)'
+  K: 'top_k_experts (1)'
+  D_ff: 'expert_intermediate_dim (28672)'
+  V: 'vocab_size (128256)'
+
+default_dimensions:
+  B: 1
+  S: 4096
+  D: 8192
+  H: 64
+  H_kv: 8
+  D_h: 128
+  E: 16
+  K: 1
+  D_ff: 28672
+  V: 128256
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm pre-attn',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  - { order: 2, op_id: matmul, label: 'Q projection',
+      shape_template: { input: '[B, S, D]', weight: '[D, H*D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 3, op_id: matmul, label: 'K projection (GQA — H_kv=8)',
+      shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' },
+      notes: 'GQA: K/V have 8× fewer params + faster compute than MHA equivalent.' }
+  - { order: 4, op_id: matmul, label: 'V projection (GQA — H_kv=8)',
+      shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+
+  - { order: 5, op_id: rope, label: 'RoPE on Q + K',
+      shape_template: { input: '[B, S, H, D_h]', output: '[B, S, H, D_h]' } }
+
+  # Causal SDPA — O(S²) compute, FlashAttention-3 critical
+  - { order: 6, op_id: scaled-dot-product-attention, label: 'GQA flash attention (causal)',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, S, H_kv, D_h]', V: '[B, S, H_kv, D_h]', output: '[B, S, H, D_h]' },
+      notes: 'GQA broadcasts H_kv → H during attention compute. Causal mask applied.' }
+
+  - { order: 7, op_id: matmul, label: 'Attn output projection (W_O)',
+      shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+
+  - { order: 8, op_id: rmsnorm, label: 'RMSNorm pre-MoE',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  - { order: 9, op_id: moe-gate, label: 'MoE router (top-1 — Scout sparse)',
+      shape_template: { input: '[B, S, D]', weight: '[D, E]', output_indices: '[B, S, K]' } }
+
+  - { order: 10, op_id: expert-permute, label: 'Token dispatch (B*S tokens × top-1)',
+      shape_template: { tokens: '[B*S, D]', indices: '[B*S, K]', dispatched: '[B*S, D]' } }
+
+  - { order: 11, op_id: grouped-matmul, label: 'Expert gate proj',
+      shape_template: { input: '[B*S/E, D]', weight: '[E, D, D_ff]', output: '[B*S/E, D_ff]' } }
+  - { order: 12, op_id: grouped-matmul, label: 'Expert up proj',
+      shape_template: { input: '[B*S/E, D]', weight: '[E, D, D_ff]', output: '[B*S/E, D_ff]' } }
+  - { order: 13, op_id: swiglu, label: 'SwiGLU = silu(gate) * up',
+      fused_with: [grouped-matmul],
+      shape_template: { gate: '[B*S/E, D_ff]', up: '[B*S/E, D_ff]', output: '[B*S/E, D_ff]' } }
+  - { order: 14, op_id: grouped-matmul, label: 'Expert down proj',
+      shape_template: { input: '[B*S/E, D_ff]', weight: '[E, D_ff, D]', output: '[B*S/E, D]' } }
+
+  - { order: 15, op_id: expert-permute, label: 'Combine back to seq order',
+      shape_template: { dispatched: '[B*S, D]', combined: '[B*S, D]' } }
+
+  - { order: 16, op_id: allreduce, label: 'TP allreduce',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head (last token only)', layer_scope: lm-head-only,
+      shape_template: { input: '[B, 1, D]', weight: '[D, V]', output: '[B, 1, V]' } }
+
+notes: |
+  Llama 4 Scout 109B / ~17B active PREFILL phase.
+
+  Key contrasts vs DeepSeek V4 Pro prefill:
+  - **GQA not MLA** — K/V cache is 8× smaller than MHA but no compression.
+    KV cache size = B * S * H_kv * D_h * 2 bytes (fp16). Linear in S.
+  - **Top-1 routing** — only 1 expert active per token. Lower compute per token
+    but more sensitive to load imbalance at small S.
+  - **Standard SDPA causal** — FlashAttention-3 path on Hopper / Blackwell.
+  - **Compute-bound at long context** — same as DeepSeek but with smaller compute
+    per token (less FFN width).
+
+  Total per-token prefill FLOPs: ~3.4×10^10 (~17B active params × 2). At
+  S=4096, B=1: ~140 TFLOPs total prefill. ~0.14s on H100 at 75% util.
+
+reference_url: https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E

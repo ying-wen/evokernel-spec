@@ -1,0 +1,87 @@
+id: qwen3.6-plus-decode
+model_id: qwen3.6-plus
+phase: decode
+layer_count: 64
+
+placeholder_definitions:
+  B: 'batch_size'
+  S: 'seq_len (1 for incremental decode)'
+  D: 'd_model (6144)'
+  H: 'num_attention_heads (64)'
+  H_kv: 'num_kv_heads (8 — GQA)'
+  D_h: 'head_dim (128)'
+  E: 'num_experts (128)'
+  K: 'top_k_experts (8)'
+  D_ff: 'expert_intermediate_dim (2048)'
+  V: 'vocab_size (152064)'
+
+default_dimensions:
+  B: 1
+  S: 1
+  D: 6144
+  H: 64
+  H_kv: 8
+  D_h: 128
+  E: 128
+  K: 8
+  D_ff: 2048
+  V: 152064
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm pre-attn',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 2, op_id: matmul, label: 'Q proj',
+      shape_template: { input: '[B, S, D]', weight: '[D, H*D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 3, op_id: matmul, label: 'K proj (GQA)',
+      shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+  - { order: 4, op_id: matmul, label: 'V proj (GQA)',
+      shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+  - { order: 5, op_id: rope, label: 'RoPE',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, S, H_kv, D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 6, op_id: scaled-dot-product-attention, label: 'GQA flash attention',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, ctx_len, H_kv, D_h]', V: '[B, ctx_len, H_kv, D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 7, op_id: matmul, label: 'Attn output proj',
+      shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+  - { order: 8, op_id: rmsnorm, label: 'RMSNorm pre-MoE',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 9, op_id: moe-gate, label: 'MoE router (top-8 from 128)',
+      shape_template: { input: '[B, S, D]', weight: '[D, E]', output_indices: '[B, S, K]' } }
+  - { order: 10, op_id: expert-permute, label: 'Token dispatch',
+      shape_template: { tokens: '[B*S, D]', indices: '[B*S, K]', dispatched: '[B*S*K, D]' } }
+  - { order: 11, op_id: grouped-matmul, label: 'Expert gate',
+      shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 12, op_id: grouped-matmul, label: 'Expert up',
+      shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 13, op_id: swiglu, label: 'SwiGLU',
+      fused_with: [grouped-matmul],
+      shape_template: { input: '[B*S*K/E, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 14, op_id: grouped-matmul, label: 'Expert down',
+      shape_template: { input: '[B*S*K/E, D_ff]', weight: '[E, D_ff, D]', output: '[B*S*K/E, D]' } }
+  - { order: 15, op_id: expert-permute, label: 'Combine',
+      shape_template: { dispatched: '[B*S*K, D]', combined: '[B*S, D]' } }
+  - { order: 16, op_id: allreduce, label: 'TP allreduce',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', weight: '[D, V]', output: '[B, S, V]' } }
+  - { order: 102, op_id: top-k-sampling, label: 'Sampling', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, V]', output_token: '[B, S]' } }
+
+notes: |
+  Qwen 3.6 Plus 480B / 35B active. Standard MoE LLM with GQA (similar to DeepSeek
+  pattern but without MLA).
+
+  Key characteristics:
+  - 128 experts × top-8 routing — high expert breadth, similar dispatch profile to DeepSeek
+  - GQA H/H_kv = 8 — KV cache 8× smaller than MHA equivalent
+  - 1M context (Qwen specialty) — KV cache scales linearly, big memory pressure at full ctx
+  - 35B active params per token — moderate compute
+
+reference_url: https://huggingface.co/Qwen

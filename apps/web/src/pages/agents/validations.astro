@@ -1,0 +1,208 @@
+---
+/**
+ * /agents/validations/ — empirical validation matrix (v2.10).
+ *
+ * Concrete proof that agent-deploy works end-to-end across (model × hardware).
+ * Pre-recorded matrix from running scripts/agent-deploy/index.ts against:
+ *   5 frontier models × 3 hardware platforms = 15 production-grade plans.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import validationData from '../../../../../data/agent-validations.json';
+
+const runs = validationData.runs as Array<{
+  model: string;
+  hf_id: string;
+  hardware: string;
+  status: string;
+  archetype: string;
+  engine: string;
+  quantization: string;
+  card_count: number;
+  kernel_gaps: number;
+}>;
+
+const models = [...new Set(runs.map((r) => r.model))];
+const hardware = [...new Set(runs.map((r) => r.hardware))];
+const successCount = runs.filter((r) => r.status === 'success').length;
+const totalGaps = runs.reduce((a, r) => a + r.kernel_gaps, 0);
+
+const modelLabel: Record<string, string> = {
+  'llama-4-scout': 'Llama 4 Scout (109B / 17B active MoE)',
+  'llama-3.3-70b': 'Llama 3.3 70B (dense)',
+  'mistral-large-3': 'Mistral Large 3 (123B dense, GQA-12)',
+  'qwen3.6-plus': 'Qwen 3.6 Plus (480B / 35B MoE-128 top-8)',
+  'deepseek-v4-pro': 'DeepSeek V4 Pro (671B / 37B MoE-256 top-8 + MLA)'
+};
+
+const hwLabel: Record<string, string> = {
+  'h100-sxm5': 'NVIDIA H100',
+  'mi300x': 'AMD MI300X',
+  'ascend-910c': 'Huawei Ascend 910C'
+};
+
+function findRun(model: string, hw: string) {
+  return runs.find((r) => r.model === model && r.hardware === hw);
+}
+---
+<BaseLayout title="Agent E2E Validation Matrix — empirical proof of any-model × any-hardware">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="AGENTS · VALIDATIONS · v2.10"
+        title="任意模型 × 任意硬件 — 实测验证矩阵"
+        subtitle={`${runs.length} runs · ${successCount}/${runs.length} successful · ${totalGaps} kernel gaps detected`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        实证 — 不是 hypothetical. 这页的数据是真实运行 <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 1px 6px; border-radius: 3px; font-family: var(--font-mono);">scripts/agent-deploy/</code>
+        端到端 agent 跨 5 个 frontier model × 3 个硬件 (NVIDIA / AMD / Ascend) 生成生产级部署计划的结果. 每行都是一次可重现的 agent 调用.
+      </p>
+    </section>
+
+    {/* Summary stats */}
+    <section class="pb-8">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">Models</div>
+          <div class="text-2xl font-semibold">{models.length}</div>
+          <div class="text-xs" style="color: var(--color-text-muted);">archetypes covered</div>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">Hardware</div>
+          <div class="text-2xl font-semibold">{hardware.length}</div>
+          <div class="text-xs" style="color: var(--color-text-muted);">3 vendors (NVIDIA/AMD/Huawei)</div>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">Success rate</div>
+          <div class="text-2xl font-semibold" style={`color: ${successCount === runs.length ? 'oklch(60% 0.18 145)' : 'oklch(70% 0.18 70)'};`}>
+            {successCount}/{runs.length}
+          </div>
+          <div class="text-xs" style="color: var(--color-text-muted);">{Math.round(successCount / runs.length * 100)}% generated valid plans</div>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">Kernel gaps</div>
+          <div class="text-2xl font-semibold">{totalGaps}</div>
+          <div class="text-xs" style="color: var(--color-text-muted);">surfaced as PR opportunities</div>
+        </div>
+      </div>
+    </section>
+
+    {/* Matrix */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📋 Validation matrix</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        Each cell shows the agent's recommended plan for that (model × hardware). The agent automatically picks engine + quant + card count + parallel strategy from the corpus — no manual tuning.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 280px;">Model ↓ × Hardware →</th>
+              {hardware.map((hw) => (
+                <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 180px;">
+                  <div style="font-weight: 600;">{hwLabel[hw] ?? hw}</div>
+                  <div class="text-xs font-mono" style="color: var(--color-text-muted); font-weight: normal;">{hw}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {models.map((m) => (
+              <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
+                <td class="p-2 sticky left-0" style="background: var(--color-bg);">
+                  <div class="text-sm font-semibold">{modelLabel[m] ?? m}</div>
+                  <div class="text-xs font-mono" style="color: var(--color-text-muted);">{m}</div>
+                </td>
+                {hardware.map((hw) => {
+                  const run = findRun(m, hw);
+                  if (!run) return <td class="p-2 text-center" style="color: var(--color-text-muted);">—</td>;
+                  const success = run.status === 'success';
+                  return (
+                    <td class="p-2" style={`background: ${success ? 'color-mix(in oklch, oklch(60% 0.18 145) 5%, transparent)' : 'color-mix(in oklch, oklch(55% 0.2 25) 5%, transparent)'};`}>
+                      <div class="flex flex-col gap-1">
+                        <div class="text-xs">
+                          <Badge variant="accent">{run.engine}</Badge>
+                          <span class="ml-1 font-mono" style="color: var(--color-text-muted);">{run.quantization}</span>
+                        </div>
+                        <div class="text-xs">
+                          <span style="color: var(--color-text);"><strong>{run.card_count}</strong> card{run.card_count > 1 ? 's' : ''}</span>
+                          {run.kernel_gaps > 0 && (
+                            <span class="ml-2" style="color: oklch(70% 0.18 70);">⚠️ {run.kernel_gaps} kernel gaps</span>
+                          )}
+                        </div>
+                        <div class="text-xs" style="color: var(--color-text-muted); font-style: italic;">{run.archetype}</div>
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Patterns observed */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🔍 Observed patterns</h2>
+      <ul class="space-y-3 text-sm">
+        <li class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Cross-vendor adaptation works</strong> — Same model gets different (cards, quant, engine) per hardware automatically. e.g., Llama 4 Scout: <strong>H100=8 cards SGLang FP4</strong>, <strong>MI300X=4 cards (192GB HBM!)</strong>, <strong>Ascend 910C=8 cards MindIE FP4</strong>.
+        </li>
+        <li class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Engine selection follows vendor stack</strong> — NVIDIA → vLLM/SGLang; AMD → vLLM/SGLang (rocm port); Ascend → MindIE (national stack mandatory).
+        </li>
+        <li class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Kernel gaps mostly on Hopper for new MoE patterns</strong> — agent flagged 6 ops needing codegen on H100 (expert-permute, moe-gate). Surprising! These ops have engine_implementations on Hopper but the coverage matrix is conservative because formal_semantics is incomplete. Highlights where Layer D fill matters.
+        </li>
+        <li class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Ascend has 0 kernel gaps</strong> — counter-intuitive but real: the MindIE stack covers all required ops (matmul / attention / rmsnorm / rope / moe-gate / expert-permute) natively. National-stack ecosystem maturity is higher than coverage matrix suggested for these archetypes.
+        </li>
+        <li class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>MI300X is dense-LLM efficient</strong> — 192GB HBM lets Mistral Large 3 fit on <strong>1 card FP8</strong> vs <strong>2 cards FP4 on H100</strong>. Same with Llama 3.3 70B (1 card FP16). This is the cross-vendor cost story.
+        </li>
+        <li class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Workload archetype classification works</strong> — agent correctly classifies Llama 3.3 70B / Mistral Large 3 as <code>long-context</code> (max_context > 100K), MoE models as <code>moe-llm-{`{`}medium,large{`}`}</code>. Drives playbook lookup.
+        </li>
+      </ul>
+    </section>
+
+    {/* Reproduction */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🔄 Reproduce locally</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        Every cell is reproducible. Clone the repo, then:
+      </p>
+      <pre class="rounded-lg p-4 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre;"><code>{`# 1. Build the corpus locally
+pnpm install
+pnpm build
+
+# 2. Run preview server (provides /api/* endpoints)
+cd apps/web && pnpm preview --port 4329 &
+
+# 3. Run agent against any (model × hardware) cell
+pnpm tsx scripts/agent-deploy/index.ts \\
+  --model meta-llama/Llama-3.3-70B-Instruct \\
+  --hardware mi300x \\
+  --workload chat \\
+  --api-base "http://localhost:4329/api" \\
+  --output ./output
+
+# 4. Inspect 13 generated artifacts
+ls output/  # → deployment_plan.json, launch.sh, Dockerfile, kubernetes/, monitoring/, etc.
+`}</code></pre>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Validation run: <code style="font-family: var(--font-mono);">{validationData.generated}</code> ·
+        Source: <code style="font-family: var(--font-mono);">data/agent-validations.json</code> ·
+        Re-run: <code style="font-family: var(--font-mono);">bash scripts/agent-deploy/run-validations.sh</code>.
+        See also <a href={pathname('/agents/example/')} class="underline" style="color: var(--color-accent);">/agents/example/</a> for the 7-stage pipeline + 13 artifact spec.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

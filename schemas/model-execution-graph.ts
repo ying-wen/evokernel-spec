@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { EvidenceSchema } from './evidence';
 
-const Slug = z.string().regex(/^[a-z0-9-]+$/);
+// Allow dots — model ids like "qwen3.6-plus" / "minimax-m2.7" use them
+const Slug = z.string().regex(/^[a-z0-9.-]+$/);
 
 /**
  * Model Execution Graph (v2.8).

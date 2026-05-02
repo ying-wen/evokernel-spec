@@ -1,0 +1,118 @@
+id: deepseek-v4-pro-prefill
+model_id: deepseek-v4-pro
+phase: prefill
+layer_count: 61
+
+placeholder_definitions:
+  B: 'batch_size'
+  S: 'seq_len (full prompt length — typically 512–32K)'
+  D: 'd_model (7168)'
+  H: 'num_attention_heads (128)'
+  D_h: 'head_dim (64)'
+  D_kv: 'kv_compressed_dim (512)'
+  D_q_low: 'q_compression_dim (1536)'
+  E: 'num_experts (256)'
+  K: 'top_k_experts (8)'
+  D_ff: 'expert_intermediate_dim (2048)'
+  V: 'vocab_size (129280)'
+
+default_dimensions:
+  B: 1
+  S: 4096
+  D: 7168
+  H: 128
+  D_h: 64
+  D_kv: 512
+  D_q_low: 1536
+  E: 256
+  K: 8
+  D_ff: 2048
+  V: 129280
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm pre-attn',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  # MLA: Q low-rank projection
+  - { order: 2, op_id: matmul, label: 'MLA Q low-rank (W_DQ)',
+      shape_template: { input: '[B, S, D]', weight: '[D, D_q_low]', output: '[B, S, D_q_low]' } }
+  - { order: 3, op_id: rmsnorm, label: 'MLA Q layer-norm',
+      shape_template: { input: '[B, S, D_q_low]', output: '[B, S, D_q_low]' } }
+  - { order: 4, op_id: matmul, label: 'MLA Q decompression (W_UQ)',
+      shape_template: { input: '[B, S, D_q_low]', weight: '[D_q_low, H*D_h]', output: '[B, S, H, D_h]' } }
+
+  # MLA KV: write compressed KV to cache (vs decode reads from cache)
+  - { order: 5, op_id: matmul, label: 'MLA KV compressed proj (W_DKV) — write side',
+      shape_template: { input: '[B, S, D]', weight: '[D, D_kv + D_h]', output: '[B, S, D_kv + D_h]' },
+      notes: 'Prefill writes new compressed KV to cache. Different from decode (which only reads).' }
+  - { order: 6, op_id: matmul, label: 'MLA K decompression (W_UK)',
+      shape_template: { input: '[B, S, D_kv]', weight: '[D_kv, H*D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 7, op_id: matmul, label: 'MLA V decompression (W_UV)',
+      shape_template: { input: '[B, S, D_kv]', weight: '[D_kv, H*D_h]', output: '[B, S, H, D_h]' } }
+
+  - { order: 8, op_id: rope, label: 'RoPE (Q + decoupled K)',
+      shape_template: { input: '[B, S, H, D_h]', output: '[B, S, H, D_h]' } }
+
+  # Causal MLA attention — O(S^2) compute (compute-bound on long context)
+  - { order: 9, op_id: mla-attention, label: 'MLA flash attention (causal)',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, S, H, D_h]', V: '[B, S, H, D_h]', output: '[B, S, H, D_h]' },
+      notes: 'Prefill: full O(B*S^2) attention compute. Compute-bound at long context (4K+).' }
+
+  - { order: 10, op_id: matmul, label: 'Attn output projection (W_O)',
+      shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+
+  - { order: 11, op_id: rmsnorm, label: 'RMSNorm pre-MoE',
+      fused_with: [matmul],
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  - { order: 12, op_id: moe-gate, label: 'MoE router (top-K from E experts)',
+      shape_template: { input: '[B, S, D]', weight: '[D, E]', output_indices: '[B, S, K]', output_weights: '[B, S, K]' } }
+
+  # Prefill MoE dispatch: huge token batch (B*S tokens), better expert utilization
+  - { order: 13, op_id: expert-permute, label: 'Token dispatch (B*S tokens × K experts)',
+      shape_template: { tokens: '[B*S, D]', indices: '[B*S, K]', dispatched: '[B*S*K, D]' },
+      notes: 'Prefill has much higher per-expert load than decode — fewer load-balance issues.' }
+
+  - { order: 14, op_id: grouped-matmul, label: 'Expert gate proj',
+      shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 15, op_id: silu, label: 'SwiGLU activation',
+      fused_with: [grouped-matmul],
+      shape_template: { input: '[B*S*K/E, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 16, op_id: grouped-matmul, label: 'Expert down proj',
+      shape_template: { input: '[B*S*K/E, D_ff]', weight: '[E, D_ff, D]', output: '[B*S*K/E, D]' } }
+
+  - { order: 17, op_id: expert-permute, label: 'Expert outputs combine',
+      shape_template: { dispatched: '[B*S*K, D]', weights: '[B*S, K]', combined: '[B*S, D]' } }
+
+  - { order: 18, op_id: allreduce, label: 'TP allreduce',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  # LM head fires only on last token of prefill (next-token prediction)
+  - { order: 101, op_id: matmul, label: 'LM head (last token only)', layer_scope: lm-head-only,
+      shape_template: { input: '[B, 1, D]', weight: '[D, V]', output: '[B, 1, V]' },
+      notes: 'Prefill only computes lm_head for the LAST token — not all S positions.' }
+
+notes: |
+  DeepSeek V4 Pro 671B PREFILL phase (vs decode):
+
+  1. **MLA KV cache WRITE side** active — projection W_DKV computes new compressed KV
+     for the entire prompt (decode only reads from cache).
+  2. **K/V decompression** done at prefill time (W_UK, W_UV) for the attention compute,
+     then result discarded (only compressed KV stored in cache).
+  3. **Causal attention is O(S²)** — compute-bound on long contexts. FlashAttention-3
+     critical for keeping it tractable.
+  4. **MoE per-expert load is high** — B*S tokens dispatched to E experts means much
+     higher per-expert utilization than decode (B tokens). Less load-balance pressure.
+  5. **LM head only fires for the last token** — saves V*S work vs decoding all S positions.
+
+  Prefill compute is ~100-1000× decode compute per request, but only fires once per
+  request. PD-disagg deployments separate this onto a dedicated prefill pool.
+
+reference_url: https://arxiv.org/abs/2412.19437

@@ -1,0 +1,107 @@
+id: minimax-m2.7-decode
+model_id: minimax-m2.7
+phase: decode
+layer_count: 80
+
+placeholder_definitions:
+  B: 'batch_size'
+  S: 'seq_len (1 for decode)'
+  D: 'd_model (6144)'
+  H: 'num_attention_heads (64) — for attention blocks'
+  H_kv: 'num_kv_heads (8) — GQA for attention blocks'
+  D_h: 'head_dim (128)'
+  D_state: 'SSM state dim (64)'
+  D_conv: 'mamba conv kernel size (4)'
+  E: 'num_experts (32)'
+  K: 'top_k_experts (2)'
+  D_ff: 'expert_intermediate_dim (16384)'
+  V: 'vocab_size (200000)'
+  attn_block_freq: 'every-Nth-layer-is-full-attention (typical 1:7 with SSM)'
+
+default_dimensions:
+  B: 1
+  S: 1
+  D: 6144
+  H: 64
+  H_kv: 8
+  D_h: 128
+  D_state: 64
+  D_conv: 4
+  E: 32
+  K: 2
+  D_ff: 16384
+  V: 200000
+  attn_block_freq: 8
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  # Hybrid SSM: most layers use Mamba, every Nth uses full attention.
+  # Documented as the "majority" path here (Mamba block).
+
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm pre-Mamba block', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  # Mamba SSM block (Lightning Attention path)
+  - { order: 2, op_id: matmul, label: 'In-projection (gate + x + dt + Bv + C)',
+      shape_template: { input: '[B, S, D]', weight: '[D, 5*D_state*expansion]', output: '[B, S, 5*D_state*expansion]' },
+      notes: 'Mamba in-proj: 5 outputs (z gate, x, delta-t, B, C) for selective scan' }
+
+  - { order: 3, op_id: mamba-conv1d, label: 'Causal Conv1D (kernel=4)',
+      shape_template: { input: '[B, S, D_state*expansion]', weight: '[D_conv, D_state*expansion]', output: '[B, S, D_state*expansion]' },
+      notes: 'Local-context conv before selective scan; companion to selective-scan op' }
+
+  - { order: 4, op_id: silu, label: 'SiLU activation',
+      shape_template: { input: '[B, S, D_state*expansion]', output: '[B, S, D_state*expansion]' } }
+
+  - { order: 5, op_id: selective-scan, label: 'Selective scan (Mamba state update)',
+      shape_template: { x: '[B, S, D_state*expansion]', delta_t: '[B, S, D_state*expansion]',
+                         B: '[B, S, D_state]', C: '[B, S, D_state]',
+                         output: '[B, S, D_state*expansion]', state_cache: '[B, D_state*expansion, D_state]' },
+      notes: 'O(S) state-space recurrence — much cheaper than O(S²) attention but state cache is the new memory pressure point' }
+
+  - { order: 6, op_id: matmul, label: 'Out-projection',
+      shape_template: { input: '[B, S, D_state*expansion]', weight: '[D_state*expansion, D]', output: '[B, S, D]' } }
+
+  # MoE FFN (same as DeepSeek/Qwen pattern)
+  - { order: 7, op_id: rmsnorm, label: 'RMSNorm pre-MoE', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 8, op_id: moe-gate, label: 'MoE router (top-2 from 32)',
+      shape_template: { input: '[B, S, D]', weight: '[D, E]', output_indices: '[B, S, K]' } }
+  - { order: 9, op_id: expert-permute, label: 'Token dispatch',
+      shape_template: { tokens: '[B*S, D]', indices: '[B*S, K]', dispatched: '[B*S*K, D]' } }
+  - { order: 10, op_id: grouped-matmul, label: 'Expert gate', shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 11, op_id: grouped-matmul, label: 'Expert up', shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 12, op_id: swiglu, label: 'SwiGLU', fused_with: [grouped-matmul], shape_template: { input: '[B*S*K/E, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 13, op_id: grouped-matmul, label: 'Expert down', shape_template: { input: '[B*S*K/E, D_ff]', weight: '[E, D_ff, D]', output: '[B*S*K/E, D]' } }
+  - { order: 14, op_id: expert-permute, label: 'Combine', shape_template: { dispatched: '[B*S*K, D]', combined: '[B*S, D]' } }
+  - { order: 15, op_id: allreduce, label: 'TP allreduce', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only, shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head', layer_scope: lm-head-only, shape_template: { input: '[B, S, D]', weight: '[D, V]', output: '[B, S, V]' } }
+  - { order: 102, op_id: top-k-sampling, label: 'Sampling', layer_scope: lm-head-only, shape_template: { input: '[B, S, V]', output_token: '[B, S]' } }
+
+notes: |
+  MiniMax M2.7 — Hybrid SSM/attention model (Lightning Attention).
+  Most layers use Mamba SSM block (selective-scan + conv1d); every Nth layer
+  (typically 1:7 ratio) uses standard GQA attention. This graph documents
+  the SSM-block-majority path.
+
+  Key architectural diff from pure-transformer LLMs:
+  - **selective-scan replaces O(S²) attention** — O(S) recurrence
+  - **mamba-conv1d** adds local-context filter before scan
+  - **SSM state cache** replaces KV cache — small fixed-size state per layer
+  - **4M context** native — KV-cache-free architecture scales to massive context
+
+  Engine support:
+  - vLLM: Mamba2 + Jamba-style hybrid in 0.6+
+  - SGLang: Lightning attention path
+  - TRT-LLM: hybrid SSM in 0.13+
+  - aclnn / Ascend: experimental selective-scan kernel needed (gap)
+
+  Operator coverage gap: selective-scan + mamba-conv1d only have native
+  kernels on Hopper / Blackwell / CDNA3 currently. Ascend / Cambricon need
+  custom codegen — see /operators/hardware-fitness/ for gap matrix.
+
+reference_url: https://huggingface.co/MiniMaxAI
