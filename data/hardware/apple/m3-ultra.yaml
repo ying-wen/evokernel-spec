@@ -1,0 +1,102 @@
+id: m3-ultra
+name: Apple M3 Ultra (Mac Studio)
+vendor: apple
+generation: apple-m3
+status: in-production
+release_year: 2025
+form_factor: embedded-soc
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 102, evidence_ref: ev-m3-ultra-001 }
+  fp16_tflops: { value: 102, evidence_ref: ev-m3-ultra-001 }
+  int8_tops: { value: 204, evidence_ref: ev-m3-ultra-001 }
+architecture:
+  compute_unit_count: { value: 80, evidence_ref: ev-m3-ultra-001 }
+  compute_unit_label: XPU
+  process_node_nm: { value: 3, evidence_ref: ev-m3-ultra-001 }
+  memory_hierarchy:
+    - name: 'GPU L1'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-m3-ultra-arch-001 }
+      notes: 'Apple GPU per-core L1 cache + scratchpad — used by Metal Performance Shaders + MLX kernels.'
+    - name: 'System Level Cache (SLC)'
+      scope: global
+      size_mb: { value: 64, evidence_ref: ev-m3-ultra-arch-001 }
+      notes: 'M3 Ultra (UltraFusion of two M3 Max dies) total SLC ≈ 64 MB. Shared across CPU + GPU + ANE.'
+    - name: 'LPDDR5 (unified)'
+      scope: global
+      size_mb: { value: 524288, evidence_ref: ev-m3-ultra-001 }
+      bandwidth_tbs: { value: 0.819, evidence_ref: ev-m3-ultra-001 }
+      notes: '512 GB unified memory at 819 GB/s — the largest unified memory in any consumer-tier device. Llama 3 405B FP16 fits in a single Mac Studio (Apple''s positioning). LLM inference is the killer app for this SKU.'
+  on_chip_interconnect:
+    name: 'UltraFusion interposer'
+    bandwidth_tbs: { value: 2.5, evidence_ref: ev-m3-ultra-arch-001 }
+    notes: 'Two M3 Max dies fused via 10000-pin silicon interposer; transparent to software — appears as one chip.'
+memory:
+  capacity_gb: { value: 512, evidence_ref: ev-m3-ultra-001 }
+  bandwidth_gbps: { value: 819, evidence_ref: ev-m3-ultra-001 }
+  type: LPDDR5
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 819
+  world_size: 1
+  topology: unified
+  notes: 'Single chip; UltraFusion makes two dies appear as one. No multi-Mac scaling.'
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+  notes: 'Mac Studio has 10GbE port; not designed for cluster scale-out. Use Thunderbolt 5 (120 Gbps) for 2-Mac peer-to-peer if needed.'
+power:
+  tdp_w: { value: 295, evidence_ref: ev-m3-ultra-001 }
+  sustained_w: { value: 215, evidence_ref: ev-m3-ultra-001 }
+  peak_w: { value: 310, evidence_ref: ev-m3-ultra-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  fp16_tflops_per_watt: { value: 0.47, evidence_ref: ev-m3-ultra-001 }
+  power_connector: integrated
+  notes: 'Mac Studio Pro chassis; integrated PSU. ~300W max chassis power — household 15A circuit handles it. Best perf/watt of any 102 BF16 TFLOPS device in the corpus.'
+software_support:
+  drivers: ['Metal 4', 'Core ML 8', 'MLX 0.20']
+  engines:
+    - { id: vllm, status: community-port, notes: 'mlx-vllm port; functional but not Tier-1' }
+    - { id: lmdeploy, status: community-port, notes: 'via MLX backend (experimental)' }
+  quantizations: [bf16, fp16, int8, int4-awq, int4-gptq, mlx-q4]
+  parallelism: [tp]
+aliases: ['M3 Ultra', 'Apple M3 Ultra', 'Mac Studio M3 Ultra']
+chinese_names: ['苹果 M3 Ultra', 'Mac Studio M3 Ultra']
+evidence:
+  - id: ev-m3-ultra-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.apple.com/mac-studio/specs/
+    accessed: '2026-05-02'
+    citation: 'Apple Mac Studio M3 Ultra specs (UltraFusion of 2× M3 Max — 32-core CPU, 80-core GPU, 32-core Neural Engine; up to 512 GB unified memory @ 819 GB/s; ~$3999-$9999 configured).'
+  - id: ev-m3-ultra-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.apple.com/newsroom/2025/03/apple-unveils-m3-ultra-taking-mac-studio-to-a-new-extreme/
+    accessed: '2026-05-02'
+    citation: 'Apple M3 Ultra announcement: UltraFusion 2× M3 Max with 10000-pin silicon interposer, 2.5 TB/s die-to-die bandwidth.'
+disclaimers:
+  - 'Apple Silicon LLM inference performance is constrained by GPU memory bandwidth + MLX kernel maturity, not raw TFLOPS. Real Llama 3 70B BF16 decode on M3 Ultra: ~10-15 tok/s typical (vs vendor TFLOPS would suggest much higher).'
+  - 'No NVLink / Infinity Fabric / PCIe scaling — single-Mac only. Multi-Mac via Thunderbolt 5 is experimental community work.'
+  - 'MLX is the canonical Apple Silicon LLM stack; vLLM/llama.cpp work but with reduced perf vs MLX.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  M3 Ultra Mac Studio is a uniquely positioned LLM inference platform: **512 GB unified
+  memory** is more than ANY single-card datacenter GPU (H200 = 141 GB, B200 = 192 GB,
+  MI355X = 288 GB). For models that fit in 512 GB but not in a single H100/H200, M3 Ultra
+  is the only single-device option.
+
+  Use case: local inference of frontier models (Llama 3 405B FP16, DeepSeek V3 671B INT4),
+  research workflows requiring large memory + low latency to model load, "develop on the
+  same machine you'll deploy to" prototyping.
+
+  Trade-offs: bandwidth (819 GB/s) is between L40S (864) and RX 7900 XTX (960) — well below
+  HBM-class. Decode throughput is bandwidth-bound and noticeably slower than equivalent
+  $-cost data-center setup. But the 512 GB at $9999 max is unmatched in any other tier.
+
+  MLX is the canonical software stack: written by Apple, optimized for unified memory,
+  and usually 2-3× faster than llama.cpp on the same hardware.

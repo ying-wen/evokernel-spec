@@ -6,7 +6,40 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.1 — Apple Silicon** (M3 Ultra, M4 Max, M4 Pro) — unified memory architecture, AMX, Metal kernel paths.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.2 — edge NPU** (Jetson Thor, Jetson Orin Nano, Hailo-10, Coral Dev Board, Rockchip RK3588 NPU) — power-budget tier, integer-only paths, ExecuTorch / TFLite-NPU stack.
+
+---
+
+## [3.1.0] — 2026-05-03
+
+**Theme**: Apple Silicon hardware coverage (M3 Ultra, M4 Max, M4 Pro). Extends v3.0's consumer GPU tier into Apple's unique unified-memory inference platform.
+
+### Added — 3 Apple Silicon SoCs (44 → 47 cards)
+
+- **`m3-ultra`** — Mac Studio flagship; UltraFusion of 2× M3 Max (80-core GPU, 32-core ANE); **up to 512 GB unified memory at 819 GB/s** — the largest unified memory in any consumer device. Llama 3 405B FP16 fits in a single Mac Studio. $3999-$9999 configured. The "single-device frontier-LLM" niche.
+- **`m4-max`** — MacBook Pro 16" / Mac Studio variant; 40-core GPU + 16-core ANE; up to 128 GB at 546 GB/s; $3199 starting. Laptop tier for serious LLM dev workflows. Distinct from existing `apple-m4-max-npu` entry which covers only the Neural Engine subset (38 TFLOPS); this entry covers the full chip (70 BF16 TFLOPS GPU-dominant via MLX).
+- **`m4-pro`** — MacBook Pro / Mac mini mid-tier; 20-core GPU; up to 64 GB at 273 GB/s; $1399 starting (Mac mini). Cheapest viable Apple Silicon LLM platform.
+
+### Why Apple Silicon matters for LLM inference
+
+Two unique properties:
+
+1. **Unified Memory Architecture (UMA)**: CPU/GPU/ANE share a single physical memory pool. No PCIe transfer overhead between processors. The 512 GB ceiling on M3 Ultra is **larger than any single datacenter GPU** (B200 = 192 GB, MI355X = 288 GB), making it the only single-device option for some frontier-model workflows.
+
+2. **Best-in-class perf/watt**: M4 Max @ 1.4 BF16 TFLOPS/W, M3 Ultra @ 0.47, M4 Pro @ 1.25. Compares to RTX 5090 @ 0.36, MI300X @ 0.66 (typical datacenter). For mobile / edge inference where wall power is a real constraint, Apple Silicon dominates.
+
+**Trade-off**: bandwidth-bound for LLM decode. Even M3 Ultra at 819 GB/s is below HBM-class (H200 = 4800 GB/s). Real Llama 3 70B BF16 decode on M3 Ultra: ~10-15 tok/s typical (MLX) — usable but not server-grade. Apple Silicon wins on capacity (UMA) and efficiency, loses on raw throughput.
+
+### MLX is the canonical stack
+
+vLLM / lmdeploy / llama.cpp all run on Apple Silicon, but MLX (Apple's open-source ML framework) is typically 2-3× faster on the same hardware. v3.1 documents `mlx-q4` quantization slug + `MLX 0.20` driver in `software_support`. MLX is a future v3.x DSL example candidate (Layer B) — Metal kernel structural pattern.
+
+### Stats
+
+- **Hardware**: 44 → 47 (+3 Apple Silicon)
+- **Site pages**: 515 → 521 (+6)
+- **Layer D coverage**: still 100%
+- **Validation**: 362 entities valid
 
 ---
 

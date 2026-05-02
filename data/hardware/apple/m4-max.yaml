@@ -1,0 +1,90 @@
+id: m4-max
+name: Apple M4 Max (MacBook Pro / Mac Studio)
+vendor: apple
+generation: apple-m4
+status: in-production
+release_year: 2024
+form_factor: embedded-soc
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 70, evidence_ref: ev-m4-max-001 }
+  fp16_tflops: { value: 70, evidence_ref: ev-m4-max-001 }
+  int8_tops: { value: 140, evidence_ref: ev-m4-max-001 }
+architecture:
+  compute_unit_count: { value: 40, evidence_ref: ev-m4-max-001 }
+  compute_unit_label: XPU
+  process_node_nm: { value: 3, evidence_ref: ev-m4-max-001 }
+  memory_hierarchy:
+    - name: 'GPU L1'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-m4-max-arch-001 }
+      notes: 'Apple M4 GPU per-core L1 cache + scratchpad.'
+    - name: 'System Level Cache (SLC)'
+      scope: global
+      size_mb: { value: 32, evidence_ref: ev-m4-max-arch-001 }
+      notes: 'M4 Max SLC ~32 MB — shared across CPU + GPU + ANE.'
+    - name: 'LPDDR5X (unified)'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-m4-max-001 }
+      bandwidth_tbs: { value: 0.546, evidence_ref: ev-m4-max-001 }
+      notes: 'Up to 128 GB unified memory at 546 GB/s. Lower bandwidth than M3 Ultra (819) but higher than M4 Pro (273).'
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-m4-max-001 }
+  bandwidth_gbps: { value: 546, evidence_ref: ev-m4-max-001 }
+  type: LPDDR5X
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 546
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+power:
+  tdp_w: { value: 65, evidence_ref: ev-m4-max-001 }
+  sustained_w: { value: 50, evidence_ref: ev-m4-max-001 }
+  peak_w: { value: 75, evidence_ref: ev-m4-max-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  fp16_tflops_per_watt: { value: 1.4, evidence_ref: ev-m4-max-001 }
+  power_connector: integrated
+  notes: 'MacBook Pro 16" chassis: ~65W package TDP under sustained inference load. Best perf/watt in mobile form factor.'
+software_support:
+  drivers: ['Metal 4', 'Core ML 8', 'MLX 0.20']
+  engines:
+    - { id: vllm, status: community-port, notes: 'mlx-vllm port' }
+    - { id: lmdeploy, status: community-port }
+  quantizations: [bf16, fp16, int8, int4-awq, mlx-q4]
+  parallelism: [tp]
+aliases: ['M4 Max', 'Apple M4 Max', 'MacBook Pro M4 Max']
+chinese_names: ['苹果 M4 Max', 'M4 Max 笔记本旗舰']
+evidence:
+  - id: ev-m4-max-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.apple.com/macbook-pro/specs/
+    accessed: '2026-05-02'
+    citation: 'Apple MacBook Pro M4 Max specs (16-core CPU, 40-core GPU, 16-core Neural Engine; up to 128 GB unified memory @ 546 GB/s; from $3199 configured).'
+  - id: ev-m4-max-arch-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.apple.com/newsroom/2024/10/new-macbook-pro-features-m4-family-of-chips-and-apple-intelligence/
+    accessed: '2026-05-02'
+    citation: 'Apple M4 Max announcement: 28 B transistors @ TSMC N3E; UMA architecture inheriting from M3 generation.'
+disclaimers:
+  - 'M4 Max LLM perf is highly bandwidth-bound. 70B BF16 decode: ~5-8 tok/s typical (MLX), 4× lower on llama.cpp.'
+  - 'Different from existing apple-m4-max-npu entry: this entry covers the FULL chip (GPU dominant for MLX) vs that entry covers the Neural Engine only (38 TFLOPS subset).'
+  - 'MacBook Pro thermal envelope limits sustained workload — long inference jobs throttle after ~10 minutes; Mac Studio M4 Max variant runs continuously.'
+notes: |
+  M4 Max is the laptop tier of Apple Silicon LLM inference. 128 GB unified memory fits
+  Llama 3 70B BF16 with KV cache budget; the GPU's 70 BF16 TFLOPS + 546 GB/s bandwidth
+  give ~5-8 tok/s decode (MLX) on 70B BF16. For 8B-32B models: 30-60 tok/s decode.
+
+  Use case: developer laptop for local LLM workflows, "prototype on the plane" inference,
+  edge demos. Trade-offs: thermally constrained for sustained workloads (laptop chassis);
+  no scale-out path; MLX-only for peak perf.
+
+  Compared to M3 Ultra: half the GPU cores (40 vs 80), 2/3 the bandwidth (546 vs 819),
+  1/4 the memory (128 vs 512 GB) — but 1/3 the price ($3199 vs $9999) and portable.
