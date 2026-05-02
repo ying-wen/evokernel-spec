@@ -6,7 +6,79 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.21** — model index timeline rebuild (mirror v3.20's hardware bento), card metadata richness (process node + sw stack badges), Apple m4-max-npu dedup + harness extension (`--profile` flag for V3 execution-mode perf, zh i18n for `/agent-deploy`).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.22** — Apple m4-max / m4-max-npu visible cross-link UI + actual NCU/rocprof/msprof invocation in V3 execution mode + zh i18n for `/agent-deploy` slash command.
+
+---
+
+## [3.21.0] — 2026-05-03 — Model timeline bento + card metadata badges + harness `--profile` (profiler auto-detection)
+
+**Theme**: Continue the "real product feel" arc. UI parity for the model index (timeline rebuild matches v3.20's hardware bento), richer hardware cards mirror the v3.20 filter taxonomy (process node + memory type + software stack badges), and the harness gains `--profile` opt-in with auto-detection of the right profiler for each target arch.
+
+### H1 — Model timeline bento rebuild (UI parity with v3.20)
+
+`apps/web/src/components/model/Timeline.astro` rewritten to match v3.20's HwTimeline pattern:
+
+- One vertical column per release **month** (YYYY-MM — finer granularity than hardware's per-year because models release more frequently)
+- Cards show: lab-coloured dot + name + family abbreviation badge (MoE / D / Diff / Flow / ASR / EqGNN / Pair / Hyb / SSM) + params chip
+- Within-month sort: total_params desc — frontier-first
+- Max 5 visible per column; overflow folded into native `<details>` "+K more"
+- **Empty months are still shown as columns** to preserve visual rhythm (release tempo). Pre-v3.21 had no concept of empty months — visual density was driven by data alone, so quiet months collapsed away and made the timeline feel uneven.
+
+The model index now tells the user "April 2026 had 7 frontier releases, May had 1" at a glance.
+
+### H2 — Hardware card metadata badges
+
+`apps/web/src/components/hardware/HardwareGrid.tsx` `HwCard` extended with 3 badge slots:
+
+- **Process node** (`{n}nm`) — derived from `architecture.process_node_nm.value`
+- **Memory type** (`HBM3` / `LPDDR5X` / etc) — `memory.type`
+- **Software stack** (`CUDA` / `ROCM` / `CANN` / `NEUWARE` / `COREX` / `MUSA` / `MLX` / `METAL`) — substring-detected from `software_support.drivers`, accent-coloured
+
+Pre-v3.21 cards showed only form factor + status + FP8/FP4 chips. Cards now visually mirror the **v3.20 filter taxonomy** — users can scan a card and see the same dimensions they filtered by, without reading the detail page.
+
+### H3 — Harness `--profile` flag + profiler auto-detection (v3.22-precursor)
+
+`scripts/agent-deploy/verify/perf.ts` `detectProfilerForArch()` (NEW): given a target arch family, returns the canonical profiler binary, install hint, and PATH availability. 6-vendor mapping:
+
+| Arch family | Profiler | Install hint |
+|---|---|---|
+| Hopper / Blackwell / Ampere / Ada | `ncu` | NVIDIA Nsight Compute (CUDA Toolkit) |
+| CDNA / RDNA | `rocprof` | AMD ROCm — `apt install rocm-profiler` |
+| Ascend / Da Vinci | `msprof` | Huawei CANN Toolkit |
+| Cambricon MLU / BANG-C | `cnperf` | Cambricon Neuware SDK |
+| MUSA / MTT (Moore Threads) | `suprof` | Moore Threads MUSA SDK |
+| Apple M-series / Neural Engine | `instruments` | Xcode Command Line Tools |
+
+Env-override beats PATH lookup: `EVOKERNEL_PROFILER_NCU=/usr/local/cuda/bin/ncu` etc.
+
+`scripts/agent-deploy/index.ts` adds `--profile` flag — when passed, the V3 perf gate runs in `execution_mode: true` instead of structural-only. v3.21 reports profiler availability + path; **v3.22 will wire actual invocation + tok/s parsing** (per-arch profiler output formats differ enough to need separate parsers).
+
+The install-hint UX turns "perf measurement not implemented" into "perf measurement requires install — here's how" — concrete + actionable + productized.
+
+### H4 — Tests
+
+`scripts/tests/v3-21-profile-detection.test.ts`: +14 tests covering:
+- Each of 6 vendor families → correct profiler binary
+- Case-insensitive arch matching
+- Unknown arch → `binary: 'unknown'` (not crash)
+- 3 env-override scenarios (NCU / ROCPROF / MSPROF)
+- Env override doesn't leak across arch families
+- PATH-lookup API shape stability
+
+### Stats
+
+- **Site pages**: 608 → 608 (UI changes only)
+- **Test count**: 120 → **134** (+14 profiler detection)
+- **Hardware card badges**: 4 → **7** (+process node + memory type + sw stack)
+- **CLI flags**: `--use-llm-orchestrator` + `--profile` (productized + perf-gate opt-ins, both off by default for cost/HW safety)
+- **Profiler auto-detect coverage**: 6 vendors × 1 binary each = 6 (NVIDIA / AMD / Huawei / Cambricon / Moore Threads / Apple)
+
+### v3.22 next
+
+- **Apple m4-max / m4-max-npu visible cross-link** (CLEANUP-TODO item) — keep both YAMLs but UI clearly labels NPU as a sub-component of the parent chip.
+- **Actual profiler invocation** — wire NCU JSON output parsing for hopper/blackwell first; rocprof + msprof + cnperf in subsequent micro-releases.
+- **zh i18n** for `/agent-deploy` slash command.
+- **Continuous mode** (`pnpm agent:watch`) — re-deploy when corpus changes.
 
 ---
 

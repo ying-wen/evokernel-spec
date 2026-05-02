@@ -404,6 +404,30 @@ function HwCard({ h, isCN = false, locale = 'zh' }: { h: ResolvedHw; isCN?: bool
           <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-text-muted) 14%, var(--color-bg))', color: 'var(--color-text-muted)' }}>{h.status === 'in-production' ? (en ? 'In production' : '在售') : h.status}</span>
           {h.compute.fp8_tflops && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-measured) 14%, var(--color-bg))', color: 'var(--color-tier-measured)' }}>FP8</span>}
           {h.compute.fp4_tflops && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-tier-measured) 14%, var(--color-bg))', color: 'var(--color-tier-measured)' }}>FP4</span>}
+          {/* v3.21 — richer classification badges. Each derived from existing
+              YAML fields (no schema change) and surfaces a dimension that
+              v3.20 added to the filter UI: process node, memory type, sw stack.
+              Cards now visually mirror the filter taxonomy. */}
+          {h.architecture?.process_node_nm?.value != null && (
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-text-muted) 10%, var(--color-bg))', color: 'var(--color-text-muted)' }}>
+              {h.architecture.process_node_nm.value}nm
+            </span>
+          )}
+          {h.memory.type && (
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-text-muted) 10%, var(--color-bg))', color: 'var(--color-text-muted)' }}>
+              {h.memory.type}
+            </span>
+          )}
+          {(() => {
+            const stacks = detectSwStacks(h.software_support?.drivers);
+            if (stacks.size === 0) return null;
+            const primary = ['cuda', 'rocm', 'cann', 'neuware', 'corex', 'musa', 'mlx', 'metal'].find((s) => stacks.has(s as any));
+            return primary ? (
+              <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'color-mix(in oklch, var(--color-accent) 12%, var(--color-bg))', color: 'var(--color-accent)' }}>
+                {primary.toUpperCase()}
+              </span>
+            ) : null;
+          })()}
         </div>
       </article>
     </a>

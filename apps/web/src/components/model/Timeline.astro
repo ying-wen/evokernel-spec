@@ -1,36 +1,75 @@
 ---
+/**
+ * Model release timeline (v3.21 — bento rebuild matching v3.20 HwTimeline).
+ *
+ * Pre-v3.21 the model timeline used the same lane-stacking trick as the
+ * pre-v3.20 hardware timeline: sort by date, stagger vertically when
+ * within 14 days. With 30+ models clustered around frontier-release
+ * months (e.g. multiple labs ship in 2026-04), labels overlapped and
+ * the timeline became unreadable.
+ *
+ * v3.21 layout (mirrors v3.20 hardware bento):
+ *   - One vertical column per release MONTH (YYYY-MM)
+ *   - Cards inside each column show: lab-coloured dot + name + family
+ *     badge (moe / dense / diffusion / encoder-decoder / ...) + params chip
+ *   - Within-month sort: total_params desc (frontier first)
+ *   - Max 5 visible per column; overflow folded into native <details>
+ *     "+K more" disclosure (zero JS at parse)
+ *   - Empty months are still shown as columns to preserve visual rhythm
+ *     (no "compressed" gap that hides release tempo)
+ */
 import type { Model } from '@evokernel/schemas';
 import { pathname } from '~/lib/i18n';
 
 interface Props { models: Model[]; }
 const { models } = Astro.props;
 
-// Group models by year-month (YYYY-MM) and sort by date asc
-const sorted = [...models].sort((a, b) => a.release_date.localeCompare(b.release_date));
-const earliest = sorted[0]?.release_date ?? '2025-01-01';
-const latest = sorted[sorted.length - 1]?.release_date ?? '2026-04-01';
+const VISIBLE_PER_COL = 5;
 
-// Compute relative position [0..1] of each model on the timeline
-function dayDiff(a: string, b: string): number {
-  return (new Date(b).getTime() - new Date(a).getTime()) / 86400000;
-}
-const totalDays = Math.max(1, dayDiff(earliest, latest));
+// Group by year-month
+type ByMonth = Array<{ ym: string; items: Model[] }>;
+const grouped: ByMonth = (() => {
+  const m = new Map<string, Model[]>();
+  for (const model of models) {
+    const ym = model.release_date.slice(0, 7); // YYYY-MM
+    const arr = m.get(ym) ?? [];
+    arr.push(model);
+    m.set(ym, arr);
+  }
 
-// Lay out: stagger vertically when models cluster within 14 days
-type Lane = { used: number; items: Array<Model & { x: number; y: number }>; };
-const lanes: Lane[] = [{ used: -Infinity, items: [] }];
-const placed = sorted.map((m) => {
-  const x = dayDiff(earliest, m.release_date) / totalDays;
-  let lane = lanes.find((l) => x - l.used > 0.06);
-  if (!lane) { lane = { used: -Infinity, items: [] }; lanes.push(lane); }
-  lane.used = x;
-  const laneIndex = lanes.indexOf(lane);
-  return { ...m, x, y: laneIndex };
-});
-const maxLane = lanes.length;
-const heightRem = Math.max(8, maxLane * 2.5 + 4);
+  // Sort within each month: total_params desc (frontier first)
+  for (const arr of m.values()) {
+    arr.sort((a, b) => {
+      const pa = a.architecture?.total_params_b ?? 0;
+      const pb = b.architecture?.total_params_b ?? 0;
+      return pb - pa;
+    });
+  }
 
-// Lab color mapping
+  // Fill in empty months between earliest and latest so the timeline
+  // shows release-tempo accurately. (Pre-v3.21 had no concept of empty
+  // months — visual rhythm was fully driven by data density.)
+  if (m.size === 0) return [];
+  const months = [...m.keys()].sort();
+  const first = months[0];
+  const last = months[months.length - 1];
+  const out: ByMonth = [];
+  const [fy, fmo] = first.split('-').map(Number);
+  const [ly, lmo] = last.split('-').map(Number);
+  for (let y = fy; y <= ly; y++) {
+    const startMo = y === fy ? fmo : 1;
+    const endMo = y === ly ? lmo : 12;
+    for (let mo = startMo; mo <= endMo; mo++) {
+      const ym = `${y}-${String(mo).padStart(2, '0')}`;
+      out.push({ ym, items: m.get(ym) ?? [] });
+    }
+  }
+  return out;
+})();
+
+const totalCount = models.length;
+const totalMonths = grouped.length;
+
 const labColor = (lab: string): string => {
   const map: Record<string, string> = {
     deepseek: 'oklch(50% 0.2 280)',
@@ -41,52 +80,157 @@ const labColor = (lab: string): string => {
     meta: 'oklch(50% 0.18 240)',
     mistral: 'oklch(50% 0.18 320)',
     google: 'oklch(50% 0.18 60)',
-    openai: 'oklch(50% 0.18 165)'
+    openai: 'oklch(50% 0.18 165)',
+    'black-forest-labs': 'oklch(45% 0.05 30)',
+    deepmind: 'oklch(45% 0.18 180)',
+    community: 'oklch(50% 0.05 220)',
+    'hpc-ai-tech': 'oklch(50% 0.16 110)',
+    'mit-jameson': 'oklch(50% 0.18 0)',
+    'orbital-materials': 'oklch(50% 0.18 95)',
   };
   return map[lab] ?? 'oklch(50% 0.1 260)';
 };
 
-// X-axis tick months between earliest and latest
-const ticks: Array<{ x: number; label: string }> = [];
-const start = new Date(earliest);
-const end = new Date(latest);
-const cur = new Date(start.getFullYear(), start.getMonth(), 1);
-while (cur <= end) {
-  const x = dayDiff(earliest, cur.toISOString().slice(0, 10)) / totalDays;
-  if (x >= 0 && x <= 1) {
-    ticks.push({ x, label: `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}` });
-  }
-  cur.setMonth(cur.getMonth() + 1);
-}
+const familyAbbrev = (family?: string): string => {
+  if (!family) return '?';
+  const map: Record<string, string> = {
+    moe: 'MoE',
+    dense: 'D',
+    diffusion: 'Diff',
+    'flow-matching': 'Flow',
+    'encoder-decoder-asr': 'ASR',
+    'equivariant-gnn': 'EqGNN',
+    'hybrid-pairformer': 'Pair',
+    hybrid: 'Hyb',
+    'state-space': 'SSM',
+  };
+  return map[family] ?? family.slice(0, 4);
+};
+
+const fmtParams = (b?: number): string => {
+  if (b == null) return '—';
+  if (b >= 1000) return `${(b / 1000).toFixed(1)}T`;
+  if (b >= 100) return `${Math.round(b)}B`;
+  if (b >= 10) return `${b.toFixed(0)}B`;
+  return `${b.toFixed(1)}B`;
+};
 ---
 <div class="rounded-lg border p-4 overflow-x-auto" style="border-color: var(--color-border); background: var(--color-surface-raised);">
-  <div class="text-xs mb-3" style="color: var(--color-text-muted);">
-    模型发布时间线 — {earliest.slice(0, 7)} 至 {latest.slice(0, 7)} · {sorted.length} 个 frontier 模型 · 颜色 = 实验室
+  <div class="text-xs mb-3 flex items-center gap-3 flex-wrap" style="color: var(--color-text-muted);">
+    <span>模型发布时间线 · {totalCount} 个 frontier 模型 · {totalMonths} 月份 · 颜色 = 实验室</span>
+    <span style="font-family: var(--font-mono);">点击 +N 展开</span>
   </div>
-  <div class="relative" style={`min-width: 56rem; height: ${heightRem}rem;`}>
-    <!-- Axis line -->
-    <div class="absolute left-0 right-0" style="bottom: 1.25rem; height: 1px; background: var(--color-border);"></div>
-    <!-- Ticks -->
-    {ticks.map((t) => (
-      <div class="absolute" style={`left: ${t.x * 100}%; bottom: 0; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.65rem; color: var(--color-text-muted);`}>
-        <div style="height: 0.5rem; width: 1px; background: var(--color-border); margin: 0 auto;"></div>
-        <div style="margin-top: 0.25rem;">{t.label}</div>
-      </div>
-    ))}
-    <!-- Model dots + labels -->
-    {placed.map((p) => {
-      const yPx = `calc(${p.y * 2.5}rem + 0.5rem)`;
+
+  <div
+    class="grid gap-3"
+    style={`min-width: ${Math.max(56, totalMonths * 7)}rem; grid-template-columns: repeat(${totalMonths}, minmax(7rem, 1fr));`}
+  >
+    {grouped.map(({ ym, items }) => {
+      const visible = items.slice(0, VISIBLE_PER_COL);
+      const overflow = items.slice(VISIBLE_PER_COL);
+      const empty = items.length === 0;
       return (
-        <a href={pathname(`/models/${p.id}/`)}
-           class="absolute group"
-           style={`left: ${p.x * 100}%; top: ${yPx}; transform: translateX(-50%);`}>
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full inline-block flex-shrink-0" style={`background: ${labColor(p.lab)};`} aria-hidden="true"></span>
-            <span class="text-xs font-medium whitespace-nowrap transition-colors hover:underline" style={`color: ${labColor(p.lab)};`}>
-              {p.name}
-            </span>
+        <div class="flex flex-col gap-1.5" data-testid={`model-timeline-month-${ym}`}>
+          <div
+            class="text-[10px] font-mono pb-2 mb-1 border-b text-center"
+            style={`border-color: var(--color-border); color: ${empty ? 'var(--color-text-muted)' : 'var(--color-text)'};`}
+          >
+            {ym} <span style="color: var(--color-text-muted);">· {items.length}</span>
           </div>
-        </a>
+
+          {empty && (
+            <div class="text-[10px] text-center py-2" style="color: var(--color-text-muted); opacity: 0.4;">
+              ·
+            </div>
+          )}
+
+          {visible.map((m) => {
+            const params = m.architecture?.total_params_b;
+            const family = m.architecture?.family;
+            return (
+              <a
+                href={pathname(`/models/${m.id}/`)}
+                class="block rounded-md border p-2 transition-transform hover:-translate-y-0.5"
+                style={`border-color: var(--color-border); background: var(--color-bg);`}
+                title={`${m.name} · ${m.lab}${family ? ` · ${family}` : ''}${params ? ` · ${params}B params` : ''}`}
+                data-testid={`model-timeline-card-${m.id}`}
+              >
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span
+                    class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={`background: ${labColor(m.lab)};`}
+                    aria-hidden="true"
+                  ></span>
+                  <span
+                    class="text-[11px] font-medium truncate"
+                    style={`color: ${labColor(m.lab)};`}
+                  >{m.name}</span>
+                </div>
+                <div class="flex items-center gap-1 text-[9px]" style="color: var(--color-text-muted); font-family: var(--font-mono);">
+                  {family && (
+                    <span class="px-1 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                      {familyAbbrev(family)}
+                    </span>
+                  )}
+                  {params != null && (
+                    <span class="px-1 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                      {fmtParams(params)}
+                    </span>
+                  )}
+                </div>
+              </a>
+            );
+          })}
+
+          {overflow.length > 0 && (
+            <details class="group">
+              <summary
+                class="text-[10px] cursor-pointer text-center py-1.5 rounded-md border list-none"
+                style="border-color: var(--color-border); color: var(--color-text-muted); background: var(--color-bg);"
+                data-testid={`model-timeline-overflow-${ym}`}
+              >
+                <span class="group-open:hidden">+{overflow.length} more →</span>
+                <span class="hidden group-open:inline">↑ collapse</span>
+              </summary>
+              <div class="flex flex-col gap-1.5 mt-1.5">
+                {overflow.map((m) => {
+                  const params = m.architecture?.total_params_b;
+                  const family = m.architecture?.family;
+                  return (
+                    <a
+                      href={pathname(`/models/${m.id}/`)}
+                      class="block rounded-md border p-2 transition-transform hover:-translate-y-0.5"
+                      style={`border-color: var(--color-border); background: var(--color-bg);`}
+                      title={`${m.name} · ${m.lab}`}
+                      data-testid={`model-timeline-card-${m.id}`}
+                    >
+                      <div class="flex items-center gap-1.5 mb-1">
+                        <span
+                          class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={`background: ${labColor(m.lab)};`}
+                          aria-hidden="true"
+                        ></span>
+                        <span class="text-[11px] font-medium truncate" style={`color: ${labColor(m.lab)};`}>{m.name}</span>
+                      </div>
+                      <div class="flex items-center gap-1 text-[9px]" style="color: var(--color-text-muted); font-family: var(--font-mono);">
+                        {family && (
+                          <span class="px-1 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                            {familyAbbrev(family)}
+                          </span>
+                        )}
+                        {params != null && (
+                          <span class="px-1 py-0.5 rounded" style="background: var(--color-surface-raised);">
+                            {fmtParams(params)}
+                          </span>
+                        )}
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </details>
+          )}
+        </div>
       );
     })}
   </div>

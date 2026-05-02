@@ -66,14 +66,104 @@ export async function runPerfGate(input: PerfGateInput): Promise<PerfGateResult>
     };
   }
 
-  // Execution mode placeholder — v3.6 wires real profiler
+  // v3.21 — execution mode auto-detection. Real profiler invocation will
+  // come in v3.22+; v3.21 detects which profiler is available on PATH and
+  // reports it so users (and the agent) know whether full execution-mode
+  // verification is feasible on the current machine.
+  const profiler = detectProfilerForArch(input.target_arch);
+  if (!profiler.available) {
+    return {
+      status: 'skipped',
+      message:
+        `Execution-mode V3 perf measurement requires ${profiler.binary} on PATH (target ${input.target_arch}). ` +
+        `Not detected on this machine. Either install ${profiler.binary} (${profiler.install_hint}) ` +
+        `or fall back to structural-only with --no-profile.`,
+      checks,
+      duration_ms: Date.now() - start,
+    };
+  }
+
+  // Profiler detected but actual invocation/parsing not yet wired (v3.22+).
+  // Report detection success so the agent + CI can log feasibility.
   return {
     status: 'skipped',
     message:
-      'Execution-mode perf measurement is v3.6+. v3.5 ships structural checks only. To run real profiling: wait for v3.6 or invoke target profiler manually (NCU / rocprof / msprof / cnperf / suprof).',
+      `${profiler.binary} detected at ${profiler.path}. v3.21 reports profiler availability; ` +
+      `actual invocation + measured-tok/s parsing wires in v3.22 (target-arch-specific). ` +
+      `Existing structural checks (${checks.length}) ran successfully.`,
     checks,
+    profiler_output: `[v3.21 stub] ${profiler.binary} ready at ${profiler.path}`,
     duration_ms: Date.now() - start,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// v3.21 — profiler auto-detection
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ProfilerInfo {
+  /** Binary name expected for the target arch family. */
+  binary: string;
+  /** Human-readable install hint. */
+  install_hint: string;
+  /** True if found on PATH (or via env override). */
+  available: boolean;
+  /** Resolved absolute path when available. */
+  path?: string;
+}
+
+/**
+ * Map target arch family → expected profiler binary, then check PATH.
+ *
+ * Architecture → profiler reference (per perf.ts header comment):
+ *   hopper / blackwell / ada / ampere → ncu (NVIDIA Nsight Compute)
+ *   cdna3 / cdna2 / rdna4             → rocprof (AMD ROCm Profiler)
+ *   ascend-da-vinci / ascend-310      → msprof (Huawei CANN Profiler)
+ *   cambricon-mlu                      → cnperf (Cambricon Neuware Profiler)
+ *   musa-3 / mtt                       → suprof (Moore Threads SUPA Profiler)
+ *   apple-m / apple-neural-engine     → instruments (Xcode Instruments)
+ *
+ * Override via EVOKERNEL_PROFILER_<ARCH>=path/to/binary env vars for unusual
+ * install locations (e.g. /usr/local/cuda/bin/ncu).
+ */
+export function detectProfilerForArch(target_arch: string): ProfilerInfo {
+  const arch = target_arch.toLowerCase();
+  const map: Array<{ match: (a: string) => boolean; binary: string; install_hint: string; env_key: string }> = [
+    { match: (a) => /^(hopper|blackwell|ampere|ada|nvidia)/.test(a), binary: 'ncu', install_hint: 'NVIDIA Nsight Compute (CUDA Toolkit) — typically /usr/local/cuda/bin/ncu', env_key: 'EVOKERNEL_PROFILER_NCU' },
+    { match: (a) => /^(cdna|rdna|amd)/.test(a), binary: 'rocprof', install_hint: 'AMD ROCm — sudo apt install rocm-profiler', env_key: 'EVOKERNEL_PROFILER_ROCPROF' },
+    { match: (a) => /^ascend|^da-vinci/.test(a), binary: 'msprof', install_hint: 'Huawei CANN Toolkit — typically /usr/local/Ascend/ascend-toolkit/latest/tools/profiler/bin/msprof', env_key: 'EVOKERNEL_PROFILER_MSPROF' },
+    { match: (a) => /^cambricon|^mlu|^bang/.test(a), binary: 'cnperf', install_hint: 'Cambricon Neuware SDK — typically /usr/local/neuware/bin/cnperf', env_key: 'EVOKERNEL_PROFILER_CNPERF' },
+    { match: (a) => /^musa|^mtt|^moore/.test(a), binary: 'suprof', install_hint: 'Moore Threads MUSA SDK — typically /usr/local/musa/bin/suprof', env_key: 'EVOKERNEL_PROFILER_SUPROF' },
+    { match: (a) => /^apple|^m[1-5]|^neural-engine/.test(a), binary: 'instruments', install_hint: 'Xcode Command Line Tools — xcode-select --install', env_key: 'EVOKERNEL_PROFILER_INSTRUMENTS' },
+  ];
+
+  const matched = map.find((m) => m.match(arch))
+    ?? { binary: 'unknown', install_hint: 'no profiler mapping', env_key: 'EVOKERNEL_PROFILER_UNKNOWN' };
+
+  // Env override beats PATH lookup
+  const env_path = process.env[matched.env_key];
+  if (env_path) {
+    return { binary: matched.binary, install_hint: matched.install_hint, available: true, path: env_path };
+  }
+
+  // PATH lookup via `which` (sync, fast)
+  const path = lookupOnPath(matched.binary);
+  return {
+    binary: matched.binary,
+    install_hint: matched.install_hint,
+    available: path != null,
+    path: path ?? undefined,
+  };
+}
+
+function lookupOnPath(binary: string): string | null {
+  try {
+    const { execSync } = require('node:child_process') as typeof import('node:child_process');
+    const out = execSync(`command -v ${binary}`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return out.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function runPerfStructuralChecks(input: PerfGateInput): Array<{ name: string; status: 'pass' | 'fail' | 'skipped'; message: string }> {

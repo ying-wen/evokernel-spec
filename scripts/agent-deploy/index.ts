@@ -812,6 +812,7 @@ Usage:
     [--target-ttft <ms>] \\
     [--config /path/to/local/config.json] \\
     [--use-llm-orchestrator]   # v3.17: real-code productized loop (R/G/V/F)
+    [--profile]                # v3.21: V3 execution-mode perf gate (target HW)
 
 Example (v2 skeleton mode — fast, no API):
   pnpm tsx scripts/agent-deploy/index.ts \\
@@ -952,6 +953,11 @@ Example (v3 productized real-code mode):
   let generatedKernels: GeneratedKernel[] = [];
   let productizedResults: GenerateAndVerifyResult[] = [];
   const useLlmOrchestrator = args['use-llm-orchestrator'] === 'true' || args['use-llm-orchestrator'] === '';
+  // v3.21 — --profile opts into V3 execution-mode perf gate. The gate
+  // auto-detects the right profiler (NCU / rocprof / msprof / cnperf /
+  // suprof / instruments) for the target arch. Without --profile, V3 runs
+  // structural-only checks (no target HW required).
+  const profileMode = args['profile'] === 'true' || args['profile'] === '';
 
   if (gapsReport.gaps.length > 0 && useLlmOrchestrator) {
     // v3.17 productized path — Layer R/G/V/F end-to-end.
@@ -1002,7 +1008,9 @@ Example (v3 productized real-code mode):
           verification: {
             reference_impl_python,
             numerical_rules,
-            execution_mode: false, // structural-only by default; no target hw assumed
+            // v3.21 — when --profile is passed, V3 perf gate runs in
+            // execution mode (auto-detects profiler for target_arch).
+            execution_mode: profileMode,
           },
         });
         productizedResults.push(result);
