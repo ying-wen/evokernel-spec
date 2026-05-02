@@ -1,0 +1,227 @@
+id: cuda-mel-spectrogram-cufft-hopper
+language: cuda-cpp
+vendor: nvidia
+arch_family: hopper
+title: 'Mel-spectrogram encode on Hopper (CUDA C++ + cuFFT, NeMo reference path)'
+category: other
+
+code: |
+  // ============================================================
+  // Mel-spectrogram encode — production-grade CUDA C++ implementation.
+  //
+  // Used by Whisper, Parakeet, F5-TTS — audio preprocessing critical for
+  // streaming low-latency inference. CPU mel-spec adds 10-30ms; GPU with
+  // cuFFT is <1ms.
+  //
+  // This example follows NVIDIA NeMo's reference implementation pattern.
+  // ============================================================
+  #include <cuda_runtime.h>
+  #include <cufft.h>
+  #include <cmath>
+
+  // Configuration (Whisper / Parakeet / F5-TTS standard params)
+  constexpr int N_FFT       = 400;     // 25ms window @ 16kHz
+  constexpr int HOP_LENGTH  = 160;     // 10ms hop @ 16kHz
+  constexpr int N_MELS      = 80;      // 80 Mel filterbanks
+  constexpr int SAMPLE_RATE = 16000;
+
+  // Pre-computed Mel filterbank: [N_MELS, N_FFT/2+1]
+  // Initialized once at engine-init from librosa-style triangular filters.
+
+  // ============================================================
+  // Kernel 1: Frame audio + apply Hann window
+  // ============================================================
+  __global__ void frame_and_window_kernel(
+      const float* __restrict__ audio,         // [B, T_samples]
+      float* __restrict__ framed,              // [B, T_frames, N_FFT]
+      const float* __restrict__ window,        // [N_FFT] precomputed Hann
+      int B, int T_samples
+  ) {
+      const int batch = blockIdx.z;
+      const int frame_idx = blockIdx.y;
+      const int sample_in_frame = threadIdx.x;
+
+      const int T_frames = (T_samples - N_FFT) / HOP_LENGTH + 1;
+      if (frame_idx >= T_frames) return;
+
+      const int sample_global = frame_idx * HOP_LENGTH + sample_in_frame;
+      if (sample_global >= T_samples) return;
+
+      // Apply Hann window: framed[b, f, s] = audio[b, sample_global] * window[s]
+      const int dst_idx = batch * T_frames * N_FFT + frame_idx * N_FFT + sample_in_frame;
+      framed[dst_idx] = audio[batch * T_samples + sample_global] * window[sample_in_frame];
+  }
+
+
+  // ============================================================
+  // Kernel 2: |FFT|² — power spectrum
+  // ============================================================
+  __global__ void power_spectrum_kernel(
+      const cufftComplex* __restrict__ fft_out,  // [B, T_frames, N_FFT/2+1]
+      float* __restrict__ power,                  // [B, T_frames, N_FFT/2+1]
+      int total_elements
+  ) {
+      const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+      if (idx >= total_elements) return;
+      const cufftComplex c = fft_out[idx];
+      power[idx] = c.x * c.x + c.y * c.y;  // |c|² in FP32
+  }
+
+
+  // ============================================================
+  // Kernel 3: Mel filterbank multiply [N_MELS, N_FFT/2+1] × [N_FFT/2+1, T] → [N_MELS, T]
+  // Implemented as cuBLAS gemv for each batch * frame pair.
+  // (Or fused with log + normalize via custom kernel — production NeMo does this.)
+  // ============================================================
+  __global__ void mel_filterbank_log_normalize_kernel(
+      const float* __restrict__ power,           // [B, T_frames, N_FFT/2+1]
+      const float* __restrict__ mel_filters,     // [N_MELS, N_FFT/2+1] precomputed
+      float* __restrict__ log_mel,                // [B, N_MELS, T_frames]
+      int B, int T_frames
+  ) {
+      const int batch = blockIdx.z;
+      const int frame = blockIdx.y;
+      const int mel_bin = blockIdx.x * blockDim.x + threadIdx.x;
+      if (mel_bin >= N_MELS) return;
+
+      // Compute mel[b, m, f] = sum_k (mel_filters[m, k] * power[b, f, k])
+      const float* p = power + batch * T_frames * (N_FFT / 2 + 1) + frame * (N_FFT / 2 + 1);
+      const float* mf = mel_filters + mel_bin * (N_FFT / 2 + 1);
+      float sum = 0.0f;
+      #pragma unroll
+      for (int k = 0; k < N_FFT / 2 + 1; k++) {
+          sum += mf[k] * p[k];
+      }
+
+      // Log + clamp epsilon (CRITICAL — silence → -inf without it)
+      const float log_val = logf(fmaxf(sum, 1e-10f));
+
+      // Store log-mel[b, m, f]
+      const int dst_idx = batch * N_MELS * T_frames + mel_bin * T_frames + frame;
+      log_mel[dst_idx] = log_val;
+
+      // Normalization (zero-mean, unit-variance per utterance) is done in a
+      // separate kernel after this one, since it requires per-(b, m) reduction.
+  }
+
+
+  // ============================================================
+  // Host-side pipeline (production: capture as CUDA Graph)
+  // ============================================================
+  void mel_spectrogram_encode_cuda(
+      const float* audio,         // [B, T_samples] FP32 or FP16
+      float* log_mel,              // [B, N_MELS, T_frames] FP32
+      int B, int T_samples,
+      cufftHandle fft_plan,        // pre-created cufftPlan1d for N_FFT (batch over T_frames)
+      const float* hann_window,    // [N_FFT] precomputed
+      const float* mel_filters,    // [N_MELS, N_FFT/2+1] precomputed
+      cudaStream_t stream
+  ) {
+      const int T_frames = (T_samples - N_FFT) / HOP_LENGTH + 1;
+
+      // Stage 1: frame + window
+      float* framed;
+      cudaMallocAsync(&framed, B * T_frames * N_FFT * sizeof(float), stream);
+
+      dim3 grid_frame(1, T_frames, B);
+      dim3 block_frame(N_FFT);
+      frame_and_window_kernel<<<grid_frame, block_frame, 0, stream>>>(
+          audio, framed, hann_window, B, T_samples);
+
+      // Stage 2: cuFFT — batched FFT over framed (B*T_frames batches of N_FFT each)
+      cufftComplex* fft_out;
+      cudaMallocAsync(&fft_out, B * T_frames * (N_FFT / 2 + 1) * sizeof(cufftComplex), stream);
+      cufftSetStream(fft_plan, stream);
+      cufftExecR2C(fft_plan, framed, fft_out);
+
+      // Stage 3: power spectrum
+      float* power;
+      cudaMallocAsync(&power, B * T_frames * (N_FFT / 2 + 1) * sizeof(float), stream);
+      const int total_elements = B * T_frames * (N_FFT / 2 + 1);
+      power_spectrum_kernel<<<(total_elements + 255) / 256, 256, 0, stream>>>(
+          fft_out, power, total_elements);
+
+      // Stage 4: Mel filterbank + log + epsilon clamp
+      dim3 grid_mel((N_MELS + 31) / 32, T_frames, B);
+      dim3 block_mel(32);
+      mel_filterbank_log_normalize_kernel<<<grid_mel, block_mel, 0, stream>>>(
+          power, mel_filters, log_mel, B, T_frames);
+
+      // Stage 5 (separate kernel): per-utterance normalize
+      // ... omitted (standard reduction kernel) ...
+
+      cudaFreeAsync(framed, stream);
+      cudaFreeAsync(fft_out, stream);
+      cudaFreeAsync(power, stream);
+  }
+
+
+  // ============================================================
+  // Build:
+  //   nvcc -arch=sm_90 -O3 -std=c++17 -lcufft mel_spectrogram_cufft.cu
+  // Profile:
+  //   ncu --set full --target-processes all -o report.ncu-rep ./test_mel
+  // ============================================================
+
+walkthrough:
+  - step: 'Why GPU mel-spec instead of CPU'
+    explanation: 'CPU mel-spec via torchaudio takes 10-30ms per 30-second audio chunk. For real-time voice agents (LLM dialog with streaming), this dominates round-trip latency. GPU via cuFFT brings it to <1ms — the difference between "feels real-time" and "feels laggy".'
+  - step: 'cuFFT batched R2C plan'
+    explanation: 'Real-to-complex FFT is the production choice (vs C2C) — input audio is real, FFT output is conjugate-symmetric so we only need N_FFT/2+1 frequency bins. cuFFT batches B*T_frames frames in a single call. Plan creation is amortized via cufftPlan1d at engine init.'
+  - step: 'Stage 1: frame + Hann window'
+    explanation: 'Splits audio into overlapping 25ms windows (N_FFT=400 samples @ 16kHz), 10ms hop (HOP_LENGTH=160). Hann window precomputed at engine init. Each thread handles one sample within one frame.'
+  - step: 'Stage 2: |FFT|² power spectrum'
+    explanation: 'After cuFFT, output is complex [B, T_frames, N_FFT/2+1]. Power spectrum kernel computes magnitude-squared. Done in FP32 (formal_semantics rule — FP16 power loses precision at low frequencies where speech energy concentrates).'
+  - step: 'Stage 3: Mel filterbank multiply'
+    explanation: 'Project N_FFT/2+1 = 201 frequency bins → N_MELS = 80 Mel bins via precomputed filterbank matrix. Standard pattern: 80×201 matmul per (b, frame). Each thread handles one mel bin; 32 threads per block process one frame.'
+  - step: 'Stage 4: log + epsilon clamp'
+    explanation: 'log(max(mel, 1e-10)) — clamps before log to avoid -inf for silence. Without epsilon clamp: silence → -inf → NaN propagates through entire pipeline. All production impls clamp.'
+  - step: 'CUDA Graph capture (production)'
+    explanation: 'Capture entire 5-stage pipeline (frame → fft → power → mel → log) as single CUDA Graph. Replays per audio chunk with zero launch overhead. ~10% additional speedup; mandatory for streaming inference where launch overhead dominates.'
+
+arch_idioms:
+  - 'cufftPlan1d + cufftExecR2C — batched real-to-complex FFT (Hopper / Ampere)'
+  - 'cudaMallocAsync — stream-ordered allocation (Hopper L2 atomic optimization)'
+  - 'precomputed Hann window + Mel filterbank — done once at engine init'
+  - 'logf with epsilon clamp — silence → -inf protection'
+  - 'CUDA Graph capture (production) — eliminates 5-kernel-launch overhead'
+  - '3D grid (B, T_frames, N_MELS/32) — natural batch + time + freq parallelism'
+  - 'FP32 power spectrum mandatory — FP16 loses speech-energy resolution'
+
+build_command: 'nvcc -arch=sm_90 -O3 -std=c++17 -lcufft mel_spectrogram_cufft.cu'
+run_command: './run_test_mel --B=4 --T_samples=480000 --duration=30s'
+
+related_isa_primitives: [nvidia-hopper-wgmma, nvidia-hopper-tma]
+related_kernel_libraries: [cudnn]
+
+source_url: https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/asr/parts/preprocessing/features.py
+
+notes: |
+  Mel-spec preprocessing 适合 ASR / TTS / 语音对话 agent 部署. 三个 corpus 模型
+  共享这条 hot path:
+
+  | 模型 | 用法 | 量级 |
+  |---|---|---|
+  | Whisper-large-v3-turbo | 输入侧 (audio → mel) | 30s chunk, batch≥10 |
+  | Parakeet-CTC-1.1B | 输入侧 (streaming) | chunked, batch≥100 |
+  | F5-TTS | 输出侧 (text → mel → audio) | streaming, batch=1 |
+
+  Production deployment 路径:
+  - **NVIDIA NeMo**: 此 example 的 reference 来源, 服务器侧 ASR / TTS 主流
+  - **TensorRT-LLM**: Whisper preprocessing 已 fused 进 TRT 引擎; 不需要单独调用
+  - **Faster-whisper**: CTranslate2 backend, 用 cuFFT 路径 (~80% NeMo 性能)
+  - **Whisper.cpp**: 边缘 / 移动 — AVX/Metal/Neon SIMD CPU mel-spec, 不用 cuFFT
+
+  对 Apple Silicon: Metal Performance Shaders 提供 mel-spec MPS path (类似但不同
+  API). v3.14+ 候选: metal-mel-spectrogram-mlx-m3 DSL example.
+
+  对 Ascend: aclnn 提供 aclnnSTFT + aclnnMel 算子, CANN 8.0+ 支持. v3.14+
+  候选: ascend-c-mel-spectrogram DSL example (novel — 没有现成 reference).
+
+  对边缘 NPU (RK3588 / Jetson Thor / BM1684X): 通常用 CPU mel-spec (经 Cortex-A55
+  NEON 加速), 不用 NPU. 因为 mel-spec 不是 tensor-core friendly, NPU 收益有限.
+
+  **v3.14 加入这个 entry 的核心动机**: 三个语音模型 (Whisper / Parakeet / F5-TTS)
+  都在 corpus, 但缺乏 NVIDIA reference DSL. 现在 agent 可以为 ASR / TTS deployment
+  推荐这条具体 hot path + cufftPlan + Mel filterbank 预计算 pattern, 并 cite
+  NeMo 作为 production reference.

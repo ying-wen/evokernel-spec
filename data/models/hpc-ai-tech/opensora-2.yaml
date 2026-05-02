@@ -1,0 +1,78 @@
+id: opensora-2
+name: OpenSora 2.0 (11B video gen)
+lab: hpc-ai-tech
+release_date: 2025-03-12
+license: Apache-2.0
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: flow-matching
+  total_params_b: 11.0
+  active_params_b: 11.0
+  layers: 38
+  hidden_size: 2880
+  attention_type: cross-attention
+  notes_arch: |
+    OpenSora 2.0 是 HPC-AI Tech (Colossal-AI 团队) 2025 Q1 发布的开源视频生成模型,
+    11B MMDiT 架构, Apache 2.0 license. 完全开源 (vs Sora 闭源 / HunyuanVideo
+    Community license / Wan 2.1 + Mochi 1 也开源).
+
+    架构特点:
+    - **MMDiT 双流**: 类似 FLUX / SD 3.5 的 dual-stream image+text joint attention
+    - **3D causal VAE**: 时间 4× + 空间 8× 下采样 (类似 Wan / Hunyuan)
+    - **Sampler**: rectified flow matching (与 v3.10 family: flow-matching 一致)
+    - **训练成本声明**: $200K (vs Sora 估算 $10M+ — 体现 Colossal-AI 训练优化能力)
+    - 5-15 秒视频, 256-720p, 12-24 fps
+
+    与同期开源视频生成对比:
+
+    | 维度 | OpenSora 2.0 | Wan 2.1 | HunyuanVideo | Mochi 1 |
+    |---|---|---|---|---|
+    | 参数 | 11B | 14B | 13B | 10B |
+    | License | Apache 2.0 ✅ | Apache 2.0 ✅ | Community | Apache 2.0 ✅ |
+    | 视频长度 | 5-15s | 5s | 5s | 5.4s |
+    | 分辨率 | 256-720p | 480-720p | 720p | 480p |
+    | 训练成本 | $200K (公开) | 不公开 | 不公开 | 不公开 |
+    | Family | flow-matching | diffusion (DDPM) | diffusion (DDPM) | flow-matching |
+
+    OpenSora 是研究友好选择 (训练 / 微调 完全文档化), Wan 2.1 是商用友好选择
+    (Apache 2.0 + 中文 prompt 强), HunyuanVideo 是中文 prompt SOTA (license 受限).
+
+    部署轮廓 (类似 Mochi 1 / Wan 2.1):
+    - H100 80GB SXM: 5s 480p, 50 NFE, ~80-100 秒生成
+    - H200 / MI300X 192GB: 5s 720p 单卡可行
+    - 多卡 H100 × 4: xFuser 多 GPU 并行, 5s 720p 约 25-35 秒
+    - RTX 5090 32GB: 5s 256p FP8 量化, ~120 秒
+modalities: [text, video]
+weight_format: bf16
+hf_url: https://huggingface.co/hpcai-tech/OpenSora-v2
+github_url: https://github.com/hpcaitech/Open-Sora
+paper_url: https://arxiv.org/abs/2503.09642
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 78000000000
+    bytes_per_token: 42000000000
+  - operator: attention
+    flops_per_token: 65000000000
+    bytes_per_token: 32000000000
+notes: |
+  OpenSora 2.0 是 v3.14 加入的第 4 个开源视频生成模型, 完成 v3.x 视频生成 family
+  覆盖 (Wan 2.1 / HunyuanVideo / Mochi 1 / OpenSora 2 — 4 个开源 frontier).
+
+  对 v3.x productized agent 的意义:
+  - **Apache 2.0 + 完整训练文档**: 适合微调用户. 比 Wan 2.1 (Apache 2.0 但训练
+    code 部分开源) 更彻底.
+  - **Family = flow-matching** (与 Mochi 1 一致): 可以应用 v3.12 的
+    fused-flow-matching-with-cache fused kernel, 50% 加速可行.
+  - **训练成本声明 ($200K)**: 真实 reference benchmark, 验证 Colossal-AI
+    pretrain 优化技术 (与 OpenSora 同 lab) 能将视频生成训练成本压到 $200K
+    (vs 商业模型估计 $10M+).
+
+  v3.14 加入 OpenSora 2 的核心动机: 完成 video gen family 4-成员开源 lineup.
+  agent 在被问 "推荐开源视频生成模型" 时应能列出 4 个具备各自特色的选择.
+
+  HPC-AI Tech (潞晨) 是 Colossal-AI 训练框架的母公司, 同时维护:
+  - Colossal-AI (大模型训练并行框架)
+  - OpenSora 1 / 2 (视频生成参考实现)
+  - OpenChat (对话模型)
+  - 多个开源数据集 + 训练教程

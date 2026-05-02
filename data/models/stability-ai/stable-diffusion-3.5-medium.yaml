@@ -1,0 +1,72 @@
+id: stable-diffusion-3.5-medium
+name: Stable Diffusion 3.5 Medium
+lab: stability-ai
+release_date: 2024-10-29
+license: Stability-AI-Community-License
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: flow-matching
+  total_params_b: 2.5
+  active_params_b: 2.5
+  layers: 24
+  hidden_size: 1536
+  attention_type: cross-attention
+  notes_arch: |
+    SD 3.5 Medium 是 Stability AI 2024 Q4 发布的中等规模 MMDiT 图像生成模型, 2.5B
+    参数 (vs SD 3.5 Large 8.1B). 同 family: flow-matching (rectified flow), 但
+    架构精简至 24 层 MMDiT block + 2.5B 参数.
+
+    特点:
+    - 三个文本编码器: CLIP-L (124M) + CLIP-G (694M) + T5-XXL (4.7B)
+    - VAE: SDXL VAE 16-channel
+    - Sampler: rectified flow, 28 NFE 默认
+    - 较 SD 3.5 Large 视觉质量略低 (FID +3-5), 但 inference 快 3×
+
+    部署轮廓:
+    - H100 80GB SXM: 1024×1024, 28 NFE ≈ 0.4 秒
+    - RTX 5090 32GB: 1024×1024, 28 NFE FP8 ≈ 1.0 秒
+    - RTX 4090 24GB: 1024×1024, 28 NFE FP8 ≈ 1.5 秒
+    - M3 Ultra 512GB: 1024×1024, 28 NFE BF16 ≈ 2.5 秒 (MLX)
+    - Apple M4 Max 128GB: 1024×1024, 28 NFE BF16 ≈ 4 秒 (MLX)
+modalities: [text, vision]
+weight_format: bf16
+hf_url: https://huggingface.co/stabilityai/stable-diffusion-3.5-medium
+github_url: https://github.com/Stability-AI/sd3.5
+paper_url: https://stability.ai/news/introducing-stable-diffusion-3-5
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 7500000000
+    bytes_per_token: 5000000000
+  - operator: attention
+    flops_per_token: 4000000000
+    bytes_per_token: 2500000000
+notes: |
+  SD 3.5 Medium 完成 SD 3.5 family 在 corpus 中的覆盖 (Large 已在 v3.8). 部署
+  trade-off 总结:
+
+  | 维度 | SD 3.5 Medium (this) | SD 3.5 Large | FLUX.1 [dev] | FLUX.1.1 [pro] |
+  |---|---|---|---|---|
+  | 参数 | 2.5B | 8.1B | 12B | 12B |
+  | License | Community | Community | Non-commercial | Commercial |
+  | NFE 默认 | 28 | 28 | 50 (20-NFE turbo) | 8 (4-NFE turbo) |
+  | H100 1024² | 0.4s | 1.2s | 2.0s | 0.6s |
+  | RTX 4090 1024² | 1.5s | 3.0s | 5.0s | (API only) |
+  | VRAM 需求 | 8 GB | 16 GB | 16 GB | (API only) |
+
+  **何时选 SD 3.5 Medium**:
+  - 实时图像生成 (UX < 1s 要求): SD 3.5 Medium FP8 是 H100 / RTX 5090 上唯一
+    Open weight 可行选项 (vs FLUX.1 [pro] 是 API-only).
+  - 边缘部署 (RTX 4090 / RTX 5070 / M3 Ultra): 视觉质量 vs 速度平衡 sweet spot.
+  - 中等显存约束 (8-12GB VRAM): 唯一开源选择. SD 3.5 Large 需 16GB+, FLUX 12B
+    需 16-24GB, 这条 niche 没有竞品.
+
+  **何时选其他**:
+  - 最高视觉质量 (商业 API 接受): FLUX.1.1 [pro]
+  - 最高视觉质量 (开源): FLUX.1 [dev]
+  - 稳定可商用 (开源 + 视觉质量): SD 3.5 Large
+  - 中文 prompt: HunyuanVideo (视频) / 国产文生图 (本 corpus 未覆盖)
+
+  v3.14 加入 SD 3.5 Medium 的核心动机: 补齐 image gen mid-tier 空白 (corpus
+  之前只有 FLUX 12B / SD 3.5 Large 8.1B / 之前没有 ≤4B 的 high-quality 选择).
+  对消费级 GPU + Apple Silicon 部署用户最有意义.

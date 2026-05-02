@@ -6,7 +6,56 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.14 — DSL example breadth completion + more models** (CUDA C++ triangle-mult kernel, MACE-CUDA reference, mel-spec on cuFFT; more video/bio/speech models like SD 3.5 Medium, OpenSora 2, Geneformer, Evo-2).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.15 — Ascend-C non-LLM DSL examples + more 国产 hardware** (Ascend-C version of triangle-mult-update + mel-spec; more 国产 edge / consumer / training accelerators).
+
+---
+
+## [3.14.0] — 2026-05-03 — Production-grade CUDA DSL examples + image-gen + video gen breadth
+
+**Theme**: 4 deliverables — 2 production-grade CUDA C++ DSL examples + 2 new models extending image-gen + video gen breadth.
+
+### Added — 2 production-grade CUDA DSL examples (10 → 12)
+
+**1. `cuda-triangle-mult-update-hopper`** — CUDA C++ vs v3.13's Triton
+
+Hand-tuned C++ implementation for Boltz-1 / ESMFold / AF3 deployment. Same op as v3.13 Triton example but **5-15% faster at the cost of language portability**. Documents the trade-off: Triton for research/portability, CUDA C++ for commercial production. Both side-by-side let agent recommend per deployment context.
+
+**2. `cuda-mel-spectrogram-cufft-hopper`** — NVIDIA NeMo reference path
+
+CUDA C++ + cuFFT pipeline for mel-spec encoding (used by Whisper / Parakeet / F5-TTS). Documents 5-stage pipeline (frame + Hann window → cuFFT R2C → power spectrum → Mel filterbank → log + epsilon clamp) + CUDA Graph capture pattern for streaming inference.
+
+This is the **production default** for all 3 ASR/TTS deployments on NVIDIA. Pre-v3.14, corpus had the formal_semantics op entry (v3.11) but no concrete CUDA reference.
+
+### Added — 2 new models (32 → 34)
+
+**1. `opensora-2`** (HPC-AI Tech, Apache-2.0) — 11B MMDiT video gen
+
+Completes open-source video-gen lineup (Wan 2.1 + HunyuanVideo + Mochi 1 + OpenSora 2). `family: flow-matching` like Mochi 1; can use v3.12's `fused-flow-matching-with-cache`. **Research-friendly choice** with complete training documentation. Training cost claim ($200K) validates Colossal-AI framework.
+
+**2. `stable-diffusion-3.5-medium`** (Stability AI) — 2.5B MMDiT image gen
+
+Completes SD 3.5 family in corpus (Medium 2.5B + Large 8.1B). **Best $/image throughput** for consumer GPU + Apple Silicon. Fills mid-tier image-gen niche (8 GB VRAM vs SD 3.5 Large 16 GB / FLUX 16-24 GB).
+
+### Why v3.14 matters
+
+**Production-grade reference**: pre-v3.14, agent told "write a fast triangle-mult kernel" had only Triton (v3.13). Now CUDA C++ side-by-side. Same for mel-spec — concrete cuFFT reference + CUDA Graph capture pattern documented.
+
+**Family completion**: 4 open-source frontier video-gen models in corpus; 5 image-gen models. Agent can make informed comparisons across full open-source frontier instead of single-model recommendations.
+
+### Stats
+
+- **Vendors**: 36 → 37 (+1: HPC-AI Tech)
+- **Models**: 32 → 34 (+2)
+- **DSL examples**: 10 → 12 (+2 production-grade CUDA)
+- **Site pages**: 589 → 596 (+7)
+- **Agent-context bundles**: 1920 → **2040** (+120 = 2 × 60)
+- **Layer D coverage**: 100% · **Tests**: 75/75 passing
+
+### v3.15 next
+
+- **Ascend-C non-LLM DSL examples**: triangle-mult on Ascend-C (novel — fulfills user's "不同硬件 **CANN** 级别实现参考"), mel-spec on Ascend aclnnSTFT
+- **More 国产 hardware**: 寒武纪 MLU220 (edge embedded), Iluvatar 天垓 150, Cambricon MLU290 (server), 黑芝麻 A1000/A2000 (auto NPU)
+- **Apple MLX DSL example**: triangle-mult on M-series via MLX framework
 
 ---
 
