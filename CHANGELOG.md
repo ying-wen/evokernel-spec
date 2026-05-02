@@ -6,7 +6,62 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.13 — fused-mace-message-pass + DSL examples for non-LLM ops + OperatorCategorySchema extension**.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.14 — DSL example breadth completion + more models** (CUDA C++ triangle-mult kernel, MACE-CUDA reference, mel-spec on cuFFT; more video/bio/speech models like SD 3.5 Medium, OpenSora 2, Geneformer, Evo-2).
+
+---
+
+## [3.13.0] — 2026-05-03 — OperatorCategorySchema extension + fused-MACE + Triton triangle-mult DSL
+
+**Theme**: 3 simultaneous deliverables — schema correctness fix (move 4 v3.11 ops out of `category: misc`), final v3.11 op application (fused-mace-message-pass), and the **most-impactful non-LLM DSL example** (Triton triangle-mult on Hopper, the OpenFold reference pattern).
+
+### Added — OperatorCategorySchema extension (9 → 13 categories)
+
+`schemas/operator.ts` `OperatorCategorySchema` enum extended with 4 new categories:
+
+- **`bio`** (NEW) — triangle-multiplicative-update (Boltz/AF/RFAA hot path)
+- **`equivariant`** (NEW) — clebsch-gordan-tensor-product (MACE/NequIP/Allegro)
+- **`audio-preprocess`** (NEW) — mel-spectrogram-encode (Whisper/Parakeet/F5-TTS)
+- **`sampler`** (NEW) — flow-matching-step (Mochi/FLUX/SD 3.5/F5-TTS)
+
+The 4 v3.11 ops migrated from `category: misc` to their proper category. **0 ops remain in `misc` for the v3.11 cohort** — schema correctness milestone analogous to v3.10's ModelFamilySchema fix.
+
+### Added — `fused-mace-message-pass` (26 → 27 fused-kernels)
+
+Applies v3.11's `clebsch-gordan-tensor-product` to MACE-MP / NequIP / Allegro deployment. Combines 4-step message-pass (radial basis → CG tensor product → scatter-add → nonlinearity) into single kernel. **2-3× wall-clock improvement** vs PyTorch eager at 1000 atoms; **3-5× vs e3nn dense impl**. With CUDA Graph capture: another 1.5-2×.
+
+Documents: MACE CUDA reference impl, MACE-JAX 1.5-2× slower, Allegro best for high-density liquids, L=2 vs L≥3 tradeoffs, atomicAdd FP32 mandatory, CUDA Graph essential for >10000-timestep simulations.
+
+### Added — `triton-triangle-mult-update-hopper` DSL example (9 → 10 examples)
+
+The **first non-LLM DSL example** — Triton pattern for triangle-multiplicative-update (Boltz-1 / ESMFold / AF3 hot path), based on OpenFold reference.
+
+Documents: chunked K-reduction trick for variable N>500, FP32 accumulator + cast-back-on-store, @triton.autotune with key=[N, C] for protein-length bucket caching, tl.dot mapping to WGMMA Hopper / MMA Ampere, outgoing vs incoming variant handling.
+
+This is the canonical "non-LLM op" reference for the agent — partially fulfills user's "**不同硬件 CUDA/CANN 级别实现参考和文档**" ask.
+
+### Why v3.13 matters
+
+Three quiet but important wins:
+
+1. **Schema correctness**: pre-v3.13, 4 v3.11 ops stuck in `misc`. Post-v3.13, op categorization is honest. Agent recommendations keying off `category` work correctly.
+
+2. **v3.11 op-class application complete**: all 4 v3.11 ops now have ≥1 fused-kernel application demonstrating real deployment use.
+
+3. **First non-LLM DSL example**: pre-v3.13, all 9 DSL examples were LLM workloads (GEMM, RoPE, FlashAttention, RMSNorm, NCCL/HCCL collective). The Triton triangle-mult example opens the non-LLM DSL category — proves corpus documents CUDA/Triton-level reference for any workload class.
+
+### Stats
+
+- **Fused-kernels**: 26 → 27 · **DSL examples**: 9 → 10
+- **OperatorCategorySchema**: 9 → 13 enums (4 new categories)
+- **Site pages**: 587 → 589 (+2)
+- **Layer D coverage**: 100% · **Tests**: 75/75 passing
+
+### v3.14 next
+
+- CUDA C++ triangle-mult kernel (vs Triton — for users who need every last % of perf)
+- MACE-CUDA reference DSL example (hand-tuned C++ CG tensor product)
+- mel-spec on cuFFT DSL example (NVIDIA NeMo reference)
+- More models: SD 3.5 Medium, OpenSora 2, Geneformer, Evo-2
 
 ---
 

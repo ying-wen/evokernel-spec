@@ -1,6 +1,6 @@
 id: mel-spectrogram-encode
 name: Mel-Spectrogram Encode (audio preprocessing for ASR/TTS)
-category: misc
+category: audio-preprocess
 
 flops_formula: 'T_audio * fft_size * log(fft_size) (T = audio frames at 16kHz)'
 bytes_formula: 'T_audio * (fft_size * 4 + n_mels * 4)'

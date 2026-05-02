@@ -1,6 +1,6 @@
 id: triangle-multiplicative-update
 name: Triangle Multiplicative Update (pairformer hot path)
-category: misc
+category: bio
 
 flops_formula: '4 * N^3 * c (N=residue count, c=channel dim)'
 bytes_formula: '8 * N^2 * c'

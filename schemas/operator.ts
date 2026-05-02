@@ -2,9 +2,24 @@ import { z } from 'zod';
 
 const Slug = z.string().regex(/^[a-z0-9-]+$/);
 
+/**
+ * v3.13 — extended OperatorCategorySchema for non-LLM ops.
+ *
+ * v3.11 added 4 ops (triangle-multiplicative-update, clebsch-gordan-tensor-product,
+ * mel-spectrogram-encode, flow-matching-step) all using `category: misc` because
+ * the existing enum lacked suitable categories. v3.13 adds 4 new categories
+ * matching the user's repeated breadth ask (video / image-gen / speech / bio).
+ *
+ * - bio:               protein/molecule structure prediction ops (Boltz/AF/RFAA)
+ * - equivariant:       SO(3)-equivariant ops for materials/MD GNNs
+ * - audio-preprocess:  mel-spec, MFCC, etc. for ASR/TTS pipelines
+ * - sampler:           diffusion / flow-matching / RL sampler step ops
+ */
 export const OperatorCategorySchema = z.enum([
   'matmul', 'attention', 'norm', 'activation', 'embedding',
-  'moe-routing', 'communication', 'memory', 'misc'
+  'moe-routing', 'communication', 'memory',
+  'bio', 'equivariant', 'audio-preprocess', 'sampler',
+  'misc'
 ]);
 
 const PrecisionSupportSchema = z.enum([

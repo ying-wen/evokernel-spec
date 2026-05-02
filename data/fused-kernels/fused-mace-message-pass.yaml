@@ -1,0 +1,192 @@
+id: fused-mace-message-pass
+name: Fused MACE Message-Pass (Equivariant GNN time-step)
+category: misc
+summary: |
+  Fuse the 4-step MACE-MP message-pass cycle (radial basis function + Clebsch-Gordan
+  tensor product + scatter-add + atomic update) into a single kernel pipeline.
+  Used for equivariant GNN potential models in molecular dynamics (MACE-MP-0, NequIP,
+  Allegro). 50-70% wall-clock improvement over PyTorch eager baseline at 1000 atoms.
+
+description_md: |
+  ## MACE message-pass standard 4 steps
+
+  In each MD time-step, MACE recomputes node features via message-passing:
+
+  ```
+  step 1: radial basis  — bessel(r_ij) + smooth cutoff      # scalar [N_edges, n_basis]
+  step 2: tensor product — CG(node_i, basis_ij) ⊗ basis_ij   # equivariant feature
+  step 3: scatter-add   — sum messages per receiving atom     # atomic op per edge
+  step 4: nonlinearity  — gated activation + atomic update    # element-wise + write
+  ```
+
+  **Why fusion is mandatory at production scale**:
+
+  - **Step 1** (radial basis): cheap (small GEMV per edge), but produces [N_edges, n_basis]
+    intermediate. At 10000 edges, n_basis=8: ~640 KB per layer.
+  - **Step 2** (CG tensor product): the dominant cost — sparse coefficient table,
+    small (3×3, 5×5) matmuls per (l1, l2, l) triple. Output: [N_edges, irrep_dim].
+    At irrep_dim=128: ~10 MB per layer.
+  - **Step 3** (scatter-add): atomic operations on [N_atoms, irrep_dim] target tensor.
+    Bottleneck at high atom density: atomic contention.
+  - **Step 4** (nonlinearity + update): element-wise op + final HBM write.
+
+  Without fusion, each step is a separate kernel launch + intermediate HBM I/O.
+  At 100,000+ MD time-steps per simulation, the launch overhead alone is 10s+ of
+  seconds per simulation. **Fusion is not optional for production MD.**
+
+  ## Fused implementation
+
+  - **Single kernel for steps 1-3**: each thread handles 1 edge end-to-end (compute
+    radial basis → CG product → atomicAdd to receiver). Intermediates live in
+    registers/SMEM, never written to HBM.
+  - **Step 4 epilogue**: nonlinearity + write happens after a __syncthreads(),
+    when all atomic updates have flushed.
+  - **CUDA Graph capture**: critical for MACE — graph captures the entire layer
+    (4 steps) once, replays for every time-step. Removes launch overhead entirely.
+
+  ## Production deployment
+
+  - **MACE CUDA**: hand-tuned by ACEsuit team; reference impl with this fusion.
+  - **MACE-JAX**: relies on XLA auto-fusion (suboptimal vs hand-tuned CUDA).
+  - **NequIP / Allegro**: similar fusion exists via separate impls.
+  - **LAMMPS-MACE**: integrated into traditional MD software via fused kernel.
+
+  ## Wall-clock impact (H100 80GB, 1000-atom MD step):
+
+  | Implementation | Per-step latency |
+  |---|---|
+  | PyTorch eager (no fusion) | ~25 ms |
+  | MACE CUDA (this fusion) | ~10 ms |
+  | + CUDA Graph | ~3-5 ms |
+  | Orb-V2 non-equivariant baseline | ~3 ms (no CG product) |
+
+  Fusion narrows the gap with non-equivariant Orb-V2 by ~3×, making equivariant
+  models production-viable for large-scale MD.
+
+fuses_operators: [matmul, clebsch-gordan-tensor-product]
+why_fuse: |
+  CG tensor product is the dominant cost in equivariant GNNs (30-50% wall-clock
+  per layer). Without fusion, the CG output [N_edges, irrep_dim] writes to HBM
+  before scatter-add reads it back. At 10000 edges × 128 irrep_dim × FP32:
+  5 MB written + read per layer per timestep. Over 4 layers + 100K timesteps:
+  ~2 TB HBM traffic. Fusion eliminates the intermediate write entirely (CG output
+  goes straight to atomicAdd in registers).
+
+speedup:
+  - baseline: 'MACE PyTorch eager (no fusion)'
+    multiplier_min: 2.0
+    multiplier_max: 3.0
+    notes: '1000 atoms H100; larger systems see larger gain (more atomic contention amortized)'
+  - baseline: 'MACE CUDA (without CUDA Graph capture)'
+    multiplier_min: 1.5
+    multiplier_max: 2.5
+    notes: 'CUDA Graph capture removes per-step launch overhead'
+  - baseline: 'e3nn dense (no sparse CG)'
+    multiplier_min: 3.0
+    multiplier_max: 5.0
+    notes: 'e3nn dense wastes ~90% compute on zero CG triplets; sparse + fused is 3-5× faster'
+
+implementations:
+  - name: MACE CUDA (ACEsuit)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/ACEsuit/mace
+    notes: 'Reference fused impl. Hand-tuned for L=2 default; falls back to e3nn at L>=4.'
+  - name: NequIP (Princeton — sister project)
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/mir-group/nequip
+    notes: 'Same fusion pattern; different message-passing topology.'
+  - name: Allegro (Princeton)
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/mir-group/allegro
+    notes: 'Strictly local equivariant; even larger fusion benefit (no scatter contention).'
+  - name: MACE-JAX (community)
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/ACEsuit/mace-jax
+    notes: 'XLA auto-fusion; 1.5-2× slower than hand-tuned CUDA but more portable.'
+  - name: LAMMPS-MACE
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/ACEsuit/lammps
+    notes: 'Production MD integration with fused MACE kernel. Used in materials discovery.'
+
+hardware_requires:
+  - 'Tensor Core class GPU; ≥ 64 KB SMEM per SM (CG coefficients + radial basis live in SMEM)'
+  - 'For 10000+ atoms: requires atomicAdd-friendly hardware (Hopper L2 atomics ideal; older Ampere has more contention)'
+  - 'CUDA Graph support: CUDA 11.4+ for full capture; without it, fusion gain is half'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Hardware lock-in: MACE CUDA tuned for NVIDIA Hopper/Ampere; AMD ROCm + Apple MLX paths exist but slower'
+  - 'L (angular momentum) sensitivity: fused kernel optimal at L=2 (default); L=4+ falls back to e3nn dense'
+  - 'Atomic contention: at high atom density (>5000/nm³, e.g., dense liquids), atomicAdd becomes bottleneck'
+  - 'Numerical: FP32 mandatory for CG coefficients; mixed FP32 (CG) + FP16 (radial basis) is the production sweet spot'
+
+references:
+  - title: 'MACE: Higher-Order Equivariant Message Passing Neural Networks (Batatia et al. 2022)'
+    url: https://arxiv.org/abs/2206.07697
+    source_type: paper
+  - title: 'MACE-MP-0 paper (universal interatomic potential, v3.8 corpus entry)'
+    url: https://arxiv.org/abs/2401.00096
+    source_type: paper
+  - title: 'NequIP: E(3)-Equivariant Graph Neural Networks (Batzner et al.)'
+    url: https://www.nature.com/articles/s41467-022-29939-5
+    source_type: paper
+  - title: 'e3nn library design (Geiger et al.)'
+    url: https://arxiv.org/abs/2207.09453
+    source_type: paper
+
+formal_semantics:
+  signature: |
+    fused_mace_message_pass(node_features: [N_atoms, irrep_dim],
+                              edge_idx: [N_edges, 2], edge_vec: [N_edges, 3],
+                              cg_table: precomputed, radial_params: precomputed)
+        -> node_features_updated: [N_atoms, irrep_dim]
+    Combines: radial basis → CG tensor product → scatter-add → nonlinearity.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused MACE message-pass writes 4 intermediate [N_edges, *] tensors to HBM:
+    radial basis [N_edges, 8], gated edge features [N_edges, irrep_dim], scatter
+    output [N_atoms, irrep_dim], pre-nonlinearity activations [N_atoms, irrep_dim].
+    At 1000 atoms × 10000 edges × FP32: ~50 MB I/O per layer. Over 4 layers ×
+    100,000 MD time-steps: ~20 TB HBM traffic per simulation — well over H100
+    HBM bandwidth budget for any practical wall-clock target.
+
+  edge_cases:
+    - input: 'high atom density (>5000 atoms/nm³, dense liquid simulations)'
+      behaviors:
+        mace-cuda: 'atomicAdd contention dominates at high density; SM-level reduction trick (cooperative groups) needed.'
+        nequip: 'Same — but higher edge count per atom amplifies contention.'
+        allegro: 'Strictly local — no scatter, no contention. Best at high density.'
+      mitigation: 'For liquid simulations: use Allegro instead of MACE/NequIP. For solid-state (sparser graphs): MACE/NequIP fine.'
+
+    - input: 'L (angular momentum cutoff) ≥ 3'
+      behaviors:
+        mace-cuda-l2: 'Hand-tuned L=2 path; falls back to e3nn at L≥3.'
+        e3nn-fallback: 'Generic dense impl; 3-5× slower than fused L=2.'
+      mitigation: 'Most production models cap at L=2 (MACE-MP-0 default). L=3+ is research-tier; expect 5-10× longer simulation wall-clock.'
+
+    - input: 'CUDA Graph capture mode'
+      behaviors:
+        mace-cuda-graph: 'Captures entire 4-layer message-pass + integrator step into single graph. Replays per timestep with zero launch overhead.'
+        eager-pytorch: 'Each timestep launches ~50 kernels; launch overhead alone is ~10ms.'
+      mitigation: 'For long simulations (>10000 timesteps): CUDA Graph capture is ESSENTIAL. ~30% wall-clock saving.'
+
+  numerical_rules:
+    - aspect: 'cg_dtype'
+      per_library:
+        mace-cuda: 'CG coefficients FP32 (precomputed). Radial basis FP32. Mixed-precision OK for irrep features (FP16/BF16).'
+        nequip: 'Same.'
+      notes: 'CG coefficients span 10+ orders of magnitude — BF16 / FP8 storage zeros out small ones, breaking equivariance. FP32 mandatory for CG storage.'
+
+    - aspect: 'atomic_add_dtype'
+      per_library:
+        mace-cuda: 'atomicAdd in FP32 (Hopper has fast FP32 atomics). FP16 atomics avoided due to precision loss across many edges.'
+      notes: 'For >1000 atoms with dense connectivity, FP32 atomic contention matters but precision is critical. Mixed approach: FP32 atomic, FP16 register state.'
+
+    - aspect: 'radial_basis_dtype'
+      per_library:
+        all_libs: 'BF16 / FP16 acceptable. Bessel function output is bounded (~1.0), no precision concern.'

@@ -1,6 +1,6 @@
 id: clebsch-gordan-tensor-product
 name: Clebsch-Gordan Tensor Product (equivariant GNN core op)
-category: misc
+category: equivariant
 
 flops_formula: 'N_atoms * N_neighbors * d_irrep^3 (depends on max angular momentum L)'
 bytes_formula: 'N_atoms * N_neighbors * d_irrep^2 * 4'

@@ -1,6 +1,6 @@
 id: flow-matching-step
 name: Flow-Matching Step (rectified-flow ODE solver)
-category: misc
+category: sampler
 
 flops_formula: 'forward_flops_per_step (depends on backbone DiT/UNet)'
 bytes_formula: '4 * latent_dim * 4 (single state vector + velocity)'
