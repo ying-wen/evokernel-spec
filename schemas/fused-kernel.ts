@@ -75,7 +75,30 @@ export const FusedKernelSchema = z.object({
   trade_offs: z.array(z.string()).default([]),
 
   /** External references. */
-  references: z.array(ReferenceSchema).default([])
+  references: z.array(ReferenceSchema).default([]),
+
+  /**
+   * v2.15 / Layer D for fused kernels: fusion-specific edge cases + numerical
+   * rules that differ from the constituent unfused operators. Captures
+   * gotchas like epilogue ordering, intermediate precision, runtime vs
+   * compile-time fusion semantics.
+   */
+  formal_semantics: z.object({
+    signature: z.string().optional(),
+    edge_cases: z.array(z.object({
+      input: z.string().min(1),
+      behaviors: z.record(z.string(), z.string()),
+      mitigation: z.string().optional()
+    })).default([]),
+    numerical_rules: z.array(z.object({
+      aspect: z.string().min(1),
+      per_library: z.record(z.string(), z.string())
+    })).default([]),
+    /** Compile-time vs runtime fusion semantics. */
+    fusion_lifecycle: z.enum(['compile-time-template', 'jit-trace', 'runtime-graph', 'manual-kernel']).optional(),
+    /** What happens if you DO NOT fuse (perf cliff vs slight slowdown). */
+    unfused_penalty: z.string().optional()
+  }).optional()
 });
 
 export type FusedKernel = z.infer<typeof FusedKernelSchema>;

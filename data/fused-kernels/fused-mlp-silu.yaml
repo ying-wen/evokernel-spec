@@ -74,3 +74,38 @@ references:
   - title: 'CUTLASS Epilogue Fusion'
     url: https://github.com/NVIDIA/cutlass/blob/main/media/docs/efficient_gemm.md
     source_type: docs
+
+formal_semantics:
+  signature: |
+    fused_mlp_silu(x: [B,S,D], W_gate: [D,D_ff], W_up: [D,D_ff], W_down: [D_ff,D]) -> [B,S,D]
+    Fuses {gate matmul, up matmul, silu(gate)*up, down matmul} into 1-2 kernels.
+    Standard FFN for Llama / Qwen / DeepSeek dense paths.
+  fusion_lifecycle: compile-time-template
+  unfused_penalty: |
+    Unfused = 4 separate kernel launches + 3 intermediate writes to HBM.
+    Each intermediate ([B*S*D_ff]) is roughly model_size bytes — significant
+    read/write traffic. Fusion saves 30-50% HBM traffic at decode (memory-bound).
+  edge_cases:
+    - input: 'gate + up matmul fused (single GEMM with 2D output) vs separate'
+      behaviors:
+        cutlass-fused-mlp: 'Single GEMM: weight = concat(W_gate, W_up) [D, 2*D_ff]; output split + silu_mul'
+        triton-fused-mlp: 'Same — single GEMM is best path'
+        cublas-fused-mlp: 'cuBLASLt epilogue does silu_mul; separate gate/up GEMMs'
+        aclnn-swiglu: 'aclnnSwiGLU op fuses silu_mul only; GEMMs separate'
+      mitigation: 'Single-GEMM approach (CUTLASS / Triton) is fastest. cuBLASLt epilogue is 2nd-fastest. aclnn keeps GEMMs separate (suboptimal on Ascend).'
+    - input: 'down GEMM included in fusion vs separate launch'
+      behaviors:
+        flash-mlp-cutlass: 'Down GEMM separate (different N dim makes single-template hard)'
+        cudnn-flash-mlp: 'Single fused kernel including down (Hopper+ via TMA)'
+      mitigation: 'cuDNN 9+ flash-mlp on Hopper fuses everything; older paths separate down GEMM. Verify which path engine takes.'
+  numerical_rules:
+    - aspect: 'silu_then_mul_dtype'
+      per_library:
+        all_libs: 'Stay in input dtype (FP16/BF16/FP8); no FP32 upcast'
+      notes: 'Different from RMSNorm (which upcasts). silu*mul has no division/reduction so input precision is sufficient.'
+    - aspect: 'sigmoid_approximation_in_silu'
+      per_library:
+        cuda-fast-sigmoid: 'Used by default in cuDNN/cuBLAS fast path; ~1e-5 accuracy diff'
+        triton-strict: 'Strict IEEE; configurable'
+        aclnn: 'Strict (no fast path on Ascend)'
+      notes: 'Fast sigmoid acceptable for inference. For long-ctx training: stick to strict.'

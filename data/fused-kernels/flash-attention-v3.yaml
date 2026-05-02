@@ -88,3 +88,42 @@ references:
   - title: 'NVIDIA Hopper TMA Programming Guide'
     url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#asynchronous-data-copies
     source_type: docs
+
+formal_semantics:
+  signature: |
+    flash_attention_v3(Q,K,V, scale, is_causal, dropout_p, fp8_scales=None) -> O
+    Folds [QK^T, softmax(masked), Output@V] into one kernel via tile-by-tile
+    online softmax. Hopper+ uses TMA + WGMMA for async pipelining.
+  fusion_lifecycle: compile-time-template
+  unfused_penalty: |
+    Without fusion: 3-pass O(S²) attention matrix materialization. At seq=8K
+    head_dim=128 fp16: ~150GB scratch — won't fit. Naive version OOMs at >2K
+    seq even on H100. Fusion is REQUIRED for long ctx, not an optimization.
+  edge_cases:
+    - input: 'fp8 path with per-tensor vs per-block scaling'
+      behaviors:
+        flash-attn-v3-fp8: 'Per-tensor scale for Q,K,V (set at build time)'
+        cudnn-sdpa-fp8: 'Same'
+        ck-flash-attn-fp8: 'Per-tensor on MI300X'
+        trtllm-fp8: 'Per-tensor or per-channel selectable'
+      mitigation: 'Calibration set must capture seq-length distribution. FP8 scale chosen at calibration is fixed at runtime.'
+    - input: 'window mask (sliding-window attention)'
+      behaviors:
+        flash-attn-v3: 'Native support via window_size parameter; no perf penalty'
+        cudnn-sdpa: 'Sliding-window mask supported in 9.x'
+        mindie-incre-fa: 'Limited to fixed window sizes'
+      mitigation: 'Sliding-window common in long-ctx models (Mistral / Phi). Always test mask correctness on fully-masked rows (returns 0).'
+  numerical_rules:
+    - aspect: 'softmax_partial_sum_dtype'
+      per_library:
+        flash-attn-v3: 'FP32 internal (always)'
+        cudnn-sdpa: 'FP32 internal'
+        ck-flash-attn: 'FP32 internal (configurable in template)'
+        mindie-incre-fa: 'FP32 internal'
+      notes: 'CRITICAL: FP16 partial-sum loses precision quickly with long seq. All major impls force FP32 internal.'
+    - aspect: 'tile_size_choice'
+      per_library:
+        flash-attn-v3-h100: 'M=128 N=128 K=64 default (head_dim=64); auto-tunes per shape'
+        flash-attn-v3-h200: 'Larger M=128 N=256 (more HBM bandwidth)'
+        ck-mi300x: 'M=128 N=128 K=64 (MFMA-aligned)'
+      notes: 'Tile size affects occupancy + L2 reuse. Different shapes optimal per-arch; trust autotuner unless evidence to contrary.'
