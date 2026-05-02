@@ -3,7 +3,7 @@
 > Honest inventory of where the project is rough or constrained. Updated
 > per release. Open issues for fixes via PR.
 >
-> **Last reviewed:** 2026-04-30 against v1.5.1 (post-base-path-hotfix)
+> **Last reviewed:** 2026-05-02 against v1.43.0 / 2.0.0-GA candidate
 
 ## Severity legend
 
@@ -16,6 +16,34 @@
 ---
 
 ## Recently fixed
+
+### ✅ Reverse recommendations (hardware → models) wired (v1.5+ / v1.6)
+
+Both `/models/<slug>/` and `/hardware/<slug>/` now show 3-axis recommendation rankings (throughput / cost / verified) with calculator deep-link presets.
+
+### ✅ Capacity-planning interactive calculator (v1.32)
+
+`/calculator/capacity-planner/` is now an interactive React island — pick (model × hardware × QPS × SLA) and see card-count recommendation in real time.
+
+### ✅ `/servers/cluster-internals/` unified 3-axis view (v1.33)
+
+All super-pods listed side-by-side across host_cpu × network_topology × storage_architecture in a single matrix. Red border for "三轴全 ✓" elite super-pods.
+
+### ✅ Public submission portal (v1.39)
+
+`/contribute/case-form/` lets non-engineers submit deployment cases via web form — generates PR-ready YAML automatically.
+
+### ✅ `/operators/fusion-graph/` SVG bipartite view (v1.38)
+
+Pure server-rendered SVG showing operators ↔ fused-kernels participation. Single-direction edges flagged as data-completeness PR opportunities.
+
+### ✅ Engine capability matrix `/engines/compare/` (v1.42)
+
+7 engines × 60+ features across 6 capability axes (quant / parallelism / serving / spec-decode / frontend / deployment). Replaces the "read 7 vendor READMEs" pre-decision step.
+
+### ✅ Migration playbooks `/learn/migrations/` (v1.43)
+
+4 paths (engine-swap / hardware-swap / quant-downcast / scaling) × 7-step framework (trigger → prerequisites → plan → cutover → validation → rollback → followups).
 
 ### ✅ React island links missing /evokernel-spec base path on GH Pages (v1.5.1)
 
@@ -118,23 +146,25 @@ estimated` precision in calculator.
 **Fix path:** Wait for vendor to publish official datasheets, OR get a
 third-party measurement (Tier 0 case).
 
-### 🟡 Memory hierarchy populated for only 7 of 39 cards
+### 🟡 Memory hierarchy populated for 18 of 39 cards (was 7 in v1.5)
 
-**What:** `architecture.memory_hierarchy` is the richest data structure on Hardware (RF → SMEM → L2 → L3 → HBM with bandwidths and notes). Currently filled for: H100, H200, B200, MI300X, MI355X, Ascend 910B, Ascend 910C. The other 32 cards have flat headline numbers but no layered hierarchy.
+**What:** `architecture.memory_hierarchy` is the richest data structure on Hardware (RF → SMEM → L2 → L3 → HBM with bandwidths and notes). Currently filled for: A100, H100, H200, B200, B300, L40s, MI300X, MI325X, MI355X, Gaudi 3, Trainium 2, TPU v5p, TPU Trillium, MLU590, DCU Z100, MTT S4000, Ascend 910B, Ascend 910C. The other 21 cards have flat headline numbers but no layered hierarchy.
 
-**Workaround:** Cards without hierarchy still render the legacy spec block; the new `MemoryHierarchy.astro` component is conditional. Recommendation engine still works (uses bandwidth + capacity from headline fields).
+**Workaround:** Cards without hierarchy still render the legacy spec block; the `MemoryHierarchy.astro` component is conditional. Recommendation engine still works (uses bandwidth + capacity from headline fields).
 
-**Fix path:** Backfill data — open candidates: B300, Trainium 2, Cambricon MLU590, Hygon DCU Z100, Moore Threads MTT S5000, etc. Each card takes ~30 min from vendor whitepaper to YAML. PRs welcome.
+**Fix path:** Backfill data — open candidates: Hygon DCU K100, Moore Threads MTT S5000, Iluvatar Tianhang, Biren BR104, etc. Each card takes ~30 min from vendor whitepaper to YAML. PRs welcome.
 
-### 🟡 SwitchFabric SVG only on 2 of 14 super-pods
+### 🟡 Cluster internals filled on 8 of 14 super-pods (was 2 in v1.5)
 
-**What:** Cluster-internals (switch_chips, oversubscription, power, cabinet_layout) currently filled only for NVL72 + CloudMatrix-384. Other super-pods (HGX-H100, HGX-H200, GB300-NVL72, MI300A supercomputer, Atlas 800/900, MLU590-pod, Kuae, Trainium2 ultraserver, X8-server) still have only basic spec headers.
+**What:** Cluster-internals (switch_chips, oversubscription, power, cabinet_layout, SwitchFabric SVG) currently filled for NVL72, GB300 NVL72, HGX H100, HGX H200, CloudMatrix 384, Atlas 900 SuperPoD A2, Atlas 800T A3, Trn2 UltraServer. Remaining 6: HGX H800, Atlas 800, MLU590-pod, Kuae-cluster, MI300X-platform, B300-NVL16.
+
+**Workaround:** All 14/14 super-pods have full coverage on the three architectural axes (host_cpu / network_topology / storage_architecture) — the gap is only in the deeper switch-chip / cabinet detail.
 
 **Fix path:** Same as above — vendor docs / whitepaper → YAML.
 
-### 🟢 Reverse recommendations (hardware → models) helper exists but not wired
+### ✅ Reverse recommendations (hardware → models) wired (v1.5+, v1.6)
 
-**What:** `recommendModelsForHardware()` was added in v1.5.0 as infrastructure but doesn't yet render anywhere. The forward direction (model → hardware) IS live on every `/models/<slug>/`. Symmetric `/hardware/<slug>/` widget will land in next iteration.
+**What:** Both directions now render: `/models/<slug>/` shows recommended hardware, `/hardware/<slug>/` shows recommended models. Three-axis ranking (throughput / cost / verified) on each side. Calculator deep-link presets included.
 
 ### 🟢 Some vendors have no products yet
 
@@ -237,17 +267,13 @@ Anyone with push access can `git tag v9.9.9` and trigger a release.
 
 ## Testing
 
-### 🟢 4 E2E tests are skipped by design
+### 🟢 4 E2E tests are skipped by design (470 passed)
 
-**What:** `pnpm test:e2e` reports "151 passed, 4 skipped". The skipped
-4 are visualization tests gated on Recharts rendering inside
-`pnpm preview`'s static-html-with-late-React-hydration mode.
+**What:** `pnpm test:e2e` reports "470 passed, 4 skipped" as of v1.43. The skipped 4 are visualization tests gated on Recharts rendering inside `pnpm preview`'s static-html-with-late-React-hydration mode.
 
-**Workaround:** They run in `pnpm dev` mode locally. The CI job uses
-`pnpm preview` for production-mode realism, hence skip.
+**Workaround:** They run in `pnpm dev` mode locally. The CI job uses `pnpm preview` for production-mode realism, hence skip.
 
-**Fix path:** Add `await page.waitForFunction(() => document.querySelector('.recharts-surface'))`
-before assertions.
+**Fix path:** Add `await page.waitForFunction(() => document.querySelector('.recharts-surface'))` before assertions.
 
 ### 🟢 Playwright traces only uploaded on failure
 
@@ -297,16 +323,13 @@ key but doesn't enforce parity. Could add a type-level assertion.
 
 ## Performance / scaling
 
-### 🟡 Build time grows linearly with corpus size
+### 🟢 Build time grows linearly with corpus size
 
-**What:** At 31 hardware × 17 models × 22 cases, build is ~7s. At 200
-hardware × 100 models, expect ~45s. Cross-reference resolution is
-O(n×m).
+**What:** At 39 hardware × 20 models × 41 cases × 451 pages, build is ~1 s. At 200 hardware × 100 models, expect ~10–15 s. Cross-reference resolution is O(n×m).
 
 **Workaround:** None needed at current scale.
 
-**Fix path:** Memoize cross-ref lookups, or migrate to a lazy-loader
-pattern with per-page data fetching.
+**Fix path:** Memoize cross-ref lookups, or migrate to a lazy-loader pattern with per-page data fetching.
 
 ### 🟢 Pagefind index is ~3 MB of the 15 MB dist
 

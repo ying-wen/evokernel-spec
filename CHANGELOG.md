@@ -6,23 +6,60 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### Post-2.0 horizon
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
+---
 
-**Tier 1 remaining**:
-- Citation PR onboarding (community work)
-- 1-2 more tours optional (video diffusion, Llama 4 Behemoth on NVL72)
+## [2.0.0] — 2026-05-02 — GA
 
-**Tier 2 remaining**:
-- Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
-- Citation auto-import (Twitter/X mentions, GitHub backlinks, arxiv)
+**First stable public release** after 27 single-themed iterations (v1.17 → v1.43).
 
-**Tier 3 (large bets)**:
-- Interactive deployment-journey visualization
-- Real benchmark CI runner (auto-refresh case data on rented GPUs)
-- Multi-language expansion (ja/ko/es/fr)
-- Private deployment edition
+### What 2.0 means
+
+GA = stable public surface. URL paths, JSON API schemas, YAML schemas, evidence ID format are all committed for the 2.x line. New optional fields may be added; no breaking changes within 2.x — those defer to 3.0 with deprecation cycle.
+
+See [docs/RELEASE-v2.0.md](docs/RELEASE-v2.0.md) for the full readiness assessment (functional / data quality / test / build / a11y / docs gates all green).
+
+### Inherits everything from v1.17 → v1.43
+
+The full v1.x arc accumulated:
+
+- **Gap 1 (cluster internals) closed**: 14/14 super-pods × 3 architectural axes (host_cpu / network_topology / storage_architecture) + unified `/servers/cluster-internals/` view
+- **Gap 2 (operators / fusion) closed**: 34 operators × 24 fused kernels × 23 patterns + `/operators/fusion-graph/` SVG bipartite view
+- **Gap 3 (deployment chain) closed**: 8-step `/learn/` chain (capacity-planning → picking-engine → quantization-decision-tree → parallelism-cheatsheet → deployment-failures → observability → production-lifecycle → troubleshooting → **migrations**) + 4 migration playbooks
+- **Engine capability matrix** (v1.42): `/engines/compare/` with 7 engines × 60+ features × 6 axes
+- **Public submission portal** (v1.39): `/contribute/case-form/` generating PR-ready YAML
+- **Interactive capacity planner** (v1.32): `/calculator/capacity-planner/` form-based sizing
+- **Per-engine cost matrix** (v1.36): `/pricing/by-engine/`
+- **RSS feed + changelog page** (v1.34)
+- **27 single-themed releases** in CHANGELOG
+
+### Stats at GA cut
+
+- **297 entities** across 16 schema types (28 vendors / 39 hardware / 14 super-pods / 20 models / 41 cases / 24 playbooks / 23 patterns / 34 operators / 24 fused kernels / 9 quantizations / 7 engines / 7 pipeline stages / 11 tours / 1 citation / etc.)
+- **451 pages built** in ~1 second
+- **470 E2E tests** + 36 unit tests · all passing
+- **WCAG 2 AA** compliant (axe a11y gates every route)
+- **Bilingual** ZH + EN with i18n fallback
+- **6 JSON API endpoints** + OpenAPI 3.1 spec
+- **MIT/Apache code · CC-BY-SA 4.0 data**
+- **One-command production launcher** (`./launch.sh`)
+- **Offline tarball** (2.6 MB tar.gz + sha256 sidecar)
+
+### Post-2.0 work
+
+Tracked in [docs/ROADMAP.md](docs/ROADMAP.md):
+
+- **Tier 1** (community fill): citation PRs, memory_hierarchy backfill (21 cards), cluster_internals backfill (6 super-pods)
+- **Tier 2** (small code work): auto-translated vendor docs, citation auto-import, Lighthouse PR gate, EN translation parity enforcement
+- **Tier 3** (large bets): interactive deployment-journey visualization, real benchmark CI runner, multi-language expansion (ja/ko/es/fr), private deployment edition
+
+### Out of scope (deliberately deferred)
+
+- Database vs YAML — YAML stays for PR-friendliness
+- Comments / discussion — GitHub Discussions is the canonical forum
+- User accounts — out of scope for static SSG
+- IE11 / legacy browsers — modern only (Chrome 90+, Firefox 90+, Safari 15+)
 
 ---
 

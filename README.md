@@ -1,6 +1,8 @@
 # EvoKernel Spec
 
 > AI 推理硬件 × 模型 × 部署的开源知识库 — 国产芯片覆盖最全 / 可信度可引证 / 计算器透明
+>
+> 🎉 **v2.0.0 GA** (2026-05-02) — first stable public release · API + URL + schema 公开稳定承诺. 详见 [RELEASE-v2.0.md](docs/RELEASE-v2.0.md).
 
 **🌐 在线访问 / Live site: [yingwen.io/evokernel-spec](https://yingwen.io/evokernel-spec/)** · [📖 /contribute 贡献入口](https://yingwen.io/evokernel-spec/contribute/) · [📊 /pricing TCO 排名](https://yingwen.io/evokernel-spec/pricing/)
 
@@ -12,19 +14,21 @@
 [![Pages](https://img.shields.io/badge/pages-451-blue)](#)
 [![CI](https://img.shields.io/badge/CI-6_jobs-blue)](#)
 [![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
-[![Release](https://img.shields.io/badge/release-v1.43.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
+[![Release](https://img.shields.io/badge/release-v2.0.0_GA-success)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ![Home](docs/screenshots/home.png)
 
 ## Highlights
 
-**📦 12 类实体 / ~185 数据条目**:
+**📦 16 类实体 / 297 数据条目**:
 - **39 加速卡** 跨 28 家厂商 — 含 **18 张深填 memory hierarchy (46% coverage)** (NVIDIA A100/H100/H200/B200/B300/L40s, AMD MI300X/MI325X/MI355X, Intel Gaudi 3, AWS Trainium 2, Google TPU v5p/Trillium, Cambricon MLU590, Hygon DCU Z100, MTT S4000, Ascend 910B/910C 都有 RF→SMEM→L2→Infinity-Cache→HBM 完整层级)
-- **14 服务器/超节点** — **8 个完整 cluster internals (57% coverage)** (NVL72, GB300 NVL72, HGX H100, HGX H200, CloudMatrix 384, Atlas 900 SuperPoD A2, Atlas 800T A3, Trn2 UltraServer) 含 switch-chip 详情 + 持续/峰值功耗 + cabinet 布局 markdown + **SwitchFabric SVG 拓扑可视化**
-- **19 frontier 模型**: LLM (DeepSeek V4 Pro / Kimi K2.6 / Qwen 3.6 / Llama 4 / GLM-5) + **scientific (AlphaFold 3 / GraphCast)** + 算子 FLOP/byte 拆解
-- **22 部署案例**: 含 CloudMatrix 384 超节点 / disaggregated 部署 / 9 家国产卡
-- **9 算子 + 12 fused kernels**: rich operator schema (arith intensity 分类 / fusion graph / engine impls) · FlashAttention-3 / FusedMLP / FusedRoPE / PagedAttention / Mooncake KV-disagg / DeepEP MoE / FusedAllReduce / **FusedSelectiveScan (Mamba) / FusedSpecDecode (Medusa+EAGLE) / FusedQuantizedAttention (Blackwell+ FP4) / FusedKVQuant**
-- **9 patterns + 7-stage deployment pipeline**: acquire→convert→quantize→compile→shard→serve→observe (26 decisions / 32 tools / 21 failure modes 文档化)
+- **14 服务器/超节点** — **8 个完整 cluster internals (57% coverage)** (NVL72, GB300 NVL72, HGX H100, HGX H200, CloudMatrix 384, Atlas 900 SuperPoD A2, Atlas 800T A3, Trn2 UltraServer) 含 switch-chip 详情 + 持续/峰值功耗 + cabinet 布局 markdown + **SwitchFabric SVG 拓扑可视化**. 三轴矩阵全填: host_cpu / network_topology / storage_architecture 14/14
+- **20 frontier 模型**: LLM (DeepSeek V4 Pro / Kimi K2.6 / Qwen 3.6 / Llama 4 / GLM-5 / MiniMax M2.7) + **scientific (AlphaFold 3 / GraphCast)** + diffusion + 算子 FLOP/byte 拆解
+- **41 部署案例**: 含 CloudMatrix 384 超节点 / disaggregated 部署 / 9 家国产卡 / Blackwell FP4 / Ascend 910C
+- **34 算子 + 24 fused kernels**: rich operator schema (arith intensity 分类 / fusion graph / engine impls) · FlashAttention-3 / FusedMLP / FusedRoPE / PagedAttention / Mooncake KV-disagg / DeepEP MoE / FusedAllReduce / **FusedSelectiveScan (Mamba) / FusedSpecDecode (Medusa+EAGLE) / FusedQuantizedAttention (Blackwell+ FP4) / FusedKVQuant / LoRA-BGMV / Online-Softmax / Block-Quantize / Index-Put / Mamba-Conv1d**
+- **23 patterns + 7-stage deployment pipeline**: acquire→convert→quantize→compile→shard→serve→observe (26 decisions / 32 tools / 21 failure modes 文档化)
+- **24 playbooks** (model archetype × hardware class) recipes · **11 tours** (edge → super-pod 全谱)
+- **7 推理引擎** with full capability matrix (60+ features × 6 axes: quant/parallelism/serving/spec-decode/frontend/deployment)
 
 **🧠 计算闭环 / Computable knowledge**:
 - **Tier 0 实测查表 + Tier 1 透明 Roofline 计算器**: per-operator breakdown / concurrency sweep / TCO ($/M tokens) / disaggregated mode
@@ -40,7 +44,13 @@
 - **6 个 JSON API**: `/api/{index,hardware,models,cases,openapi}.json` + `/api/health.json`+`/api/healthz` (CC-BY-SA 4.0)
 - **生产级本地部署**: `./launch.sh` 一键 build+health-poll+17 路由 smoke / `pack:dist` 离线 tar.gz + sha256 sidecar
 - **WCAG 2 AA 兼容**, 中文+英文双语, 支持深色主题
-- **完整 CI 6 jobs**: validate · type-check · unit · build · e2e (137 测试, axe a11y, Lighthouse) · deployment-smoke · 周度 evidence 链接健康检查
+- **完整 CI 6 jobs**: validate · type-check · unit · build · e2e (470 测试, axe a11y, Lighthouse) · deployment-smoke · 周度 evidence 链接健康检查
+
+**📚 学习路径完整**:
+- **6 决策指南**: picking-engine · quantization-decision-tree · parallelism-cheatsheet · attention-variants · capacity-planning · picking-quantization-format
+- **3 故障维度**: deployment-failures (按阶段) · observability (按指标) · troubleshooting (按症状)
+- **生产生命周期**: rollout / A/B / migration / rollback playbook
+- **NEW 迁移指南** (v1.43): 4 类常见演进路径 × 7 步 playbook (engine-swap · hardware-swap · quant-downcast · scaling)
 
 ## 截图
 
@@ -161,11 +171,13 @@ curl https://evokernel.dev/api/openapi.json | jq '.info.version'
 
 完整列表见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) 和 [docs/ROADMAP.md](docs/ROADMAP.md)。当前关注:
 
-- 🟡 `/api/health.json` SSG 限制：body 正确但 HTTP 状态码恒为 200（v1.2 规划修复）
-- 🟡 23/31 张卡的 architecture 数据为 `tier: estimated`，等待 vendor 白皮书或 Tier 0 测量
+- 🟡 `/api/health.json` SSG 限制：body 正确但 HTTP 状态码恒为 200（修复需 hybrid runtime, 静态部署目标取舍）
+- 🟡 21/39 张卡的 memory_hierarchy 数据为 `tier: estimated`，等待 vendor 白皮书或 Tier 0 测量
+- 🟡 6/14 super-pod 的 cluster_internals (switch_chips / cabinet_layout) 待填
 - 🟡 EN 翻译滞后于 ZH（i18n fallback 防止 404，但部分页面文案仍为中文）
-- 🟡 Lighthouse CI 是周度 cron，不是 PR-time gate（v1.2 计划接入）
-- 🟢 Compare > 8 张卡 radar/bar 可读性下降（已有软警告，v1.2 规划 small-multiples）
+- 🟡 Lighthouse CI 是周度 cron，不是 PR-time gate（计划改为 path-filter PR gate）
+- 🟢 Compare > 8 张卡 radar/bar 可读性下降（已有软警告 + 自动建议切表格视图）
+- 🟢 仅 1 条 citation 种子条目，等社区贡献
 
 ## English
 
