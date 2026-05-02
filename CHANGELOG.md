@@ -6,7 +6,71 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.5 — Layer V verification harness** (build + correctness vs PyTorch + perf gates for generated kernels; closes the "real code that passes tests" promise).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.6 — Layer F automated feedback** (auto-fill `agent-learning.yaml` from V1/V2/V3 results + Layer G retry loop on V failure with diagnostic).
+
+---
+
+## [3.5.0] — 2026-05-03 — Layer V verification harness
+
+**Theme**: response to user directive — agent must "保证验证测试通过". v3.4 generates code; v3.5 ships the verification gates that prove it works.
+
+### Added — `scripts/agent-deploy/verify/` (4 modules + 10 tests)
+
+**Architecture**: 3-gate pipeline (V1 → V2 → V3) with **2 modes per gate**:
+- **structural** (always runs in CI; static analysis only)
+- **execution** (requires target hardware/compilers; v3.5 ships V1; v3.6+ wires V2/V3 execution)
+
+| Gate | Structural mode | Execution mode |
+|---|---|---|
+| **V1 — Build** | 5 static checks: non-comment code, includes/imports, kernel marker, no TODO/pseudocode markers, host launch wrapper | Invokes target compiler (nvcc / hipcc / bisheng / cncc / musac / triton-jit) — graceful skip if compiler not in PATH |
+| **V2 — Correctness** | Op-class invariants (attention online-softmax (m,s,acc) FP32, norm FP32 partial sum, GEMM tensor-core+FP32-acc, collective primitive call, scatter atomicAdd) + numerical_rules cross-checks (FP32 mandatory if formal_semantics says so) | v3.5 ships API + structural; v3.6 wires PyTorch reference comparison with tolerance from `formal_semantics.numerical_rules` |
+| **V3 — Perf** | Perf-friendliness checks (Hopper async copy / TMA, tensor-core MMA usage, fast-memory tile staging, no naive global-memory loops) | v3.5 ships placeholder; v3.6 wires NCU/rocprof/msprof/cnperf/suprof + delta vs predicted throughput |
+
+### Critical implementation details
+
+**Comment stripping before structural checks** — without this, a comment like `// FP32 not used here` would falsely satisfy a "code uses FP32" check (false-positive risk). All structural checks run on `stripComments(code)`.
+
+**Op-class dispatch in V2** — same op-class pattern as v2.18 codegen dispatch:
+- `attention` → checks for (m_old/m_new), (s_old/s_new), FP32 dtype, exp(), rescale pattern
+- `norm` → FP32 cast, reduction primitive, rsqrt
+- `gemm` → tensor-core MMA, FP32 accumulator, K-tile loop
+- `collective` → per-op primitive (ncclAllReduce, HcclAllReduce, etc.)
+- `scatter-permute` → atomicAdd or radix-sort, gather/scatter pattern
+
+**Retry diagnostic for Layer F** (v3.6 will consume) — when V fails, the orchestrator emits a structured `retry_diagnostic` containing the most actionable failure reasons. Layer G (v3.6) will pass this back through `prior_attempt_diagnostic` for LLM regeneration with the specific bug to fix.
+
+**Markdown summary** — verification result includes a Markdown table with status icons (✅/❌/⏭️/⚠️) suitable for printing in CLI output, agent-deploy artifacts, and PR comments.
+
+### Tests — 10 vitest assertions covering
+
+- Well-formed CUDA attention kernel passes all 3 gates
+- TODO/skeleton kernel fails V1 on `no_todo_or_pseudocode_markers` check
+- Well-formed Ascend-C RMSNorm kernel passes all gates (validates FP32-via-`<float>`-template-syntax recognition)
+- BF16-only RMSNorm fails on `norm_uses_fp32_partial_sum` check (despite a `// FP32 not used here` comment that would have falsely passed without comment-stripping)
+- Attention online-softmax invariants detected when present
+- Naive attention kernel fails on missing `attention_uses_exp` and `attention_has_rescale_pattern` checks
+- Perf gate skipped when V1 fails
+- Markdown summary well-formed
+- Collective op invariants for allreduce
+- Retry diagnostic populated on overall fail
+
+Combined with prior tests: **47/47 unit tests pass** (11 v2.18 dispatch + 26 v3.4 orchestrator + 10 v3.5 verify).
+
+### Stats
+
+- **New code**: 4 modules totaling 715 LOC (verify/index.ts 165, build.ts 230, correctness.ts 250, perf.ts 70)
+- **New tests**: 10 assertions, ~250 LOC fixtures
+- **Total tests**: 47/47 passing in CI
+- **Site pages**: still 542 (no SSG changes)
+
+### v3.6 next
+
+**Layer F automated feedback** — close the spec→plan→dev→test→**feedback**→spec loop:
+1. Auto-fill `agent-learning.yaml` from V1/V2/V3 results (no more manual stub editing)
+2. **Layer G retry loop**: if V fails, regenerate with diagnostic in prompt; bound retries to 3
+3. PR-template generation for novel observations (missing-primitive, fusion-opportunity, etc.)
+
+When v3.6 ships, the productized agent achieves: generate → verify → retry-on-failure → write-back. End-to-end. v3.7 then wraps in Codex + Claude Code plugins.
 
 ---
 
