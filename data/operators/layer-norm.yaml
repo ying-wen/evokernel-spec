@@ -61,3 +61,48 @@ references:
   - title: 'Root Mean Square Layer Normalization (RMSNorm comparison)'
     url: https://arxiv.org/abs/1910.07467
     source_type: paper
+
+formal_semantics:
+  signature: |
+    layer_norm(x: Tensor[..., D], weight: Tensor[D], bias: Tensor[D], eps: float = 1e-5)
+    -> Tensor[..., D]
+    output[..., i] = ((x[..., i] - mean(x)) / sqrt(var(x) + eps)) * weight[i] + bias[i]
+    Variance + mean across last dim (subtract-mean step distinguishes from RMSNorm).
+
+  edge_cases:
+    - input: 'all-zero / constant input (variance ≈ 0)'
+      behaviors:
+        cudnn-layer-norm: 'eps protects → output is bias only'
+        aclnn-layer-norm: 'Same'
+        pytorch-layer-norm: 'Same'
+      mitigation: 'Always use eps ≥ 1e-5 (default for most models). 1e-6 valid but tighter.'
+
+    - input: 'bias = None vs bias = zeros'
+      behaviors:
+        pytorch-layer-norm: 'Different op signatures: F.layer_norm(weight=w, bias=None) skips bias add; F.layer_norm(bias=zeros) adds anyway'
+        cudnn: 'Same — bias=None is a fast path'
+        aclnn: 'Same'
+      mitigation: 'Pass bias=None when bias is zero — saves one elementwise add per token.'
+
+  numerical_rules:
+    - aspect: 'mean_variance_dtype'
+      per_library:
+        cudnn: 'FP32 internal even with FP16 input (default)'
+        aclnn: 'FP32 internal'
+        custom_triton: 'Configurable — default FP32 but can force FP16 for perf (loses precision)'
+      notes: 'Same as RMSNorm — FP16 internal causes long-seq drift. Always FP32.'
+    - aspect: 'layer_norm_vs_rmsnorm_choice'
+      per_library: {}
+      notes: 'GPT-2 / BERT use LayerNorm (mean+variance). Llama / Qwen / DeepSeek / Mistral use RMSNorm (variance only). RMSNorm is ~30% faster + same quality. New designs: prefer RMSNorm.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def layer_norm(x, weight, bias, eps=1e-5):
+          mean = x.float().mean(dim=-1, keepdim=True)
+          var = x.float().var(dim=-1, keepdim=True, unbiased=False)
+          x = (x - mean) * torch.rsqrt(var + eps)
+          out = x.to(weight.dtype) * weight
+          if bias is not None:
+              out = out + bias
+          return out

@@ -1,0 +1,129 @@
+id: deepseek-r1-decode
+model_id: deepseek-r1
+phase: decode
+layer_count: 61
+
+placeholder_definitions:
+  B: 'batch_size (concurrent requests)'
+  S: 'seq_len (1 for decode)'
+  D: 'd_model (7168)'
+  H: 'num_attention_heads (128)'
+  D_h: 'head_dim (128 — note: R1 uses full-rank H_kv=128 vs V4 Pro compressed 64)'
+  D_kv: 'kv_compressed_dim (~512)'
+  D_q_low: 'q_compression_dim (~1536)'
+  E: 'num_experts (256)'
+  K: 'top_k_experts (8)'
+  D_ff: 'expert_intermediate_dim (2048)'
+  V: 'vocab_size (129280)'
+  ctx_len: 'current cache length (grows during reasoning CoT — typically 8K-32K)'
+
+default_dimensions:
+  B: 1
+  S: 1
+  D: 7168
+  H: 128
+  D_h: 128
+  D_kv: 512
+  D_q_low: 1536
+  E: 256
+  K: 8
+  D_ff: 2048
+  V: 129280
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  # MLA attention block — same structure as V4 Pro
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm pre-attn',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  - { order: 2, op_id: matmul, label: 'MLA Q low-rank proj (W_DQ)',
+      shape_template: { input: '[B, S, D]', weight: '[D, D_q_low]', output: '[B, S, D_q_low]' } }
+  - { order: 3, op_id: rmsnorm, label: 'MLA Q layer-norm',
+      shape_template: { input: '[B, S, D_q_low]', output: '[B, S, D_q_low]' } }
+  - { order: 4, op_id: matmul, label: 'MLA Q decompression (W_UQ)',
+      shape_template: { input: '[B, S, D_q_low]', weight: '[D_q_low, H*D_h]', output: '[B, S, H, D_h]' } }
+
+  - { order: 5, op_id: matmul, label: 'MLA KV compressed proj (W_DKV)',
+      shape_template: { input: '[B, S, D]', weight: '[D, D_kv + D_h]', output: '[B, S, D_kv + D_h]' } }
+
+  - { order: 6, op_id: rope, label: 'RoPE (Q + decoupled K)',
+      shape_template: { input: '[B, S, H, D_h]', output: '[B, S, H, D_h]' } }
+
+  - { order: 7, op_id: mla-attention, label: 'MLA flash attention (long ctx ~8K-32K typical for reasoning)',
+      shape_template: { Q: '[B, S, H, D_h]', K_cache: '[B, ctx_len, D_kv]', V_cache: '[B, ctx_len, D_kv]', output: '[B, S, H, D_h]' },
+      notes: 'Reasoning models: ctx_len grows much longer than non-reasoning. R1 typical 8K-32K thinking tokens. Memory-bandwidth pressure dominates decode cost.' }
+
+  - { order: 8, op_id: matmul, label: 'Attn output projection (W_O)',
+      shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+
+  # MoE FFN block
+  - { order: 9, op_id: rmsnorm, label: 'RMSNorm pre-MoE',
+      fused_with: [matmul],
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  - { order: 10, op_id: moe-gate, label: 'MoE router (top-8 from 256)',
+      shape_template: { input: '[B, S, D]', weight: '[D, E]', output_indices: '[B, S, K]', output_weights: '[B, S, K]' } }
+
+  - { order: 11, op_id: expert-permute, label: 'Token dispatch',
+      shape_template: { tokens: '[B*S, D]', indices: '[B*S, K]', dispatched: '[B*S*K, D]' } }
+
+  - { order: 12, op_id: grouped-matmul, label: 'Expert gate proj',
+      shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 13, op_id: silu, label: 'SwiGLU activation',
+      fused_with: [grouped-matmul],
+      shape_template: { input: '[B*S*K/E, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 14, op_id: grouped-matmul, label: 'Expert down proj',
+      shape_template: { input: '[B*S*K/E, D_ff]', weight: '[E, D_ff, D]', output: '[B*S*K/E, D]' } }
+
+  - { order: 15, op_id: expert-permute, label: 'Combine back to seq order',
+      shape_template: { dispatched: '[B*S*K, D]', weights: '[B*S, K]', combined: '[B*S, D]' } }
+
+  - { order: 16, op_id: allreduce, label: 'TP allreduce',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', weight: '[D, V]', output: '[B, S, V]' } }
+  - { order: 102, op_id: top-k-sampling, label: 'Sampling (often higher temp for reasoning diversity)', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, V]', output_token: '[B, S]' } }
+
+notes: |
+  DeepSeek R1 671B / 37B active — REASONING archetype. Same per-step decode graph
+  structure as V4 Pro but radically different DEPLOYMENT characteristics:
+
+  ## Reasoning-specific deployment concerns
+
+  1. **Output length** — typical reasoning output is 8K-32K tokens (vs 200-500 for chat).
+     Decode dominates total request time. Per-token cost matters 100× more than prefill.
+
+  2. **KV cache pressure** — at 32K ctx, single-request KV (with MLA compression) is
+     ~6 GB per layer × 61 layers / 6 (compression) ≈ 60 GB. Per request. Severely
+     limits concurrent users vs non-reasoning.
+
+  3. **Speculative decoding less effective** — reasoning has high entropy in middle
+     of CoT (model exploring branches). Spec-decode acceptance rate drops 10-20%
+     vs non-reasoning. Use lookahead variants (EAGLE-2/3) over draft-model.
+
+  4. **Temperature higher** — typical 0.7-1.0 vs 0.2-0.5 for chat. More diverse
+     samples for branch exploration. Affects spec-decode P_target distribution.
+
+  5. **Batching efficiency lower** — long-output requests don't batch well with
+     short-output ones. PD-disagg + dedicated reasoning pool with high-batch-size
+     decode is the production pattern.
+
+  ## Production deployment guidance
+
+  - Engine: SGLang (best DeepSeek path) + EAGLE-2 spec decoding
+  - Quantization: FP8 KV cache mandatory at long ctx; FP4 weights OK
+  - Parallelism: TP=8 + EP=8 minimum at 671B; PP only if memory-tight
+  - Batch: smaller (16-32) than chat (64-256) due to long outputs
+  - $/M tokens: 2-4× chat baseline (decode-time dominated)
+
+  Same op set as deepseek-v4-pro-decode; the difference is workload pattern.
+
+reference_url: https://huggingface.co/deepseek-ai/DeepSeek-R1

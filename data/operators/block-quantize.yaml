@@ -96,3 +96,63 @@ references:
   - title: 'GPTQ: Accurate Post-Training Quantization'
     url: https://arxiv.org/abs/2210.17323
     source_type: paper
+
+formal_semantics:
+  signature: |
+    block_quantize(x: Tensor[..., D], block_size: int, dtype: 'fp4'|'fp8'|'int4'|'int8')
+    -> (quantized: Tensor[..., D], scales: Tensor[..., D/block_size])
+    Group elements into blocks of size B (typically 16 or 32); compute per-block
+    scale = max(abs(x_block)) / dtype_max; quantize x_block by scale.
+
+  edge_cases:
+    - input: 'NVFP4 (per-16 block) vs MXFP4 (per-32 block) — different scaling'
+      behaviors:
+        cutlass-fp4: 'Both supported; selectable via template tag'
+        cublas-fp4: 'Only NVFP4 currently (Hopper); MXFP4 in roadmap'
+        ck-fp4: 'Both on MI355X+ (CDNA4)'
+        aclnn-fp4: 'Not yet supported on Ascend 910C; 910D experimental'
+      mitigation: 'When porting NVFP4 model to MXFP4: scaling factors need re-computation (different block size). Not just a dtype cast.'
+
+    - input: 'block_size > tensor dim (degenerate)'
+      behaviors:
+        all_libs: 'ASSERT or undefined behavior'
+      mitigation: 'Validate block_size ≤ smallest tensor dim. NVFP4: D must be ≥ 16; MXFP4: ≥ 32.'
+
+    - input: 'fp8 with per-tensor vs per-channel vs per-block scaling'
+      behaviors:
+        cublas-fp8: 'Per-tensor scaling (single scale per matrix)'
+        cutlass-fp8: 'Per-tensor or per-channel (configurable)'
+        nvfp4: 'Per-block (B=16) — finer granularity'
+        mxfp4: 'Per-block (B=32) — OCP MX standard'
+      notes: 'Per-block has much higher accuracy than per-tensor for outlier-heavy weights. NVFP4 chosen by NVIDIA based on empirical Llama / Mistral quantization data.'
+
+  numerical_rules:
+    - aspect: 'scale_factor_dtype'
+      per_library:
+        cutlass-fp4: 'Scale stored as FP8 (e8m0) — log2-domain, narrow range'
+        cublas-fp8: 'Scale stored as FP32 (full precision)'
+        ck-fp4: 'Same e8m0 scale for FP4'
+      notes: 'FP8 (e8m0) scale is 8 bits log-domain — wide dynamic range, low precision. Different from FP8 element dtype (e4m3 or e5m2).'
+
+    - aspect: 'symmetric_vs_asymmetric'
+      per_library:
+        nvfp4: 'Symmetric (zero-point = 0)'
+        mxfp4: 'Symmetric'
+        int4-awq: 'Asymmetric (separate zero-point per group)'
+        int4-gptq: 'Asymmetric'
+      notes: 'INT4 quantization (AWQ/GPTQ) is asymmetric for weight-only path. FP4 always symmetric.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def block_quantize(x, block_size=16, dtype='fp4'):
+          # x: [..., D], reshape to blocks
+          shape_orig = x.shape
+          x_blocks = x.reshape(*shape_orig[:-1], -1, block_size)
+          # Per-block max magnitude
+          scale = x_blocks.abs().amax(dim=-1, keepdim=True)
+          dtype_max = 6.0 if dtype == 'fp4' else 448.0  # FP4 e2m1 vs FP8 e4m3
+          scale = scale / dtype_max
+          # Quantize (round-to-nearest, clamp)
+          x_quant = (x_blocks / scale).round().clamp(-dtype_max, dtype_max)
+          return x_quant.reshape(*shape_orig), scale.squeeze(-1)

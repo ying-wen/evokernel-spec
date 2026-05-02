@@ -74,3 +74,68 @@ references:
   - title: 'FP8 Formats for Deep Learning'
     url: https://arxiv.org/abs/2209.05433
     source_type: paper
+
+formal_semantics:
+  signature: |
+    quantize(x: float_tensor, scale, zero_point=0, dtype='fp8'|'int8'|'int4')
+    -> int_tensor
+    dequantize(q: int_tensor, scale, zero_point=0) -> float_tensor
+    q = round(x / scale) + zero_point  (clamped to dtype range)
+    x = scale * (q - zero_point)
+
+  edge_cases:
+    - input: 'zero_point != 0 (asymmetric quantization)'
+      behaviors:
+        int4-awq: 'Asymmetric — zero_point ≠ 0 typical'
+        int4-gptq: 'Asymmetric'
+        fp8-e4m3: 'Symmetric (zero_point = 0)'
+        nvfp4: 'Symmetric'
+      mitigation: 'When porting AWQ/GPTQ INT4: must preserve zero_point. Dropping it = systematic offset error.'
+
+    - input: 'overflow (x / scale > dtype_max)'
+      behaviors:
+        cublas-fp8-quant: 'Saturates to ±max (clamp behavior)'
+        cutlass-fp8: 'Saturates'
+        cudnn: 'Saturates with optional warning'
+        aclnn-quant: 'Saturates'
+      mitigation: 'Calibration set must capture outliers. Per-block scaling (NVFP4 / MXFP4) reduces clamp frequency.'
+
+    - input: 'NaN / Inf in input'
+      behaviors:
+        all_libs: 'NaN propagates → NaN in quantized; Inf → ±max (saturated)'
+      mitigation: 'Validate inputs upstream. Add NaN check before quantize step in agent codegen.'
+
+  numerical_rules:
+    - aspect: 'rounding_mode'
+      per_library:
+        cublas-fp8-quant: 'Round-to-nearest-even (RNE, IEEE 754 default)'
+        cutlass-fp8: 'RNE'
+        nvfp4: 'RNE'
+        int4-awq: 'RNE'
+        custom-triton: 'Configurable (RNE / truncate / stochastic)'
+      notes: 'Truncation (vs RNE) accumulates bias over many ops. Always RNE for production.'
+
+    - aspect: 'scale_computation'
+      per_library:
+        per-tensor: 'scale = max(|x|) / dtype_max — single scale for whole tensor'
+        per-channel: 'One scale per output channel'
+        per-block (NVFP4 B=16): 'One scale per 16 consecutive elements'
+        per-block (MXFP4 B=32): 'One scale per 32 consecutive elements'
+        per-token: 'One scale per token (e.g., FP8 KV cache per-token quant)'
+      notes: 'Granularity tradeoff: finer granularity = better accuracy + more metadata overhead. FP4 needs per-block; FP8 often per-tensor or per-channel.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def quantize_per_block(x, block_size=16, dtype_max=6.0):
+          # FP4 NVFP4 example
+          shape = x.shape
+          x_blocks = x.reshape(*shape[:-1], -1, block_size)
+          scale = x_blocks.abs().amax(dim=-1, keepdim=True) / dtype_max
+          q = (x_blocks / scale).round().clamp(-dtype_max, dtype_max)
+          return q.reshape(shape), scale.squeeze(-1)
+
+      def dequantize_per_block(q, scale, block_size=16):
+          shape = q.shape
+          q_blocks = q.reshape(*shape[:-1], -1, block_size)
+          return (q_blocks * scale.unsqueeze(-1)).reshape(shape)

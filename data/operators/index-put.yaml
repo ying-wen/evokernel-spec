@@ -89,3 +89,57 @@ references:
   - title: 'vLLM PagedAttention implementation'
     url: https://github.com/vllm-project/vllm/blob/main/csrc/cache_kernels.cu
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    index_put(target: Tensor, indices: Tensor[K, ...], values: Tensor[K, ...],
+              accumulate: bool = False) -> Tensor (in-place modification)
+    Writes values into target at positions indices. Critical for KV cache update:
+    target = kv_cache[block_table[seq_id, token_pos]] = new_kv
+
+  edge_cases:
+    - input: 'concurrent index_put across requests (multi-batch decode)'
+      behaviors:
+        vllm-paged-attn: 'Block-level locking via block_table; each request writes to disjoint pages'
+        sglang-radix-attn: 'Lock-free via radix tree node ownership'
+        mindie-paged-attn: 'Same block-level pattern as vLLM'
+      mitigation: 'NEVER share block-table entries across requests. Validate request → block-id mapping at scheduler level.'
+
+    - input: 'duplicate indices (same target position written twice)'
+      behaviors:
+        accumulate=True: 'Atomic-add at duplicate positions (deterministic order not guaranteed)'
+        accumulate=False: 'Last-writer-wins (non-deterministic order)'
+      mitigation: 'For KV cache writes: accumulate=False but indices must be unique (one position, one token). Validate.'
+
+    - input: 'page boundary write with KV-quant (FP8/INT8)'
+      behaviors:
+        vllm-fp8-kv: 'Per-page scale factor recomputed on write'
+        flash-fp8-kv: 'Same — re-scaling at write-back time'
+        mindie-fp8-kv: 'Same'
+      mitigation: 'FP8 KV writes have higher cost than FP16 (rescale step). Account in latency budget.'
+
+  numerical_rules:
+    - aspect: 'write_dtype_with_kv_quant'
+      per_library:
+        vllm-fp8-kv: 'Compute in FP16, downcast + scale at write-back'
+        flash-fp8-kv: 'Same'
+        mindie-fp8-kv: 'Same'
+      notes: 'Don''t compute in FP8 throughout — accumulator stays FP16/FP32, only stored value is FP8.'
+
+    - aspect: 'block_layout'
+      per_library:
+        vllm: 'Default page_size=16; configurable'
+        sglang: 'Radix tree, no fixed page'
+        mindie: 'page_size=128 (Ascend-aligned)'
+      notes: 'When porting between engines: re-shape KV cache layout. Common pitfall — different page sizes silently break paged-attention reads.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def kv_cache_index_put(kv_cache, block_table, seq_id, token_pos, new_kv):
+          # block_table: [num_seqs, max_blocks_per_seq]
+          # token_pos: which token to write (determines which block)
+          page_size = kv_cache.shape[1]
+          block_id = block_table[seq_id, token_pos // page_size]
+          slot_id = token_pos % page_size
+          kv_cache[block_id, slot_id] = new_kv  # in-place index put

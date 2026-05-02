@@ -15,6 +15,8 @@ write_config() {
     mistral-large-3) echo '{"architectures":["MistralForCausalLM"],"hidden_size":12288,"num_attention_heads":96,"num_key_value_heads":8,"num_hidden_layers":88,"intermediate_size":28672,"vocab_size":32768,"max_position_embeddings":128000}' ;;
     qwen3.6-plus) echo '{"architectures":["Qwen3MoeForCausalLM"],"hidden_size":6144,"num_attention_heads":64,"num_key_value_heads":8,"num_hidden_layers":64,"intermediate_size":2048,"vocab_size":152064,"num_local_experts":128,"num_experts_per_tok":8,"max_position_embeddings":1048576}' ;;
     deepseek-v4-pro) echo '{"architectures":["DeepseekV3ForCausalLM"],"hidden_size":7168,"num_attention_heads":128,"num_key_value_heads":128,"num_hidden_layers":61,"intermediate_size":2048,"vocab_size":129280,"num_local_experts":256,"num_experts_per_tok":8,"max_position_embeddings":131072,"q_lora_rank":1536,"kv_lora_rank":512}' ;;
+    deepseek-r1) echo '{"architectures":["DeepseekV3ForCausalLM"],"hidden_size":7168,"num_attention_heads":128,"num_key_value_heads":128,"num_hidden_layers":61,"intermediate_size":2048,"vocab_size":129280,"num_local_experts":256,"num_experts_per_tok":8,"max_position_embeddings":131072,"q_lora_rank":1536,"kv_lora_rank":512}' ;;
+    glm-5-reasoning) echo '{"architectures":["GLMForCausalLM"],"hidden_size":5120,"num_attention_heads":40,"num_key_value_heads":8,"num_hidden_layers":60,"intermediate_size":17920,"vocab_size":151552,"max_position_embeddings":131072}' ;;
   esac
 }
 
@@ -25,10 +27,13 @@ hf_id() {
     mistral-large-3) echo "mistralai/Mistral-Large-Instruct-2407" ;;
     qwen3.6-plus) echo "Qwen/Qwen3.6-Plus" ;;
     deepseek-v4-pro) echo "deepseek-ai/DeepSeek-V3-Pro" ;;
+    deepseek-r1) echo "deepseek-ai/DeepSeek-R1" ;;
+    glm-5-reasoning) echo "zai-org/GLM-5-Reasoning" ;;
   esac
 }
 
-for MODEL_KEY in llama-4-scout llama-3.3-70b mistral-large-3 qwen3.6-plus deepseek-v4-pro; do
+# v2.14: 7 models × 7 hardware = 49 runs (was 5×7=35)
+for MODEL_KEY in llama-4-scout llama-3.3-70b mistral-large-3 qwen3.6-plus deepseek-v4-pro deepseek-r1 glm-5-reasoning; do
   MODEL_ID=$(hf_id "$MODEL_KEY")
   CONFIG_PATH="/tmp/validation-output/${MODEL_KEY}.config.json"
   write_config "$MODEL_KEY" > "$CONFIG_PATH"

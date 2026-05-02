@@ -1,0 +1,64 @@
+id: glm-5-reasoning-decode
+model_id: glm-5-reasoning
+phase: decode
+layer_count: 60
+
+placeholder_definitions:
+  B: 'batch_size'
+  S: 'seq_len (1 for decode)'
+  D: 'd_model (5120)'
+  H: 'num_attention_heads (40)'
+  H_kv: 'num_kv_heads (8 — GQA factor 5)'
+  D_h: 'head_dim (128)'
+  D_ff: 'ffn_intermediate (17920)'
+  V: 'vocab_size (151552)'
+  ctx_len: 'reasoning context (typical 8K-32K)'
+
+default_dimensions: { B: 1, S: 1, D: 5120, H: 40, H_kv: 8, D_h: 128, D_ff: 17920, V: 151552 }
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm pre-attn', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 2, op_id: matmul, label: 'Q proj (40 heads)', shape_template: { input: '[B, S, D]', weight: '[D, H*D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 3, op_id: matmul, label: 'K proj (GQA 8 heads)', shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+  - { order: 4, op_id: matmul, label: 'V proj (GQA 8 heads)', shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+  - { order: 5, op_id: rope, label: 'RoPE', shape_template: { Q: '[B, S, H, D_h]', K: '[B, S, H_kv, D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 6, op_id: scaled-dot-product-attention, label: 'GQA flash attention (long ctx for reasoning)',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, ctx_len, H_kv, D_h]', V: '[B, ctx_len, H_kv, D_h]', output: '[B, S, H, D_h]' },
+      notes: 'KV cache: B × ctx_len × 8 × 128 × 2 bytes (fp16). At ctx=32K, B=1: 256 MB / layer = 15.4 GB across 60 layers.' }
+  - { order: 7, op_id: matmul, label: 'Attn output proj', shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+  - { order: 8, op_id: rmsnorm, label: 'RMSNorm pre-FFN', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 9, op_id: matmul, label: 'FFN gate', shape_template: { input: '[B, S, D]', weight: '[D, D_ff]', output: '[B, S, D_ff]' } }
+  - { order: 10, op_id: matmul, label: 'FFN up', shape_template: { input: '[B, S, D]', weight: '[D, D_ff]', output: '[B, S, D_ff]' } }
+  - { order: 11, op_id: swiglu, label: 'SwiGLU', fused_with: [matmul], shape_template: { gate: '[B, S, D_ff]', up: '[B, S, D_ff]', output: '[B, S, D_ff]' } }
+  - { order: 12, op_id: matmul, label: 'FFN down', shape_template: { input: '[B, S, D_ff]', weight: '[D_ff, D]', output: '[B, S, D]' } }
+  - { order: 13, op_id: allreduce, label: 'TP allreduce', shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only, shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head', layer_scope: lm-head-only, shape_template: { input: '[B, S, D]', weight: '[D, V]', output: '[B, S, V]' } }
+  - { order: 102, op_id: top-k-sampling, label: 'Sampling (high temp for diverse reasoning)', layer_scope: lm-head-only, shape_template: { input: '[B, S, V]', output_token: '[B, S]' } }
+
+notes: |
+  GLM-5-reasoning 32B — 国产 reasoning archetype. Dense GQA (H/H_kv = 5) — much
+  smaller than DeepSeek R1, fits on single MI300X / 2× H100 / 4× MLU590.
+
+  Reasoning-specific characteristics (same as R1):
+  - Long output (8K-32K thinking tokens) — decode dominates
+  - KV cache pressure at long ctx (~15 GB at 32K)
+  - Higher temperature, lower spec-decode acceptance
+  - Production pattern: PD-disagg + reasoning-pool
+
+  Domestic deployment recommendation:
+  - Engine: MindIE (Ascend) / lmdeploy (Cambricon) / vllm-rocm (Hygon DCU)
+  - Quantization: FP8 KV mandatory at long ctx; FP16 weights fine for 32B
+  - Parallelism: TP=2-4 sufficient; no MoE so EP not needed
+  - $/M tokens: ~1.5× chat baseline (smaller model offsets reasoning cost)
+
+  Same op set as Llama 3.3 70B / Mistral Large 3 (dense GQA) but with
+  reasoning-specific deployment pattern.
+
+reference_url: https://huggingface.co/zai-org/GLM-5

@@ -35,13 +35,19 @@ const modelLabel: Record<string, string> = {
   'llama-3.3-70b': 'Llama 3.3 70B (dense)',
   'mistral-large-3': 'Mistral Large 3 (123B dense, GQA-12)',
   'qwen3.6-plus': 'Qwen 3.6 Plus (480B / 35B MoE-128 top-8)',
-  'deepseek-v4-pro': 'DeepSeek V4 Pro (671B / 37B MoE-256 top-8 + MLA)'
+  'deepseek-v4-pro': 'DeepSeek V4 Pro (671B / 37B MoE-256 top-8 + MLA)',
+  'deepseek-r1': 'DeepSeek R1 (671B / 37B reasoning + MLA)',
+  'glm-5-reasoning': 'GLM-5 Reasoning (32B 国产 reasoning, GQA)'
 };
 
 const hwLabel: Record<string, string> = {
   'h100-sxm5': 'NVIDIA H100',
   'mi300x': 'AMD MI300X',
-  'ascend-910c': 'Huawei Ascend 910C'
+  'ascend-910c': 'Huawei Ascend 910C',
+  'mlu590': 'Cambricon MLU590',
+  'dcu-z100': 'Hygon DCU Z100',
+  'mtt-s4000': 'Moore Threads MTT S4000',
+  'br104': 'Birentech BR104'
 };
 
 function findRun(model: string, hw: string) {
