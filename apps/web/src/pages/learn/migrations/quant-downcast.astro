@@ -1,0 +1,180 @@
+---
+/**
+ * /learn/migrations/quant-downcast/ — moving to lower precision.
+ *
+ * FP16 → FP8 → FP4 progression. Halves cards each step but precision risk
+ * compounds. Calibration / eval pipeline maturity is the differentiator.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+---
+<BaseLayout title="迁移指南 · 量化降级 (FP16 → FP8 → FP4)">
+  <Container>
+    <section class="py-12">
+      <a href={pathname('/learn/migrations/')} class="text-sm" style="color: var(--color-text-muted);">← 迁移指南总览</a>
+      <div class="mt-4 mb-2 text-xs font-semibold" style="color: oklch(65% 0.2 50);">QUANT DOWNCAST · 风险中-高</div>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">量化降级</h1>
+      <p class="text-base mt-3 max-w-3xl" style="color: var(--color-text-muted);">
+        FP16 → FP8 (E4M3) · FP8 → FP4 (NVFP4 / MXFP4) · FP16 → INT4 (AWQ / GPTQ).
+        每降一级, 卡数大约 ÷ 2 但精度风险翻倍. 周期 1–3 周, 取决于 calibration / eval 链路成熟度.
+      </p>
+    </section>
+
+    <section class="pb-8 grid gap-4 md:grid-cols-3">
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-accent);">最常见</div>
+        <h3 class="text-base font-semibold mb-2">FP16/BF16 → FP8 E4M3</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          Hopper / Blackwell native. Quality drift 通常 &lt; 0.3%. 卡数 ÷ 2.
+        </p>
+      </div>
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-accent);">前沿</div>
+        <h3 class="text-base font-semibold mb-2">FP8 → FP4 (NVFP4/MXFP4)</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          仅 Blackwell native. 决断格式 NVFP4 vs MXFP4 — block size 不同.
+        </p>
+      </div>
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-accent);">异构硬件</div>
+        <h3 class="text-base font-semibold mb-2">FP16 → INT4 (AWQ / GPTQ)</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          权重-only. 适合 decode-bound + 限 HBM. 国产硬件常用路径.
+        </p>
+      </div>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">1. Trigger</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>HBM 容量瓶颈</strong>: model + KV cache 装不下. FP16 → FP8 = 70B 模型从 140GB → 70GB
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>吞吐目标</strong>: decode-bound workload, 低精度直接砸 1.5–2× 吞吐
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>硬件升级 enabling</strong>: Blackwell 上 FP4 native — 不上 FP4 等于浪费 1/2 算力
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>成本压缩</strong>: 卡数 ÷ 2 直接体现在 $/M tok
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">2. Prerequisites — eval pipeline 是 critical path</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(55% 0.2 25) 6%, var(--color-surface-raised)); border-color: oklch(55% 0.2 25);">
+          <strong>必备: 完整 eval set</strong> — GSM8K / MMLU / HumanEval / 自家 task. 没有这个不要做量化迁移.
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Calibration 数据集</strong>: ~ 128–512 真实流量 prompts (含 long-context 样本).
+          AWQ / GPTQ 需要 calibration; FP8 dynamic 不需要 (但 static FP8 也需要)
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>硬件支持</strong>: 看 <a href={pathname('/quantizations/')} class="underline" style="color: var(--color-accent);">/quantizations/</a> 的硬件兼容矩阵.
+          Hopper FP8 ✓ FP4 ✗ · Blackwell FP8/FP4 ✓ · MI300X FP8 ✓ FP4 ✗ · Ascend 910C FP8 部分
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>引擎支持</strong>: <a href={pathname('/engines/compare/')} class="underline" style="color: var(--color-accent);">/engines/compare/</a> 量化矩阵.
+          NVFP4 vLLM/TRT-LLM/SGLang 都支持; MXFP4 仅 TRT-LLM 路径成熟
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>选择决策树</strong>: 看 <a href={pathname('/learn/quantization-decision-tree/')} class="underline" style="color: var(--color-accent);">/learn/quantization-decision-tree/</a>
+          基于 (硬件 × 模型 × 工作负载) 选量化格式
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">3. Plan</h2>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3a. 量化模型生成 + 数值验证 (3–5 天)</h3>
+      <ol class="space-y-2 text-sm list-decimal list-inside">
+        <li>用 calibration set 生成量化权重 (TRT-LLM ammo / vLLM compressed-tensors / llm-compressor)</li>
+        <li>本地 1 卡跑量化模型, 跑同样 100 prompts, 对比 FP16 baseline 输出 token-level</li>
+        <li><strong>第一关 gate</strong>: token-level 一致率 ≥ 99% (FP8 应该达到; FP4/INT4 接受 95%+)</li>
+        <li>跑完整 eval suite — accept rate drift 必须 &lt; 0.5%</li>
+        <li>失败 → 调 calibration 数据 (加更多 long-context / domain-specific) 或换格式</li>
+      </ol>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3b. 性能基准 (1 天)</h3>
+      <ol class="space-y-2 text-sm list-decimal list-inside">
+        <li>同 batch 同 seq len, 测吞吐 — FP16 → FP8 应该 1.5–2× decode tok/s</li>
+        <li>测 KV cache size — FP16 vs FP8 KV 大概 ÷ 2 (开 KV-quant 的话)</li>
+        <li>测 TTFT — prefill 也应该提速 (compute-bound)</li>
+        <li>如果性能 gain &lt; 30%, 检查是否走对量化 kernel (Hopper FP8 → cuBLAS FP8 GEMM)</li>
+      </ol>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3c. 容量重新规划</h3>
+      <p class="text-sm mb-2" style="color: var(--color-text-muted);">
+        卡数 ÷ 2 不是无脑等式. 用 <a href={pathname('/calculator/capacity-planner/')} class="underline" style="color: var(--color-accent);">capacity planner</a> 重算:
+      </p>
+      <ul class="space-y-2 text-sm list-disc list-inside">
+        <li>同 SLA (TTFT / decode tok/s) 下需要的卡数</li>
+        <li>新 KV cache 容量是否够 (concurrent users × ctx len 的需求)</li>
+        <li>Prefill 与 decode 的卡数比 (PD-disagg) 可能要重新平衡</li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">4. Cutover</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        和 engine swap 一样 5 档 canary, 但 <strong>每档都要跑完整 eval suite</strong>.
+      </p>
+      <ol class="space-y-2 text-sm list-decimal list-inside">
+        <li>Shadow (mirror traffic): 评估真实流量 quality drift</li>
+        <li>1% canary, 4h+, 跑 eval</li>
+        <li>10%, 8h+, 跑 eval</li>
+        <li>50%, 12h+, 跑 eval</li>
+        <li>100%, FP16 stack 保留 14 天</li>
+      </ol>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">5. Validation — quality drift 是头号 gate</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(55% 0.2 25) 6%, var(--color-surface-raised)); border-color: oklch(55% 0.2 25);">
+          <strong>每档 canary 跑 eval suite</strong> — accept rate drift &lt; 0.5%, 失败立即停
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>A/B 真实用户对比</strong> (10%): satisfaction / engagement 不能降. 用户感知比 eval set 更敏感
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>长 context 单独测</strong>: 量化在 4K 没问题 在 32K 可能精度崩 (尤其 INT4)
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Spec decoding 兼容</strong>: 量化 + spec 同时开有时 accept rate 暴跌, 单独测
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Outlier 检测</strong>: 看 logprobs 分布尾部 — 量化通常是 outlier 概率被压扁导致 hallucination 增加
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">6. Rollback</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        FP16 stack 保留 14 天 — 量化精度 drift 通常 1 周才被用户发现. 不要太快拆.
+      </p>
+      <ul class="space-y-2 text-sm list-disc list-inside">
+        <li>路由层切回 FP16 — &lt; 5 分钟</li>
+        <li>FP16 / 量化双 stack 并行 (各占一半 GPU 池) 期间, 卡数 1.5×</li>
+        <li>用户报告"答案变差了" 算 rollback signal — 即使 eval set 没翻车</li>
+      </ul>
+    </section>
+
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">7. Followups</h2>
+      <ul class="space-y-2 text-sm list-disc list-inside" style="color: var(--color-text-muted);">
+        <li>归档量化 calibration set — 下次 model upgrade 直接复用</li>
+        <li>更新 capacity-planner baseline (新的 tok/s/card 数据)</li>
+        <li>训练监控团队识别 quality drift signal (logprob 尾部 / refusal rate / 用户 thumbsdown)</li>
+        <li>提 case 至 <a href={pathname('/contribute/case-form/')} class="underline" style="color: var(--color-accent);">/contribute/case-form/</a></li>
+        <li>评估下一档量化 (FP8 → FP4) 的 ROI / 风险</li>
+      </ul>
+    </section>
+  </Container>
+</BaseLayout>

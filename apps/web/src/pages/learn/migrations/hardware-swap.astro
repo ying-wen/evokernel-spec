@@ -1,0 +1,206 @@
+---
+/**
+ * /learn/migrations/hardware-swap/ — switching accelerator vendors / generations.
+ *
+ * The migration with the largest deployment footprint change. Risk high
+ * because: (a) software stack often must change too (CUDA → ROCm → CANN),
+ * (b) memory hierarchy & networking change, (c) numerics may differ
+ * (BF16 vs FP16 matmul accuracy, FP8 format support).
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+---
+<BaseLayout title="迁移指南 · 硬件切换 (H100 → MI300X / Ascend / Blackwell)">
+  <Container>
+    <section class="py-12">
+      <a href={pathname('/learn/migrations/')} class="text-sm" style="color: var(--color-text-muted);">← 迁移指南总览</a>
+      <div class="mt-4 mb-2 text-xs font-semibold" style="color: oklch(55% 0.2 25);">HARDWARE SWAP · 风险高</div>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">硬件切换</h1>
+      <p class="text-base mt-3 max-w-3xl" style="color: var(--color-text-muted);">
+        换加速卡品牌 / 换代际 / 换生态 — 部署 footprint 变化最大. 周期 2–4 周.
+        关键风险: 软件栈跟着换 (CUDA → ROCm → CANN) · 数值行为差异 · 网络拓扑差异 · 量化格式差异.
+      </p>
+    </section>
+
+    <section class="pb-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-accent);">代际升级</div>
+        <h3 class="text-base font-semibold mb-1">A100 → H100/H200</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          同 vendor 同生态 · 风险最低. 主要差异: HBM 容量 + FP8 支持.
+        </p>
+      </div>
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-accent);">代际跨段</div>
+        <h3 class="text-base font-semibold mb-1">H100 → B200</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          Blackwell 引入 FP4 native + NVL72. 量化路径要重做.
+        </p>
+      </div>
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-accent);">vendor 切换</div>
+        <h3 class="text-base font-semibold mb-1">H100 → MI300X</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          NVIDIA → AMD ROCm. HBM 192GB 优势 (vs 80GB H100). 软件栈完全换.
+        </p>
+      </div>
+      <div class="rounded-lg p-5 border" style="background: color-mix(in oklch, oklch(55% 0.2 25) 6%, var(--color-surface-raised)); border-color: oklch(55% 0.2 25);">
+        <div class="text-xs font-semibold mb-1" style="color: oklch(55% 0.2 25);">国产化</div>
+        <h3 class="text-base font-semibold mb-1">H100/H200 → Ascend 910C</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          CUDA → CANN. CloudMatrix 384 唯一一线选项. 风险最高 — 模型/算子覆盖度需逐项验证.
+        </p>
+      </div>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">1. Trigger</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">硬件切换不是"看新东西好"就做. 通常是被推着走:</p>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>HBM 容量瓶颈</strong>: KV cache 装不下 (long context 128K+) · model weight 不够 · MI300X 192GB 救场
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>成本压缩需求</strong>: $/M tok 必须降到某个水平, 决策层要求评估 AMD / Ascend / Hygon 替代
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>供应受限</strong>: H100/H200 排队 6 个月, 业务等不起 · 转 MI300X 现货 / 国产
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>合规需求</strong>: 政企 / 金融客户要求国产化部署 (Ascend / Hygon DCU / Cambricon MLU)
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>性能跳变</strong>: Blackwell FP4 / B200 NVL72 在某类 workload 上 3× 性能 — 决策层 ROI clear
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">2. Prerequisites — 比 engine swap 多 5 倍</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>对比硬件 spec</strong>: HBM 容量/带宽 · FLOPS · 互联拓扑 · 功耗. 用 <a href={pathname('/compare/')} class="underline" style="color: var(--color-accent);">/compare/</a> 三选三对比.
+          算清楚: 旧硬件 N 卡 = 新硬件 M 卡 (memory + compute roofline)
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>软件栈兼容</strong>: 你用的 engine 是否 supports 目标硬件? 看 <a href={pathname('/engines/compare/')} class="underline" style="color: var(--color-accent);">/engines/compare/</a> 的 hardware vendor 矩阵
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>量化格式可用性</strong>: 旧硬件用的 FP8 → 新硬件支持吗? Hopper FP8 ≠ Blackwell FP8 (E4M3/E5M2 一致, 但 scaling 不同).
+          AMD MI300X 没有 FP4 native (Blackwell 才有). Ascend 910C FP8 支持有限.
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>算子覆盖度审计</strong>: 你模型的所有算子在目标硬件 engine 上是否都有 fast kernel?
+          特别是 fused attention / MoE / MLA / spec decoding. 用 <a href={pathname('/operators/')} class="underline" style="color: var(--color-accent);">/operators/</a> 检查 hardware_arch 字段
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>网络拓扑差异</strong>: NVLink 1 hop → NVL72 9 hop · IB → RoCE · NVLink → HCCS — collective 性能差很多.
+          看 <a href={pathname('/servers/network-topology-matrix/')} class="underline" style="color: var(--color-accent);">/servers/network-topology-matrix/</a>
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>data-center / 机房 readiness</strong>: 功耗 (B200 1200W vs H100 700W) · 散热 (液冷需求) · 重量 · cabinet 设计
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>采购 + 上架 lead time</strong>: 通常 6-12 周 — 这才是真正的 critical path
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">3. Plan</h2>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3a. 离线 perf + 数值验证 (1–2 周)</h3>
+      <ol class="space-y-2 text-sm list-decimal list-inside">
+        <li>采购 / 租用 1–2 台 target 硬件 (云上一般可以租到, 比如 AWS Trn2 / Azure ND-MI300X / 华为云 CloudMatrix)</li>
+        <li>跑同一模型 + 同 quant + 同 trace · 测吞吐 / 延迟 / 错误率</li>
+        <li><strong>数值 regression</strong>: 关键 — 同 prompt 同 seed, 输出 token 应该 ≥ 99.5% 一致 (FP16/BF16 通常 100%, FP8/FP4 允许小 drift)</li>
+        <li>Eval set: GSM8K / MMLU / HumanEval / 自家 task-specific eval — 跨硬件应该一致 ±0.3%</li>
+        <li>如果数值对不上 — 不要继续. 通常意味着 engine 实现 bug 或 quant 路径不匹配</li>
+      </ol>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3b. 配置等价转换</h3>
+      <p class="text-sm mb-2" style="color: var(--color-text-muted);">
+        旧硬件 8×H100 TP=8 → 新硬件 4×MI300X TP=4 不是无脑 1:1. 关键是看 <strong>memory roofline</strong>:
+      </p>
+      <div class="rounded-lg p-4 border font-mono text-xs" style="background: var(--color-surface-raised); border-color: var(--color-border); white-space: pre-wrap;">
+{`# 例: H100 → MI300X 卡数等价
+旧: 8×H100 (640GB HBM 总, BW 26.4 TB/s 总)
+新: 4×MI300X (768GB HBM 总, BW 21.3 TB/s 总)
+
+memory:  768 / 640 = 1.20×  ✓ 装得下
+BW:      21.3 / 26.4 = 0.81× ⚠ decode 吞吐预计降 19%
+FP16 FLOPS: ~ 4x*1307 / 8x*989 = 5228/7912 = 0.66× ⚠ prefill 慢 34%
+
+结论: 4 卡装得下 + 数值正确, 但 prefill 慢. 解法:
+  - 增加 prefill 卡数到 5-6 (PD-disagg) 或
+  - 降 quant FP16→FP8 (MI300X 支持) 拉回吞吐`}
+      </div>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3c. 双 stack 并行运营准备</h3>
+      <ul class="space-y-2 text-sm list-disc list-inside">
+        <li>新 stack 部署上线 + 监控通 — 但 0% 流量</li>
+        <li>路由层 (LB / API gateway) 加 weight-based 切流</li>
+        <li>客户端 SDK 不变 (OpenAI-compat 提前确保)</li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">4. Cutover — 比 engine swap 慢 2 倍</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        硬件层风险更深 — 慢慢切.
+      </p>
+      <ol class="space-y-2 text-sm list-decimal list-inside">
+        <li><strong>Shadow 1 周</strong>: target 硬件接 mirror 流量, 看完整 traffic pattern. 验数值 + perf + 错误率</li>
+        <li><strong>Canary 1%, 持续 2 天 (跨周末)</strong></li>
+        <li><strong>10%, 1 周</strong></li>
+        <li><strong>50%, 1 周</strong></li>
+        <li><strong>100%</strong>, 旧硬件保留 standby 30 天 (至少跨一个 month-end traffic peak)</li>
+      </ol>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">5. Validation — 数值是 #1 gate</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        硬件迁移 #1 风险是<strong>静默的精度退化</strong> — 表面 metric 看似 ok 但 quality 偷偷降.
+      </p>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(55% 0.2 25) 6%, var(--color-surface-raised)); border-color: oklch(55% 0.2 25);">
+          <strong>必跑 eval suite (每档 canary 都跑)</strong>: GSM8K · MMLU · HumanEval · 自家 task eval. drift 不能 &gt; 0.5%
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>用户端 A/B 测试 (10% 真实用户)</strong>: 满意度 / engagement / task-completion rate 不能降
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>性能 SLA</strong>: TTFT p95 / decode tok/s / OOM rate / error rate ≤ baseline ± 5%
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>$/M tok</strong> ≤ 目标 (这才是迁移的 driver)
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">6. Rollback</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        硬件 rollback 比 engine 难 — 因为新硬件已经买了. 但软件层 rollback 必须可行:
+      </p>
+      <ul class="space-y-2 text-sm list-disc list-inside">
+        <li>路由层 weight 切回 旧硬件 — &lt; 5 分钟</li>
+        <li>旧硬件保留至少 30 天 (一个完整 month-end peak)</li>
+        <li>新硬件如果完全不能用 — 它仍然是固定资产, 用作开发/测试 / off-peak workload</li>
+      </ul>
+    </section>
+
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">7. Followups</h2>
+      <ul class="space-y-2 text-sm list-disc list-inside" style="color: var(--color-text-muted);">
+        <li>更新 capacity-planning baseline 数据 (新硬件的实测 tok/s/card / $/M tok)</li>
+        <li>提交 case 到 <a href={pathname('/contribute/case-form/')} class="underline" style="color: var(--color-accent);">/contribute/case-form/</a> — 让别人少走弯路</li>
+        <li>更新 runbook · 训练 on-call 团队 · 接 alarm 到目标硬件 vendor 的 health channel</li>
+        <li>评估是否还需要保留旧硬件 supply (vendor 关系 / 紧急 fallback)</li>
+        <li>归档 lessons-learned — 数值 drift / 软件 stack diff / cabinet readiness 的 surprise</li>
+      </ul>
+    </section>
+  </Container>
+</BaseLayout>

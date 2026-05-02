@@ -627,6 +627,79 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v1.43: /learn/migrations/ — migration playbooks', () => {
+  test('/learn/migrations/ hub renders 4 migration cards + 7-step framework', async ({ page }) => {
+    await page.goto('/learn/migrations/');
+    await expect(page.getByRole('heading', { name: /迁移指南|Migration/i }).first()).toBeVisible();
+    // 4 migration paths
+    await expect(page.getByText(/引擎切换|Engine swap/i).first()).toBeVisible();
+    await expect(page.getByText(/硬件切换|Hardware swap/i).first()).toBeVisible();
+    await expect(page.getByText(/量化降级|Quantization downcast/i).first()).toBeVisible();
+    await expect(page.getByText(/规模化迁移|Scale-out/i).first()).toBeVisible();
+    // 7-step framework
+    await expect(page.getByText(/Trigger|为什么现在做/i).first()).toBeVisible();
+    await expect(page.getByText(/Rollback|失败回滚/i).first()).toBeVisible();
+  });
+
+  test('engine-swap playbook renders all 7 sections + config-semantics table', async ({ page }) => {
+    await page.goto('/learn/migrations/engine-swap/');
+    await expect(page.getByRole('heading', { name: /引擎切换|Engine swap/i }).first()).toBeVisible();
+    // 7 numbered sections
+    for (const section of ['Trigger', 'Prerequisites', 'Plan', 'Cutover', 'Validation', 'Rollback', 'Followups']) {
+      await expect(page.getByText(new RegExp(section, 'i')).first()).toBeVisible();
+    }
+    // config-semantics comparison table
+    await expect(page.getByText(/--max-num-seqs|max-running-requests|max_batch_size/i).first()).toBeVisible();
+  });
+
+  test('hardware-swap playbook surfaces 4 paths + Ascend variant', async ({ page }) => {
+    await page.goto('/learn/migrations/hardware-swap/');
+    await expect(page.getByRole('heading', { name: /硬件切换|Hardware swap/i }).first()).toBeVisible();
+    // 4 path cards
+    await expect(page.getByText(/A100.*H100|H100.*B200/i).first()).toBeVisible();
+    await expect(page.getByText(/MI300X|H100.*MI300X/i).first()).toBeVisible();
+    await expect(page.getByText(/Ascend|910C/i).first()).toBeVisible();
+  });
+
+  test('quant-downcast playbook explains FP16/FP8/FP4 progression', async ({ page }) => {
+    await page.goto('/learn/migrations/quant-downcast/');
+    await expect(page.getByRole('heading', { name: /量化降级|Quantization downcast/i }).first()).toBeVisible();
+    // Three quant tiers
+    await expect(page.getByText(/FP8 E4M3|FP8/i).first()).toBeVisible();
+    await expect(page.getByText(/NVFP4|MXFP4/i).first()).toBeVisible();
+    await expect(page.getByText(/AWQ|GPTQ/i).first()).toBeVisible();
+    // calibration data emphasized
+    await expect(page.getByText(/calibration|eval/i).first()).toBeVisible();
+  });
+
+  test('scaling playbook surfaces 3 scale-out hops + PD-disagg', async ({ page }) => {
+    await page.goto('/learn/migrations/scaling/');
+    await expect(page.getByRole('heading', { name: /规模化|Scale-out/i }).first()).toBeVisible();
+    // 3 hops
+    await expect(page.getByText(/单节点|多节点|多卡/i).first()).toBeVisible();
+    await expect(page.getByText(/NVL72|super-pod/i).first()).toBeVisible();
+    await expect(page.getByText(/PD-disagg|disagg/i).first()).toBeVisible();
+  });
+
+  test('migrations hub links to /learn/production-lifecycle/, /learn/troubleshooting/, /engines/compare/', async ({ page }) => {
+    await page.goto('/learn/migrations/');
+    const productionLink = page.locator('a[href*="/learn/production-lifecycle/"]').first();
+    const troubleshootLink = page.locator('a[href*="/learn/troubleshooting/"]').first();
+    const compareLink = page.locator('a[href*="/engines/compare/"]').first();
+    await expect(productionLink).toBeVisible();
+    await expect(troubleshootLink).toBeVisible();
+    await expect(compareLink).toBeVisible();
+  });
+
+  test('Each migration playbook back-links to /learn/migrations/ hub', async ({ page }) => {
+    for (const slug of ['engine-swap', 'hardware-swap', 'quant-downcast', 'scaling']) {
+      await page.goto(`/learn/migrations/${slug}/`);
+      const back = page.locator('a[href$="/learn/migrations/"]').first();
+      await expect(back).toBeVisible();
+    }
+  });
+});
+
 test.describe('v1.42: /engines/compare/ — engine capability matrix', () => {
   test('/engines/compare/ renders header + 4 coverage cards + 6 axis tables', async ({ page }) => {
     await page.goto('/engines/compare/');

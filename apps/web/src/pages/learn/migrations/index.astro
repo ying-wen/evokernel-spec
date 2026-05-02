@@ -1,0 +1,238 @@
+---
+/**
+ * /learn/migrations/ — migration playbooks hub.
+ *
+ * Closes a long-standing deployment-optimization-chain gap: the existing
+ * /learn pages cover "how to set things up" (capacity-planning, picking-engine,
+ * picking-quantization, parallelism-cheatsheet, etc.) and "what goes wrong in
+ * production" (deployment-failures, observability, troubleshooting,
+ * production-lifecycle), but nothing for **"I'm already running X and want
+ * to move to Y"** — which is by far the most common evolution path.
+ *
+ * 4 migration types, each its own deep playbook:
+ *   1. Engine swap (vLLM → SGLang, vLLM → TRT-LLM, etc.)
+ *   2. Hardware swap (H100 → MI300X, H100 → MI300X, NVIDIA → Ascend, etc.)
+ *   3. Quant downcast (FP16 → FP8 → FP4)
+ *   4. Scaling (single-node → multi-node + PD-disagg)
+ *
+ * Each playbook follows the same 7-step framing:
+ *   trigger → prerequisites → plan → cutover → validation → rollback → followups
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+
+const MIGRATIONS = [
+  {
+    slug: 'engine-swap',
+    title_zh: '引擎切换',
+    title_en: 'Engine swap',
+    eyebrow: 'ENGINE SWAP',
+    icon: '🔌',
+    blurb_zh: 'vLLM → SGLang · vLLM → TensorRT-LLM · 任意 → MindIE on Ascend. 模型权重不变, 重排服务 stack.',
+    blurb_en: 'vLLM → SGLang · vLLM → TensorRT-LLM · any → MindIE on Ascend. Same weights, swap the serving stack.',
+    triggers: ['更高吞吐 (RadixAttention / FlashAttn-3)', '更低延迟 (TRT engine compile)', 'PD-disagg 需求', '国产化合规'],
+    risk: 'medium',
+    duration_zh: '1–2 周 (含 burn-in)',
+    duration_en: '1–2 weeks (incl. burn-in)'
+  },
+  {
+    slug: 'hardware-swap',
+    title_zh: '硬件切换',
+    title_en: 'Hardware swap',
+    eyebrow: 'HARDWARE SWAP',
+    icon: '🖥️',
+    blurb_zh: 'H100 → MI300X · A100 → H200 · NVIDIA → Ascend 910C. 部署 footprint 变化最大的迁移.',
+    blurb_en: 'H100 → MI300X · A100 → H200 · NVIDIA → Ascend 910C. The migration with the largest footprint change.',
+    triggers: ['HBM 容量不够 (KV cache OOM)', '成本压缩 (国产 / AMD 替代)', '供应受限', '新一代性能跳变 (Hopper → Blackwell)'],
+    risk: 'high',
+    duration_zh: '2–4 周',
+    duration_en: '2–4 weeks'
+  },
+  {
+    slug: 'quant-downcast',
+    title_zh: '量化降级',
+    title_en: 'Quantization downcast',
+    eyebrow: 'QUANT DOWNCAST',
+    icon: '⚡️',
+    blurb_zh: 'FP16 → FP8 (E4M3) · FP8 → FP4 (NVFP4 / MXFP4) · FP16 → INT4 (AWQ / GPTQ). 卡数 ÷ 2 但精度风险大.',
+    blurb_en: 'FP16 → FP8 (E4M3) · FP8 → FP4 (NVFP4 / MXFP4) · FP16 → INT4 (AWQ / GPTQ). Halves cards but quality risk.',
+    triggers: ['HBM 容量瓶颈', '吞吐目标提升 1.5–2×', '硬件升级 (Blackwell FP4 native)', '成本下降 (decode-bound)'],
+    risk: 'medium-high',
+    duration_zh: '1–3 周 (取决于 calibration / eval 链路成熟度)',
+    duration_en: '1–3 weeks (depends on calibration/eval pipeline maturity)'
+  },
+  {
+    slug: 'scaling',
+    title_zh: '规模化迁移',
+    title_en: 'Scale-out migration',
+    eyebrow: 'SCALE-OUT',
+    icon: '📈',
+    blurb_zh: '单节点 → 多节点 · 加 TP/PP · 启用 PD-disagg · 从 8×H100 跨到 NVL72 / Atlas 900. 网络拓扑成为瓶颈.',
+    blurb_en: 'Single-node → multi-node · add TP/PP · enable PD-disagg · scale from 8×H100 to NVL72 / Atlas 900. Network becomes bottleneck.',
+    triggers: ['单卡 / 单节点 HBM 装不下', '吞吐线性扩展需求', 'TPS 目标 >> 单节点上限', 'long-context (128K+) 进入'],
+    risk: 'high',
+    duration_zh: '3–6 周',
+    duration_en: '3–6 weeks'
+  }
+] as const;
+
+const RISK_COLOR = {
+  'low': 'oklch(60% 0.18 145)',
+  'medium': 'oklch(70% 0.18 70)',
+  'medium-high': 'oklch(65% 0.2 50)',
+  'high': 'oklch(55% 0.2 25)'
+} as const;
+---
+<BaseLayout title="迁移指南 — 引擎 / 硬件 / 量化 / 规模化">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="LEARN · MIGRATIONS"
+        title="迁移指南"
+        subtitle="4 条最常见的部署演进路径 · 每条都是 7 步 playbook (trigger → prerequisites → plan → cutover → validation → rollback → followups)"
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        现有 /learn 页面回答 <em>"如何搭起来"</em> (capacity-planning · picking-engine · picking-quantization · parallelism-cheatsheet)
+        和 <em>"出问题怎么办"</em> (deployment-failures · observability · troubleshooting · production-lifecycle).
+        这一页回答最常被忽略的第三类问题: <strong>"我已经在跑 X, 想迁到 Y, 怎么搞?"</strong>
+      </p>
+      <p class="text-sm mt-2 max-w-3xl" style="color: var(--color-text-muted);">
+        4 条迁移路径覆盖工程实践中 80%+ 的演进需求. 每条都给具体步骤 · 验证 gate · 回滚预案 — 不是模糊的 "考虑一下" 或 "看情况".
+      </p>
+    </section>
+
+    <section class="pb-12 grid gap-4 md:grid-cols-2">
+      {MIGRATIONS.map((m) => (
+        <a href={pathname(`/learn/migrations/${m.slug}/`)} class="block rounded-lg p-6 border transition-transform hover:-translate-y-0.5"
+           style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="flex items-start justify-between gap-4 mb-3">
+            <div class="flex items-center gap-3">
+              <span style="font-size: 2rem;">{m.icon}</span>
+              <div>
+                <div class="text-xs font-semibold" style="color: var(--color-accent);">{m.eyebrow}</div>
+                <h3 class="text-xl font-semibold">{m.title_zh}</h3>
+              </div>
+            </div>
+            <span class="text-xs font-semibold px-2 py-1 rounded" style={`background: color-mix(in oklch, ${RISK_COLOR[m.risk]} 15%, transparent); color: ${RISK_COLOR[m.risk]};`}>
+              risk: {m.risk}
+            </span>
+          </div>
+          <p class="text-sm mb-4" style="color: var(--color-text-muted);">{m.blurb_zh}</p>
+          <div class="text-xs mb-2" style="color: var(--color-text-muted);">
+            <strong style="color: var(--color-text);">触发场景</strong>:
+          </div>
+          <ul class="text-xs mb-4 space-y-0.5" style="color: var(--color-text-muted);">
+            {m.triggers.map((t) => <li>· {t}</li>)}
+          </ul>
+          <div class="text-xs flex justify-between items-center pt-3 border-t" style="color: var(--color-text-muted); border-color: color-mix(in oklch, var(--color-border) 50%, transparent);">
+            <span>预期周期: {m.duration_zh}</span>
+            <span style="color: var(--color-accent);">→ 完整 playbook</span>
+          </div>
+        </a>
+      ))}
+    </section>
+
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-4">📋 共通的迁移 7 步框架</h2>
+      <p class="text-sm mb-6 max-w-3xl" style="color: var(--color-text-muted);">
+        每条迁移 playbook 都遵循这个 7 步框架. 顺序不是教条 — 但每一步都不能跳过:
+      </p>
+      <ol class="space-y-3 max-w-4xl">
+        <li class="rounded p-4 border flex gap-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <span class="text-2xl font-semibold" style="color: var(--color-accent); min-width: 2.5rem;">1</span>
+          <div>
+            <div class="font-semibold mb-1">Trigger — 为什么现在做迁移?</div>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              不要"觉得新东西更好就迁". 写下具体的业务/性能 driver — 比如 "decode 吞吐目标 15K → 30K tok/s, 现有 stack 调到尽头".
+              如果说不清, 先做 capacity planning, 不是迁移.
+            </div>
+          </div>
+        </li>
+        <li class="rounded p-4 border flex gap-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <span class="text-2xl font-semibold" style="color: var(--color-accent); min-width: 2.5rem;">2</span>
+          <div>
+            <div class="font-semibold mb-1">Prerequisites — 现状 baseline + 目标 SLA</div>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              测出当前 (TTFT p50/p95, decode tok/s, $/M tok, error rate). 写下迁移后的目标 SLA.
+              没有 baseline 你无法判断迁移是否成功 — 也无法回滚.
+            </div>
+          </div>
+        </li>
+        <li class="rounded p-4 border flex gap-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <span class="text-2xl font-semibold" style="color: var(--color-accent); min-width: 2.5rem;">3</span>
+          <div>
+            <div class="font-semibold mb-1">Plan — 详细 step-by-step 含 dependency</div>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              从模型权重到 client SDK 全链路画一遍. 标出哪些是并行可做, 哪些必须串行.
+              每条迁移 playbook 给具体步骤.
+            </div>
+          </div>
+        </li>
+        <li class="rounded p-4 border flex gap-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <span class="text-2xl font-semibold" style="color: var(--color-accent); min-width: 2.5rem;">4</span>
+          <div>
+            <div class="font-semibold mb-1">Cutover — 怎么切流</div>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              shadow → canary 1% → 10% → 50% → 100%. 每一档都有验证 gate.
+              详见 <a href={pathname('/learn/production-lifecycle/')} class="underline" style="color: var(--color-accent);">/learn/production-lifecycle/</a>.
+            </div>
+          </div>
+        </li>
+        <li class="rounded p-4 border flex gap-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <span class="text-2xl font-semibold" style="color: var(--color-accent); min-width: 2.5rem;">5</span>
+          <div>
+            <div class="font-semibold mb-1">Validation — 三类指标都要看</div>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              性能 (吞吐 / 延迟) · 质量 (eval set / accept rate / regression suite) · 成本 ($/M tok 算清楚).
+              全部满足 SLA 才升级到下一档.
+            </div>
+          </div>
+        </li>
+        <li class="rounded p-4 border flex gap-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <span class="text-2xl font-semibold" style="color: var(--color-accent); min-width: 2.5rem;">6</span>
+          <div>
+            <div class="font-semibold mb-1">Rollback — 失败回滚预案</div>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              旧 stack 必须保留至少 2 周直到稳定. DNS/router 切回的时间应该 &lt; 5 分钟.
+              没有 rollback 预案 = 没有 cutover.
+            </div>
+          </div>
+        </li>
+        <li class="rounded p-4 border flex gap-4" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <span class="text-2xl font-semibold" style="color: var(--color-accent); min-width: 2.5rem;">7</span>
+          <div>
+            <div class="font-semibold mb-1">Followups — 迁移完成后 2 周内</div>
+            <div class="text-sm" style="color: var(--color-text-muted);">
+              更新文档 / runbook / 监控 dashboard / on-call training. 拆掉旧 infra (避免 zombie cost).
+              收集 lessons-learned 写入 runbook.
+            </div>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-4">🔗 相关页面</h2>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <a href={pathname('/learn/capacity-planning/')} class="block rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-sm font-semibold">Step 0 · 容量规划</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">迁移前先把目标算清楚</div>
+        </a>
+        <a href={pathname('/learn/production-lifecycle/')} class="block rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-sm font-semibold">生产生命周期</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">rollout / canary / A/B / 回滚</div>
+        </a>
+        <a href={pathname('/learn/troubleshooting/')} class="block rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-sm font-semibold">故障诊断</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">迁移翻车时怎么诊断</div>
+        </a>
+        <a href={pathname('/engines/compare/')} class="block rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-sm font-semibold">引擎对比矩阵</div>
+          <div class="text-xs mt-1" style="color: var(--color-text-muted);">迁前看清两边能力差异</div>
+        </a>
+      </div>
+    </section>
+  </Container>
+</BaseLayout>

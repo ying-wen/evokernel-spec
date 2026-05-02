@@ -6,7 +6,7 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-### v1.43+ horizon
+### Post-2.0 horizon
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 
@@ -17,13 +17,36 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Summary:
 **Tier 2 remaining**:
 - Auto-translated vendor doc summaries (CANN/Neuware/MindIE → English)
 - Citation auto-import (Twitter/X mentions, GitHub backlinks, arxiv)
-- Migration guide series (vLLM → SGLang, H100 → MI300X, FP16 → FP8 → FP4)
 
 **Tier 3 (large bets)**:
 - Interactive deployment-journey visualization
 - Real benchmark CI runner (auto-refresh case data on rented GPUs)
 - Multi-language expansion (ja/ko/es/fr)
 - Private deployment edition
+
+---
+
+## [1.43.0] — 2026-05-02
+
+**Theme**: Migration guides — close the deployment-optimization-chain "I'm on X, want to move to Y" gap.
+
+### Added
+- **`/learn/migrations/`** — new hub page for 4 common evolution paths, plus a 7-step framework that all playbooks follow (trigger → prerequisites → plan → cutover → validation → rollback → followups).
+- **`/learn/migrations/engine-swap/`** — vLLM ↔ SGLang ↔ TRT-LLM ↔ MindIE. Includes a config-semantics translation table (`--max-num-seqs` ↔ `--max-running-requests` ↔ `max_batch_size`) — the most-common cause of botched engine migrations.
+- **`/learn/migrations/hardware-swap/`** — H100 ↔ MI300X ↔ Ascend 910C ↔ Blackwell. Worked example showing how to compute card-count equivalence from memory + bandwidth + FLOPs roofline (not 1:1).
+- **`/learn/migrations/quant-downcast/`** — FP16 → FP8 → FP4 / INT4 progression. Emphasizes that calibration + eval pipeline maturity is the critical path, not the conversion itself.
+- **`/learn/migrations/scaling/`** — single-node → multi-node + PD-disagg. Quantifies "scaling efficiency &gt; 75% target" and shows where collective bandwidth becomes the bottleneck.
+- **nav-groups.ts**: `迁移指南` entry added to learn dropdown (theme: accent).
+- **i18n**: `home.entry.migrations` zh="迁移指南" / en="Migration guides".
+- **7 v1.43 E2E tests** covering hub structure, all 4 playbook detail pages, cross-links, back-navigation.
+
+### Why
+Existing `/learn` pages cover "how to set things up" (capacity-planning, picking-engine, picking-quantization) and "what goes wrong in production" (deployment-failures, observability, troubleshooting, production-lifecycle). Until v1.43 there was nothing for the **most-common evolution path**: "I'm already running X and want to move to Y." Migration risk is asymmetric — the upside is bounded (better metrics) but the downside is unbounded (silent quality drift, unrecoverable rollback). Codifying the 7-step framework forces explicit baseline + rollback planning before cutover, which is the single biggest predictor of migration success.
+
+### Stats
+- 7 new v1.43 E2E tests pass · full E2E suite continues green
+- Build: 451 pages (was 446, +5 = hub + 4 playbooks)
+- New file count: 5 astro pages
 
 ---
 

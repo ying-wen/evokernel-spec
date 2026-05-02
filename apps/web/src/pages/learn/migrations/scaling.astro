@@ -1,0 +1,195 @@
+---
+/**
+ * /learn/migrations/scaling/ — single-node → multi-node + PD-disagg.
+ *
+ * Often the highest-risk migration: collective ops join the hot path,
+ * network topology becomes the bottleneck, and PD-disagg adds operational
+ * complexity (two pools to monitor, KV transfer to debug).
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import { pathname } from '~/lib/i18n';
+---
+<BaseLayout title="迁移指南 · 规模化 (单节点 → 多节点 + PD-disagg)">
+  <Container>
+    <section class="py-12">
+      <a href={pathname('/learn/migrations/')} class="text-sm" style="color: var(--color-text-muted);">← 迁移指南总览</a>
+      <div class="mt-4 mb-2 text-xs font-semibold" style="color: oklch(55% 0.2 25);">SCALE-OUT · 风险高</div>
+      <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">规模化迁移</h1>
+      <p class="text-base mt-3 max-w-3xl" style="color: var(--color-text-muted);">
+        单节点 → 多节点 · 加 TP/PP · 启用 PD-disagg · 从 8×H100 跨到 NVL72 / Atlas 900 / CloudMatrix 384.
+        周期 3–6 周. 网络拓扑成为瓶颈 — collective bandwidth 决定能 scale 多远.
+      </p>
+    </section>
+
+    <section class="pb-8 grid gap-4 md:grid-cols-3">
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-accent);">第 1 跳</div>
+        <h3 class="text-base font-semibold mb-2">8×卡 1 节点 → 16/32 卡 多节点</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          IB / RoCE 进入 hot path. NCCL allreduce 性能 baseline 决定一切.
+        </p>
+      </div>
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-accent);">第 2 跳</div>
+        <h3 class="text-base font-semibold mb-2">多节点 → super-pod (NVL72)</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          NVLink 9 hop 内全互联. 模型 sharding pattern 改变 (TP=72 vs TP=8 PP=9).
+        </p>
+      </div>
+      <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-2" style="color: var(--color-accent);">第 3 跳</div>
+        <h3 class="text-base font-semibold mb-2">启用 PD-disagg</h3>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+          Prefill 池 + Decode 池分开. KV transfer (Mooncake / NIXL) 进入 hot path.
+        </p>
+      </div>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">1. Trigger</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>单节点装不下</strong>: model + KV cache &gt; 8 × HBM. 例: DeepSeek V3 671B FP8 ≈ 671GB, 8×H100 80GB 装不下
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>吞吐线性扩展</strong>: 业务 TPS 目标 &gt; 单节点上限 (单节点天花板大约 30K decode tok/s/8 卡)
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Long context 进入</strong>: 128K+ ctx, KV cache 占爆 — 需要更多卡分摊
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>TTFT vs decode tok/s 互斥</strong>: 想同时优化 → PD-disagg 是答案
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>提升资源利用率</strong>: prefill / decode 工作负载 ratio 不平衡, 共池浪费 — disagg 后各池独立调
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">2. Prerequisites — 网络是 #1</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: color-mix(in oklch, oklch(55% 0.2 25) 6%, var(--color-surface-raised)); border-color: oklch(55% 0.2 25);">
+          <strong>网络 baseline</strong>: 跑 nccl-tests · 测 inter-node bandwidth 实测值. 要求 &gt; 80% 理论值 (IB 400G ≈ 50GB/s 应该)
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>拓扑文档</strong>: <a href={pathname('/servers/network-topology-matrix/')} class="underline" style="color: var(--color-accent);">/servers/network-topology-matrix/</a>
+          画出 fat-tree / dragonfly+ / NVL72 ring 拓扑, 算出关键 collective hop 数
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>选 parallelism strategy</strong>: TP / PP / EP / SP 怎么组合 — 看 <a href={pathname('/learn/parallelism-cheatsheet/')} class="underline" style="color: var(--color-accent);">/learn/parallelism-cheatsheet/</a>
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>引擎 PD-disagg 支持</strong>: 看 <a href={pathname('/engines/compare/')} class="underline" style="color: var(--color-accent);">/engines/compare/</a>.
+          SGLang / TRT-LLM Dynamo / MindIE 原生支持; vLLM PD-disagg 较新
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>KV transfer 选型</strong>: Mooncake (社区, 跨厂商), NIXL (NVIDIA), MindIE 自有. 看 <a href={pathname('/fused-kernels/mooncake-kv-disaggregation/')} class="underline" style="color: var(--color-accent);">mooncake-kv-disaggregation</a>
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>storage pre-fetch</strong>: 多节点启动模型权重要分布加载. GDS / Lustre / Weka 路径准备好.
+          看 <a href={pathname('/servers/storage-matrix/')} class="underline" style="color: var(--color-accent);">/servers/storage-matrix/</a>
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>集群调度</strong>: K8s + LeaderWorkerSet / Ray Serve / SLURM. 多节点启动 / 健康检查 / 滚动升级
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl function-semibold mb-3">3. Plan</h2>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3a. 收益建模 (重要 — 不要瞎扩)</h3>
+      <p class="text-sm mb-2" style="color: var(--color-text-muted);">
+        多节点 scaling 不是线性. NCCL allreduce 跨节点 1.5–2× 慢于 intra-node, 算清楚:
+      </p>
+      <div class="rounded-lg p-4 border font-mono text-xs" style="background: var(--color-surface-raised); border-color: var(--color-border); white-space: pre-wrap;">
+{`# 例: 8 卡 1 节点 → 16 卡 2 节点 (DeepSeek V3 FP8)
+1 节点 (TP=8):
+  decode tok/s: 18K
+  inter-GPU NVLink: 900 GB/s, all-reduce 0.5ms
+
+2 节点 (TP=8 PP=2):
+  inter-node IB 400G: 50 GB/s, 18× 慢
+  PP bubble: ~ 5–10% throughput penalty
+  estimated decode tok/s: 28-32K (1.6–1.8x, not 2x)
+
+vs 2 节点 PD-disagg (P:8 D:8):
+  prefill 在 P 池, decode 在 D 池, KV transfer 通过 IB
+  bottleneck: KV transfer bandwidth, ~8 GB/req for long ctx
+  decode tok/s: 35–40K (D 池专注 decode, no prefill 干扰)`}
+      </div>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3b. 分阶段扩 (不要一次跨大)</h3>
+      <ol class="space-y-2 text-sm list-decimal list-inside">
+        <li><strong>1→2 节点</strong> (TP across nodes): 验证 inter-node collective 稳定 + perf model 准确</li>
+        <li><strong>2→4 节点</strong>: 看 scaling 是否线性</li>
+        <li><strong>启用 PD-disagg</strong>: prefill / decode 池分离, KV transfer 验证</li>
+        <li><strong>跨到 super-pod</strong> (NVL72 / CM384): 重新评估 sharding (TP=72 / EP=144 等大 mode)</li>
+      </ol>
+
+      <h3 class="text-lg font-semibold mb-2 mt-4">3c. 监控扩展</h3>
+      <ul class="space-y-2 text-sm list-disc list-inside">
+        <li>Per-node + per-GPU + per-collective 三级粒度监控</li>
+        <li>NCCL kineto trace 留 7 天 — 跨节点 latency 突跳很难 root-cause</li>
+        <li>PD-disagg 后, prefill / decode 池单独 dashboard</li>
+        <li>KV transfer 量 / 失败率 / latency 单独 alert</li>
+        <li>看 <a href={pathname('/learn/observability/')} class="underline" style="color: var(--color-accent);">/learn/observability/</a> 网络 / collective tier</li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">4. Cutover — 阶段比例缓慢</h2>
+      <ol class="space-y-2 text-sm list-decimal list-inside">
+        <li><strong>Shadow 1 周</strong>: 多节点 stack 接 mirror, 观察跨 peak / off-peak / 周末</li>
+        <li><strong>1% canary, 2 天</strong></li>
+        <li><strong>10%, 1 周</strong> (含一次完整 traffic peak)</li>
+        <li><strong>50%, 1 周</strong></li>
+        <li><strong>100%</strong>, 单节点 stack 保留 30 天</li>
+      </ol>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">5. Validation</h2>
+      <ul class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Throughput</strong>: scaling efficiency &gt; 75% (linear 100% 不可能, 但 2× 节点目标 1.6× tok/s)
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Tail latency</strong>: TTFT / decode p99 不应该恶化 &gt; 20%
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>Fault tolerance</strong>: 一个节点挂掉, 其他能继续 (或快速 reschedule). 主动注入 failure 测
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>PD-disagg KV transfer 失败率</strong> &lt; 0.1%, 不影响 user-visible request
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>$/M tok</strong>: 可能比单节点贵 (intra-node 利用率不变 + 网络成本) — 做了之后看 ROI 是否还成立
+        </li>
+      </ul>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">6. Rollback</h2>
+      <ul class="space-y-2 text-sm list-disc list-inside">
+        <li>路由层切回单节点 stack — &lt; 5 分钟</li>
+        <li>单节点保留 30 天</li>
+        <li>多节点 infra 不要立即拆 — debug rollback 原因比 rollback 本身重要</li>
+        <li>PD-disagg rollback 需要 collapse 回 collocated mode (router 改 routing rule)</li>
+      </ul>
+    </section>
+
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">7. Followups</h2>
+      <ul class="space-y-2 text-sm list-disc list-inside" style="color: var(--color-text-muted);">
+        <li>更新 cluster autoscaler 策略 — 多节点最小可扩单位变化</li>
+        <li>更新 disaster recovery plan — 多节点失败半径更大</li>
+        <li>训练 on-call 团队认识 collective failure / KV transfer failure 症状</li>
+        <li>归档 baseline 的 NCCL trace + perf model — 下次 scaling 决策直接用</li>
+        <li>提 case 至 <a href={pathname('/contribute/case-form/')} class="underline" style="color: var(--color-accent);">/contribute/case-form/</a> — 多节点 case 是社区最缺的</li>
+      </ul>
+    </section>
+  </Container>
+</BaseLayout>
