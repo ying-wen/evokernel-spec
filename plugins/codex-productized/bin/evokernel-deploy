@@ -1,0 +1,186 @@
+#!/usr/bin/env node
+/**
+ * v3.17 — `evokernel-deploy` real CLI binary for Codex / shell users.
+ *
+ * Wraps `pnpm tsx scripts/agent-deploy/index.ts` so a Codex agent (or any
+ * shell user) can deploy with a single command from anywhere on the system,
+ * without having to know the repo layout or remember the tsx invocation.
+ *
+ * Usage:
+ *   evokernel-deploy --model llama-3.3-70b --hardware h100-sxm5
+ *   evokernel-deploy --model llama-3.3-70b --hardware h100-sxm5 --use-llm-orchestrator
+ *   evokernel-deploy --list-bundles --hardware mi300x
+ *   evokernel-deploy --help
+ *
+ * Resolves the EvoKernel repo root via:
+ *   1. EVOKERNEL_REPO_ROOT env var (explicit override)
+ *   2. EVOKERNEL_REPO_ROOT in ~/.config/evokernel/codex.json
+ *   3. Walking up from this file's location (works when installed as a
+ *      symlink into the repo)
+ *
+ * Exits with the same code as the wrapped command.
+ */
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+
+// ─────────────────────────────────────────────────────────────────────────
+// Locate the repo root
+// ─────────────────────────────────────────────────────────────────────────
+
+function locateRepoRoot() {
+  // 1. Explicit env override
+  if (process.env.EVOKERNEL_REPO_ROOT) {
+    const abs = path.resolve(process.env.EVOKERNEL_REPO_ROOT);
+    if (fs.existsSync(path.join(abs, 'scripts/agent-deploy/index.ts'))) {
+      return abs;
+    }
+    die(
+      `EVOKERNEL_REPO_ROOT="${abs}" does not contain scripts/agent-deploy/index.ts`
+    );
+  }
+
+  // 2. Codex user config
+  const cfg_path = path.join(os.homedir(), '.config/evokernel/codex.json');
+  if (fs.existsSync(cfg_path)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(cfg_path, 'utf-8'));
+      if (cfg.EVOKERNEL_REPO_ROOT) {
+        const abs = path.resolve(cfg.EVOKERNEL_REPO_ROOT);
+        if (fs.existsSync(path.join(abs, 'scripts/agent-deploy/index.ts'))) {
+          return abs;
+        }
+      }
+    } catch (e) {
+      // Bad config — log but continue to walk-up fallback.
+      process.stderr.write(
+        `[warn] could not parse ${cfg_path}: ${e.message}\n`
+      );
+    }
+  }
+
+  // 3. Walk up from __filename (works when installed as repo-relative symlink)
+  let dir = path.dirname(fs.realpathSync(__filename));
+  while (dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, 'scripts/agent-deploy/index.ts'))) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+
+  die(
+    'Could not locate the EvoKernel repo root.\n' +
+      'Set EVOKERNEL_REPO_ROOT=/path/to/evokernel-spec, or add\n' +
+      '  { "EVOKERNEL_REPO_ROOT": "/path/to/evokernel-spec" }\n' +
+      'to ~/.config/evokernel/codex.json'
+  );
+}
+
+function die(msg) {
+  process.stderr.write(`evokernel-deploy: ${msg}\n`);
+  process.exit(2);
+}
+
+function showHelp() {
+  process.stdout.write(`evokernel-deploy — productized model→hardware deploy
+
+USAGE
+  evokernel-deploy --model <id> --hardware <id> [flags]
+  evokernel-deploy --list-bundles [--hardware <id>] [--model <id>]
+  evokernel-deploy --help
+
+FLAGS
+  --model <id>              Bundle slug (e.g. llama-3.3-70b) or HF id.
+  --hardware <id>           Hardware id (e.g. h100-sxm5, mi300x, ascend-910b).
+  --workload <kind>         chat | rag | code | math | long-context (default: chat)
+  --use-llm-orchestrator    v3.17: real-code productized loop (Layer R/G/V/F)
+  --output <dir>            Output dir (default: ./agent-deploy-output)
+  --target-cost <usd>       Optional cost-per-M-token target.
+  --target-ttft <ms>        Optional time-to-first-token target.
+
+DISCOVERY
+  --list-bundles            List all available (model, hardware) bundles.
+
+ENVIRONMENT
+  EVOKERNEL_REPO_ROOT       Repo location (or set in ~/.config/evokernel/codex.json)
+  ANTHROPIC_API_KEY         Required for --use-llm-orchestrator real mode.
+  EVOKERNEL_TEST_MODE=true  Deterministic stubs (CI/test).
+  EVOKERNEL_OFFLINE_ONLY=true  Disable remote-bundle fallback.
+
+EXAMPLES
+  # Plan-only (skeleton kernels, no API key needed)
+  evokernel-deploy --model llama-3.3-70b --hardware h100-sxm5
+
+  # Productized real-code loop with Anthropic API
+  ANTHROPIC_API_KEY=sk-ant-... evokernel-deploy \\
+    --model llama-3.3-70b --hardware h100-sxm5 --use-llm-orchestrator
+
+  # Discover what's deployable on a hardware target
+  evokernel-deploy --list-bundles --hardware mi300x
+`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Parse + dispatch
+// ─────────────────────────────────────────────────────────────────────────
+
+function parseFlag(argv, flag) {
+  const idx = argv.indexOf(flag);
+  if (idx === -1) return undefined;
+  if (idx + 1 >= argv.length) return '';
+  const next = argv[idx + 1];
+  return next.startsWith('--') ? '' : next;
+}
+
+function hasFlag(argv, flag) {
+  return argv.includes(flag);
+}
+
+function main() {
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
+    showHelp();
+    process.exit(0);
+  }
+
+  const repo = locateRepoRoot();
+
+  // List-bundles mode
+  if (hasFlag(argv, '--list-bundles')) {
+    const filter_args = [];
+    const model = parseFlag(argv, '--model');
+    const hardware = parseFlag(argv, '--hardware');
+    if (model) filter_args.push('--model', model);
+    if (hardware) filter_args.push('--hardware', hardware);
+    runChild('pnpm', ['agent:list-bundles', '--', ...filter_args], repo);
+    return;
+  }
+
+  // Deploy mode — pass through every arg to the underlying tsx script.
+  // Validate model + hardware presence early for a friendlier error.
+  if (!parseFlag(argv, '--model') || !parseFlag(argv, '--hardware')) {
+    die('--model and --hardware are required. Run with --help for usage.');
+  }
+  const passthrough = ['tsx', 'scripts/agent-deploy/index.ts', ...argv];
+  runChild('pnpm', ['exec', ...passthrough], repo);
+}
+
+function runChild(cmd, args, cwd) {
+  const child = spawn(cmd, args, {
+    cwd,
+    stdio: 'inherit',
+    env: process.env,
+    shell: false,
+  });
+  child.on('exit', (code, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    else process.exit(code ?? 0);
+  });
+  child.on('error', (e) => die(`failed to spawn ${cmd}: ${e.message}`));
+}
+
+main();

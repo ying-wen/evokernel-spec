@@ -6,7 +6,72 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.17 — AMD HIP + Cambricon BANG-C triangle-mult (5-platform completion) + 摩尔线程 MTT S5000** (CUDA-compat 国产 path second vendor) + Black Sesame A2000 (DynamAI 2.0, L4+).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md) for the prioritized site/UI cleanup queue (timeline overlapping labels, filter panel classification, card metadata richness, dedup of stale entries). Next up: **v3.18 — UI optimization sprint + continue agent harness extension** (timeline fix, filter panel rebuild, card metadata, productized loop docs on landing page).
+
+---
+
+## [3.17.0] — 2026-05-03 — Real productized agent harness (pivot) + AMD HIP triangle-mult + critical changelog parser fix
+
+**Theme**: Pivot from breadth-additions to **real product surface area**. The user pointed out (correctly) that the v3.x productized loop existed as standalone library functions but was never wired into the actual user-facing CLI — `plugins/claude-code-productized/SKILL.md` and `plugins/codex-productized/README.md` were just markdown describing TypeScript snippets users would have to copy-paste, not a working harness. v3.17 closes that gap. Also ships the AMD HIP DSL completing 5-ISA triangle-mult coverage, AND fixes a critical changelog regex bug that had silently dropped 14 versions (v3.3-v3.16) from the public `/changelog/` page.
+
+### Critical fix — changelog parser silently dropping 14 versions
+
+`apps/web/src/lib/changelog.ts` regex was `/^##\s+\[([^\]]+)\]\s*(?:[—\-–]\s*(\d{4}-\d{2}-\d{2}))?\s*$/gm` — required EOL right after the date. Starting at v3.3 we adopted themed names (`## [3.3.0] — 2026-05-03 — productized agent foundation`) — these had a 3rd `—` segment that the regex refused to match. Result: pre-v3.17 the live `/changelog/` page silently showed only v3.0/v3.1/v3.2 + v2.25/v2.24, hiding v3.3 through v3.16.
+
+Fix: relax the trailing anchor to `[^\n]*$` (allow any non-newline content after the optional date). Plus shipped `apps/web/tests/changelog.test.ts` with 7 regression tests covering: 2-segment headers, 3-segment headers (ASCII), 3-segment headers with CJK content, the Unreleased placeholder, sort order, body integrity, and the floor "at least 20 releases" claim. Future header drift fails loudly instead of silently truncating.
+
+### Pivot — real user-facing harness (replaces "markdown that describes a TypeScript snippet")
+
+**Pre-v3.17 reality**:
+- `plugins/claude-code-productized/SKILL.md` told users to write 10-line TypeScript invocation snippets — and referenced `./scripts/agent-deploy/fetch-bundle` which **didn't exist** (ImportError on first try).
+- `plugins/codex-productized/README.md` described how to install MCP tools but had no actual executable.
+- `scripts/agent-deploy/index.ts` (1034 LOC, the actual CLI users run) emitted only **kernel skeletons** — never called `generateAndVerify` (the v3.6 closed-loop) despite the SKILL.md promising productized real-code generation.
+
+**v3.17 fixes all four**:
+
+1. **`scripts/agent-deploy/fetch-bundle.ts` (NEW, 209 LOC)** — the missing helper that `SKILL.md` had referenced for ~10 releases. Resolves bundles via local-dist → dev-server → remote, with `EVOKERNEL_OFFLINE_ONLY=true` short-circuit for reproducible builds. Plus `listBundles()` for discovery (which models × hardware are available in the corpus). **Found a parse-error bug while writing the test**: original `tryLocalFile` had a broad `catch` that silently masked corrupt local bundles as "not found" → unreproducible deploys on different machines. Fixed to split file-existence (silent fallthrough) from parse errors (hard fail).
+
+2. **`scripts/agent-deploy/index.ts` — wired in `--use-llm-orchestrator`**. New flag activates the v3.6 productized branch in Stage 5.5: fetchBundle → generateAndVerify per gap → write real-code kernels + per-kernel V1/V2/V3 verification summaries + `agent-learnings-productized.md` to `agent-deploy-output/`. Default off (no API cost surprise); explicit opt-in via the flag.
+
+3. **`pnpm agent:deploy` + `pnpm agent:deploy:productized` + `pnpm agent:list-bundles` npm scripts**. Plus a real CLI binary at `plugins/codex-productized/bin/evokernel-deploy` (executable, ESM Node, locates the repo root via `EVOKERNEL_REPO_ROOT` or walk-up). Codex / shell users now type `evokernel-deploy --model llama-3.3-70b --hardware h100-sxm5 --use-llm-orchestrator` instead of copy-pasting TypeScript.
+
+4. **`.claude/commands/agent-deploy.md` + `plugins/claude-code-productized/commands/agent-deploy.md`** — real Claude Code slash command (`/agent-deploy <model> <hardware>`) with allowlisted Bash invocations, Step 1-4 protocol (verify → run → surface results → propose feedback). No more "open the SKILL.md and copy-paste a TS snippet."
+
+### Added — `hip-triangle-mult-update-cdna3` (14 → 15 DSL examples)
+
+5th-platform side-by-side completion of the triangle-mult cross-platform matrix. Production rocWMMA fragments + LDS double-buffered ping-pong (no TMA on CDNA3 — explicit `__syncthreads` after each LDS load) + 32x32x16 wave-level MFMA in BF16 → FP32 accumulator pattern. **First non-LLM AMD DSL example in corpus** (corpus had `hip-mfma-gemm-cdna3` for GEMM but no production-shape non-LLM op). Documents 0.95-1.10× H100 perf — first corpus data point where AMD wall-clock matches/beats NVIDIA on a specific op (MI300X 5.3 TB/s HBM3 wins on bandwidth-bound 4-tensor reduction).
+
+| Platform | DSL example | Version | Relative H100 perf |
+|---|---|---|---|
+| NVIDIA Triton | triton-triangle-mult-update-hopper | v3.13 | 1.0× |
+| NVIDIA CUDA C++ | cuda-triangle-mult-update-hopper | v3.14 | 1.05-1.15× |
+| Huawei Ascend-C | ascend-c-triangle-mult-update | v3.15 | 0.20-0.33× |
+| Apple MLX | mlx-triangle-mult-update-apple | v3.16 | 0.15-0.35× |
+| AMD CDNA3 HIP | hip-triangle-mult-update-cdna3 | **v3.17** | **0.95-1.10×** |
+
+### Tests — 87/87 (was 75/75) + 49/49 web tests (was 42/42)
+
+- **+12 harness tests** in `scripts/tests/v3-17-harness-pivot.test.ts`: fetchBundle local-dist resolution, envelope provenance, BundleNotFoundError handling, malformed-JSON hard-fail, missing-keys hard-fail, listBundles enumeration + empty-dist + hyphen-id parsing, CLI binary `--help` + missing-args + bogus-repo-root behavior.
+- **+7 changelog regression tests** in `apps/web/tests/changelog.test.ts` (see "Critical fix" above).
+
+### Stats
+
+- **DSL examples**: 14 → **15** (+1 HIP)
+- **Total entities**: 419 → **420** (+1)
+- **Site pages**: 607 → **608** (+1; HIP DSL page; **all 17 v3.x changelog entries now actually visible** — this is what unblocks the user's "github.io stuck at v3.2" complaint)
+- **Tests**: 75 → **87** scripts (+12); 42 → **49** web (+7)
+- **Plugin executables**: 0 → **2** (`evokernel-deploy` Codex binary + `/agent-deploy` Claude Code slash command)
+- **Layer R helper modules**: 0 → **2** (fetch-bundle.ts + list-bundles.ts)
+
+### Cleanup queue (NEW — `docs/CLEANUP-TODO.md`)
+
+User asked for a tracking doc for stale/duplicated content + UI optimization. v3.17 ships `docs/CLEANUP-TODO.md` with prioritized items: timeline overlapping labels (HIGH, v3.18), filter panel classification (HIGH, v3.18), card metadata richness (MED, v3.18), Apple m4-max/m4-max-npu dedup (MED, v3.19), ROADMAP.md prune (LOW, v3.19), CLAUDE.md update (LOW, v3.19). Each item is independently shippable.
+
+### v3.18 next
+
+- **UI sprint per CLEANUP-TODO.md**: timeline label overlap fix, filter panel classification rebuild, hardware/model card metadata expansion (process node + memory type + compute tier + 国产 toggle + software stack badges).
+- **Continue harness work**: add `--profile` flag wiring real perf measurement when target hardware is reachable; add `agent:deploy` quickstart on landing page.
+- **Defer to v3.18+**: BANG-C triangle-mult (6th platform); Black Sesame A2000.
 
 ---
 

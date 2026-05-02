@@ -54,11 +54,18 @@ export function getReleases(): Release[] {
   const path = findChangelogPath();
   const raw = readFileSync(path, 'utf-8');
 
-  // Split on H2 headers. Match either format:
-  //   ## [1.33.0] — 2026-05-02
+  // Split on H2 headers. Supported header formats:
   //   ## [Unreleased]
+  //   ## [1.33.0] — 2026-05-02
+  //   ## [3.16.0] — 2026-05-03 — Apple MLX DSL (4-platform triangle-mult complete)
+  //
+  // The trailing "— <description>" segment is optional and was added at v3.3
+  // when releases started carrying themed names. Pre-v3.17 the regex required
+  // EOL right after the date, which silently dropped 14 versions (v3.3-v3.16)
+  // from the rendered changelog page. Allow any trailing content so future
+  // releases never break this parser, regardless of header style.
   const releases: Release[] = [];
-  const headerRegex = /^##\s+\[([^\]]+)\]\s*(?:[—\-–]\s*(\d{4}-\d{2}-\d{2}))?\s*$/gm;
+  const headerRegex = /^##\s+\[([^\]]+)\](?:\s*[—\-–]\s*(\d{4}-\d{2}-\d{2}))?[^\n]*$/gm;
   const matches: Array<{ version: string; date: string | null; start: number; end: number }> = [];
   let m: RegExpExecArray | null;
   while ((m = headerRegex.exec(raw)) !== null) {

@@ -38,6 +38,10 @@ import {
   generateSBOM
 } from './production-artifacts';
 import { generateKernels, type GeneratedKernel } from './kernel-codegen';
+// v3.17 — wire in the v3.x productized loop (Layer R/G/V/F).
+import { fetchBundle, BundleNotFoundError } from './fetch-bundle';
+import { generateAndVerify, type GenerateAndVerifyResult } from './feedback';
+import { pickLanguageForArch } from './llm-orchestrator';
 
 // ============================================================
 // Types
@@ -144,6 +148,29 @@ function parseArgs(argv: string[]): Record<string, string> {
 // ============================================================
 // Stage 1: Fetch + classify HuggingFace model
 // ============================================================
+
+/**
+ * v3.17 — derive a bundle slug from a HuggingFace-style id or a local path.
+ * Bundle slugs use kebab-case (matches data/models/<id>.yaml convention).
+ * Examples:
+ *   "meta-llama/Llama-3.3-70B-Instruct" → "llama-3.3-70b"
+ *   "deepseek-ai/DeepSeek-V4-Pro"       → "deepseek-v4-pro"
+ *   "qwen3.5-397b"                       → "qwen3.5-397b" (already a slug)
+ *   "/local/path/to/model"               → uses last path segment
+ */
+function deriveBundleSlug(model_arg: string): string {
+  // Strip path prefix (HF org or local dir).
+  const stem = model_arg.includes('/')
+    ? model_arg.split('/').pop()!
+    : model_arg;
+  // Lowercase, strip "-Instruct" / "-Chat" / "-Base" suffixes the bundle slug omits.
+  const cleaned = stem
+    .toLowerCase()
+    .replace(/-instruct$/i, '')
+    .replace(/-chat$/i, '')
+    .replace(/-base$/i, '');
+  return cleaned;
+}
 
 async function fetchHFConfig(hfId: string, localPath?: string): Promise<HFConfig> {
   if (localPath && existsSync(localPath)) {
@@ -782,13 +809,20 @@ Usage:
     --workload chat|rag|code|math|long-context \\
     [--target-cost <usd_per_m_tokens>] \\
     [--target-ttft <ms>] \\
-    [--config /path/to/local/config.json]
+    [--config /path/to/local/config.json] \\
+    [--use-llm-orchestrator]   # v3.17: real-code productized loop (R/G/V/F)
 
-Example:
+Example (v2 skeleton mode — fast, no API):
   pnpm tsx scripts/agent-deploy/index.ts \\
-    --model meta-llama/Llama-4-Scout-17B-16E \\
+    --model meta-llama/Llama-3.3-70B-Instruct \\
     --hardware h100-sxm5 \\
     --workload chat
+
+Example (v3 productized real-code mode):
+  ANTHROPIC_API_KEY=sk-ant-... pnpm tsx scripts/agent-deploy/index.ts \\
+    --model meta-llama/Llama-3.3-70B-Instruct \\
+    --hardware h100-sxm5 \\
+    --use-llm-orchestrator
 `);
     process.exit(1);
   }
@@ -906,13 +940,63 @@ Example:
   console.error(`  Launch script: ${launchScript.split('\n').length} lines`);
   console.error(`  Kernel gaps: ${gapsReport.gaps.length} ops need codegen on ${arch_family}\n`);
 
-  // ===== Stage 5.5: Kernel codegen (v2.16) =====
-  // For each detected gap, emit an actual kernel skeleton in the target arch's
-  // DSL. This is NOT production code — it's a starting point that captures
-  // the structural pattern (memory hierarchy, ISA primitive choice, edge cases)
-  // for an LLM agent + human engineer to refine + ship.
+  // ===== Stage 5.5: Kernel codegen =====
+  // Two paths controlled by --use-llm-orchestrator (default off for cost-safety):
+  //   • OFF (v2.16 skeleton mode): emit TODO-laden kernel templates from the corpus
+  //     ISA primitives + DSL examples. Useful as a starting point.
+  //   • ON  (v3.17 productized mode): call generateAndVerify (Layer G/V/F) which
+  //     fetches the (model, hardware) agent-context bundle, calls the LLM
+  //     orchestrator to produce real production code, runs V1/V2/V3 verification,
+  //     retries on failure, and emits a fully-populated agent-learning YAML.
   let generatedKernels: GeneratedKernel[] = [];
-  if (gapsReport.gaps.length > 0) {
+  let productizedResults: GenerateAndVerifyResult[] = [];
+  const useLlmOrchestrator = args['use-llm-orchestrator'] === 'true' || args['use-llm-orchestrator'] === '';
+
+  if (gapsReport.gaps.length > 0 && useLlmOrchestrator) {
+    // v3.17 productized path — Layer R/G/V/F end-to-end.
+    console.error('🤖 Stage 5.5 — productized agent loop (R/G/V/F)...');
+    console.error(`   Mode: ${process.env.ANTHROPIC_API_KEY ? 'real' : (process.env.EVOKERNEL_TEST_MODE === 'true' ? 'test' : 'cache/skeleton-fallback')}`);
+    try {
+      const fetchResult = await fetchBundle({
+        model: deriveBundleSlug(args.model),
+        hardware: args.hardware,
+      });
+      console.error(`   ✓ Bundle from ${fetchResult.source}: ${fetchResult.resolved_from}`);
+
+      for (const gap of gapsReport.gaps) {
+        console.error(`   → ${gap.op}: generating + verifying...`);
+        const op_in_bundle = fetchResult.bundle.applicable_ops.find((o) => o.id === gap.op);
+        const reference_impl_python = op_in_bundle?.formal_semantics?.reference_impl?.snippet;
+        const numerical_rules = op_in_bundle?.formal_semantics?.numerical_rules;
+        const result = await generateAndVerify({
+          generation: {
+            bundle: fetchResult.bundle,
+            op: gap.op,
+            target_arch: arch_family,
+          },
+          verification: {
+            reference_impl_python,
+            numerical_rules,
+            execution_mode: false, // structural-only by default; no target hw assumed
+          },
+        });
+        productizedResults.push(result);
+        const icon = result.outcome === 'shipped' ? '✓' : result.outcome === 'partial' ? '~' : '✗';
+        console.error(`     ${icon} ${result.outcome} (${result.attempts.length} attempt${result.attempts.length !== 1 ? 's' : ''}, source: ${result.kernel.source})`);
+      }
+      console.error('');
+    } catch (e) {
+      if (e instanceof BundleNotFoundError) {
+        console.error(`   ⚠ No agent-context bundle for ${args.model}-on-${args.hardware} — falling back to skeleton path.`);
+        console.error(`     Hint: run \`pnpm --filter @evokernel/web build\` or check (model, hardware) ids.\n`);
+      } else {
+        console.error(`   ⚠ Productized path failed (falling back to skeleton): ${(e as Error).message}\n`);
+      }
+    }
+  }
+
+  // v2.16 skeleton path — runs by default OR as fallback when productized path failed.
+  if (gapsReport.gaps.length > 0 && productizedResults.length === 0) {
     console.error('🔧 Stage 5.5 — generating kernel skeletons for gaps...');
     try {
       const [opsResp, primitivesResp, dslResp] = await Promise.all([
@@ -972,9 +1056,28 @@ Example:
   await mkdir(outputDir, { recursive: true });
   await mkdir(path.join(outputDir, 'kubernetes'), { recursive: true });
   await mkdir(path.join(outputDir, 'monitoring'), { recursive: true });
-  if (generatedKernels.length > 0) {
+  if (generatedKernels.length > 0 || productizedResults.length > 0) {
     await mkdir(path.join(outputDir, 'kernels-generated'), { recursive: true });
   }
+
+  // v3.17 productized writes — real generated kernels + verification summaries + agent-learnings
+  const productizedWrites: Promise<void>[] = [];
+  for (const result of productizedResults) {
+    productizedWrites.push(
+      writeFile(path.join(outputDir, 'kernels-generated', result.kernel.filename), result.kernel.code)
+    );
+    productizedWrites.push(
+      writeFile(
+        path.join(outputDir, 'kernels-generated', `${result.kernel.filename}.verify.md`),
+        result.verification.summary_md ?? '(no verification summary)'
+      )
+    );
+  }
+  // Aggregate productized agent-learnings into a single per-deploy file (one entry per gap).
+  const productizedLearnings = productizedResults.length > 0
+    ? `# Agent-learnings for ${args.model} → ${args.hardware} (v3.17 productized loop)\n\n` +
+      productizedResults.map((r, i) => `## Gap ${i + 1}: ${r.kernel.filename}\n\nOutcome: **${r.outcome}** (${r.attempts.length} attempts)\nSource: \`${r.kernel.source}\`\n\n${r.agent_learning_yaml}\n`).join('\n---\n\n')
+    : '';
 
   const kernelWrites = generatedKernels.map((k) =>
     writeFile(path.join(outputDir, 'kernels-generated', k.filename), k.code)
@@ -1003,6 +1106,11 @@ Example:
     // v2.16: kernel skeletons + index
     ...kernelWrites,
     kernelIndex ? writeFile(path.join(outputDir, 'kernels-generated', 'README.md'), kernelIndex) : Promise.resolve(),
+    // v3.17: productized real-code kernels + per-gap verification summaries
+    ...productizedWrites,
+    productizedLearnings
+      ? writeFile(path.join(outputDir, 'agent-learnings-productized.md'), productizedLearnings)
+      : Promise.resolve(),
     // v2.24: knowledge-feedback agent-learning stub
     writeFile(path.join(outputDir, 'agent-learning.yaml'), learningStub),
   ]);
@@ -1026,6 +1134,18 @@ Example:
   console.error('Knowledge feedback (v2.24):');
   console.error('   - agent-learning.yaml      (pre-filled stub; mv to data/agent-learnings/');
   console.error('                               post-deploy to land in corpus)\n');
+
+  if (productizedResults.length > 0) {
+    console.error('Productized agent loop (v3.17, R/G/V/F):');
+    console.error(`   - kernels-generated/*       (${productizedResults.length} real-code kernel${productizedResults.length !== 1 ? 's' : ''})`);
+    console.error(`   - kernels-generated/*.verify.md (per-kernel V1/V2/V3 verification summaries)`);
+    console.error('   - agent-learnings-productized.md (one agent-learning entry per gap, ');
+    console.error('                                     pre-filled from real verify results)\n');
+    const shipped = productizedResults.filter((r) => r.outcome === 'shipped').length;
+    const partial = productizedResults.filter((r) => r.outcome === 'partial').length;
+    const blocked = productizedResults.filter((r) => r.outcome === 'kernel-gap-blocked').length;
+    console.error(`   Outcomes: ${shipped} shipped · ${partial} partial · ${blocked} blocked\n`);
+  }
 }
 
 main().catch((err) => {
