@@ -1,0 +1,92 @@
+id: mtt-s5000
+name: Moore Threads MTT S5000
+vendor: moore-threads
+generation: musa-3
+status: in-production
+release_year: 2025
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 200, evidence_ref: ev-mtt-s5000-001 }
+  bf16_tflops: { value: 100, evidence_ref: ev-mtt-s5000-001 }
+  fp16_tflops: { value: 100, evidence_ref: ev-mtt-s5000-001 }
+  int8_tops: { value: 200, evidence_ref: ev-mtt-s5000-001 }
+architecture:
+  compute_unit_count: { value: 128, evidence_ref: ev-mtt-s5000-arch-001 }
+  compute_unit_label: XPU
+  process_node_nm: { value: 7, evidence_ref: ev-mtt-s5000-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-mtt-s5000-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-mtt-s5000-001 }
+  memory_hierarchy:
+    - name: 'L1 / SMEM'
+      scope: per-cu
+      size_kb: { value: 96, evidence_ref: ev-mtt-s5000-arch-001 }
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 64, evidence_ref: ev-mtt-s5000-arch-001 }
+    - name: 'HBM3'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-mtt-s5000-001 }
+      bandwidth_tbs: { value: 1.6, evidence_ref: ev-mtt-s5000-001 }
+      notes: '64 GB HBM3 at 1.6 TB/s — first MTT card with HBM (S4000 used GDDR6). Major capability jump for LLM inference.'
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-mtt-s5000-001 }
+  bandwidth_gbps: { value: 1600, evidence_ref: ev-mtt-s5000-001 }
+  type: HBM3
+scale_up:
+  protocol: MTLink-3
+  bandwidth_gbps: 240
+  world_size: 8
+  topology: mtlink-mesh
+  notes: 'Moore Threads MTLink-3 — proprietary 240 GB/s scale-up; 8-card domain.'
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCE-v2
+  nic: integrated
+power:
+  tdp_w: { value: 450, evidence_ref: ev-mtt-s5000-001 }
+  sustained_w: { value: 380, evidence_ref: ev-mtt-s5000-001 }
+  peak_w: { value: 500, evidence_ref: ev-mtt-s5000-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 50 }
+  fp16_tflops_per_watt: { value: 0.22, evidence_ref: ev-mtt-s5000-001 }
+  power_connector: oam
+software_support:
+  drivers: ['MUSA-3.0', 'MUSAToolkit-3.x']
+  engines:
+    - { id: vllm, status: community-port, versions: ['0.7'], notes: 'vllm-musa fork' }
+    - { id: lmdeploy, status: community-port, versions: ['0.7'] }
+  quantizations: [bf16, fp16, fp8-e4m3, int8, int4-awq]
+  parallelism: [tp, pp]
+aliases: ['MTT S5000', 'Moore Threads S5000', '摩尔线程 S5000']
+chinese_names: ['摩尔线程 MTT S5000', 'MTT S5000 数据中心卡']
+evidence:
+  - id: ev-mtt-s5000-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.mthreads.com/product/mtt-s5000
+    accessed: '2026-05-03'
+    citation: 'Moore Threads MTT S5000 product page: MUSA 3 architecture, 64 GB HBM3 @ 1.6 TB/s, 200 TFLOPS FP8, 450W TDP, 2025 Q1 launch.'
+  - id: ev-mtt-s5000-arch-001
+    tier: estimated
+    source_type: vendor-press-release
+    url: https://www.mthreads.com/news/247
+    accessed: '2026-05-03'
+    citation: 'Moore Threads MUSA 3 architecture announcement: 128 XPUs, native FP8 tensor support, MTLink-3 240 GB/s scale-up.'
+disclaimers:
+  - 'MUSA software stack is in active development; vllm-musa fork has occasional kernel coverage gaps vs CUDA upstream.'
+  - 'MTT S5000 is China-domestic supply-chain — major customer base is China cloud providers under sovereignty constraints.'
+notes: |
+  MTT S5000 is Moore Threads' first HBM-equipped data-center card, replacing S4000
+  (GDDR6) for LLM inference workloads. The HBM3 + native FP8 combo brings the card into
+  competitive territory for 7B-70B model serving in 国产-only deployments.
+
+  Trade-offs vs NVIDIA H100 (the obvious comparison):
+    - 25% the FP8 throughput (200 vs 1979 TFLOPS)
+    - 33% the bandwidth (1.6 vs 3.35 TB/s)
+    - 80% the memory (64 vs 80 GB)
+    + China-domestic supply chain (sovereignty-friendly)
+    + MUSA developer tooling (CUDA-compatible API surface)
+
+  Used by: vllm-musa community fork, China cloud providers needing 国产 hardware,
+  sovereignty-constrained government / SOE deployments.

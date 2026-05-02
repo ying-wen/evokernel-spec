@@ -6,7 +6,56 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.2 — edge NPU** (Jetson Thor, Jetson Orin Nano, Hailo-10, Coral Dev Board, Rockchip RK3588 NPU) — power-budget tier, integer-only paths, ExecuTorch / TFLite-NPU stack.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.3 — edge NPU + 国产 edge** (Jetson Thor, Hailo-10, Rockchip RK3588 NPU, Sophgo BM1684X, Horizon Journey 5) — true edge tier with sub-25W power budgets.
+
+---
+
+## [3.2.0] — 2026-05-03
+
+**Theme**: 6 top-priority missing 2025-2026 hardware (covering user audit gaps). Plus critical CI/Pages deploy fix that unblocked v2.24-v3.1 from reaching the live site.
+
+### Critical fix: CI / Pages auto-deploy unstuck
+
+Before this release, **CI runs since v2.24 had been failing** at `pnpm install --frozen-lockfile` because the lockfile was stale relative to `plugins/mcp-server/package.json` (4 deps added in v2.12: typescript, tsx, @types/node, @modelcontextprotocol/sdk). Earlier autonomous Ralph loop sessions had been reverting `pnpm-lock.yaml` to skip transient diffs — corrupting the lockfile sync. Result: yingwen.io/evokernel-spec/ was stuck at the pre-v2.24 build for 8 releases.
+
+Fix: separate `fix(ci)` commit regenerating the lockfile correctly. Pages workflow now succeeds — site is live at v3.2 spec coverage. **Future Ralph loop iterations must NOT revert `pnpm-lock.yaml`.**
+
+### Added — 6 top-priority missing 2025-2026 hardware (47 → 53 cards)
+
+Per user audit directive: "硬件覆盖全不全？是否最新？".
+
+**NVIDIA (2):**
+- **`rtx-5080`** — Blackwell consumer mid-tier; 16 GB GDDR7, 960 GB/s, 360W, $999 MSRP. Sweet spot for indie 7B-13B inference at half the RTX 5090 price.
+- **`dgx-spark`** — NVIDIA's personal AI supercomputer (Project DIGITS); GB10 SoC (Grace ARM + Blackwell GPU), 128 GB unified LPDDR5X @ 273 GB/s, 1 PFLOPS FP4, $3000-$4000 MSRP. Direct competitor to Apple M3 Ultra for personal frontier-LLM workstations — full CUDA stack, no MLX retrain cost.
+
+**AMD (1):**
+- **`ryzen-ai-max-395`** — Strix Halo APU; first x86 SoC with quad-channel LPDDR5X (256 GB/s unified bandwidth, 128 GB max). Direct M-series rival on Windows/Linux side. ASUS ROG Flow Z13, HP Z2 mini, Framework Desktop are launch platforms.
+
+**Apple (1):**
+- **`m5-max`** — Apple's first Silicon with **dedicated GPU tensor units** (closing the gap with NVIDIA tensor cores / AMD WMMA / Intel XMX). 96 BF16 TFLOPS, 128 GB @ 640 GB/s. Real LLM inference uplift on MLX: 1.5-2× vs M4 Max.
+
+**Huawei (1):**
+- **`ascend-910d`** — 2025 sovereign-China data-center flagship; Da Vinci 5; 192 GB HBM3 @ 3.2 TB/s, HCCS-2 800 GB/s scale-up, 700W TDP. Successor to 910C with 50% larger memory + 23% bandwidth uplift. Atlas 900 SuperPoD A3 super-pod target.
+
+**Moore Threads (1):**
+- **`mtt-s5000`** — Moore Threads' first HBM data-center card (replaces S4000 GDDR6). MUSA 3 architecture, 64 GB HBM3 @ 1.6 TB/s, 200 TFLOPS FP8, native FP8 support. Sovereignty-friendly alternative for China deployments.
+
+### Why this matters
+
+The user's audit directive surfaced ~30 missing 2025-2026 hardware entries. v3.2 closes the **6 highest-impact gaps** spanning:
+- Personal AI workstation niche (DGX Spark + M5 Max + Strix Halo) — the 2025-2026 fastest-growing tier
+- Mid-tier Blackwell consumer (RTX 5080) — 10× larger user base than RTX 5090
+- China sovereignty data-center (Ascend 910D + MTT S5000) — frontier 国产 hardware
+
+Remaining ~24 cards (RTX 5070, RX 9070 non-XT, M5 Pro/Ultra, Jetson Thor, Hailo-10, RK3588 NPU, etc.) tracked for v3.3-v3.4.
+
+### Stats
+
+- **Hardware**: 47 → 53 (+6 latest 2025-2026 releases)
+- **Site pages**: 521 → 533 (+12 = 6 hardware detail + cross-cuts)
+- **Layer D coverage**: still 100% (no regression)
+- **CI**: Pages deploy verified succeeding (1m 3s)
+- **Validation**: 365 entities valid (was 362)
 
 ---
 

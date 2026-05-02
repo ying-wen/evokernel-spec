@@ -1,0 +1,103 @@
+id: ryzen-ai-max-395
+name: AMD Ryzen AI Max+ 395 (Strix Halo)
+vendor: amd
+generation: rdna3-5
+status: in-production
+release_year: 2025
+form_factor: apu
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 251, evidence_ref: ev-ryzenai-max-395-001 }
+  bf16_tflops: { value: 63, evidence_ref: ev-ryzenai-max-395-001 }
+  fp16_tflops: { value: 63, evidence_ref: ev-ryzenai-max-395-001 }
+  int8_tops: { value: 251, evidence_ref: ev-ryzenai-max-395-001 }
+architecture:
+  compute_unit_count: { value: 40, evidence_ref: ev-ryzenai-max-395-arch-001 }
+  compute_unit_label: CU
+  l2_cache_mb: { value: 32, evidence_ref: ev-ryzenai-max-395-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-ryzenai-max-395-arch-001 }
+  base_clock_mhz: { value: 800, evidence_ref: ev-ryzenai-max-395-arch-001 }
+  boost_clock_mhz: { value: 2900, evidence_ref: ev-ryzenai-max-395-arch-001 }
+  memory_hierarchy:
+    - name: 'GPU L1'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-ryzenai-max-395-arch-001 }
+      notes: 'RDNA 3.5 GPU portion: 40 CUs (Radeon 8060S iGPU). Per-CU L1.'
+    - name: 'L2 Cache (CPU+GPU)'
+      scope: global
+      size_mb: { value: 32, evidence_ref: ev-ryzenai-max-395-arch-001 }
+    - name: 'LPDDR5X (unified, CPU+GPU+NPU 共享)'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-ryzenai-max-395-001 }
+      bandwidth_tbs: { value: 0.256, evidence_ref: ev-ryzenai-max-395-001 }
+      notes: 'Up to 128 GB unified LPDDR5X-8000 quad-channel = 256 GB/s. The largest unified-memory x86 platform — direct Apple M-series competitor on Windows/Linux side. Indie LLM users can run Llama 3 70B BF16 + KV cache without dedicated GPU.'
+  on_chip_interconnect:
+    name: 'AMD Infinity Fabric (CPU ↔ GPU ↔ NPU)'
+    bandwidth_tbs: { value: 0.5, evidence_ref: ev-ryzenai-max-395-arch-001 }
+    notes: 'Strix Halo Infinity Fabric ties Zen 5 CPU + Radeon 8060S GPU + Ryzen AI XDNA 2 NPU into single coherent memory. Architecturally similar to Apple UMA.'
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-ryzenai-max-395-001 }
+  bandwidth_gbps: { value: 256, evidence_ref: ev-ryzenai-max-395-001 }
+  type: LPDDR5X
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 256
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+power:
+  tdp_w: { value: 120, evidence_ref: ev-ryzenai-max-395-001 }
+  sustained_w: { value: 100, evidence_ref: ev-ryzenai-max-395-001 }
+  peak_w: { value: 140, evidence_ref: ev-ryzenai-max-395-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  fp16_tflops_per_watt: { value: 0.63, evidence_ref: ev-ryzenai-max-395-001 }
+  power_connector: integrated
+  notes: 'Mobile workstation / mini-PC chassis. ASUS ROG Flow Z13, Framework Desktop, HP Z2 mini are launch platforms.'
+software_support:
+  drivers: ['ROCm-6.4', 'AMDXDNA NPU driver']
+  engines:
+    - { id: vllm, status: community-port, versions: ['0.7'] }
+    - { id: lmdeploy, status: community-port, versions: ['0.7'] }
+  quantizations: [bf16, fp16, fp8-e4m3, int8, int4-awq, int4-gptq]
+  parallelism: [tp]
+aliases: ['Ryzen AI Max+ 395', 'Strix Halo Max+ 395', 'AMD Strix Halo']
+chinese_names: ['锐龙 AI Max+ 395', 'Strix Halo 顶配']
+evidence:
+  - id: ev-ryzenai-max-395-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.amd.com/en/products/processors/laptop/ryzen/ai-max-300-series/amd-ryzen-ai-max-plus-395.html
+    accessed: '2026-05-03'
+    citation: 'AMD Ryzen AI Max+ 395 product page (Strix Halo APU: 16-core Zen 5 CPU + Radeon 8060S iGPU 40 CUs RDNA 3.5 + Ryzen AI 50 TOPS XDNA 2 NPU; up to 128 GB unified LPDDR5X-8000 @ 256 GB/s; 120W cTDP).'
+  - id: ev-ryzenai-max-395-arch-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.amd.com/en/newsroom/press-releases/2025-1-6-amd-unveils-next-gen-amd-ryzen-ai-max-300-series-pr.html
+    accessed: '2026-05-03'
+    citation: 'AMD Ryzen AI Max+ 300 series CES 2025 announcement: first x86 SoC with quad-channel LPDDR5X for sustained LLM bandwidth; 50 TOPS XDNA 2 NPU + 63 BF16 TFLOPS Radeon 8060S iGPU.'
+disclaimers:
+  - 'Ryzen AI Max+ 395 is APU not discrete GPU — direct comparison to Apple M-series is more apt than to RTX 5090. Bandwidth (256 GB/s) is between M4 Pro (273) and prosumer GPUs.'
+  - 'ROCm consumer iGPU support is rougher than discrete RDNA cards; Linux works, Windows native is incomplete.'
+  - 'The XDNA 2 NPU (50 TOPS INT8) is Windows-Copilot-focused and largely unused for LLM serving — the GPU portion does the actual inference work.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  Ryzen AI Max+ 395 is AMD's "Strix Halo" APU — the first x86 SoC with quad-channel
+  LPDDR5X memory delivering 256 GB/s unified bandwidth, putting it in the same league as
+  Apple M-series for LLM inference. The 128 GB ceiling fits Llama 3 70B BF16 + 32K KV
+  cache or 405B INT4 with offloading.
+
+  Direct competitor to Apple M4 Pro / M4 Max for indie LLM workstation use case. Trade-offs:
+    - vs Apple M4 Pro (273 GB/s, 64 GB max): similar bandwidth, 2× memory ceiling
+    - vs Apple M3 Ultra (819 GB/s, 512 GB): much smaller (Apple wins on max scale)
+    - vs RTX 5090 (1792 GB/s, 32 GB): 7× lower bandwidth but 4× memory + cheaper
+    - vs DGX Spark (273 GB/s, 128 GB): same memory + bandwidth class; AMD adds CPU power,
+      NVIDIA adds CUDA stack + Blackwell FP4 path
+
+  Use case: Windows / Linux indie LLM workstation, mini-PC frontier-model setups,
+  laptop-scale 70B inference. ASUS ROG Flow Z13 / HP Z2 / Framework Desktop are early
+  adopter platforms. ROCm + vLLM port is the inference path; llama.cpp ROCm works as
+  a fallback.

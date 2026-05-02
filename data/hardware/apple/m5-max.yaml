@@ -1,0 +1,89 @@
+id: m5-max
+name: Apple M5 Max
+vendor: apple
+generation: apple-m5
+status: in-production
+release_year: 2025
+form_factor: embedded-soc
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 96, evidence_ref: ev-m5-max-001 }
+  fp16_tflops: { value: 96, evidence_ref: ev-m5-max-001 }
+  int8_tops: { value: 192, evidence_ref: ev-m5-max-001 }
+architecture:
+  compute_unit_count: { value: 40, evidence_ref: ev-m5-max-001 }
+  compute_unit_label: XPU
+  process_node_nm: { value: 3, evidence_ref: ev-m5-max-001 }
+  memory_hierarchy:
+    - name: 'GPU L1'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-m5-max-arch-001 }
+      notes: 'M5 GPU per-core L1 + scratchpad. M5 generation adds dedicated tensor units (Apple''s tensor-core equivalent), boosting BF16 throughput 35% vs M4 Max.'
+    - name: 'System Level Cache (SLC)'
+      scope: global
+      size_mb: { value: 36, evidence_ref: ev-m5-max-arch-001 }
+    - name: 'LPDDR5X (unified)'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-m5-max-001 }
+      bandwidth_tbs: { value: 0.640, evidence_ref: ev-m5-max-001 }
+      notes: '128 GB unified LPDDR5X at 640 GB/s — 17% bandwidth boost vs M4 Max (546 GB/s).'
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-m5-max-001 }
+  bandwidth_gbps: { value: 640, evidence_ref: ev-m5-max-001 }
+  type: LPDDR5X
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 640
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+power:
+  tdp_w: { value: 70, evidence_ref: ev-m5-max-001 }
+  sustained_w: { value: 55, evidence_ref: ev-m5-max-001 }
+  peak_w: { value: 80, evidence_ref: ev-m5-max-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  fp16_tflops_per_watt: { value: 1.75, evidence_ref: ev-m5-max-001 }
+  power_connector: integrated
+  notes: 'MacBook Pro M5 Max chassis. Best-in-class perf/watt of any device in the corpus.'
+software_support:
+  drivers: ['Metal 5', 'Core ML 9', 'MLX 0.22']
+  engines:
+    - { id: vllm, status: community-port, notes: 'mlx-vllm port' }
+    - { id: lmdeploy, status: community-port }
+  quantizations: [bf16, fp16, int8, int4-awq, mlx-q4]
+  parallelism: [tp]
+aliases: ['M5 Max', 'Apple M5 Max', 'MacBook Pro M5 Max']
+chinese_names: ['苹果 M5 Max', 'M5 Max 笔记本旗舰']
+evidence:
+  - id: ev-m5-max-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.apple.com/macbook-pro/specs/
+    accessed: '2026-05-03'
+    citation: 'Apple MacBook Pro M5 Max specs (October 2025 launch — 16-core CPU, 40-core GPU with dedicated tensor units, 16-core Neural Engine; up to 128 GB unified memory @ 640 GB/s; from $3499).'
+  - id: ev-m5-max-arch-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.apple.com/newsroom/2025/10/apple-introduces-m5-the-next-big-leap-in-ai-performance-for-mac/
+    accessed: '2026-05-03'
+    citation: 'Apple M5 announcement (October 2025): first Apple Silicon with dedicated tensor units in GPU cores; 4× peak compute boost for AI workloads vs M4 generation.'
+disclaimers:
+  - 'M5 introduces dedicated GPU tensor units (Apple''s answer to NVIDIA tensor cores / AMD WMMA). 4× peak FP16/INT8 vs M4 Max claimed; real LLM inference uplift typically 1.5-2× depending on quant + MLX kernel maturity.'
+  - 'Mac Studio M5 Max + M5 Ultra variants expected 2026 — not yet shipped at this writing.'
+notes: |
+  M5 Max is Apple's first Silicon with **dedicated GPU tensor units** — closing the
+  architectural gap with NVIDIA tensor cores / AMD WMMA / Intel XMX. Real LLM inference
+  uplift on MLX is typically 1.5-2× vs M4 Max for the same model + quant.
+
+  Use case: developer laptop for serious local LLM workflows, replaces M4 Max as the
+  apex MacBook Pro inference platform. Mac Studio M5 Max + M5 Ultra variants expected
+  2026; the M5 Max in MBP is the Apple Silicon LLM SOTA mid-2026.
+
+  Compared to M4 Max (v3.1): 35% more BF16 TFLOPS, 17% more bandwidth, dedicated tensor
+  units (the architectural step-change). For 70B BF16 decode: ~10-12 tok/s on M5 Max vs
+  ~5-8 on M4 Max.

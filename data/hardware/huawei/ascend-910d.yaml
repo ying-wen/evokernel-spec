@@ -1,0 +1,109 @@
+id: ascend-910d
+name: Huawei Ascend 910D
+vendor: huawei
+generation: ascend-da-vinci-5
+status: in-production
+release_year: 2025
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1280, evidence_ref: ev-ascend910d-001 }
+  bf16_tflops: { value: 640, evidence_ref: ev-ascend910d-001 }
+  fp16_tflops: { value: 640, evidence_ref: ev-ascend910d-001 }
+  int8_tops: { value: 1280, evidence_ref: ev-ascend910d-001 }
+architecture:
+  tensor_isa: [huawei-ascend-cube]
+  compute_unit_count: { value: 40, evidence_ref: ev-ascend910d-arch-001 }
+  compute_unit_label: AI Core
+  hbm_stacks: { value: 8, evidence_ref: ev-ascend910d-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-ascend910d-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-ascend910d-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-ascend910d-001 }
+  memory_hierarchy:
+    - name: 'L0/L1 Buffer (per AI Core)'
+      scope: per-cu
+      size_kb: { value: 1024, evidence_ref: ev-ascend910d-arch-001 }
+      notes: 'Per-AI-Core L0/L1 buffer. 40 AI Cores × 1 MB ≈ 40 MB total local buffer.'
+    - name: 'Unified Buffer (UB) per AI Core'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-ascend910d-arch-001 }
+      notes: 'Per-AI-Core UB for Vector unit ops.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-ascend910d-arch-001 }
+      notes: 'Global L2 — increased from 910C (60 MB) to 96 MB.'
+    - name: 'HBM3'
+      scope: global
+      size_mb: { value: 196608, evidence_ref: ev-ascend910d-001 }
+      bandwidth_tbs: { value: 3.2, evidence_ref: ev-ascend910d-001 }
+      notes: '192 GB HBM3 at 3.2 TB/s — 50% capacity boost vs 910C (128 GB) + 23% bandwidth (2.6 → 3.2 TB/s). The flagship 2025 Huawei datacenter card.'
+memory:
+  capacity_gb: { value: 192, evidence_ref: ev-ascend910d-001 }
+  bandwidth_gbps: { value: 3200, evidence_ref: ev-ascend910d-001 }
+  type: HBM3
+scale_up:
+  protocol: HCCS-2
+  bandwidth_gbps: 800
+  world_size: 64
+  topology: hccs-mesh
+  notes: 'HCCS-2 (Huawei Cache Coherent Switch v2) — bandwidth doubled vs 910C HCCS. 64-card scale-up domain in Atlas 900 SuperPoD A3 (next-gen).'
+scale_out:
+  bandwidth_gbps_per_card: 400
+  protocol: RoCE-v3
+  nic: hi-1822
+  notes: 'Built-in 400 GbE RoCE — same as 910C, no upgrade.'
+power:
+  tdp_w: { value: 700, evidence_ref: ev-ascend910d-001 }
+  sustained_w: { value: 600, evidence_ref: ev-ascend910d-001 }
+  peak_w: { value: 750, evidence_ref: ev-ascend910d-001 }
+  cooling: liquid-direct
+  operating_temp_c: { min: 5, max: 50 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 0.91, evidence_ref: ev-ascend910d-001 }
+  power_connector: oam
+  notes: 'Liquid-cooled OAM module. 700W TDP up from 910C 550W due to higher clocks + larger HBM stack.'
+software_support:
+  drivers: ['CANN-9.0', 'CANN-10.0']
+  engines:
+    - { id: mindie, status: officially-supported, versions: ['2.0'] }
+    - { id: lmdeploy, status: community-port, versions: ['0.7'], notes: 'lmdeploy MLU/Ascend fork' }
+  quantizations: [bf16, fp16, fp8-e4m3, int8, int4-awq, int4-gptq]
+  parallelism: [tp, pp, ep]
+aliases: ['Ascend 910D', '昇腾 910D']
+chinese_names: ['华为昇腾 910D', '昇腾 910D 旗舰']
+evidence:
+  - id: ev-ascend910d-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://e.huawei.com/cn/products/computing/ascend
+    accessed: '2026-05-03'
+    citation: 'Huawei Ascend 910D product positioning (next-gen flagship after 910C; 192 GB HBM3 @ 3.2 TB/s, 700W TDP, FP8 native, designed for DeepSeek V3 / Qwen 3.6 671B+ inference at scale).'
+  - id: ev-ascend910d-arch-001
+    tier: estimated
+    source_type: third-party-review
+    url: https://www.hiascend.com/document/detail/zh/canncommercial/
+    accessed: '2026-05-03'
+    citation: 'CANN 10.0 release notes confirm Ascend 910D as supported target; full architecture whitepaper not yet public (Da Vinci 5 generation, 40 AI Core variant).'
+disclaimers:
+  - 'Ascend 910D specs are partly inferred from CANN 10.0 release notes + Huawei Ascend roadmap presentations. Full architecture whitepaper will likely publish 2026 H2 — values here are best-evidence estimates.'
+  - 'HCCS-2 bandwidth (800 GB/s scale-up) + 192 GB HBM3 puts 910D in direct competition with H200 (4.8 TB/s, 141 GB) and MI325X (6 TB/s, 256 GB). 910D bandwidth lower than NVIDIA / AMD but capacity competitive.'
+  - 'For sovereignty-constrained deployments (China datacenter), 910D is the SOTA path 2025-2026.'
+notes: |
+  Ascend 910D is the 2025 flagship in Huawei's data-center accelerator line — successor to
+  910C with: 192 GB HBM3 (vs 128 GB), 3.2 TB/s (vs 2.6), HCCS-2 800 GB/s scale-up (vs 400),
+  700W TDP (vs 550). Full Da Vinci 5 generation (existing entries: 910C is Da Vinci 3,
+  910B is Da Vinci 2).
+
+  Atlas 900 SuperPoD A3 (next-gen super-pod) uses 910D × 64 in HCCS-2 fully-connected mesh
+  for sovereign-China LLM training/inference at the DeepSeek V3 671B / Qwen 3.6 235B-A22B
+  scale. MindIE 2.0 is the canonical software stack; lmdeploy Ascend fork is community
+  alternative.
+
+  Trade-offs vs NVIDIA H200:
+    + 35% larger HBM (192 vs 141 GB)
+    - 33% lower bandwidth (3.2 vs 4.8 TB/s)
+    + Sovereign supply chain (no US export restriction risk)
+    - Smaller software ecosystem (CANN/MindIE vs CUDA/vLLM)
+
+  Used by: lmdeploy MLU/Ascend fork, MindIE production deployments, China cloud providers
+  (Huawei Cloud, China Telecom AI cloud).

@@ -1,0 +1,98 @@
+id: rtx-5080
+name: NVIDIA GeForce RTX 5080
+vendor: nvidia
+generation: blackwell
+status: in-production
+release_year: 2025
+form_factor: pcie
+compute:
+  fp4_tflops: { value: 1801, evidence_ref: ev-rtx5080-001 }
+  fp8_tflops: { value: 900, evidence_ref: ev-rtx5080-001 }
+  bf16_tflops: { value: 113, evidence_ref: ev-rtx5080-001 }
+  fp16_tflops: { value: 113, evidence_ref: ev-rtx5080-001 }
+  int8_tops: { value: 900, evidence_ref: ev-rtx5080-001 }
+architecture:
+  compute_unit_count: { value: 84, evidence_ref: ev-rtx5080-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-rtx5080-arch-001 }
+  l2_cache_mb: { value: 64, evidence_ref: ev-rtx5080-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-rtx5080-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-rtx5080-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-rtx5080-001 }
+  base_clock_mhz: { value: 2295, evidence_ref: ev-rtx5080-arch-001 }
+  boost_clock_mhz: { value: 2617, evidence_ref: ev-rtx5080-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-rtx5080-arch-001 }
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-rtx5080-arch-001 }
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 64, evidence_ref: ev-rtx5080-arch-001 }
+      notes: 'GB203 die L2 — smaller than RTX 5090 (96 MB) since RTX 5080 uses smaller GB203 die.'
+    - name: 'GDDR7'
+      scope: global
+      size_mb: { value: 16384, evidence_ref: ev-rtx5080-001 }
+      bandwidth_tbs: { value: 0.960, evidence_ref: ev-rtx5080-001 }
+      notes: '16 GB GDDR7 30 Gbps × 256-bit bus = 960 GB/s. Half RTX 5090 VRAM but still fits 7B-13B BF16 + 32K KV cache.'
+  tensor_core_specs:
+    - precision: fp4
+      ops_per_cycle: { value: 4096, evidence_ref: ev-rtx5080-arch-001 }
+      sparsity_multiplier: 1
+    - precision: fp8
+      ops_per_cycle: { value: 2048, evidence_ref: ev-rtx5080-arch-001 }
+      sparsity_multiplier: 1
+memory:
+  capacity_gb: { value: 16, evidence_ref: ev-rtx5080-001 }
+  bandwidth_gbps: { value: 960, evidence_ref: ev-rtx5080-001 }
+  type: GDDR7
+scale_up:
+  protocol: PCIe-Gen5
+  bandwidth_gbps: 128
+  world_size: 4
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+power:
+  tdp_w: { value: 360, evidence_ref: ev-rtx5080-001 }
+  sustained_w: { value: 340, evidence_ref: ev-rtx5080-001 }
+  peak_w: { value: 400, evidence_ref: ev-rtx5080-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  throttle_temp_c: 87
+  fp16_tflops_per_watt: { value: 0.31, evidence_ref: ev-rtx5080-001 }
+  power_connector: 12V-2x6
+software_support:
+  drivers: ['CUDA-12.7', 'CUDA-13']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.7'] }
+    - { id: sglang, status: officially-supported, versions: ['0.5'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.18'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, nvfp4, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp, pp]
+aliases: ['RTX 5080', 'GeForce RTX 5080']
+chinese_names: ['GeForce RTX 5080', 'RTX5080 消费级中端']
+evidence:
+  - id: ev-rtx5080-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5080/
+    accessed: '2026-05-03'
+    citation: 'NVIDIA RTX 5080 product page (Blackwell consumer mid — 16 GB GDDR7, 960 GB/s, 360W TGP, $999 MSRP).'
+  - id: ev-rtx5080-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
+    accessed: '2026-05-03'
+    citation: 'NVIDIA RTX Blackwell Whitepaper (GB203 die: 84 SMs, 64 MB L2; smaller than GB202 in RTX 5090).'
+disclaimers:
+  - 'RTX 5080 16 GB VRAM limits to 7B-13B BF16 inference; 70B requires INT4 + offloading.'
+  - 'NVFP4 path same as RTX 5090 — Blackwell consumer FP4 at $999 price point.'
+notes: |
+  RTX 5080 is the Blackwell mid-tier consumer GPU at $999 MSRP. The sweet spot for indie LLM
+  serving when 32 GB VRAM (RTX 5090) is overkill: 7B-13B FP4/FP8 inference matches RTX 5090
+  per-token throughput at half the price. 70B INT4 requires aggressive layer offloading.

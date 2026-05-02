@@ -1,0 +1,103 @@
+id: dgx-spark
+name: NVIDIA DGX Spark (Project DIGITS)
+vendor: nvidia
+generation: blackwell
+status: in-production
+release_year: 2025
+form_factor: embedded-soc
+compute:
+  fp4_tflops: { value: 1000, evidence_ref: ev-dgx-spark-001 }
+  fp8_tflops: { value: 500, evidence_ref: ev-dgx-spark-001 }
+  bf16_tflops: { value: 62, evidence_ref: ev-dgx-spark-001 }
+  fp16_tflops: { value: 62, evidence_ref: ev-dgx-spark-001 }
+  int8_tops: { value: 500, evidence_ref: ev-dgx-spark-001 }
+architecture:
+  compute_unit_count: { value: 6144, evidence_ref: ev-dgx-spark-arch-001 }
+  compute_unit_label: PEs
+  process_node_nm: { value: 4, evidence_ref: ev-dgx-spark-arch-001 }
+  memory_hierarchy:
+    - name: 'GPU Register / SMEM'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-dgx-spark-arch-001 }
+      notes: 'GB10 SoC integrates Blackwell GPU with ~6000 CUDA cores + Grace ARM CPU. Per-CUDA-core register file.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 24, evidence_ref: ev-dgx-spark-arch-001 }
+    - name: 'LPDDR5X (unified, ARM Grace + Blackwell GPU shared)'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-dgx-spark-001 }
+      bandwidth_tbs: { value: 0.273, evidence_ref: ev-dgx-spark-001 }
+      notes: '128 GB unified LPDDR5X at 273 GB/s — same UMA pattern as Apple M-series. NVLink-C2C between Grace CPU and Blackwell GPU sees the entire 128 GB. Direct competitor to M3 Ultra / M4 Max for personal AI workstation tier.'
+  on_chip_interconnect:
+    name: 'NVLink-C2C (Grace ↔ Blackwell)'
+    bandwidth_tbs: { value: 0.6, evidence_ref: ev-dgx-spark-arch-001 }
+    notes: 'NVLink Chip-to-Chip between Grace ARM CPU and Blackwell GPU. Similar to GH200 superchip but consumer-tier scaled.'
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-dgx-spark-001 }
+  bandwidth_gbps: { value: 273, evidence_ref: ev-dgx-spark-001 }
+  type: LPDDR5X
+scale_up:
+  protocol: NVLink-C2C
+  bandwidth_gbps: 600
+  world_size: 2
+  topology: unified
+  notes: 'Two DGX Spark units can be linked via 200 GbE for scale-up to 256 GB unified — Project DIGITS marketing emphasis.'
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: 200GbE
+  nic: ConnectX-7
+  notes: 'Two-Spark linking via ConnectX-7 200 GbE — NVIDIA-blessed scale-out path.'
+power:
+  tdp_w: { value: 170, evidence_ref: ev-dgx-spark-001 }
+  sustained_w: { value: 140, evidence_ref: ev-dgx-spark-001 }
+  peak_w: { value: 200, evidence_ref: ev-dgx-spark-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  fp16_tflops_per_watt: { value: 0.44, evidence_ref: ev-dgx-spark-001 }
+  power_connector: integrated
+  notes: 'Mac mini-style chassis; integrated PSU. Plug into wall outlet, runs frontier-LLM inference.'
+software_support:
+  drivers: ['CUDA-12.7', 'DGX OS 6']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.7'] }
+    - { id: sglang, status: officially-supported, versions: ['0.5'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.18'] }
+    - { id: lmdeploy, status: officially-supported, versions: ['0.7'] }
+  quantizations: [bf16, fp16, fp8-e4m3, nvfp4, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp, pp]
+aliases: ['DGX Spark', 'Project DIGITS', 'NVIDIA DIGITS', 'GB10 Workstation']
+chinese_names: ['DGX Spark', 'NVIDIA 个人 AI 超算']
+evidence:
+  - id: ev-dgx-spark-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/products/workstations/dgx-spark/
+    accessed: '2026-05-03'
+    citation: 'NVIDIA DGX Spark product page (formerly Project DIGITS): GB10 SoC (Grace ARM + Blackwell GPU), 128 GB unified LPDDR5X @ 273 GB/s, 1 PFLOPS FP4, $3000-$4000 MSRP, ships 2025 Q3.'
+  - id: ev-dgx-spark-arch-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://nvidianews.nvidia.com/news/nvidia-puts-grace-blackwell-on-every-desk-and-at-every-ai-developers-fingertips
+    accessed: '2026-05-03'
+    citation: 'NVIDIA DGX Spark / Project DIGITS announcement (CES 2025): Grace ARM CPU (20-core) + Blackwell GPU (6000+ CUDA cores) on single GB10 SoC; NVLink-C2C interconnect; designed as personal AI workstation.'
+disclaimers:
+  - 'DGX Spark unified memory 128 GB at 273 GB/s — same bandwidth as Apple M4 Pro, smaller than M3 Ultra (512 GB / 819 GB/s). Trade-off vs Apple: lower memory, but full CUDA stack + Blackwell FP4.'
+  - '$3000 starting price puts it directly opposite Mac mini M4 Pro 64 GB ($1399) and Mac Studio M3 Ultra ($3999-$9999).'
+  - 'NVLink-C2C between Grace CPU and Blackwell GPU is unique to GH200 / GB10 — full UMA + full CUDA, no other consumer device offers this combo.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  DGX Spark is NVIDIA's direct answer to Apple Silicon for personal AI inference workstations.
+  At $3000 MSRP, it offers 128 GB unified memory + full CUDA / vLLM / TensorRT-LLM stack —
+  filling the gap between consumer GPU (RTX 5090: 32 GB, no UMA) and datacenter (H100/H200:
+  80-141 GB, $30K+).
+
+  Use case: indie/researcher running 70B-200B models locally with full CUDA tooling. The
+  same vLLM / SGLang configs that run on H100 run here at smaller scale — zero stack
+  retraining cost vs Apple Silicon (which requires MLX-port mindshare).
+
+  Trade-off vs Apple M3 Ultra: smaller memory (128 vs 512 GB), lower bandwidth (273 vs 819
+  GB/s), but full CUDA + Blackwell FP4 path. For "develop on the same toolchain you'll
+  deploy to" workflows, DGX Spark wins; for raw memory ceiling, Mac Studio wins.
+
+  Two DGX Spark units can be linked via 200 GbE for ~256 GB unified — NVIDIA-blessed scale
+  pattern targeting frontier-model researchers on a budget.
