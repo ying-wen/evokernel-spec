@@ -1,0 +1,74 @@
+id: whisper-large-v3-turbo
+name: Whisper Large V3 Turbo
+lab: openai
+release_date: 2024-10-01
+license: MIT
+domain: speech
+workload_kind: encoder-decoder
+architecture:
+  family: dense
+  total_params_b: 0.809
+  active_params_b: 0.809
+  layers: 32
+  hidden_size: 1280
+  ffn_size: 5120
+  num_attention_heads: 20
+  num_kv_heads: 20
+  head_dim: 64
+  vocab_size: 51866
+  max_context_length: 448
+  attention_type: standard
+  notes_arch: |
+    Whisper Large V3 Turbo 是 OpenAI 2024 Q4 发布的精简版 Whisper Large V3:
+    - Encoder: 32 层 (相同 V3)
+    - Decoder: 4 层 (V3 是 32 层, 减少 8×)
+    - 参数: 809M (V3 是 1.55B)
+    - 推理速度: ~8× 实时 (V3 是 ~2×)
+    - 准确率: 与 V3 几乎相同 (decoder 层数不影响 ASR 主要)
+
+    架构: encoder-decoder transformer (vs GPT-style decoder-only)
+    - 输入: 30 秒 mel-spectrogram chunks (audio → 80-channel × 3000 frame mel)
+    - Encoder: 一次性 forward 30 秒 chunk → 1500 audio tokens
+    - Decoder: autoregressive token generation (text)
+
+    部署轮廓:
+    - 单 H100: 100+ 并发 streaming (KV cache 小, decoder 浅)
+    - 单 RTX 4090: 30+ 并发 streaming
+    - 单 M3 Ultra: 50+ 并发 (MLX)
+    - 单 RK3588 NPU: 5× real-time (INT8 量化)
+    - 单 Hailo-10 / Jetson Orin Nano: 2× real-time (边缘可行)
+modalities: [audio, text]
+weight_format: fp16
+hf_url: https://huggingface.co/openai/whisper-large-v3-turbo
+github_url: https://github.com/openai/whisper
+paper_url: https://cdn.openai.com/papers/whisper.pdf
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 1600000000
+    bytes_per_token: 800000000
+  - operator: attention
+    flops_per_token: 400000000
+    bytes_per_token: 200000000
+notes: |
+  Whisper Large V3 Turbo 是开源 ASR 当前默认选择 (2025 中):
+
+  | 维度 | Whisper V3 | Whisper V3 Turbo | Parakeet (NVIDIA) |
+  |---|---|---|---|
+  | 参数 | 1.55B | 0.809B | 1.1B |
+  | License | MIT | MIT | NVIDIA-OpenSource |
+  | 实时倍率 | 2× | 8× | 10× |
+  | WER (LibriSpeech) | 1.8% | 2.0% | 1.6% |
+  | 多语言 | 99 种 | 99 种 | 仅英 |
+  | 中文 ASR | 强 | 强 | 不支持 |
+
+  常见 deployment stacks:
+  - 服务器: faster-whisper (CTranslate2 backend), insanely-fast-whisper (HF Optimum)
+  - 桌面: whisper.cpp (llama.cpp 同作者, GGUF 量化)
+  - 移动: whisper.cpp + Core ML (iOS), ONNX Runtime (Android)
+  - 边缘: RKNN-Toolkit2 (Rockchip), TensorRT-LLM Whisper (Jetson)
+
+  与 F5-TTS (TTS) 对比, ASR 部署有不同 hot path:
+  - 30 秒 chunk 是关键 (整 audio → 整 mel → encoder 一次过, vs LLM streaming)
+  - Decoder 浅 (4 层 V3 Turbo) → KV cache 小, 高并发友好
+  - 没有 KV-disagg / paged-attention 这类 LLM-only 优化的需求
+  - 对 INT8 量化 robust (vs 视频/图像 diffusion 对量化更敏感)

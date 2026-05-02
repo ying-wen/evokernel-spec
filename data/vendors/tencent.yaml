@@ -1,0 +1,7 @@
+id: tencent
+name: Tencent Hunyuan
+country: CN
+type: model-lab
+website: https://hunyuan.tencent.com/
+chinese_names: ['腾讯混元', '腾讯', '混元大模型']
+aliases: ['Tencent', 'Hunyuan']

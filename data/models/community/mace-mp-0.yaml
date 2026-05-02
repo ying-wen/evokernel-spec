@@ -1,0 +1,75 @@
+id: mace-mp-0
+name: MACE-MP-0 (universal interatomic potential)
+lab: community
+release_date: 2024-08-30
+license: MIT
+domain: scientific
+workload_kind: graph-iteration
+architecture:
+  family: diffusion
+  total_params_b: 0.005
+  active_params_b: 0.005
+  layers: 4
+  hidden_size: 128
+  attention_type: standard
+  notes_arch: |
+    MACE-MP-0 是 ACE (Atomic Cluster Expansion) + 等变图神经网络 (Equivariant GNN)
+    架构, 用于材料 / 分子 molecular dynamics 模拟. 预训练于 Materials Project
+    数据库 (1500 万 DFT-计算结构), 通用 (90 元素, 任意化学组合).
+
+    架构特点:
+    - **不是 Transformer, 不是 Diffusion** — 等变 GNN (E(3)-equivariant)
+    - 输入: 一组原子坐标 + 元素 + 周期性边界条件
+    - 输出: 每个原子的力 + 总能量 (用于 MD 时间步进)
+    - 4 层 MACE block, 每层包含 spherical harmonic projection + 张量积
+    - 模型小 (5M 参数) 但训练数据巨大 (1500 万结构)
+
+    工作负载特点 (与所有 transformer 类不同):
+    - **Graph iteration**: 不是 batch-process 一次 forward, 是 MD 时间步进
+      (10000+ 步 / 一次模拟, 每步 1 fs ~= 模拟 10 ps)
+    - **Sparse spatial structure**: 只有近邻原子互相作用 (cutoff 5 Å), 不是 dense
+      attention. 适合 GNN message-passing kernel.
+    - **No KV cache, no prefill/decode** — 完全独立的每帧 forward
+    - **Tensor-core 利用率低** — 每层操作大部分是 small-batch GEMV / Clebsch-Gordan
+      tensor product, 不是大 GEMM
+modalities: [text]
+weight_format: fp32
+hf_url: https://huggingface.co/MACE-MP/MACE-MP-0
+github_url: https://github.com/ACEsuit/mace
+paper_url: https://arxiv.org/abs/2401.00096
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 50000000
+    bytes_per_token: 30000000
+  - operator: attention
+    flops_per_token: 0
+    bytes_per_token: 0
+notes: |
+  MACE-MP 部署轮廓与 LLM/视频/图像/蛋白都不同, 是材料/分子模拟独有的:
+
+  1. **大规模并行 = 大规模时间** — 一次 MD 模拟跑 10000 步 ~ 100000 步
+     - 每步 ~10ms 在 H100 上 (1000 原子系统), 100000 步 = ~17 分钟
+     - 与 LLM "1 秒生成 1 个 token" 完全不同: 这是 "1ms 算 1 个时间步"
+
+  2. **小模型 + 高 throughput** — 5M 参数, FP32 权重, 模型加载 < 100MB
+     - 单 H100 可以并行跑 10+ 不同体系 MD
+     - 单 RTX 4090 / Apple M-series 也很流畅
+     - 边缘 RK3588 / Jetson Thor: 可行 (FP16 量化, ~50% throughput)
+
+  3. **Hardware fitness 不是 LLM 直觉** — tensor-core 帮助有限 (大部分 op 是 small
+     GEMV / sparse), HBM 带宽倒是关键 (大量小 GEMM 串行启动)
+     - H100 SXM5 vs H200 SXM: 几乎相同 throughput (HBM 没瓶颈)
+     - MI300X 192GB: 显存大对超大体系有优势 (10000+ 原子)
+     - M3 Ultra: 适合长时间持续模拟 (能耗低 + 静音)
+
+  4. **没有 vLLM / SGLang stack** — 用 ASE (Atomic Simulation Environment) 调度
+     - PyTorch + JAX 双 backend (MACE 原生 PyTorch, MACE-JAX 是社区移植)
+     - LAMMPS-MACE 集成 (传统 MD 软件 + MACE 神经势能)
+
+  5. **生态意义** — MACE-MP 是 "Open AlphaFold-for-materials":
+     - 取代 DFT (密度泛函理论, 千核小时级)
+     - 加速材料发现 1000-10000× (新电池材料 / 催化剂 / 半导体)
+     - 与 GNoME (Google DeepMind) / Orb-V2 同代竞品
+
+  v3.x corpus 候选扩展: equivariant tensor-product op-class (尚未在 v2.x 标准 op
+  集中). v3.10 时考虑加入 fused-clebsch-gordan 这类材料专用 fused kernel.

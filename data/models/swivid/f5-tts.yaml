@@ -1,0 +1,66 @@
+id: f5-tts
+name: F5-TTS
+lab: swivid
+release_date: 2024-10-09
+license: CC-BY-NC-4.0
+domain: speech
+workload_kind: forward-only-batch
+architecture:
+  family: diffusion
+  total_params_b: 0.336
+  active_params_b: 0.336
+  layers: 22
+  hidden_size: 1024
+  attention_type: cross-attention
+  notes_arch: |
+    F5-TTS 是 SWivid (上海交大语音组) 2024 Q4 发布的开源 zero-shot TTS 模型,
+    Flow-matching transformer 架构 (336M 参数 — 比传统 LLM 小 100×).
+    Sway sampling 加速, 支持 zero-shot voice cloning (3-5 秒 reference audio).
+
+    架构特点:
+    - DiT (Diffusion Transformer) on Mel-spectrogram latent
+    - Conditional Flow Matching (CFM) — 优于经典 diffusion sampler
+    - Vocos vocoder 解码 (~30M params, 自带)
+    - Sway sampling: 单步 NFE 16-32 步即可
+    - 文本输入: char-level + duration prediction
+
+    Inference 部署轮廓:
+    - 单 H100: 20× real-time (1 秒生成 20 秒音频)
+    - 单 RTX 4090: 12× real-time
+    - 单 M3 Ultra: 8× real-time (MLX)
+    - 单 RK3588 NPU: ~1.5× real-time (INT8 量化, 边缘场景可接受)
+modalities: [text, audio]
+weight_format: bf16
+hf_url: https://huggingface.co/SWivid/F5-TTS
+github_url: https://github.com/SWivid/F5-TTS
+paper_url: https://arxiv.org/abs/2410.06885
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 1500000000
+    bytes_per_token: 800000000
+  - operator: attention
+    flops_per_token: 800000000
+    bytes_per_token: 400000000
+notes: |
+  F5-TTS 是开源 TTS 当前 SOTA (2025 中). 部署轮廓与 LLM/视频/图像都不同:
+
+  - 输出: time-aligned audio waveform (不是 token sequence)
+  - Streaming: chunked inference (vs LLM autoregressive decode)
+  - 低延迟关键: TTFB < 200ms 是产品要求
+  - 模型小 (336M) → 边缘可行
+
+  常见硬件 deployment:
+  - 服务器: H100 / A100 / L40s — 均能跑 100+ 并发实时
+  - 桌面: RTX 4090 / 5090 / Apple M-series — 单用户实时
+  - 边缘: RK3588 / Jetson Thor — INT8 量化后实时 (5-10× real-time)
+  - 移动: 模型小到可以 ONNX Runtime CPU 推理 (iPhone Neural Engine 可行)
+
+  与 Whisper (ASR) 对比:
+  - Whisper: 语音 → 文本, 用 30 秒固定 chunk
+  - F5-TTS: 文本 → 语音, 流式 chunk 生成
+  - 两者经常组合 (语音对话: Whisper ASR → LLM → F5 TTS)
+
+  与 ChatTTS / Step-Audio / GPT-SoVITS 对比:
+  - F5-TTS: 最小 (336M), 最快, 视觉质量略低
+  - GPT-SoVITS: 较大 (~1B), zero-shot 质量好, 中文场景强
+  - Step-Audio: 闭源, 阶跃出品, 中文 SOTA

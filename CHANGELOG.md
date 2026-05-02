@@ -6,7 +6,92 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.8 — Continuous optimization loop** (Layer F observations drive Layer P heuristic updates automatically; v3.7 manual, v3.8 auto-tuning) AND **hardware/model breadth completion** (RTX 5070 Ti, RX 9070 non-XT, Sophgo BM1684X, Horizon Journey 5, video/image-gen/speech/bio models).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.9 — Continuous optimization loop** (Layer F perf-cliff retry trigger + auto-PR generation from accumulated agent-learnings) AND continued **model breadth** (more video/image-gen/speech/molecule models per repeated user directive).
+
+---
+
+## [3.8.0] — 2026-05-03 — Model breadth opening (video / image-gen / speech / bio-molecule)
+
+**Theme**: pivot to model breadth per repeated user directive (4 sequential repeats):
+
+> 扩展更多的模型和硬件，模型不止是这些大语言模型或者视觉语言模型，还有更多开源的视频、图像生成模型、语音模型、大分子/小分子材料模型，生物相关模型等等
+
+Pre-v3.8: corpus had **20 models, all LLM / VLM**. v3.8 opens 4 new model categories with 8 representative entries — validates ModelSchema scales beyond transformer-decoder LLMs.
+
+### Added — 4 new model-lab vendors (28 → 32)
+
+- **`tencent`** — Tencent Hunyuan (China) — for HunyuanVideo
+- **`stability-ai`** — Stability AI (UK) — for SD 3.5 Large
+- **`swivid`** — SWivid / SJTU SpeechLab (China) — for F5-TTS
+- **`mit-jameson`** — MIT Jameson Lab (US) — for Boltz-1
+- **`community`** — Open-source Community (worldwide) — for MACE-MP-0
+
+### Added — 8 models opening 4 new categories (20 → 28)
+
+**Video generation (NEW category):**
+
+- **`wan-2.1`** (Alibaba) — 14B DiT video gen, Apache-2.0; 5s 720p, T5+CLIP encoder, ~8-12s on H100. Spatial-temporal joint attention 3D variant.
+- **`hunyuan-video-13b`** (Tencent) — 13B dual-stream MMDiT; uses MLLM text encoder (vs T5); strong Chinese prompts; 5s 720p.
+
+**Image generation (extending existing FLUX 1):**
+
+- **`flux-1-1-pro`** (Black Forest Labs) — Commercial-tier FLUX (12B); 8 NFE default + 4-NFE turbo; ~0.6s on H100 1024×1024.
+- **`stable-diffusion-3.5-large`** (Stability AI) — 8.1B MMDiT; CLIP-L + CLIP-G + T5-XXL; rectified flow sampler; 28 NFE default.
+
+**Speech (NEW category):**
+
+- **`f5-tts`** (SWivid) — 336M flow-matching TTS DiT + Vocos vocoder; zero-shot voice cloning; 20× real-time on H100, 1.5× real-time on RK3588 NPU edge.
+- **`whisper-large-v3-turbo`** (OpenAI) — 809M ASR encoder-decoder; 8× real-time vs V3's 2×; 4-layer decoder vs V3's 32; INT8-quantizable for edge.
+
+**Bio / Molecule (NEW category):**
+
+- **`boltz-1`** (MIT Jameson Lab) — 500M open AlphaFold-3 equivalent; pairformer (48 layers, axial attention + triangle multiplicative update) + diffusion module (24 NFE) + confidence module. Highlights novel op `triangle_multiplicative_update` ~30% wall-clock — v3.10 fused-kernel candidate.
+- **`mace-mp-0`** (Community) — 5M parameter equivariant GNN universal interatomic potential. NOT a transformer — E(3)-equivariant message-passing for materials/molecule MD. Workload kind `graph-iteration` (10000+ time-step MD vs LLM autoregressive). Lowest-parameter model in corpus by 100×.
+
+### Why this matters
+
+The corpus had a structural gap: **agent could only reason about LLM/VLM deploys**. v3.8 proves the schema scales:
+
+| Category | Workload kind | Architecture family | Shipped |
+|---|---|---|---|
+| LLM (existing) | autoregressive-decode | dense / moe / hybrid | 20 |
+| Video gen (NEW) | forward-only-batch | diffusion (3D DiT) | 2 |
+| Image gen (existing+extended) | forward-only-batch | diffusion (DiT/MMDiT) | 3 (with FLUX dev) |
+| Speech ASR (NEW) | encoder-decoder | dense (transformer) | 1 |
+| Speech TTS (NEW) | forward-only-batch | diffusion (flow-matching) | 1 |
+| Bio structure (NEW) | forward-only-batch | diffusion (pairformer + diffusion module) | 1 |
+| Materials MD (NEW) | graph-iteration | diffusion (equivariant GNN — schema mismatch noted) | 1 |
+
+**Schema observations** (for v3.10 extension work):
+
+1. **`family: diffusion` is being stretched** — currently used as the catch-all for non-LLM. MACE-MP is technically equivariant-GNN, Boltz-1 has pairformer + diffusion. v3.10 should add new family enum values: `equivariant-gnn`, `encoder-decoder-asr`, `flow-matching-tts`.
+
+2. **`workload_kind: graph-iteration`** is correctly capturing MACE-MP's MD time-stepping pattern (different from one-shot inference).
+
+3. **New op-classes not yet in corpus** (v3.10 candidates):
+   - `triangle_multiplicative_update` (Boltz-1, AlphaFold 3, RFAA — ~30% wall-clock)
+   - `clebsch_gordan_tensor_product` (MACE-MP, Equivariant GNNs)
+   - `mel_spectrogram_encode` (Whisper, F5-TTS)
+   - `flow_matching_step` (F5-TTS, FLUX, SD 3.5)
+
+### Stats
+
+- **Models**: 20 → 28 (+8 across 4 new categories)
+- **Vendors**: 32 (+4 new model-labs + community)
+- **Site pages**: 542 → 563 (+21)
+- **Agent-context bundles**: 1140 → **1596** (+456 = 8 new models × 57 hardware)
+- **Layer D coverage**: still 100% (no regression on op/fused-kernel formal_semantics)
+- **Tests**: still 56/56 passing
+- **CI / Pages deploys**: working (lockfile fix from v3.2 still healthy)
+
+### v3.9 next
+
+**Continuous optimization loop** (the v3.8 originally-planned theme, now v3.9):
+1. Layer F perf-cliff retry trigger — when measured perf delta > 30% vs predicted, retry Layer G
+2. Auto-PR generation from accumulated `agent-learning.yaml` entries with similar `proposed_corpus_update`
+3. Layer P heuristic updates from accumulated success-pattern observations
+
+PLUS continued model breadth: SD 3.5 Medium / Turbo, Mochi 1, OpenSora 2, ESMFold, Geneformer, Evo-2 (per ongoing user directive).
 
 ---
 

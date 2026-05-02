@@ -1,0 +1,56 @@
+id: wan-2.1
+name: Wan 2.1 (14B)
+lab: alibaba
+release_date: 2025-02-25
+license: Apache-2.0
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: diffusion
+  total_params_b: 14.0
+  active_params_b: 14.0
+  layers: 40
+  hidden_size: 5120
+  attention_type: cross-attention
+  notes_arch: |
+    Wan 2.1 是 Alibaba 开源的视频生成 DiT 模型 (Diffusion Transformer 3D 变体).
+    采用 spatial-temporal joint attention — 与图像 DiT 不同的是, 时间维度上的
+    token 也参与同一 attention 块. T5-XXL 文本编码器 + 3D-VAE 潜空间.
+    14B 参数主网络 + 5B 文本编码 + 0.4B VAE.
+
+    支持 480p/720p 输出, 5 秒短视频 (16 fps × 5s = 80 frames).
+    部署轮廓: H100 80GB 单卡可跑 720p (约 8-12 秒生成 5 秒视频, 50 步采样).
+    比 Sora 慢但开源, 国产首款达到接近 Sora 视觉质量的开源视频模型.
+modalities: [text, video]
+weight_format: bf16
+hf_url: https://huggingface.co/Wan-AI/Wan2.1-T2V-14B
+github_url: https://github.com/Wan-Video/Wan2.1
+paper_url: https://arxiv.org/abs/2503.20314
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 100000000000
+    bytes_per_token: 56000000000
+  - operator: attention
+    flops_per_token: 80000000000
+    bytes_per_token: 40000000000
+  - operator: rmsnorm
+    flops_per_token: 5120000
+    bytes_per_token: 2048000
+notes: |
+  视频生成模型部署轮廓与 LLM/图像 diffusion 都不同:
+  - 没有 KV cache (单次 forward, 不像 LLM)
+  - 50 步采样 (像图像 diffusion) — 但每步 cost 是图像 diffusion 的 ~80×
+    (5 帧 × 16 fps × 1 秒 = 80 frame tokens per step)
+  - 显存峰值在 latent + KV intermediate, 比纯参数大 2-3×
+  - 对长 attention 友好 hardware 优势明显 (FA3, FA-MLA 等 long-ctx kernel)
+
+  常见硬件 deployment:
+  - H100 80GB SXM: 720p × 5s 单卡 ~8-12 秒生成 (50 步)
+  - H200 141GB: 同上但能跑 1080p
+  - MI300X 192GB: 1080p × 10s 单卡可行
+  - 消费级 RTX 4090 24GB / RTX 5090 32GB: 仅 480p × 5s, FP8 量化
+
+  与已有 LLM 部署 stack 的差异:
+  - 引擎不是 vLLM/SGLang — 是 ComfyUI / Diffusers / 自建 Triton kernel
+  - 量化: 主流是 FP8 + GGUF; 没有 INT4-AWQ 这类 LLM-only 路径
+  - 加速套件: TeaCache, ParaAttention, xFuser (multi-GPU diffusion 并行)

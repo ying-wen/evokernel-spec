@@ -1,0 +1,80 @@
+id: boltz-1
+name: Boltz-1 (Open biomolecular structure prediction)
+lab: mit-jameson
+release_date: 2024-11-22
+license: MIT
+domain: scientific
+workload_kind: forward-only-batch
+architecture:
+  family: diffusion
+  total_params_b: 0.5
+  active_params_b: 0.5
+  layers: 48
+  hidden_size: 1024
+  attention_type: cross-attention
+  notes_arch: |
+    Boltz-1 是 MIT Jameson Lab 2024 Q4 开源的 AlphaFold 3 同等水平蛋白结构预测模型.
+    AlphaFold 3 闭源 + 仅学术 API, Boltz-1 完全开源 + MIT 许可证 + 同等准确率.
+
+    架构: 三大模块组合 (AlphaFold 3 同款):
+    - **Pairformer**: 48 层 axial attention + triangle multiplicative update
+      (这是核心新架构, 取代 AlphaFold 2 的 Evoformer)
+    - **Confidence module**: 预测局部置信度 (pLDDT, pTM, ipTM)
+    - **Diffusion module**: 24 步 denoising 生成 3D 坐标 (vs AF2 的 SE(3)-equivariant
+      structure module)
+
+    特点:
+    - 输入: 蛋白序列 + 配体 SMILES (可选) + 修饰位点 (可选)
+    - 输出: 5 个 3D 结构样本 + 每个 atom 的置信度
+    - 处理: 单链 / 复合物 / 蛋白-小分子 / 蛋白-DNA/RNA / 翻译后修饰
+    - 推理时: 单结构预测 ~1-3 分钟 (H100, 200 残基), 比 AF2 (5-10 分钟) 快
+
+    部署轮廓:
+    - 单 H100 80GB: 处理 ~500 残基蛋白 (单卡显存上限)
+    - 单 H200 141GB / MI300X 192GB: 处理 ~1000 残基, 复合物 / 多链
+    - 单 A100 80GB: 同 H100 但慢 ~2×
+    - M3 Ultra 512GB: 处理超大复合物 (>2000 残基) 但慢 (没有 tensor-core 优势)
+    - RTX 4090 24GB: 仅 ~250 残基 (显存限制)
+modalities: [text]
+weight_format: bf16
+hf_url: https://huggingface.co/boltz-community/boltz-1
+github_url: https://github.com/jwohlwend/boltz
+paper_url: https://www.biorxiv.org/content/10.1101/2024.11.19.624167v1
+operator_decomposition:
+  - operator: attention
+    flops_per_token: 50000000000
+    bytes_per_token: 25000000000
+  - operator: matmul
+    flops_per_token: 30000000000
+    bytes_per_token: 18000000000
+notes: |
+  Boltz-1 部署轮廓与 LLM 完全不同:
+
+  1. **没有 KV cache** — 单次 forward, 不像 LLM 自回归
+  2. **没有 prefill/decode 二分** — pairformer 是迭代 refinement (48 层), diffusion
+     是 24 步采样, 都是 batch-friendly
+  3. **显存峰值在 pair representation tensor** — O(L²) 复杂度 (L = 残基数量)
+     - 200 残基: ~20 GB
+     - 500 残基: ~80 GB (这是 H100 80GB 上限)
+     - 1000 残基: ~200 GB (需要 H200 141GB OOM, 必须 MI300X 192GB 或多卡)
+  4. **三角不等式更新 (triangle multiplicative update)** 是独特 hot path
+     - 不是普通 GEMM/attention, 没有现成 tensor-core kernel
+     - 在 Boltz-1 / AF3 / RFAA 都被 profile 为 ~30% wall-clock 占用
+     - 是 v3.x corpus 应该新增的 fused-kernel candidate (triangle-multiplicative)
+
+  推荐 hardware × 残基数 fitness:
+
+  | 硬件 | 单链 ≤200 | 单链 ≤500 | 复合物 ≤1000 | 大复合物 |
+  |---|---|---|---|---|
+  | H100 80GB | ✅ 推荐 | ✅ 上限 | ❌ OOM | ❌ |
+  | H200 141GB | ✅ | ✅ | ⚠️ 边缘 | ❌ |
+  | MI300X 192GB | ✅ | ✅ | ✅ | ⚠️ |
+  | M3 Ultra 512GB | ✅ (慢) | ✅ (慢) | ✅ | ✅ (大型友好) |
+
+  注: M3 Ultra 在大蛋白上是 sleeper 选择 — 512GB 内存让超大复合物可行,
+  虽然 throughput 较低 (没有 tensor-core 优势 vs Hopper).
+
+  与 v3.x agent 的关系:
+  - Layer R bundle 应该把 triangle_multiplicative_update 列入 op-class
+    (尚未在 corpus 中 — v3.10 候选)
+  - 对 MI300X / M-series 的部署优化有独特机会 (大显存 + 长 sequence)

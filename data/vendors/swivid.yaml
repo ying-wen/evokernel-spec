@@ -1,0 +1,7 @@
+id: swivid
+name: SWivid
+country: CN
+type: model-lab
+website: https://github.com/SWivid
+chinese_names: ['SWivid', '上海交大语音组']
+aliases: ['SJTU SpeechLab']

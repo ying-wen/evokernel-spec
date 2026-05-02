@@ -1,0 +1,54 @@
+id: hunyuan-video-13b
+name: HunyuanVideo (13B)
+lab: tencent
+release_date: 2024-12-03
+license: Tencent-Hunyuan-Community-License
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: diffusion
+  total_params_b: 13.0
+  active_params_b: 13.0
+  layers: 60
+  hidden_size: 3072
+  attention_type: cross-attention
+  notes_arch: |
+    腾讯混元视频是首个开源的 13B 参数级文生视频 DiT 模型 (2024 年 12 月发布).
+    架构: dual-stream MMDiT (image+text 联合) + 3D causal VAE + 多模态大语言模型
+    (MLLM) 文本编码器 (替代 T5).
+
+    特点:
+    - 5-second 720p 视频生成
+    - 双 stream block (类似 FLUX) — image+text token 互相参与 attention
+    - 文本编码器换成自家 MLLM (而不是 T5/CLIP), 中文场景表现更好
+    - 推理时 50 NFE (默认), 可以用 distillation 压到 8 NFE
+modalities: [text, video]
+weight_format: bf16
+hf_url: https://huggingface.co/tencent/HunyuanVideo
+github_url: https://github.com/Tencent/HunyuanVideo
+paper_url: https://arxiv.org/abs/2412.03603
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 95000000000
+    bytes_per_token: 52000000000
+  - operator: attention
+    flops_per_token: 75000000000
+    bytes_per_token: 38000000000
+notes: |
+  HunyuanVideo 与 Wan 2.1 同期 (2024 末-2025 初) 是开源视频生成 SOTA 双雄:
+
+  | 维度 | HunyuanVideo | Wan 2.1 |
+  |---|---|---|
+  | 参数 | 13B | 14B |
+  | 文本编码器 | MLLM (混元自家) | T5-XXL + CLIP |
+  | 视频长度 | 5s | 5s |
+  | 中文 prompt | 强 (训练数据) | 中等 |
+  | 英文 prompt | 中等 | 强 (T5 优势) |
+  | 推理速度 | 略快 | 略慢 |
+  | License | Community (商用受限) | Apache 2.0 (商用友好) |
+
+  部署考虑: 与 Wan 2.1 几乎相同的硬件需求 (H100 80GB 单卡跑 720p 5s).
+  常见 stack: Diffusers + xFuser (multi-GPU) + TeaCache 加速.
+
+  腾讯还开源了 HunyuanVideo-Avatar (2025 Q3) 处理人物视频, 同架构 + 额外
+  pose conditioning. 不在本条目范围.

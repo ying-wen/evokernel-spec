@@ -1,0 +1,58 @@
+id: stable-diffusion-3.5-large
+name: Stable Diffusion 3.5 Large
+lab: stability-ai
+release_date: 2024-10-22
+license: Stability-AI-Community-License
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: diffusion
+  total_params_b: 8.1
+  active_params_b: 8.1
+  layers: 38
+  hidden_size: 2432
+  attention_type: cross-attention
+  notes_arch: |
+    Stable Diffusion 3.5 Large 是 Stability AI 2024 Q4 发布的开源 MMDiT 模型 (vs
+    经典 SD 1.x/2.x/XL 的 UNet 架构). 8.1B 参数主网络, 由 38 层 MMDiT block 组成
+    (与 FLUX 类似但参数量更小).
+
+    特点:
+    - 三个文本编码器: CLIP-L (124M) + CLIP-G (694M) + T5-XXL (4.7B)
+    - VAE: SDXL VAE (改进版, 16 通道 latent)
+    - Sampler: rectified flow (RF) — 与 SD3.0 一致
+    - Text encoder pruning: 推理时可去掉 T5 (省 ~5GB 显存) 损失 prompt 跟随精度
+
+    与 FLUX 对比:
+    - FLUX 12B vs SD 3.5L 8.1B — FLUX 视觉质量更高
+    - SD 3.5 Large Turbo (4-step distilled) 适合实时 / 边缘
+    - SD 3.5L 多分辨率训练 (256 → 1280) 更灵活
+modalities: [text, vision]
+weight_format: bf16
+hf_url: https://huggingface.co/stabilityai/stable-diffusion-3.5-large
+github_url: https://github.com/Stability-AI/sd3.5
+paper_url: https://stability.ai/news/introducing-stable-diffusion-3-5
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 24000000000
+    bytes_per_token: 16000000000
+  - operator: attention
+    flops_per_token: 12000000000
+    bytes_per_token: 8000000000
+notes: |
+  SD 3.5 Large 是开源 image-gen 主流选择之一 (与 FLUX.1 [dev] 并列):
+
+  | 维度 | SD 3.5L | FLUX.1 [dev] |
+  |---|---|---|
+  | 参数 | 8.1B | 12B |
+  | License | Community (≤$1M revenue 商用免费) | Non-Commercial |
+  | 视觉质量 | 较强 | SOTA |
+  | Text editing | 较强 | 强 |
+  | NFE | 28 步默认 | 50 步默认 |
+  | H100 1024×1024 | ~1.2 秒 | ~2 秒 |
+  | RTX 4090 1024×1024 | ~3 秒 (FP8) | ~5 秒 (FP8) |
+
+  部署 stack: Diffusers / ComfyUI / Stable-FAST. 无 vLLM/SGLang 路径 (image-gen
+  与 LLM serving stack 完全不同).
+
+  小型变体可选: SD 3.5 Medium (2.5B), SD 3.5 Large Turbo (4-step distilled).

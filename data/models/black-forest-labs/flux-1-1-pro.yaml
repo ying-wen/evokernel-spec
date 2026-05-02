@@ -1,0 +1,54 @@
+id: flux-1-1-pro
+name: FLUX.1.1 [pro]
+lab: black-forest-labs
+release_date: 2024-10-02
+license: BFL-Commercial-License
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: diffusion
+  total_params_b: 12.0
+  active_params_b: 12.0
+  layers: 57
+  hidden_size: 3072
+  attention_type: cross-attention
+  notes_arch: |
+    FLUX.1.1 [pro] 是 BFL 2024 Q4 发布的商用级旗舰图像生成模型, 在 [dev] 基础上
+    优化了细节渲染 + 文本嵌入. 同样 12B DiT 架构 (19 double-stream + 38 single-stream),
+    但训练数据扩充 + 蒸馏后 inference NFE 可降至 4-8 步 (vs [dev] 20-50).
+
+    与 [dev] 对比:
+    - [dev]: 12B, Apache-tier license, 50 NFE 默认, 较慢但开源友好
+    - [pro]: 12B (相同), commercial license, 8 NFE 默认 + 4-NFE turbo 模式, 快 5-10×
+    - [schnell]: 4B 蒸馏版, Apache, 1-4 NFE, 用于 real-time UX
+
+    Inference 部署轮廓 (8 NFE 默认):
+    - H100 80GB SXM: 1024×1024 ~0.6 秒
+    - RTX 4090 24GB: 1024×1024 ~1.5 秒 (FP8 量化)
+    - M3 Ultra 512GB Mac Studio: 1024×1024 ~3 秒 (MLX, BF16)
+modalities: [text, vision]
+weight_format: bf16
+hf_url: https://api.bfl.ml/  # only via API; weights not public
+github_url: https://github.com/black-forest-labs/flux
+paper_url: https://blackforestlabs.ai/announcing-flux-1-1-pro/
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 36000000000
+    bytes_per_token: 24000000000
+  - operator: attention
+    flops_per_token: 18000000000
+    bytes_per_token: 12000000000
+notes: |
+  FLUX.1.1 [pro] 是 commercial-tier 模型 (weights 不开源, 仅 API). 该条目存在的
+  目的是让 corpus 反映 image-gen frontier — 即使 weights 不开放, 部署轮廓 +
+  优化策略 + 硬件 fitness 仍然适用 (因为同 architecture family / 同 12B 参数级).
+
+  实际开源部署: 用 FLUX.1 [dev] (已在 corpus 中) 或 FLUX.1 [schnell] (4B 蒸馏版).
+  这条目主要服务于:
+    - 用户咨询"我用 FLUX 商用方案部署到我的 H100 服务器"时的硬件 fitness 推荐
+    - 与 FLUX.1 [dev] 的对比 (相同架构 + 不同推理路径)
+
+  Schedulers + acceleration:
+  - Rectified Flow (RF) sampler 是默认 (vs [dev] 的 Euler)
+  - TeaCache, FLUX-Turbo, Hyper-FLUX 蒸馏路径
+  - xFuser 多卡 latent parallelism
