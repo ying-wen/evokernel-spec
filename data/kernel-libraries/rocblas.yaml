@@ -1,0 +1,41 @@
+id: rocblas
+name: rocBLAS
+vendor: amd
+language: hip
+api_style: opaque-handle
+target_archs: [cdna3, cdna4, rdna3]
+
+covers_op_classes:
+  - { class: gemm, coverage: full }
+  - { class: gemv, coverage: full }
+  - { class: batched-gemm, coverage: full }
+  - { class: grouped-gemm, coverage: partial, notes: "Variable-K group GEMM via rocblas_gemm_strided_batched_ex" }
+
+precision_support: [fp8-e4m3, fp8-e5m2, bf16, fp16, fp32, int8, int4]
+
+abi_signature_pattern: |
+  rocblas_gemm_ex_3(handle, transA, transB,
+                   m, n, k, &alpha,
+                   A, dtypeA, lda,
+                   B, dtypeB, ldb,
+                   &beta,
+                   C, dtypeC, ldc,
+                   D, dtypeD, ldd,
+                   computeType, algo, flags);
+include_paths: [rocblas/rocblas.h]
+linker_flags: [-lrocblas]
+
+latest_version: '4.2'
+maturity: production
+
+cross_vendor_equivalents:
+  - { library: cublas, op_class: gemm, equivalence: 'rocblas_gemm_ex_3 ↔ cublasGemmEx', notes: "API designed for cuBLAS source compat; HIP shim hipBLAS provides drop-in." }
+
+docs_url: https://rocm.docs.amd.com/projects/rocBLAS/
+source_url: https://github.com/ROCm/rocBLAS
+notes: "FP8 GEMM mature on MI300X+; pre-MI300X non-deterministic by default (set ROCBLAS_LAYER for determinism). Use rocBLAS via hipBLAS shim for cross-vendor portable code."
+
+porting_caveats_from_cuda:
+  - "Pre-MI300X: parallel reduction non-deterministic by default; explicit flag needed for bit-exact reproducibility"
+  - "hipBLAS shim adds 0-3% latency vs direct rocBLAS calls"
+  - "Memory layout assumptions same as cuBLAS (column-major default)"

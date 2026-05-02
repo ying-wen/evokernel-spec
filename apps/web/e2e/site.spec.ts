@@ -627,6 +627,77 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.5: /kernel-libraries/ Layer C + formal_semantics Layer D', () => {
+  test('/api/kernel-libraries.json returns 200 with 8 entries', async ({ request }) => {
+    const r = await request.get('/api/kernel-libraries.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.count).toBeGreaterThanOrEqual(8);
+    expect(body.license).toBe('CC-BY-SA-4.0');
+    const ids = body.items.map((l: any) => l.id);
+    for (const id of ['cublas', 'cudnn', 'cutlass', 'rocblas', 'miopen', 'ck', 'aclnn', 'cnnl']) {
+      expect(ids).toContain(id);
+    }
+  });
+
+  test('/kernel-libraries/ index page renders header + coverage matrix', async ({ page }) => {
+    await page.goto('/kernel-libraries/');
+    await expect(page.getByRole('heading', { name: /Kernel libraries|算子库目录/i }).first()).toBeVisible();
+    // Vendor sections
+    await expect(page.getByText(/NVIDIA/i).first()).toBeVisible();
+    await expect(page.getByText(/AMD/i).first()).toBeVisible();
+    await expect(page.getByText(/Huawei|Ascend/i).first()).toBeVisible();
+    // Coverage matrix
+    await expect(page.getByText(/op-class.*library 覆盖矩阵|coverage matrix/i).first()).toBeVisible();
+  });
+
+  test('Each library detail page renders sections', async ({ page }) => {
+    for (const slug of ['cublas', 'aclnn', 'ck']) {
+      await page.goto(`/kernel-libraries/${slug}/`);
+      await expect(page.getByText(/Op-class 覆盖|api_style|workspace|template|opaque/i).first()).toBeVisible();
+    }
+  });
+
+  test('aclnn detail page surfaces porting caveats from CUDA', async ({ page }) => {
+    await page.goto('/kernel-libraries/aclnn/');
+    await expect(page.getByText(/从 CUDA 移植 caveats|porting/i).first()).toBeVisible();
+    // aclnn has memory hierarchy + workspace caveats
+    await expect(page.getByText(/UB.*L1.*L0|workspace|prefill.*decode/i).first()).toBeVisible();
+  });
+
+  test('Cross-vendor equivalents linked on cuBLAS page', async ({ page }) => {
+    await page.goto('/kernel-libraries/cublas/');
+    await expect(page.getByText(/跨厂商等价|Cross.vendor|equivalent/i).first()).toBeVisible();
+    // Should link to rocblas + aclnn at minimum
+    const rocLink = page.locator('a[href$="/kernel-libraries/rocblas/"]').first();
+    const aclnnLink = page.locator('a[href$="/kernel-libraries/aclnn/"]').first();
+    await expect(rocLink).toBeVisible();
+    await expect(aclnnLink).toBeVisible();
+  });
+
+  test('softmax operator surfaces formal_semantics block (Layer D)', async ({ page }) => {
+    await page.goto('/operators/softmax/');
+    await expect(page.getByText(/Formal semantics|形式化语义|Layer D/i).first()).toBeVisible();
+    // Edge cases section
+    await expect(page.getByText(/Edge cases|all elements are -inf/i).first()).toBeVisible();
+    // Numerical rules
+    await expect(page.getByText(/Numerical rules|deterministic_reduction|accumulation_dtype/i).first()).toBeVisible();
+  });
+
+  test('matmul operator surfaces FP8 scaling rules across libraries', async ({ page }) => {
+    await page.goto('/operators/matmul/');
+    await expect(page.getByText(/Formal semantics|形式化语义/i).first()).toBeVisible();
+    // FP8 scaling rule mentioned (per-tensor / per-block)
+    await expect(page.getByText(/fp8_scaling|per-tensor|per-block/i).first()).toBeVisible();
+  });
+
+  test('SDPA operator surfaces softmax_accumulation_dtype rule', async ({ page }) => {
+    await page.goto('/operators/scaled-dot-product-attention/');
+    await expect(page.getByText(/Formal semantics|形式化语义/i).first()).toBeVisible();
+    await expect(page.getByText(/FP32 internal|softmax_accumulation/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v2.4: /api/* agent-readiness endpoints + /agents/ doc page', () => {
   test('/api/operators.json returns 200 with items array', async ({ request }) => {
     const r = await request.get('/api/operators.json');

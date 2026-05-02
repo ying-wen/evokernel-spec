@@ -16,3 +16,4 @@ export * from './playbook';
 export * from './citation';
 export * from './tour';
 export * from './manifest';
+export * from './kernel-library';

@@ -1,0 +1,41 @@
+id: cublas
+name: cuBLAS / cuBLASLt
+vendor: nvidia
+language: cuda-cpp
+api_style: opaque-handle
+target_archs: [hopper, blackwell, ada, ampere, volta, turing]
+
+covers_op_classes:
+  - { class: gemm, coverage: full }
+  - { class: gemv, coverage: full }
+  - { class: batched-gemm, coverage: full }
+  - { class: grouped-gemm, coverage: full, notes: "cublasGemmGroupedBatchedEx in 12.x" }
+
+precision_support: [fp4, fp8-e4m3, fp8-e5m2, bf16, fp16, fp32, tf32, int8, int4]
+
+abi_signature_pattern: |
+  cublasGemmEx(handle, transA, transB,
+               m, n, k, &alpha,
+               A, dtypeA, lda,
+               B, dtypeB, ldb,
+               &beta,
+               C, dtypeC, ldc,
+               computeType, algo);
+include_paths: [cublas_v2.h, cublasLt.h]
+linker_flags: [-lcublas, -lcublasLt]
+
+latest_version: '12.6'
+maturity: production
+
+cross_vendor_equivalents:
+  - { library: rocblas, op_class: gemm, equivalence: 'cublasGemmEx ↔ rocblas_gemm_ex_3', notes: "API surface ~95% compat via hipBLAS shim. Pre-MI300X non-deterministic by default." }
+  - { library: aclnn, op_class: gemm, equivalence: 'cublasGemmEx ↔ aclnnMatmul', notes: "Different API style: opaque vs workspace-executor. 1:1 functionally for fp16/bf16; FP8 via separate ATB op on Ascend." }
+  - { library: ck, op_class: gemm, equivalence: 'cublasGemmEx ↔ ck::DeviceGemm', notes: "CK is template-based; need C++ instantiation rather than runtime selection." }
+  - { library: cnnl, op_class: gemm, equivalence: 'cublasGemmEx ↔ cnnlMatmul', notes: "Cambricon equivalent; FP8 not yet in main release." }
+  - { library: mpsgraph, op_class: gemm, equivalence: 'cublasGemmEx ↔ MPSGraph.matrixMultiply', notes: "Graph-based, batch+grad path differs." }
+
+docs_url: https://docs.nvidia.com/cuda/cublas/
+source_url: https://developer.nvidia.com/cublas
+notes: "FP8 GEMM only on Hopper+ (sm_90+); falls back to FP16 on older archs. cuBLASLt is the recommended path for transformer workloads (epilogue fusion, scaling factors)."
+
+porting_caveats_from_cuda: []

@@ -1,0 +1,47 @@
+id: ck
+name: Composable Kernel (CK)
+vendor: amd
+language: hip
+api_style: template
+target_archs: [cdna3, cdna4, rdna3]
+
+covers_op_classes:
+  - { class: gemm, coverage: full }
+  - { class: batched-gemm, coverage: full }
+  - { class: grouped-gemm, coverage: full }
+  - { class: attention, coverage: full }
+  - { class: flash-attention, coverage: full, notes: "Flash-attention-3-equivalent on MI300X+" }
+  - { class: paged-attention, coverage: full, notes: "vLLM-rocm uses CK paged-attn" }
+  - { class: fused-mask-softmax, coverage: full }
+  - { class: rms-norm, coverage: full }
+  - { class: layer-norm, coverage: full }
+  - { class: rope, coverage: full }
+  - { class: moe-gate, coverage: experimental }
+  - { class: spec-decode-verify, coverage: experimental }
+
+precision_support: [fp4, fp8-e4m3, fp8-e5m2, bf16, fp16, fp32, int8, int4]
+
+abi_signature_pattern: |
+  using DeviceGemm = ck::tensor_operation::device::DeviceGemm<
+    ALayout, BLayout, CLayout,
+    ADataType, BDataType, CDataType,
+    AccDataType, ...>;
+  DeviceGemm gemm_op;
+  gemm_op.Run(arg_ptr, ck::StreamConfig{stream});
+include_paths: ['ck/library/utility/device_memory.hpp']
+linker_flags: []
+
+latest_version: '6.2'
+maturity: production
+
+cross_vendor_equivalents:
+  - { library: cutlass, op_class: gemm, equivalence: 'ck::DeviceGemm ↔ cutlass::DeviceGemm', notes: "Both template-based; CK mirrors CUTLASS philosophy. Tile shape selection differs per arch (CK has CDNA3/CDNA4-specific MFMA tiles, CUTLASS has Hopper WGMMA)." }
+  - { library: cutlass, op_class: flash-attention, equivalence: 'ck flash-attn ↔ cutlass flash-attn', notes: "Both are template instantiations of the algorithm; selection rules different per arch." }
+
+docs_url: https://github.com/ROCm/composable_kernel
+source_url: https://github.com/ROCm/composable_kernel
+notes: "AMD's CUTLASS-equivalent. Required for highest-performance LLM inference on MI300X+. vLLM-rocm builds on CK extensively."
+
+porting_caveats_from_cuda:
+  - "Template instantiation explicit per (dtype, layout, tile shape, arch); CUTLASS users will recognize the pattern"
+  - "Tile shapes are MFMA-specific (16x16x32 / 32x32x16) — different from WGMMA tiles"

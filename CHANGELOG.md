@@ -10,6 +10,60 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
 
 ---
 
+## [2.5.0] — 2026-05-02
+
+**Theme**: Hardware-software gap **Layer C + Layer D** — kernel libraries catalog + operator formal semantics. Directly addresses the user's pushback: "CUDA算子和实现，CANN和类似其他算子实现语法不同，功能不同，覆盖度不同".
+
+### Added — Layer C: Kernel libraries catalog
+
+- **New `KernelLibrarySchema`** (`schemas/kernel-library.ts`) capturing: vendor, kernel-language, API style, target archs, per-op-class coverage (full/partial/experimental/missing/deprecated), precision support, ABI signature pattern, include/linker flags, **`cross_vendor_equivalents`** (the keystone field for portability), and `porting_caveats_from_cuda`.
+- **8 library entries** in `data/kernel-libraries/`:
+  - NVIDIA: cuBLAS, cuDNN, CUTLASS
+  - AMD: rocBLAS, MIOpen, CK (Composable Kernel)
+  - Huawei: aclnn (Ascend C Neural Network library)
+  - Cambricon: CNNL
+- **`/api/kernel-libraries.json`** endpoint.
+- **`/kernel-libraries/`** index page grouped by vendor + per-library coverage stats + visual coverage matrix (op-class × library).
+- **`/kernel-libraries/<slug>/`** detail pages with: basic info / build flags / ABI pattern / per-op-class coverage cards / cross-vendor equivalents / porting caveats.
+- Coverage matrix on the index page is the first materialized **Layer E** view (full ISA-aware version planned for v2.6).
+
+### Added — Layer D: Operator formal semantics (start)
+
+- **Extended `OperatorSchema`** with `formal_semantics` field containing:
+  - Mathematical signature
+  - **`edge_cases`** with per-library behaviors + recommended mitigation
+  - **`numerical_rules`** (accumulation dtype / determinism / FP8 scaling) per library
+  - Reference implementation snippet
+- Plus `KernelImplementationSchema.kernel_library` cross-link to Layer C entries.
+- **3 high-stakes operators populated**:
+  - **softmax**: documents that all--inf input returns 0 across all major libs but Triton can return NaN if max-subtract not applied; deterministic-reduction rules per lib; FP32 internal accumulation requirements
+  - **matmul**: zero-dim edge cases (CUTLASS asserts vs cuBLAS no-op); FP8 scaling differences (per-tensor vs per-block, NVFP4 vs MXFP4 block sizes); accumulation dtype rules
+  - **scaled-dot-product-attention**: all-masked-row behavior; is_causal alignment convention (bottom-right); GQA dispatch requirements; softmax internal FP32 critical
+- **Formal semantics section** rendered on every operator detail page when populated.
+
+### Added — Wiring
+- `nav-groups.ts`: `算子库目录` entry in optimize dropdown (theme: accent).
+- `i18n`: `nav.kernelLibraries` zh/en.
+- Loader registration + validate-data registration for kernel-library entity.
+- **8 v2.5 E2E tests** covering API endpoint, index/detail pages, coverage matrix, cross-vendor equivalents, porting caveats, and formal_semantics on 3 ops.
+
+### Why this matters
+This iteration ships the answer to: *"For an agent porting a CUDA kernel to Ascend / AMD / Cambricon, what data does it need?"*
+
+- **Coverage** ("覆盖度不同"): per-op-class coverage table on each library page tells the agent immediately whether an op is full/partial/missing in that library
+- **Syntax** ("语法不同"): `api_style` + `abi_signature_pattern` + `include_paths` + `linker_flags` give the syntactic shape; cross_vendor_equivalents map operations 1:1 between libraries with caveats
+- **Functionality** ("功能不同"): `formal_semantics.edge_cases` + `numerical_rules` capture subtle behavior differences (softmax with -inf, FP8 scaling granularity, deterministic reductions) that silently break ports
+
+This is **Layer C + Layer D** of the 5-layer hw-sw gap decomposition (see `docs/superpowers/specs/2026-05-02-hw-sw-gap.md`). Layer A (ISA primitives) + Layer E (full coverage matrix) come in v2.6; Layer B (programming model + kernel templates) in v2.7.
+
+### Stats
+- 8 new v2.5 E2E tests pass · full suite green
+- Build: 464 pages (was 454, +10 = `/kernel-libraries/` × 9 + API)
+- Schema additions all backward-compatible
+- Agent-readiness ~50% → ~62%
+
+---
+
 ## [2.4.0] — 2026-05-02
 
 **Theme**: Agent-readiness — make the corpus consumable by autonomous deployment agents. First half of the 3-iteration plan from `docs/superpowers/specs/2026-05-02-agent-readiness.md`.

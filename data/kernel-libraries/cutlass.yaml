@@ -1,0 +1,39 @@
+id: cutlass
+name: CUTLASS
+vendor: nvidia
+language: cuda-cpp
+api_style: template
+target_archs: [hopper, blackwell, ada, ampere, volta, turing]
+
+covers_op_classes:
+  - { class: gemm, coverage: full, notes: "Reference for hand-tuned GEMM" }
+  - { class: batched-gemm, coverage: full }
+  - { class: grouped-gemm, coverage: full }
+  - { class: attention, coverage: full, notes: "Examples in cutlass/examples; full FlashAttention-3" }
+  - { class: flash-attention, coverage: full }
+  - { class: conv2d, coverage: full }
+  - { class: paged-attention, coverage: experimental, notes: "vLLM hand-rolls on top of CUTLASS primitives" }
+
+precision_support: [fp4, fp8-e4m3, fp8-e5m2, bf16, fp16, fp32, tf32, int8, int4]
+
+abi_signature_pattern: |
+  using Gemm = cutlass::gemm::device::Gemm<
+    ElementA, LayoutA, ElementB, LayoutB, ElementC, LayoutC,
+    ElementAccumulator, OperatorClass, ArchTag, ThreadblockShape, ...>;
+  Gemm gemm_op;
+  gemm_op({{m, n, k}, {A, lda}, {B, ldb}, {C, ldc}, {C, ldc}, {alpha, beta}});
+include_paths: ['cutlass/gemm/device/gemm.h']
+linker_flags: []
+
+latest_version: '3.8'
+maturity: production
+
+cross_vendor_equivalents:
+  - { library: ck, op_class: gemm, equivalence: 'cutlass::DeviceGemm ↔ ck::DeviceGemm', notes: "Both template-based; ck mirrors CUTLASS design philosophy. Tile shapes differ per arch." }
+  - { library: cublas, op_class: gemm, equivalence: 'cutlass::DeviceGemm ↔ cublasGemmEx', notes: "CUTLASS gives template-time tile selection vs runtime; CUTLASS used for fused epilogues, cuBLAS for default." }
+
+docs_url: https://github.com/NVIDIA/cutlass
+source_url: https://github.com/NVIDIA/cutlass
+notes: "Header-only template library. Used as the backend for cuBLAS and TensorRT-LLM fast paths. Required for FP4 GEMM on Blackwell (ahead of cuBLAS support)."
+
+porting_caveats_from_cuda: []

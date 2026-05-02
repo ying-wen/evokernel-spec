@@ -1,0 +1,43 @@
+id: cudnn
+name: cuDNN
+vendor: nvidia
+language: cuda-cpp
+api_style: opaque-handle
+target_archs: [hopper, blackwell, ada, ampere, volta, turing]
+
+covers_op_classes:
+  - { class: attention, coverage: full, notes: "cuDNN 9.x has FlashAttention-style fused attention" }
+  - { class: flash-attention, coverage: full, notes: "Hopper SDPA fused — competitive with FlashAttention-3" }
+  - { class: layer-norm, coverage: full }
+  - { class: rms-norm, coverage: full, notes: "cuDNN 9.0+" }
+  - { class: softmax, coverage: full }
+  - { class: fused-mask-softmax, coverage: full }
+  - { class: conv2d, coverage: full }
+  - { class: conv3d, coverage: full }
+  - { class: depthwise-conv, coverage: full }
+  - { class: pool, coverage: full }
+  - { class: rope, coverage: partial, notes: "Via SDPA epilogue; standalone in 9.1+" }
+
+precision_support: [fp8-e4m3, fp8-e5m2, bf16, fp16, fp32, tf32, int8]
+
+abi_signature_pattern: |
+  cudnnCreateTensorDescriptor(&desc);
+  cudnnSetTensor4dDescriptor(desc, format, dataType, n, c, h, w);
+  cudnnXxxForward(handle, ..., descA, A, ..., descC, C);
+include_paths: [cudnn.h, cudnn_frontend.h]
+linker_flags: [-lcudnn]
+
+latest_version: '9.4'
+maturity: production
+
+cross_vendor_equivalents:
+  - { library: miopen, op_class: conv2d, equivalence: 'cudnnConvolutionForward ↔ miopenConvolutionForward', notes: "1:1 API design (rocm intentionally cuDNN-compatible)." }
+  - { library: aclnn, op_class: layer-norm, equivalence: 'cudnnLayerNormForward ↔ aclnnLayerNorm', notes: "Functionally equivalent; aclnn requires explicit workspace allocation step." }
+  - { library: aclnn, op_class: softmax, equivalence: 'cudnnSoftmaxForward ↔ aclnnSoftmax', notes: "1:1 fp16/bf16; mask-fused variant differs (aclnnMaskedSoftmax separate op)." }
+  - { library: cnnl, op_class: conv2d, equivalence: 'cudnnConvolutionForward ↔ cnnlConvolutionForward', notes: "Similar API; tile selection differs." }
+
+docs_url: https://docs.nvidia.com/deeplearning/cudnn/
+source_url: https://developer.nvidia.com/cudnn
+notes: "Frontend C++ API (cudnn_frontend) recommended over legacy graph API. SDPA fused-attention is the Hopper LLM serving fast path."
+
+porting_caveats_from_cuda: []

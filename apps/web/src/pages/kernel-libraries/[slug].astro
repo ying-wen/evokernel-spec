@@ -1,0 +1,128 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getKernelLibraries } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const libs = await getKernelLibraries();
+  return libs.map((l) => ({ params: { slug: l.id }, props: { lib: l } }));
+}
+
+const { lib } = Astro.props;
+
+const COVERAGE_COLOR: Record<string, string> = {
+  full: 'oklch(60% 0.18 145)',
+  partial: 'oklch(70% 0.18 70)',
+  experimental: 'oklch(65% 0.16 50)',
+  missing: 'oklch(55% 0.2 25)',
+  deprecated: 'oklch(60% 0 0)'
+};
+---
+<BaseLayout title={`${lib.name} — Kernel library`}>
+  <Container>
+    <section class="pt-12 pb-8">
+      <a href={pathname('/kernel-libraries/')} class="text-sm" style="color: var(--color-text-muted);">← Kernel libraries</a>
+      <div class="mt-4 flex items-baseline gap-3 flex-wrap">
+        <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{lib.name}</h1>
+        <Badge variant="accent">{lib.api_style}</Badge>
+        <Badge>maturity: {lib.maturity}</Badge>
+        {lib.latest_version && <Badge>v{lib.latest_version}</Badge>}
+      </div>
+      {lib.notes && <p class="mt-3 text-base" style="color: var(--color-text-muted);">{lib.notes}</p>}
+    </section>
+
+    <section class="pb-8 grid lg:grid-cols-2 gap-6">
+      <div>
+        <h3 class="text-lg font-semibold mb-3">基础信息</h3>
+        <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          <SpecRow label="Vendor">{lib.vendor}</SpecRow>
+          <SpecRow label="Language">{lib.language}</SpecRow>
+          <SpecRow label="API style">{lib.api_style}</SpecRow>
+          <SpecRow label="Target archs">{lib.target_archs.join(', ')}</SpecRow>
+          {lib.docs_url && <SpecRow label="Docs"><a href={lib.docs_url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{lib.docs_url}</a></SpecRow>}
+          {lib.source_url && <SpecRow label="Source"><a href={lib.source_url} target="_blank" rel="noopener" class="underline" style="color: var(--color-accent);">{lib.source_url}</a></SpecRow>}
+        </div>
+      </div>
+      <div>
+        <h3 class="text-lg font-semibold mb-3">编译/链接</h3>
+        <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          {lib.include_paths.length > 0 && <SpecRow label="Includes">{lib.include_paths.map((p) => <code class="text-xs">{p}</code>).join(' ') as any}</SpecRow>}
+          {lib.linker_flags.length > 0 && <SpecRow label="Linker">{lib.linker_flags.map((f) => <code class="text-xs">{f}</code>).join(' ') as any}</SpecRow>}
+          <SpecRow label="Precisions">{lib.precision_support.join(', ') || '—'}</SpecRow>
+        </div>
+      </div>
+    </section>
+
+    {lib.abi_signature_pattern && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">ABI 签名模式</h3>
+        <pre class="rounded-lg p-4 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre-wrap;"><code>{lib.abi_signature_pattern}</code></pre>
+      </section>
+    )}
+
+    <section class="pb-8">
+      <h3 class="text-lg font-semibold mb-3">Op-class 覆盖 ({lib.covers_op_classes.length})</h3>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {lib.covers_op_classes.map((c) => {
+          const color = COVERAGE_COLOR[c.coverage];
+          return (
+            <div class="rounded p-3 border" style={`border-color: color-mix(in oklch, ${color} 25%, var(--color-border)); background: color-mix(in oklch, ${color} 4%, var(--color-surface-raised));`}>
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <code class="text-xs font-semibold" style="color: var(--color-text);">{c.class}</code>
+                <span class="text-xs font-semibold" style={`color: ${color};`}>{c.coverage}</span>
+              </div>
+              {c.notes && <p class="text-xs" style="color: var(--color-text-muted);">{c.notes}</p>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    {lib.cross_vendor_equivalents.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">🔄 跨厂商等价</h3>
+        <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+          这是智能体做 kernel 移植时查询的核心字段. 每条等价指向另一个库 + 该 op-class + 等价描述 + caveats.
+        </p>
+        <div class="grid gap-3">
+          {lib.cross_vendor_equivalents.map((eq) => (
+            <div class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex items-center gap-3 mb-1 flex-wrap">
+                <a href={pathname(`/kernel-libraries/${eq.library}/`)} class="text-sm font-semibold hover:underline" style="color: var(--color-accent);">→ {eq.library}</a>
+                <code class="text-xs" style="color: var(--color-text-muted);">{eq.op_class}</code>
+              </div>
+              <p class="text-sm mb-1" style="color: var(--color-text);">{eq.equivalence}</p>
+              {eq.notes && <p class="text-xs" style="color: var(--color-text-muted);">{eq.notes}</p>}
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {lib.porting_caveats_from_cuda.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3" style="color: oklch(70% 0.18 70);">⚠️ 从 CUDA 移植 caveats</h3>
+        <ul class="space-y-2">
+          {lib.porting_caveats_from_cuda.map((c) => (
+            <li class="rounded p-3 border text-sm" style="background: color-mix(in oklch, oklch(70% 0.18 70) 5%, var(--color-surface-raised)); border-color: oklch(70% 0.18 70);">
+              {c}
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Layer C entry. See <a href={pathname('/kernel-libraries/')} class="underline" style="color: var(--color-accent);">所有 libraries</a> ·
+        <a href={pathname('/operators/')} class="underline" style="color: var(--color-accent);">算子目录</a> ·
+        <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/</a>.
+        数据来源: 各厂商官方文档 (accessed 2026-04). 欢迎 PR 修正/补充至
+        <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 0 4px; border-radius: 3px;">data/kernel-libraries/{lib.id}.yaml</code>.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

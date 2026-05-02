@@ -1,0 +1,66 @@
+id: aclnn
+name: aclnn (Ascend C Neural Network library)
+vendor: huawei
+language: ascend-c
+api_style: workspace-executor
+target_archs: [ascend-910b, ascend-910c, ascend-910d]
+
+covers_op_classes:
+  - { class: gemm, coverage: full }
+  - { class: gemv, coverage: full }
+  - { class: batched-gemm, coverage: full }
+  - { class: grouped-gemm, coverage: partial, notes: "910C limited; 910D mature" }
+  - { class: attention, coverage: full, notes: "Standard MHA + GQA via aclnnIncreFlashAttention" }
+  - { class: flash-attention, coverage: full, notes: "aclnnIncreFlashAttention / aclnnPromptFlashAttention" }
+  - { class: layer-norm, coverage: full }
+  - { class: rms-norm, coverage: full }
+  - { class: softmax, coverage: full }
+  - { class: fused-mask-softmax, coverage: full, notes: "aclnnMaskedSoftmax separate op from softmax" }
+  - { class: rope, coverage: full, notes: "aclnnRotaryPositionEmbedding" }
+  - { class: moe-gate, coverage: experimental, notes: "910D path mature; 910C requires custom kernel" }
+  - { class: spec-decode-verify, coverage: missing, notes: "No native impl; requires custom Ascend-C kernel" }
+  - { class: paged-attention, coverage: partial, notes: "Via ATB op; not in core aclnn" }
+  - { class: kv-cache-quant, coverage: experimental }
+
+precision_support: [bf16, fp16, int8, int4-awq]
+# Note: FP8 limited; available via separate ATB op for specific shapes.
+
+abi_signature_pattern: |
+  // 1. Get workspace size
+  uint64_t workspaceSize;
+  aclOpExecutor* executor;
+  aclnnXxxGetWorkspaceSize(args, &workspaceSize, &executor);
+
+  // 2. Allocate workspace
+  void* workspace;
+  aclrtMalloc(&workspace, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+
+  // 3. Execute
+  aclnnXxx(workspace, workspaceSize, executor, stream);
+
+  // 4. Cleanup
+  aclrtFree(workspace);
+  aclDestroyExecutor(executor);
+include_paths: ['aclnnop/aclnn_xxx.h', 'acl/acl.h']
+linker_flags: [-lopapi, -lascendcl]
+
+latest_version: '8.0.RC3'
+maturity: production
+
+cross_vendor_equivalents:
+  - { library: cublas, op_class: gemm, equivalence: 'aclnnMatmul ↔ cublasGemmEx', notes: "Different API style: workspace-executor vs opaque-handle. Functionally 1:1 for fp16/bf16. FP8 path uses separate ATB op on Ascend." }
+  - { library: cudnn, op_class: layer-norm, equivalence: 'aclnnLayerNorm ↔ cudnnLayerNormForward', notes: "Functionally equivalent; aclnn requires explicit workspace allocation step (cuDNN handles internally)." }
+  - { library: cudnn, op_class: softmax, equivalence: 'aclnnSoftmax ↔ cudnnSoftmaxForward', notes: "1:1 for plain softmax; mask-fused variant differs (aclnnMaskedSoftmax separate op vs cuDNN inline mask)." }
+  - { library: cudnn, op_class: flash-attention, equivalence: 'aclnnIncreFlashAttention ↔ cudnnSDPA', notes: "Both are fused attention; different fusion shapes. Ascend variant pre-decoupled into prefill/decode (aclnnPromptFlashAttention vs aclnnIncreFlashAttention)." }
+
+docs_url: https://www.hiascend.com/document/detail/zh/canncommercial/80RC3/apiref/appdevgapi/aolapi_07_0001.html
+source_url: https://gitee.com/ascend
+notes: "Part of Huawei CANN. Workspace+executor pattern requires 2-step call but enables better resource pre-allocation for repeated calls."
+
+porting_caveats_from_cuda:
+  - "Memory hierarchy is explicit (UB/L1/L0) — kernel internals must DMA in 3 stages, but aclnn handles this internally"
+  - "Workspace must be pre-allocated before each call (use aclnnXxxGetWorkspaceSize first)"
+  - "Streams are aclrtStream not cudaStream_t — different lifecycle (explicit Create/Destroy)"
+  - "Many ops have prefill / decode variants split (e.g., aclnnPromptFlashAttention vs aclnnIncreFlashAttention) where cuDNN has unified path"
+  - "Error codes are aclError not cudaError_t"
+  - "FP8 path is via ATB ops, not core aclnn — different library, different API style"

@@ -60,3 +60,67 @@ references:
   - title: 'Marlin: Mixed Precision Auto-Tuned GEMM Kernel'
     url: https://github.com/IST-DASLab/marlin
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    matmul(A: Tensor[M, K], B: Tensor[K, N], alpha: scalar = 1.0, beta: scalar = 0.0,
+           C: Optional[Tensor[M, N]] = None) -> Tensor[M, N]
+    output[m, n] = alpha * sum_k(A[m, k] * B[k, n]) + beta * (C[m, n] if C else 0)
+    Layout (row-major vs column-major) and transpose flags affect indexing.
+
+  edge_cases:
+    - input: 'M=0 or N=0 or K=0 (any zero-dim)'
+      behaviors:
+        cublas: 'Returns C unchanged (or zero tensor if C absent)'
+        cutlass: 'ASSERT — refuses dispatch in some templates; user must check first'
+        cnnl: 'Returns C unchanged'
+        aclnn: 'Returns C unchanged'
+        rocblas: 'Returns C unchanged'
+      mitigation: 'Always check non-zero dims before calling. Critical for dynamic-shape inference (e.g., padded batches).'
+
+    - input: 'Mixed dtypes (FP8 A, FP16 B)'
+      behaviors:
+        cublas: 'Supported via cuBLASLt with separate scaling factors'
+        rocblas: 'Supported on MI300X+; older archs require manual cast'
+        aclnn: 'Limited support; usually requires manual cast to common dtype first'
+        cnnl: 'Cast required to common dtype'
+
+    - input: 'NaN/Inf in A or B'
+      behaviors:
+        all_libs: 'Propagated via floating-point semantics (NaN × x = NaN, Inf × 0 = NaN)'
+      mitigation: 'Detect upstream; matmul will not silently mask.'
+
+  numerical_rules:
+    - aspect: 'accumulation_dtype'
+      per_library:
+        cublas: 'FP16 input → FP32 accum (default) or FP16 accum (CUBLAS_COMPUTE_16F)'
+        cutlass: 'Configurable per template instantiation; default FP32'
+        rocblas: 'FP16 input → FP32 accum (default)'
+        aclnn: 'FP16 input → FP32 accum'
+        ck: 'Configurable; default FP32'
+      notes: 'Some custom Triton kernels accumulate in FP16 silently — quality drop on long K dim.'
+
+    - aspect: 'deterministic_reduction'
+      per_library:
+        cublas: 'Default deterministic for fixed alpha/beta'
+        rocblas: 'Default non-deterministic pre-MI300X; ROCBLAS_LAYER=1 for det'
+        cutlass: 'Deterministic per template; split-K may introduce non-det'
+        aclnn: 'Deterministic'
+
+    - aspect: 'fp8_scaling'
+      per_library:
+        cublas: 'Per-tensor scaling (cuBLASLt scaleA, scaleB args)'
+        cutlass: 'Per-tensor or per-block (FP8 epilogue layout)'
+        rocblas: 'Per-tensor (MI300X)'
+        ck: 'Per-tensor or per-block (CK epilogue)'
+      notes: 'NVFP4 / MXFP4 use per-block scaling; agent must check block size matches kernel expectation (16 vs 32).'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def matmul(A, B, alpha=1.0, beta=0.0, C=None):
+          # PyTorch's @ operator + bias
+          out = alpha * (A @ B)
+          if C is not None:
+              out = out + beta * C
+          return out

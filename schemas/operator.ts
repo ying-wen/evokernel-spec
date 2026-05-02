@@ -26,7 +26,47 @@ const KernelImplementationSchema = z.object({
   /** Source-code or docs URL. */
   url: z.string().url().optional(),
   /** Notes (perf, limitations). */
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  /** v2.5: kernel-library this implementation calls into (cublas / aclnn / etc.). */
+  kernel_library: Slug.optional()
+});
+
+/**
+ * v2.5 / Layer D: formal semantics block.
+ *
+ * Captures edge cases, numerical rules, determinism — the things that differ
+ * subtly across implementations and silently break agent kernel ports.
+ *
+ * See docs/superpowers/specs/2026-05-02-hw-sw-gap.md (Layer D).
+ */
+const EdgeCaseSchema = z.object({
+  /** Description of the input scenario. */
+  input: z.string().min(1),
+  /** Per-implementation behavior — keyed by lib id or 'all_libs'. */
+  behaviors: z.record(z.string(), z.string()),
+  /** Recommended mitigation (which path is safe). */
+  mitigation: z.string().optional()
+});
+
+const NumericalRuleSchema = z.object({
+  /** What aspect is tracked — 'deterministic_reduction', 'accumulation_dtype', 'overflow_handling', etc. */
+  aspect: z.string().min(1),
+  /** Per-lib spec — keyed by lib id. */
+  per_library: z.record(z.string(), z.string())
+});
+
+const FormalSemanticsSchema = z.object({
+  /** Mathematical signature — "softmax(x: T[..., D], dim: int) -> T[..., D]" + formula. */
+  signature: z.string().optional(),
+  /** Edge cases that differ across implementations. */
+  edge_cases: z.array(EdgeCaseSchema).default([]),
+  /** Numerical rules — accumulation dtype, determinism, overflow handling. */
+  numerical_rules: z.array(NumericalRuleSchema).default([]),
+  /** Reference implementation pointer (PyTorch / NumPy as canonical). */
+  reference_impl: z.object({
+    framework: z.string().min(1),
+    snippet: z.string().min(1)
+  }).optional()
 });
 
 const ReferenceSchema = z.object({
@@ -72,7 +112,10 @@ export const OperatorSchema = z.object({
   /** Patterns that affect this op's execution. */
   related_patterns: z.array(Slug).default([]),
   /** External references (paper / blog / impl). */
-  references: z.array(ReferenceSchema).default([])
+  references: z.array(ReferenceSchema).default([]),
+
+  /** v2.5 / Layer D: edge cases and numerical rules across implementations. */
+  formal_semantics: FormalSemanticsSchema.optional()
 });
 
 export type Operator = z.infer<typeof OperatorSchema>;

@@ -1,0 +1,48 @@
+id: cnnl
+name: CNNL (Cambricon Neural Network Library)
+vendor: cambricon
+language: bang-c
+api_style: opaque-handle
+target_archs: [cambricon-mlu]
+
+covers_op_classes:
+  - { class: gemm, coverage: full }
+  - { class: gemv, coverage: full }
+  - { class: batched-gemm, coverage: full }
+  - { class: conv2d, coverage: full }
+  - { class: depthwise-conv, coverage: full }
+  - { class: pool, coverage: full }
+  - { class: layer-norm, coverage: full }
+  - { class: rms-norm, coverage: full }
+  - { class: softmax, coverage: full }
+  - { class: attention, coverage: partial, notes: "Plain attention; flash-attn variant in CNNL Extra" }
+  - { class: rope, coverage: full }
+  - { class: moe-gate, coverage: experimental }
+  - { class: spec-decode-verify, coverage: missing }
+
+precision_support: [bf16, fp16, int8, int4-awq, int4-gptq]
+# FP8 not in main CNNL release as of CN 1.x.
+
+abi_signature_pattern: |
+  cnnlCreateTensorDescriptor(&desc);
+  cnnlSetTensorDescriptor(desc, layout, dataType, dimNb, dimSize);
+  cnnlXxx(handle, ..., descA, A, ..., descC, C);
+include_paths: ['cnnl.h', 'cnnl_extra.h']
+linker_flags: [-lcnnl]
+
+latest_version: '1.27'
+maturity: stable
+
+cross_vendor_equivalents:
+  - { library: cudnn, op_class: conv2d, equivalence: 'cnnlConvolutionForward ↔ cudnnConvolutionForward', notes: "Similar API; tile selection differs significantly per arch." }
+  - { library: cublas, op_class: gemm, equivalence: 'cnnlMatmul ↔ cublasGemmEx', notes: "1:1 functionally for fp16/bf16; FP8 not yet in main release." }
+  - { library: aclnn, op_class: attention, equivalence: 'CNNL flash-attn ↔ aclnnIncreFlashAttention', notes: "Both are fused attention impls on domestic NPU; tile sizes / prefill/decode separation differ." }
+
+docs_url: https://www.cambricon.com/docs/cnnl/
+source_url: https://github.com/Cambricon
+notes: "Cambricon's cuDNN+cuBLAS-equivalent. Used by lmdeploy / vllm-mlu fork on MLU290 / MLU370 / MLU590."
+
+porting_caveats_from_cuda:
+  - "Streams are cnrtQueue_t (BANG runtime); different lifecycle"
+  - "Tile-shape selection often requires explicit per-arch tuning"
+  - "Some advanced ops live in CNNL Extra (separate library, separate header)"

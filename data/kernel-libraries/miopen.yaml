@@ -1,0 +1,38 @@
+id: miopen
+name: MIOpen
+vendor: amd
+language: hip
+api_style: opaque-handle
+target_archs: [cdna3, cdna4, rdna3]
+
+covers_op_classes:
+  - { class: conv2d, coverage: full }
+  - { class: conv3d, coverage: full }
+  - { class: depthwise-conv, coverage: full }
+  - { class: pool, coverage: full }
+  - { class: layer-norm, coverage: full }
+  - { class: rms-norm, coverage: partial, notes: "Available in 3.x; pre-3.0 needed custom kernel" }
+  - { class: softmax, coverage: full }
+  - { class: attention, coverage: partial, notes: "Naive attention; flash-attn via separate ck library" }
+
+precision_support: [fp8-e4m3, bf16, fp16, fp32, int8]
+
+abi_signature_pattern: |
+  miopenCreateTensorDescriptor(&desc);
+  miopenSet4dTensorDescriptor(desc, dataType, n, c, h, w);
+  miopenXxxForward(handle, ..., descA, A, ..., descC, C);
+include_paths: [miopen/miopen.h]
+linker_flags: [-lMIOpen]
+
+latest_version: '3.2'
+maturity: production
+
+cross_vendor_equivalents:
+  - { library: cudnn, op_class: conv2d, equivalence: 'miopenConvolutionForward ↔ cudnnConvolutionForward', notes: "Designed for cuDNN API compat. Some kernels still tile-suboptimal vs cuDNN on equivalent hw class." }
+  - { library: cudnn, op_class: layer-norm, equivalence: 'miopenLayerNormForward ↔ cudnnLayerNormForward' }
+
+docs_url: https://rocm.docs.amd.com/projects/MIOpen/
+source_url: https://github.com/ROCm/MIOpen
+notes: "Convolution-heavy workloads use MIOpen; attention/LLM workloads should prefer Composable Kernel (ck)."
+
+porting_caveats_from_cuda: []

@@ -82,3 +82,74 @@ references:
   - title: 'PyTorch SDPA documentation'
     url: https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    sdpa(Q: [B, H, S_q, D], K: [B, H_kv, S_k, D], V: [B, H_kv, S_k, D],
+         mask: Optional[Tensor], scale: float = 1/sqrt(D),
+         is_causal: bool = False, dropout_p: float = 0) -> [B, H, S_q, D]
+    output = softmax(Q @ K^T * scale + mask) @ V
+    For GQA/MQA: H_kv < H; K/V are broadcast to H heads.
+
+  edge_cases:
+    - input: 'all-masked row (mask = -inf for entire row)'
+      behaviors:
+        cudnn-sdpa: 'Returns 0 in that output row (consistent with softmax all-(-inf) behavior)'
+        flash-attn-v3: 'Returns 0 in that output row'
+        ascend-incre-fa: 'Returns 0 in that output row'
+        ck-flash-attn: 'Returns 0 in that output row'
+        naive-pytorch: 'Returns NaN if SDPA backend uses non-stable softmax'
+      mitigation: 'For padded sequences, prefer is_causal=True or attention_mask over manual -inf padding. Test with single fully-padded row.'
+
+    - input: 'is_causal=True with non-square (S_q != S_k) shape'
+      behaviors:
+        cudnn-sdpa: 'Applies upper-triangular mask aligned bottom-right (correct for incremental decode)'
+        flash-attn-v3: 'Same — bottom-right alignment (Tri Dao convention)'
+        pytorch-sdpa: 'Same'
+        ascend-incre-fa: 'Same'
+      mitigation: 'Verify alignment in unit tests when porting; cross-vendor consistency on this convention is strong but worth checking.'
+
+    - input: 'dropout_p > 0'
+      behaviors:
+        cudnn-sdpa: 'RNG state from per-block seed; deterministic if seed fixed'
+        flash-attn-v3: 'Same RNG model'
+        pytorch-naive: 'PyTorch RNG; different sequence than fused kernels'
+      mitigation: 'For training: dropout output not bit-exact across backends. For inference: typically dropout_p=0 (skip).'
+
+    - input: 'GQA where H % H_kv != 0'
+      behaviors:
+        cudnn-sdpa: 'ASSERT — refuses dispatch'
+        flash-attn-v3: 'ASSERT'
+        ascend-incre-fa: 'ASSERT'
+      mitigation: 'GQA requires H % H_kv == 0; user must verify model arch before dispatch.'
+
+  numerical_rules:
+    - aspect: 'softmax_accumulation_dtype'
+      per_library:
+        cudnn-sdpa: 'FP32 internal'
+        flash-attn-v3: 'FP32 internal (configurable)'
+        ascend-incre-fa: 'FP32 internal'
+        ck-flash-attn: 'FP32 internal (configurable in template)'
+      notes: 'Critical: FP16 internal accumulation can cause silent quality drop on long-context. Always verify FP32 internal in custom kernels.'
+
+    - aspect: 'fp8_attention_scaling'
+      per_library:
+        flash-attn-v3-fp8: 'Per-tensor scaling for Q, K, V'
+        cudnn-sdpa-fp8: 'Per-tensor scaling'
+        trtllm-fp8: 'Per-tensor scaling'
+        ascend-fp8: 'Limited; per-tensor only on 910D'
+      notes: 'Block-quantized FP4 not yet broadly supported in fused attention kernels (early 2026); FP4 attention typically goes through dequant-attention path.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def sdpa(Q, K, V, mask=None, scale=None, is_causal=False, dropout_p=0):
+          import torch.nn.functional as F
+          # Use PyTorch's reference impl as ground truth
+          return F.scaled_dot_product_attention(
+              Q, K, V,
+              attn_mask=mask,
+              dropout_p=dropout_p,
+              is_causal=is_causal,
+              scale=scale  # default 1/sqrt(D)
+          )

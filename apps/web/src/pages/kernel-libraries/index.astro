@@ -1,0 +1,181 @@
+---
+/**
+ * /kernel-libraries/ — kernel library catalog (v2.5 / Layer C).
+ *
+ * The opaque-API libraries (cuBLAS / cuDNN / CUTLASS / rocBLAS / MIOpen / CK /
+ * aclnn / CNNL) that ship most production ops without custom kernel writing.
+ * This index page surfaces them grouped by vendor, with coverage stats and
+ * cross-vendor equivalence summary.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+import { getKernelLibraries } from '~/lib/data';
+
+const libraries = (await getKernelLibraries()).sort((a, b) =>
+  a.vendor.localeCompare(b.vendor) || a.id.localeCompare(b.id)
+);
+
+// Group by vendor
+const byVendor = new Map<string, typeof libraries>();
+for (const l of libraries) {
+  if (!byVendor.has(l.vendor)) byVendor.set(l.vendor, []);
+  byVendor.get(l.vendor)!.push(l);
+}
+
+const VENDOR_LABEL: Record<string, string> = {
+  nvidia: 'NVIDIA',
+  amd: 'AMD',
+  huawei: 'Huawei (Ascend)',
+  cambricon: 'Cambricon',
+  intel: 'Intel',
+  apple: 'Apple',
+  google: 'Google',
+  'moore-threads': 'Moore Threads'
+};
+
+const API_STYLE_LABEL: Record<string, string> = {
+  'opaque-handle': 'Opaque handle',
+  'template': 'C++ template',
+  'workspace-executor': 'Workspace+executor',
+  'graph-based': 'Graph-based',
+  'function-call': 'Function call',
+  'mixed': 'Mixed'
+};
+
+const COVERAGE_COLOR: Record<string, string> = {
+  full: 'oklch(60% 0.18 145)',
+  partial: 'oklch(70% 0.18 70)',
+  experimental: 'oklch(65% 0.16 50)',
+  missing: 'oklch(55% 0.2 25)',
+  deprecated: 'oklch(60% 0 0)'
+};
+
+// Aggregate per-library coverage stats
+function coverageSummary(lib: typeof libraries[number]) {
+  const counts = { full: 0, partial: 0, experimental: 0, missing: 0, deprecated: 0 };
+  for (const c of lib.covers_op_classes) counts[c.coverage]++;
+  return counts;
+}
+---
+<BaseLayout title="Kernel libraries — 算子库目录">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="KERNEL LIBRARIES · v2.5 · LAYER C"
+        title="算子库目录"
+        subtitle={`${libraries.length} 个 opaque-API 库 · 覆盖 ${[...new Set(libraries.flatMap((l) => l.covers_op_classes.map((c) => c.class)))].length}+ 算子类 · 跨厂商等价对照`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        Kernel libraries 是大多数生产 op 不需要写 kernel 直接调用的 opaque API. 这页回答 <strong>"我用 cuBLAS 写的 kernel, 在 Ascend / AMD / 寒武纪上等价是什么?"</strong>
+        每个库包含: 覆盖 op 类列表 / API 风格 / 精度支持 / 跨厂商等价指针 / 移植 caveats.
+      </p>
+      <p class="text-sm mt-2 max-w-3xl" style="color: var(--color-text-muted);">
+        参见 <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/</a> 和
+        hw-sw 5 层分解 spec (docs/superpowers/specs/2026-05-02-hw-sw-gap.md). 这是 Layer C.
+      </p>
+    </section>
+
+    {/* By vendor */}
+    {[...byVendor.entries()].map(([vendor, libs]) => (
+      <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+        <h2 class="text-2xl font-semibold mb-3">{VENDOR_LABEL[vendor] ?? vendor}</h2>
+        <div class="grid gap-3 lg:grid-cols-2">
+          {libs.map((l) => {
+            const cs = coverageSummary(l);
+            const total = l.covers_op_classes.length;
+            return (
+              <a href={pathname(`/kernel-libraries/${l.id}/`)} class="block rounded-lg p-5 border transition-transform hover:-translate-y-0.5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                <div class="flex items-start justify-between gap-3 mb-2">
+                  <h3 class="text-lg font-semibold">{l.name}</h3>
+                  <span class="text-xs font-mono px-2 py-1 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">
+                    {API_STYLE_LABEL[l.api_style]}
+                  </span>
+                </div>
+                <div class="text-xs mb-3" style="color: var(--color-text-muted);">
+                  Language: <code style="color: var(--color-text);">{l.language}</code> · Maturity: {l.maturity} · v{l.latest_version ?? '?'}
+                </div>
+                <div class="text-xs mb-2" style="color: var(--color-text-muted);">
+                  覆盖 {total} 个 op 类:
+                </div>
+                <div class="flex gap-1 flex-wrap mb-3">
+                  {(['full', 'partial', 'experimental', 'missing'] as const).map((tier) => cs[tier] > 0 && (
+                    <span style={`font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; background: color-mix(in oklch, ${COVERAGE_COLOR[tier]} 15%, transparent); color: ${COVERAGE_COLOR[tier]}; font-weight: 600;`}>
+                      {cs[tier]} {tier}
+                    </span>
+                  ))}
+                </div>
+                <div class="flex gap-2 flex-wrap">
+                  {l.precision_support.slice(0, 4).map((p) => (
+                    <span style="font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; background: color-mix(in oklch, var(--color-border) 40%, transparent); color: var(--color-text-muted); font-family: var(--font-mono);">{p}</span>
+                  ))}
+                  {l.precision_support.length > 4 && <span class="text-xs" style="color: var(--color-text-muted);">+{l.precision_support.length - 4} more</span>}
+                </div>
+                {l.cross_vendor_equivalents.length > 0 && (
+                  <div class="text-xs mt-3 pt-3 border-t" style="border-color: color-mix(in oklch, var(--color-border) 50%, transparent); color: var(--color-text-muted);">
+                    跨厂商等价: {l.cross_vendor_equivalents.length} 条
+                  </div>
+                )}
+              </a>
+            );
+          })}
+        </div>
+      </section>
+    ))}
+
+    {/* Coverage matrix */}
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📊 op-class × library 覆盖矩阵</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        每个单元格颜色表示该库对该 op-class 的覆盖深度. 这是 <strong>Layer E 覆盖矩阵</strong>从现有 Layer C 数据派生的初版.
+        v2.6 计划补充 ISA 原语层后, 完整 (op × arch × lib × precision) 4D 矩阵会作为
+        <code>/api/coverage-matrix.json</code> 暴露.
+      </p>
+      {(() => {
+        // Get all unique op classes across libraries
+        const allOps = [...new Set(libraries.flatMap((l) => l.covers_op_classes.map((c) => c.class)))].sort();
+        return (
+          <div class="overflow-x-auto">
+            <table class="text-xs" style="border-collapse: collapse; min-width: 100%;">
+              <thead>
+                <tr>
+                  <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 200px;">Op class ↓ × Library →</th>
+                  {libraries.map((l) => (
+                    <th class="p-2 text-center" style="border-bottom: 1px solid var(--color-border); min-width: 80px;">
+                      <a href={pathname(`/kernel-libraries/${l.id}/`)} class="hover:underline" style="color: var(--color-accent); font-size: 0.7rem; font-weight: 500;">{l.name.split('(')[0].trim()}</a>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allOps.map((opClass) => (
+                  <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
+                    <td class="p-2 sticky left-0 font-mono" style="background: var(--color-bg); white-space: nowrap; font-size: 0.7rem;">
+                      {opClass}
+                    </td>
+                    {libraries.map((l) => {
+                      const entry = l.covers_op_classes.find((c) => c.class === opClass);
+                      const cov = entry?.coverage ?? 'missing';
+                      const color = COVERAGE_COLOR[cov];
+                      return (
+                        <td class="p-2 text-center" title={entry?.notes ?? cov}>
+                          <span style={`display: inline-block; width: 22px; height: 22px; line-height: 22px; background: color-mix(in oklch, ${color} 20%, transparent); color: ${color}; border-radius: 4px; font-weight: 600; font-family: var(--font-mono); font-size: 0.65rem;`}>
+                            {cov === 'full' ? '✓' : cov === 'partial' ? '~' : cov === 'experimental' ? '?' : '—'}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+      <p class="text-xs mt-3" style="color: var(--color-text-muted);">
+        ✓ full · ~ partial · ? experimental · — missing. Hover (or tap) 任意单元格看注释.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

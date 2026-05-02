@@ -40,3 +40,59 @@ references:
   - title: 'Online normalizer calculation for softmax'
     url: https://arxiv.org/abs/1805.02867
     source_type: paper
+
+formal_semantics:
+  signature: |
+    softmax(x: Tensor[..., D], dim: int = -1) -> Tensor[..., D]
+    output[..., i] = exp(x[..., i] - max(x[..., :])) / sum_j(exp(x[..., j] - max(x[..., :])))
+    Numerically stable form requires subtracting max before exp.
+
+  edge_cases:
+    - input: 'all elements are -inf (e.g., fully-masked attention row)'
+      behaviors:
+        cudnn: 'Returns 0 in all positions'
+        cublas: 'Returns 0 in all positions (via cuBLASLt softmax)'
+        triton-default: 'Returns NaN if max-subtract not applied (older Triton kernels)'
+        aclnn: 'Returns 0 in all positions'
+        cnnl: 'Returns 0 in all positions'
+        rocblas-miopen: 'Returns 0 in all positions'
+      mitigation: 'Always use stable variant (max-subtract). Verify by feeding all -inf and asserting output is all 0.'
+
+    - input: 'single-element dim'
+      behaviors:
+        all_libs: 'Returns 1.0'
+
+    - input: 'empty dim (size 0)'
+      behaviors:
+        cudnn: 'Returns empty tensor'
+        pytorch: 'Returns empty tensor'
+        cutlass: 'ASSERT — refuses to dispatch; user must check size before call'
+
+  numerical_rules:
+    - aspect: 'deterministic_reduction'
+      per_library:
+        cudnn: 'Deterministic by default'
+        cublas: 'Deterministic by default'
+        triton-flash-attn: 'Non-deterministic (parallel reduction order varies across runs)'
+        aclnn: 'Deterministic'
+        cnnl: 'Deterministic'
+        rocblas: 'Default non-deterministic pre-MI300X; deterministic on MI300X+'
+
+    - aspect: 'accumulation_dtype_with_fp16_input'
+      per_library:
+        cudnn: 'FP32 internal'
+        cublas: 'FP32 internal'
+        custom_triton: 'Configurable (FP16 or FP32) — must specify explicitly'
+        aclnn: 'FP32 internal'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def softmax(x, dim=-1):
+          x_max = x.max(dim=dim, keepdim=True).values
+          # max-subtract for numerical stability
+          x_shifted = x - x_max
+          # all -inf input → all -inf shifted → exp 0 → sum 0
+          # divide-by-zero gives NaN; some libs short-circuit and return 0
+          exp_x = torch.exp(x_shifted)
+          return exp_x / exp_x.sum(dim=dim, keepdim=True)

@@ -215,6 +215,81 @@ const fitnessRows = intensity > 0
       </section>
     )}
 
+    {/* v2.5 / Layer D: formal semantics — edge cases, numerical rules, reference impl */}
+    {op.formal_semantics && (
+      <section class="pb-8" id="formal-semantics">
+        <h3 class="text-lg font-semibold mb-3">📐 Formal semantics / 形式化语义 <span class="text-xs ml-2 font-normal" style="color: var(--color-text-muted);">v2.5 · Layer D</span></h3>
+        <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+          这一节是给智能体 / kernel 移植工作的: 不同实现 (cuBLAS / cuDNN / aclnn / ck / ...) 对相同算子在边界 case 和数值规则上有微妙差异, 把它们记下避免 silent quality drop.
+        </p>
+
+        {op.formal_semantics.signature && (
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Signature / 数学签名</h4>
+            <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre-wrap;">{op.formal_semantics.signature}</pre>
+          </div>
+        )}
+
+        {op.formal_semantics.edge_cases.length > 0 && (
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Edge cases ({op.formal_semantics.edge_cases.length})</h4>
+            <div class="grid gap-3">
+              {op.formal_semantics.edge_cases.map((ec) => (
+                <div class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                  <code class="text-xs font-semibold block mb-2" style="color: var(--color-accent);">{ec.input}</code>
+                  <div class="grid sm:grid-cols-2 gap-1.5 mb-2">
+                    {Object.entries(ec.behaviors).map(([lib, behavior]) => (
+                      <div class="text-xs flex gap-2">
+                        <code class="font-mono shrink-0" style="color: var(--color-text-muted); min-width: 110px;">{lib}</code>
+                        <span style="color: var(--color-text);">{behavior}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {ec.mitigation && (
+                    <div class="text-xs mt-2 pt-2 border-t" style="border-color: color-mix(in oklch, var(--color-border) 50%, transparent); color: var(--color-text-muted);">
+                      <strong style="color: oklch(60% 0.18 145);">Mitigation:</strong> {ec.mitigation}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {op.formal_semantics.numerical_rules.length > 0 && (
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Numerical rules ({op.formal_semantics.numerical_rules.length})</h4>
+            <div class="grid gap-3">
+              {op.formal_semantics.numerical_rules.map((nr) => (
+                <div class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+                  <code class="text-xs font-semibold block mb-2" style="color: var(--color-accent);">{nr.aspect}</code>
+                  <div class="grid sm:grid-cols-2 gap-1.5">
+                    {Object.entries(nr.per_library).map(([lib, rule]) => (
+                      <div class="text-xs flex gap-2">
+                        <code class="font-mono shrink-0" style="color: var(--color-text-muted); min-width: 110px;">{lib}</code>
+                        <span style="color: var(--color-text);">{rule}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {op.formal_semantics.reference_impl && (
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">Reference implementation ({op.formal_semantics.reference_impl.framework})</h4>
+            <pre class="rounded p-3 border text-xs overflow-x-auto" style="background: var(--color-surface-raised); border-color: var(--color-border); font-family: var(--font-mono); white-space: pre-wrap;">{op.formal_semantics.reference_impl.snippet}</pre>
+          </div>
+        )}
+
+        <p class="text-xs" style="color: var(--color-text-muted);">
+          → 跨厂商库等价对照: <a href={pathname('/kernel-libraries/')} class="underline" style="color: var(--color-accent);">/kernel-libraries/</a>
+        </p>
+      </section>
+    )}
+
     {op.references.length > 0 && (
       <section class="pb-8">
         <h3 class="text-lg font-semibold mb-3">参考文献 / References</h3>
