@@ -6,7 +6,64 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.0 planning** — model breadth (video / image-gen / speech / molecule / bio / materials) + hardware breadth (consumer GPU / Apple Silicon / edge NPU / 国产 consumer-grade). Detailed scoping at the close of v2.x docs (this release).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.1 — Apple Silicon** (M3 Ultra, M4 Max, M4 Pro) — unified memory architecture, AMX, Metal kernel paths.
+
+---
+
+## [3.0.0] — 2026-05-02 — opens v3.x major (consumer hardware breadth)
+
+**Theme**: opens v3.x major with **consumer GPU coverage** (NVIDIA RTX 5090 / RTX 4090, AMD RX 9070 XT / RX 7900 XTX, Intel Arc B580). The v2.x corpus was data-center-focused (39 cards, all server-grade SXM/OAM/PCIe-datacenter); v3.0 extends to the consumer/indie tier where most hobbyist LLM inference actually happens.
+
+### Why v3.0 starts a new major
+
+The v2.x major was structurally about **the agent end-to-end on data-center hardware**. v3.0 opens **breadth**:
+1. **More hardware classes**: consumer GPU (this release), Apple Silicon (v3.1), edge NPU (v3.2), 国产 consumer/edge (v3.3)
+2. **More model classes**: video gen (v3.4), image gen (v3.5), speech (v3.6), molecule/bio/materials (v3.7)
+3. **Consumer-tier calculator**: residential electricity rates, edge power constraints, prosumer pricing tiers (v3.8)
+
+The user directive (2026-05-02):
+
+> 扩展更多的模型和硬件，模型不止是这些大语言模型或者视觉语言模型，还有更多开源的视频、图像生成模型、语音模型、大分子/小分子材料模型，生物相关模型等等，硬件不止这些服务器级别的 CPU/NPU/TPU 等，还有消费级显卡，端侧推理芯片等等
+
+### Added — 5 consumer GPUs (39 → 44 cards)
+
+**NVIDIA (2):**
+- **`rtx-5090`** — Blackwell consumer flagship; 32 GB GDDR7, 1792 GB/s, 575W TGP, $1999 MSRP. First consumer card with NVFP4 path (Blackwell tensor cores). Sweet spot for indie 7B-32B FP4/FP8 LLM inference.
+- **`rtx-4090`** — Ada Lovelace consumer flagship (the dominant 2023-2025 indie GPU); 24 GB GDDR6X, 1008 GB/s, 450W TGP. Reference for llama.cpp / Ollama / LM Studio default tuning. Still the better $/inference-token at FP8/INT4 in 2026 secondhand market.
+
+**AMD (2):**
+- **`rx-9070-xt`** — RDNA 4 consumer flagship; 16 GB GDDR6, 640 GB/s, 304W TBP, $599 MSRP. **First consumer RDNA card with native FP8 tensor ops** (RDNA 3 had INT8 only). Cost-leader for FP8 inference of 7B-13B models.
+- **`rx-7900-xtx`** — RDNA 3 chiplet flagship; 24 GB GDDR6, 960 GB/s, 355W TBP, $999 MSRP. Still the 24 GB AMD choice for INT4/INT8 inference of 70B+ models with offloading.
+
+**Intel (1):**
+- **`arc-b580`** — Battlemage; 12 GB GDDR6, 456 GB/s, 190W TBP, $249 MSRP. **Cost-floor for viable LLM-inference hardware** (~7× cheaper than RTX 5090). First Arc card with FP8 XMX support; Intel inference stack (IPEX-LLM, vLLM-experimental) still maturing.
+
+### Why this matters
+
+v2.x's 39 hardware cards covered every datacenter SKU (NVL72, GB300, MI300X, Ascend 910C, etc.) but missed the entire indie/prosumer tier. With v3.0:
+
+1. **Indie LLM developers** can now use the corpus for their actual workflows (RTX 4090 + GGUF; RX 7900 XTX + ROCm; Arc B580 + IPEX-LLM).
+2. **Cost comparisons** become real (RTX 5090 $1999 vs Arc B580 $249 — same task, ~8× cost spread).
+3. **Schema validation**: the `HardwareSchema` proves it scales across data-center → consumer without modification (only enum additions might be needed for edge tier in v3.2).
+4. **Cross-vendor mapping** is now testable in the consumer tier (FP8 path on Blackwell consumer ↔ FP8 on RDNA 4 ↔ FP8 on Battlemage XMX).
+
+### Schema observations
+
+No schema changes needed for consumer GPUs — `form_factor: pcie` already supported. Two adjustments via `community-port` engine status (the existing enum already covered it). The `compute_unit_label: XPU` accommodates Intel Xe-cores.
+
+For v3.2 (edge NPU) we will likely need:
+- New `form_factor: 'edge-pcie'` or extend `embedded-soc` semantics
+- `power.tdp_w` validated for low-end (≤25W edge tier)
+- `software_support.drivers` extended with edge-specific (ExecuTorch, TFLite-NPU, etc.)
+
+### Stats
+
+- **Hardware**: 39 → 44 (+5 consumer)
+- **Vendors**: still 28 (NVIDIA / AMD / Intel already in corpus)
+- **Site pages**: 505 → 515 (+10 = 5 hardware detail pages + 5 vendor-cross-cut updates)
+- **Layer D coverage**: still 100% (34/34 ops + 24/24 fused-kernels) — v3.0 does not regress coverage
+- **Tests**: 11/11 dispatch tests pass
+- **Validation**: 359 entities valid (was 354)
 
 ---
 

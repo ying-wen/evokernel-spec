@@ -1,0 +1,114 @@
+id: rtx-4090
+name: NVIDIA GeForce RTX 4090
+vendor: nvidia
+generation: ada-lovelace
+status: in-production
+release_year: 2022
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 1321, evidence_ref: ev-rtx4090-001 }
+  bf16_tflops: { value: 165, evidence_ref: ev-rtx4090-001 }
+  fp16_tflops: { value: 165, evidence_ref: ev-rtx4090-001 }
+  int8_tops: { value: 1321, evidence_ref: ev-rtx4090-001 }
+architecture:
+  compute_unit_count: { value: 128, evidence_ref: ev-rtx4090-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-rtx4090-arch-001 }
+  l2_cache_mb: { value: 72, evidence_ref: ev-rtx4090-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-rtx4090-arch-001 }
+  die_area_mm2: { value: 609, evidence_ref: ev-rtx4090-arch-001 }
+  transistor_count_b: { value: 76, evidence_ref: ev-rtx4090-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-rtx4090-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-rtx4090-001 }
+  base_clock_mhz: { value: 2235, evidence_ref: ev-rtx4090-arch-001 }
+  boost_clock_mhz: { value: 2520, evidence_ref: ev-rtx4090-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-rtx4090-arch-001 }
+      notes: 'Ada Lovelace SM (AD102 die, partial enable — 128 of 144 SMs). 128 × 256 KB ≈ 32 MB RF total.'
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-rtx4090-arch-001 }
+      notes: 'Configurable up to 100 KB SMEM per SM.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 72, evidence_ref: ev-rtx4090-arch-001 }
+      notes: 'AD102 die L2 (smaller than full L40S 96 MB — RTX 4090 disables some L2 partitions for yield).'
+    - name: 'GDDR6X'
+      scope: global
+      size_mb: { value: 24576, evidence_ref: ev-rtx4090-001 }
+      bandwidth_tbs: { value: 1.008, evidence_ref: ev-rtx4090-001 }
+      notes: '12× GDDR6X 21 Gbps × 384-bit bus = 1008 GB/s. Higher bandwidth than L40S despite GDDR6X (vs L40S GDDR6) — different memory tier.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 1024, evidence_ref: ev-rtx4090-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 512, evidence_ref: ev-rtx4090-arch-001 }
+      sparsity_multiplier: 1
+memory:
+  capacity_gb: { value: 24, evidence_ref: ev-rtx4090-001 }
+  bandwidth_gbps: { value: 1008, evidence_ref: ev-rtx4090-001 }
+  type: GDDR6
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 64
+  world_size: 4
+  topology: pcie-fabric
+  notes: 'No NVLink on consumer Ada cards (NVIDIA stripped NVLink starting RTX 30 series). Multi-GPU = PCIe Gen4 x16 only.'
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+  notes: 'Consumer chassis; no NIC integration.'
+power:
+  tdp_w: { value: 450, evidence_ref: ev-rtx4090-001 }
+  sustained_w: { value: 425, evidence_ref: ev-rtx4090-001 }
+  peak_w: { value: 600, evidence_ref: ev-rtx4090-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  throttle_temp_c: 88
+  fp16_tflops_per_watt: { value: 0.37, evidence_ref: ev-rtx4090-001 }
+  power_connector: 12VHPWR
+  notes: 'Dual-slot or triple-slot AIB designs; 12VHPWR connector with documented melting issues at first generation (mostly resolved by 2024 cable revisions). 8-card chassis impractical without aggressive thermal engineering.'
+software_support:
+  drivers: ['CUDA-12.x']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: sglang, status: officially-supported, versions: ['0.4'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.14'] }
+    - { id: lmdeploy, status: officially-supported, versions: ['0.6'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp, pp]
+aliases: ['RTX 4090', 'GeForce RTX 4090', 'RTX4090']
+chinese_names: ['GeForce RTX 4090', 'RTX4090 消费级旗舰']
+evidence:
+  - id: ev-rtx4090-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4090/
+    accessed: '2026-05-02'
+    citation: 'NVIDIA GeForce RTX 4090 product page (Ada Lovelace consumer flagship — 24 GB GDDR6X, 1008 GB/s, 450W TGP, $1599 MSRP at launch).'
+  - id: ev-rtx4090-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
+    accessed: '2026-05-02'
+    citation: 'NVIDIA Ada Lovelace GPU Architecture Whitepaper (AD102 die: 128 SMs enabled in RTX 4090 — 144 SMs total in full die; 72 MB L2; 76 B transistors; 609 mm² @ TSMC 4N).'
+disclaimers:
+  - 'RTX 4090 was the canonical hobbyist LLM GPU 2023-2025; superseded by RTX 5090 for Blackwell FP4 path but still cost-effective for FP8/INT4 inference.'
+  - 'No NVLink on consumer Ada — TP > 2 has serious PCIe bottleneck.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  RTX 4090 was the dominant indie LLM inference GPU 2023-2025. 24 GB VRAM fits Llama 3 8B
+  bf16 + 32K KV cache, or Llama 3 70B INT4 with offloading. The card is the reference for
+  GGUF-style hobbyist quantization paths (llama.cpp default tuning targets RTX 4090).
+
+  Compared to RTX 5090: ~half the FP8 throughput (1321 vs 1676 TFLOPS), no FP4 path,
+  76% the bandwidth (1008 vs 1792 GB/s), 75% the VRAM (24 vs 32 GB), but much cheaper
+  on the secondhand market in 2026. Often the better $/inference-token at FP8/INT4 quant.
+
+  Used by: indie LLM serving, llama.cpp / Ollama / LM Studio default targets, fine-tuning
+  experiments, GGUF community.

@@ -1,0 +1,107 @@
+id: rx-7900-xtx
+name: AMD Radeon RX 7900 XTX
+vendor: amd
+generation: rdna3
+status: in-production
+release_year: 2022
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 123, evidence_ref: ev-rx7900xtx-001 }
+  fp16_tflops: { value: 123, evidence_ref: ev-rx7900xtx-001 }
+  int8_tops: { value: 246, evidence_ref: ev-rx7900xtx-001 }
+architecture:
+  compute_unit_count: { value: 96, evidence_ref: ev-rx7900xtx-arch-001 }
+  compute_unit_label: CU
+  l2_cache_mb: { value: 6, evidence_ref: ev-rx7900xtx-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-rx7900xtx-arch-001 }
+  die_area_mm2: { value: 522, evidence_ref: ev-rx7900xtx-arch-001 }
+  transistor_count_b: { value: 58, evidence_ref: ev-rx7900xtx-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-rx7900xtx-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-rx7900xtx-001 }
+  base_clock_mhz: { value: 1855, evidence_ref: ev-rx7900xtx-arch-001 }
+  boost_clock_mhz: { value: 2500, evidence_ref: ev-rx7900xtx-arch-001 }
+  memory_hierarchy:
+    - name: 'VGPR / SGPR'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-rx7900xtx-arch-001 }
+      notes: 'RDNA 3 dual-issue VGPR — 192 KB per CU. 96 CUs × 192 KB ≈ 18 MB total.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 6, evidence_ref: ev-rx7900xtx-arch-001 }
+    - name: 'L3 / Infinity Cache'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-rx7900xtx-arch-001 }
+      notes: '96 MB Infinity Cache (chiplet-based, MCD dies). Big perf win for cache-friendly workloads; less helpful for LLM decode (KV cache exceeds 96 MB at modest ctx).'
+    - name: 'GDDR6'
+      scope: global
+      size_mb: { value: 24576, evidence_ref: ev-rx7900xtx-001 }
+      bandwidth_tbs: { value: 0.96, evidence_ref: ev-rx7900xtx-001 }
+      notes: '24 GB GDDR6 20 Gbps × 384-bit bus = 960 GB/s. The 24 GB VRAM was the AMD answer to RTX 4090 — same capacity, lower bandwidth, half the price.'
+  tensor_core_specs:
+    - precision: bf16
+      ops_per_cycle: { value: 128, evidence_ref: ev-rx7900xtx-arch-001 }
+      sparsity_multiplier: 1
+      notes: 'RDNA 3 has WMMA (matrix accel) but no native FP8. INT8 path via dedicated AI cores. RDNA 4 (RX 9070 XT) added FP8.'
+memory:
+  capacity_gb: { value: 24, evidence_ref: ev-rx7900xtx-001 }
+  bandwidth_gbps: { value: 960, evidence_ref: ev-rx7900xtx-001 }
+  type: GDDR6
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 64
+  world_size: 4
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+power:
+  tdp_w: { value: 355, evidence_ref: ev-rx7900xtx-001 }
+  sustained_w: { value: 330, evidence_ref: ev-rx7900xtx-001 }
+  peak_w: { value: 390, evidence_ref: ev-rx7900xtx-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  throttle_temp_c: 110
+  fp16_tflops_per_watt: { value: 0.35, evidence_ref: ev-rx7900xtx-001 }
+  power_connector: 8-pin x2
+  notes: 'Hotspot temp limit 110°C is unusually high — RDNA 3 chiplet design has hot MCD-to-GCD interconnect.'
+software_support:
+  drivers: ['ROCm-6.0', 'ROCm-6.4']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.6'] }
+    - { id: lmdeploy, status: community-port, versions: ['0.6'] }
+  quantizations: [bf16, fp16, int8, int4-awq, int4-gptq]
+  parallelism: [tp]
+aliases: ['RX 7900 XTX', 'Radeon RX 7900 XTX', 'RX7900XTX']
+chinese_names: ['Radeon RX 7900 XTX', '7900XTX 消费级旗舰']
+evidence:
+  - id: ev-rx7900xtx-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.amd.com/en/products/graphics/desktops/radeon/7000-series/amd-radeon-rx-7900xtx.html
+    accessed: '2026-05-02'
+    citation: 'AMD Radeon RX 7900 XTX product page (RDNA 3 chiplet — 24 GB GDDR6, 960 GB/s, 355W TBP, $999 MSRP).'
+  - id: ev-rx7900xtx-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/white-papers/amd-rdna-3-architecture-whitepaper.pdf
+    accessed: '2026-05-02'
+    citation: 'AMD RDNA 3 Architecture Whitepaper (Navi 31: 96 CUs across 1 GCD + 6 MCD chiplets, 6 MB L2, 96 MB Infinity Cache, 58 B transistors, 522 mm² @ TSMC N5/N6 mix; native WMMA matrix instructions, no FP8).'
+disclaimers:
+  - 'RDNA 3 has no native FP8; INT8 only for low-precision LLM inference. For FP8 paths, RDNA 4 (RX 9070 XT) is required.'
+  - 'ROCm consumer GPU support is mature on Linux but uneven on Windows (WSL works for inference; native Windows ROCm is incomplete).'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  RX 7900 XTX was AMD's 2022-2024 consumer answer to RTX 4090: 24 GB VRAM at half the
+  price ($999 vs $1599 MSRP). Trade-off: no native FP8, slightly less bandwidth, and
+  ROCm/vLLM ecosystem lag vs CUDA. Still useful in 2026 for INT4/INT8 LLM inference
+  where 24 GB VRAM matters more than FP8 throughput.
+
+  Compared to RX 9070 XT (newer RDNA 4): RX 9070 XT has native FP8 tensor ops (big
+  inference win); RX 7900 XTX has more VRAM (24 vs 16 GB) and more Infinity Cache
+  (96 vs 64 MB). For 70B INT4 deploys with offloading: 7900 XTX still preferable.
+
+  Used by: indie LLM serving, llama.cpp ROCm path, LLM fine-tuning experiments on
+  budget. ROCm community continues to optimize this card despite RDNA 4 release.

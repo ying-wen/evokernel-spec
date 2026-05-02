@@ -1,0 +1,120 @@
+id: rx-9070-xt
+name: AMD Radeon RX 9070 XT
+vendor: amd
+generation: rdna4
+status: in-production
+release_year: 2025
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 779, evidence_ref: ev-rx9070xt-001 }
+  bf16_tflops: { value: 195, evidence_ref: ev-rx9070xt-001 }
+  fp16_tflops: { value: 195, evidence_ref: ev-rx9070xt-001 }
+  int8_tops: { value: 779, evidence_ref: ev-rx9070xt-001 }
+architecture:
+  compute_unit_count: { value: 64, evidence_ref: ev-rx9070xt-arch-001 }
+  compute_unit_label: CU
+  l2_cache_mb: { value: 8, evidence_ref: ev-rx9070xt-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-rx9070xt-arch-001 }
+  die_area_mm2: { value: 357, evidence_ref: ev-rx9070xt-arch-001 }
+  transistor_count_b: { value: 54, evidence_ref: ev-rx9070xt-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-rx9070xt-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-rx9070xt-001 }
+  base_clock_mhz: { value: 1660, evidence_ref: ev-rx9070xt-arch-001 }
+  boost_clock_mhz: { value: 2970, evidence_ref: ev-rx9070xt-arch-001 }
+  memory_hierarchy:
+    - name: 'VGPR / SGPR'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-rx9070xt-arch-001 }
+      notes: 'Vector + scalar register file per CU. RDNA 4 keeps RDNA 3"s 192 KB VGPR/CU.'
+    - name: 'L0 / L1'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-rx9070xt-arch-001 }
+      notes: 'Per-CU L0 (16 KB instr cache + 32 KB scalar) + L1 (per-shader-array 128 KB).'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 8, evidence_ref: ev-rx9070xt-arch-001 }
+      notes: 'Reduced from RDNA 3 (RX 7900 XTX has 6 MB L2 + 96 MB Infinity Cache). RDNA 4 dropped Infinity Cache to save die area.'
+    - name: 'L3 / Infinity Cache'
+      scope: global
+      size_mb: { value: 64, evidence_ref: ev-rx9070xt-arch-001 }
+      notes: '64 MB Infinity Cache (down from RX 7900 XTX 96 MB). Smaller but faster (RDNA 4 latency improvements).'
+    - name: 'GDDR6'
+      scope: global
+      size_mb: { value: 16384, evidence_ref: ev-rx9070xt-001 }
+      bandwidth_tbs: { value: 0.640, evidence_ref: ev-rx9070xt-001 }
+      notes: '16 GB GDDR6 20 Gbps × 256-bit bus = 640 GB/s. Smaller VRAM than RTX 5090 (32 GB) — limits to Llama 3 8B BF16 or 70B INT4 with offloading.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 512, evidence_ref: ev-rx9070xt-arch-001 }
+      sparsity_multiplier: 1
+      notes: 'RDNA 4 added native FP8 tensor ops (RDNA 3 had INT8 only). Major workstation/inference improvement vs RDNA 3.'
+    - precision: bf16
+      ops_per_cycle: { value: 128, evidence_ref: ev-rx9070xt-arch-001 }
+      sparsity_multiplier: 1
+memory:
+  capacity_gb: { value: 16, evidence_ref: ev-rx9070xt-001 }
+  bandwidth_gbps: { value: 640, evidence_ref: ev-rx9070xt-001 }
+  type: GDDR6
+scale_up:
+  protocol: PCIe-Gen5
+  bandwidth_gbps: 128
+  world_size: 4
+  topology: pcie-fabric
+  notes: 'No Infinity Fabric on consumer; Infinity Fabric reserved for MI300/MI325/MI355 datacenter cards.'
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+power:
+  tdp_w: { value: 304, evidence_ref: ev-rx9070xt-001 }
+  sustained_w: { value: 280, evidence_ref: ev-rx9070xt-001 }
+  peak_w: { value: 340, evidence_ref: ev-rx9070xt-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  throttle_temp_c: 90
+  fp16_tflops_per_watt: { value: 0.64, evidence_ref: ev-rx9070xt-001 }
+  power_connector: 8-pin x2
+  notes: 'Standard dual 8-pin connectors; no 12VHPWR drama. Lower TGP (304W) than RTX 5090 (575W) — easier multi-GPU rigs at consumer chassis.'
+software_support:
+  drivers: ['ROCm-6.3', 'ROCm-6.4']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.7'] }
+    - { id: sglang, status: community-port, versions: ['0.5'] }
+    - { id: lmdeploy, status: community-port, versions: ['0.7'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp]
+aliases: ['RX 9070 XT', 'Radeon RX 9070 XT', 'RX9070XT']
+chinese_names: ['Radeon RX 9070 XT', '9070XT 消费级']
+evidence:
+  - id: ev-rx9070xt-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9070xt.html
+    accessed: '2026-05-02'
+    citation: 'AMD Radeon RX 9070 XT product page (RDNA 4 — 16 GB GDDR6, 640 GB/s, 304W TBP, $599 MSRP).'
+  - id: ev-rx9070xt-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/white-papers/rdna4-architecture-whitepaper.pdf
+    accessed: '2026-05-02'
+    citation: 'AMD RDNA 4 Architecture Whitepaper (Navi 48 die: 64 CUs, 8 MB L2, 64 MB Infinity Cache, 54 B transistors, 357 mm² @ TSMC N4P; native FP8 tensor ops added vs RDNA 3).'
+disclaimers:
+  - 'RDNA 4 dropped Infinity Cache from 96 MB (RDNA 3) to 64 MB to save die area; bandwidth-bound decode workloads may regress vs RX 7900 XTX despite newer architecture.'
+  - 'ROCm support for consumer RDNA cards lags MI-series (data-center) by 6-12 months — driver issues are common 2025-2026.'
+  - 'No Infinity Fabric — multi-GPU consumer rigs limited to PCIe Gen5 bandwidth.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  RX 9070 XT is AMD's first consumer RDNA card with native FP8 tensor ops (RDNA 3 had
+  INT8 only). Closes the gap with NVIDIA RTX 4090/5090 for FP8 LLM inference at much lower
+  price ($599 vs $1599-$1999 MSRP), but pays in (a) smaller VRAM (16 GB vs 24-32 GB),
+  (b) less mature inference stack (ROCm + vLLM still has rough edges on consumer RDNA),
+  (c) lower bandwidth (640 GB/s vs 1008-1792 GB/s).
+
+  Use case: cost-sensitive indie LLM inference for 7B-13B models with FP8/INT4 quant.
+  Not the path for 70B+ models without aggressive offloading.
+
+  Compared to RX 7900 XTX (RDNA 3 flagship): RDNA 4 has FP8 native (big win for inference);
+  smaller VRAM (16 vs 24 GB); less Infinity Cache (64 vs 96 MB); higher boost clock
+  (2.97 vs 2.5 GHz); newer drivers. RX 9070 XT is the inference-focused card; RX 7900 XTX
+  is still the 24 GB choice for legacy workflows.

@@ -1,0 +1,111 @@
+id: arc-b580
+name: Intel Arc B580 (Battlemage)
+vendor: intel
+generation: battlemage
+status: in-production
+release_year: 2024
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 233, evidence_ref: ev-arcb580-001 }
+  bf16_tflops: { value: 116, evidence_ref: ev-arcb580-001 }
+  fp16_tflops: { value: 116, evidence_ref: ev-arcb580-001 }
+  int8_tops: { value: 233, evidence_ref: ev-arcb580-001 }
+architecture:
+  compute_unit_count: { value: 20, evidence_ref: ev-arcb580-arch-001 }
+  compute_unit_label: XPU
+  l2_cache_mb: { value: 18, evidence_ref: ev-arcb580-arch-001 }
+  process_node_nm: { value: 5, evidence_ref: ev-arcb580-arch-001 }
+  die_area_mm2: { value: 272, evidence_ref: ev-arcb580-arch-001 }
+  transistor_count_b: { value: 19, evidence_ref: ev-arcb580-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-arcb580-001 }
+  pcie_lanes: { value: 8, evidence_ref: ev-arcb580-001 }
+  base_clock_mhz: { value: 1700, evidence_ref: ev-arcb580-arch-001 }
+  boost_clock_mhz: { value: 2670, evidence_ref: ev-arcb580-arch-001 }
+  memory_hierarchy:
+    - name: 'XMX scratchpad'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-arcb580-arch-001 }
+      notes: 'Per-Xe-core register + scratchpad. 20 Xe-cores × 192 KB ≈ 4 MB. XMX = Intel"s tensor unit equivalent.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 18, evidence_ref: ev-arcb580-arch-001 }
+      notes: 'BMG-G21 die L2. Modest L2 vs RTX 5090 (96 MB) — Intel went smaller for cost.'
+    - name: 'GDDR6'
+      scope: global
+      size_mb: { value: 12288, evidence_ref: ev-arcb580-001 }
+      bandwidth_tbs: { value: 0.456, evidence_ref: ev-arcb580-001 }
+      notes: '12 GB GDDR6 19 Gbps × 192-bit bus = 456 GB/s. The 12 GB capacity at $249 MSRP is the entire product positioning — VRAM/dollar leader for indie LLM inference.'
+  tensor_core_specs:
+    - precision: fp8
+      ops_per_cycle: { value: 256, evidence_ref: ev-arcb580-arch-001 }
+      sparsity_multiplier: 1
+      notes: 'XMX engines added FP8 in Battlemage (not in Alchemist Arc A-series). 233 FP8 TFLOPS per card.'
+    - precision: bf16
+      ops_per_cycle: { value: 128, evidence_ref: ev-arcb580-arch-001 }
+      sparsity_multiplier: 1
+memory:
+  capacity_gb: { value: 12, evidence_ref: ev-arcb580-001 }
+  bandwidth_gbps: { value: 456, evidence_ref: ev-arcb580-001 }
+  type: GDDR6
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 32
+  world_size: 4
+  topology: pcie-fabric
+  notes: 'PCIe Gen4 x8 (not x16) — Intel cost trade-off at this tier. Multi-GPU bandwidth halved vs RTX 5090.'
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+power:
+  tdp_w: { value: 190, evidence_ref: ev-arcb580-001 }
+  sustained_w: { value: 175, evidence_ref: ev-arcb580-001 }
+  peak_w: { value: 220, evidence_ref: ev-arcb580-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 50 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 0.61, evidence_ref: ev-arcb580-001 }
+  power_connector: 8-pin
+  notes: 'Single 8-pin connector — easy for any consumer chassis. Lowest-power option in this set; 4-card rig fits in standard 1500W PSU.'
+software_support:
+  drivers: ['oneAPI-2025', 'IPEX-LLM']
+  engines:
+    - { id: vllm, status: community-port, versions: ['0.7'] }
+    - { id: lmdeploy, status: community-port, versions: ['0.7'] }
+  quantizations: [bf16, fp16, fp8-e4m3, int8, int4-awq]
+  parallelism: [tp]
+aliases: ['Arc B580', 'Arc B580 Limited Edition', 'Battlemage B580']
+chinese_names: ['Intel Arc B580', '锐炫 B580']
+evidence:
+  - id: ev-arcb580-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.intel.com/content/www/us/en/products/sku/241598/intel-arc-b580-graphics/specifications.html
+    accessed: '2026-05-02'
+    citation: 'Intel Arc B580 Graphics product specifications (Battlemage — 12 GB GDDR6, 456 GB/s, 190W TBP, $249 MSRP).'
+  - id: ev-arcb580-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.intel.com/content/www/us/en/developer/articles/technical/xe2-architecture-overview.html
+    accessed: '2026-05-02'
+    citation: 'Intel Xe2 (Battlemage) Architecture Overview (BMG-G21 die: 20 Xe-cores, 18 MB L2, 19 B transistors, 272 mm² @ TSMC N5; XMX engines added FP8 vs Alchemist).'
+disclaimers:
+  - 'Intel Arc inference stack (IPEX-LLM, oneAPI) is the least mature of the 3 vendors here. Real-world inference perf often 30-50% below vendor TFLOPS claims due to driver immaturity (2025 status).'
+  - 'PCIe Gen4 x8 (not x16) — half the lane count of NVIDIA/AMD consumer flagships.'
+  - 'No LLM inference engine has Battlemage as a Tier-1 target as of mid-2026; vLLM/lmdeploy support is experimental.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  Arc B580 is Intel's first consumer card with FP8 XMX support (Alchemist Arc A-series
+  was INT8 only). At $249 MSRP with 12 GB VRAM, it's the cheapest viable LLM-inference
+  card for 7B-13B models with INT4/INT8 quant. Real-world LLM perf is hampered by Intel's
+  inference software lag — IPEX-LLM is the recommended path; vLLM/lmdeploy work but with
+  rough edges (kernel coverage gaps, occasional driver bugs).
+
+  Use case: cost-floor indie LLM inference, students/researchers exploring on a budget,
+  3-card rigs for parallel experiments. Not suitable for production serving without
+  significant Intel SW stack engineering.
+
+  Compared to RTX 5090 ($1999) / RX 9070 XT ($599): Arc B580 ($249) trades raw perf
+  for price. ~7× cheaper than RTX 5090, ~2.4× cheaper than RX 9070 XT; perf scales
+  roughly with price. The card defines the floor of "viable LLM inference hardware".

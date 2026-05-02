@@ -1,0 +1,120 @@
+id: rtx-5090
+name: NVIDIA GeForce RTX 5090
+vendor: nvidia
+generation: blackwell
+status: in-production
+release_year: 2025
+form_factor: pcie
+compute:
+  fp4_tflops: { value: 3352, evidence_ref: ev-rtx5090-001 }
+  fp8_tflops: { value: 1676, evidence_ref: ev-rtx5090-001 }
+  bf16_tflops: { value: 209, evidence_ref: ev-rtx5090-001 }
+  fp16_tflops: { value: 209, evidence_ref: ev-rtx5090-001 }
+  int8_tops: { value: 1676, evidence_ref: ev-rtx5090-001 }
+architecture:
+  compute_unit_count: { value: 170, evidence_ref: ev-rtx5090-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-rtx5090-arch-001 }
+  l2_cache_mb: { value: 96, evidence_ref: ev-rtx5090-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-rtx5090-arch-001 }
+  die_area_mm2: { value: 750, evidence_ref: ev-rtx5090-arch-001 }
+  transistor_count_b: { value: 92, evidence_ref: ev-rtx5090-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-rtx5090-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-rtx5090-001 }
+  base_clock_mhz: { value: 2017, evidence_ref: ev-rtx5090-arch-001 }
+  boost_clock_mhz: { value: 2407, evidence_ref: ev-rtx5090-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-rtx5090-arch-001 }
+      notes: 'Blackwell consumer SM (GB202 die); same 256 KB RF/SM as Hopper. 170 SMs × 256 KB ≈ 42 MB total.'
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-rtx5090-arch-001 }
+      notes: 'Configurable up to 100 KB SMEM per SM (consumer Blackwell — smaller than Hopper''s 228 KB; gaming-derived die).'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-rtx5090-arch-001 }
+      notes: 'GB202 die L2 — same as Ada Lovelace (AD102). Cache-friendly for raster + small-batch inference.'
+    - name: 'GDDR7'
+      scope: global
+      size_mb: { value: 32768, evidence_ref: ev-rtx5090-001 }
+      bandwidth_tbs: { value: 1.792, evidence_ref: ev-rtx5090-001 }
+      notes: 'First Blackwell card with GDDR7 (28 Gbps × 512-bit bus). 1.79 TB/s — ~50% of H100 HBM3 (3.35 TB/s). Sweet spot for indie LLM inference: more bandwidth than L40S (864 GB/s) at consumer pricing.'
+  tensor_core_specs:
+    - precision: fp4
+      ops_per_cycle: { value: 4096, evidence_ref: ev-rtx5090-arch-001 }
+      sparsity_multiplier: 1
+      notes: 'Native FP4 via NVFP4 (Blackwell tensor cores) — same path as B200 but consumer SKU.'
+    - precision: fp8
+      ops_per_cycle: { value: 2048, evidence_ref: ev-rtx5090-arch-001 }
+      sparsity_multiplier: 1
+    - precision: bf16
+      ops_per_cycle: { value: 256, evidence_ref: ev-rtx5090-arch-001 }
+      sparsity_multiplier: 1
+memory:
+  capacity_gb: { value: 32, evidence_ref: ev-rtx5090-001 }
+  bandwidth_gbps: { value: 1792, evidence_ref: ev-rtx5090-001 }
+  type: GDDR7
+scale_up:
+  protocol: PCIe-Gen5
+  bandwidth_gbps: 128
+  world_size: 4
+  topology: pcie-fabric
+  notes: 'Consumer cards lack NVLink (NVIDIA reserves NVLink for data-center SKUs). Multi-GPU on consumer = PCIe Gen5 x16 only; bottleneck for TP > 2.'
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+  notes: 'No NIC integration. Consumer rigs scale out via host NIC + PCIe — typical home/office Ethernet (10GbE or 25GbE), no IB/RoCE.'
+power:
+  tdp_w: { value: 575, evidence_ref: ev-rtx5090-001 }
+  sustained_w: { value: 575, evidence_ref: ev-rtx5090-001 }
+  peak_w: { value: 600, evidence_ref: ev-rtx5090-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  throttle_temp_c: 87
+  fp16_tflops_per_watt: { value: 0.36, evidence_ref: ev-rtx5090-001 }
+  power_connector: 12V-2x6
+  notes: 'Dual-slot or triple-slot AIB designs; 12V-2x6 (12VHPWR successor) connector required. Sustained 575W is double L40S — household 15A circuit handles 1 GPU max. Multi-GPU consumer rigs need dedicated 20A circuits.'
+software_support:
+  drivers: ['CUDA-12.7', 'CUDA-13']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.7'] }
+    - { id: sglang, status: officially-supported, versions: ['0.5'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.18'] }
+    - { id: lmdeploy, status: officially-supported, versions: ['0.7'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, nvfp4, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp, pp]
+aliases: ['RTX 5090', 'GeForce RTX 5090', 'RTX5090']
+chinese_names: ['GeForce RTX 5090', 'RTX5090 消费级']
+evidence:
+  - id: ev-rtx5090-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/
+    accessed: '2026-05-02'
+    citation: 'NVIDIA GeForce RTX 5090 product page (Blackwell consumer flagship — 32 GB GDDR7, 1792 GB/s, 575W TGP, $1999 MSRP).'
+  - id: ev-rtx5090-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
+    accessed: '2026-05-02'
+    citation: 'NVIDIA RTX Blackwell GPU Architecture Whitepaper (GB202 die: 170 SMs enabled in RTX 5090 — 192 SMs total in full die; 96 MB L2; 92 B transistors; 750 mm² @ TSMC 4N).'
+disclaimers:
+  - 'RTX 5090 uses GDDR7; bandwidth is between L40S (GDDR6) and H100 (HBM3). Bandwidth-bound decode workloads run at ~30-40% H100 throughput.'
+  - 'NVFP4 path is functionally identical to B200 — indie LLM users get Blackwell FP4 at consumer pricing.'
+  - 'Single-card power budget (575W sustained) requires dedicated 20A circuits for multi-GPU rigs; consumer chassis cooling becomes a real constraint past 2 cards.'
+  - 'All performance figures are vendor-claimed unless tier=measured.'
+notes: |
+  RTX 5090 is the v3.0 reference for "consumer Blackwell" — first card making FP4 + GDDR7 +
+  Blackwell tensor cores accessible at consumer pricing ($1999 MSRP). Closes the gap between
+  hobbyist LLM inference (was: RTX 4090 + GGUF quants) and small-team production (was: L40S +
+  vLLM). For 7B-32B local models with FP4/FP8 quant, this is the new sweet spot.
+
+  Compared to L40S: similar L2 (96 MB), more SMs (170 vs 142), GDDR7 vs GDDR6 (~2× bandwidth),
+  but lower bf16 TFLOPS (Blackwell consumer trades bf16 for FP4/FP8 throughput). For LLM
+  inference with FP8/FP4 quant, RTX 5090 wins; for FP16 training, L40S still relevant.
+
+  Used by: indie LLM serving, fine-tuning experiments, small-team production. Not designed
+  for multi-GPU rack deployment — 575W TGP × 8 cards = 4.6 kW, beyond consumer chassis.
