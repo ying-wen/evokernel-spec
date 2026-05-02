@@ -89,7 +89,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/learn/production-lifecycle/', labelKey: 'home.entry.lifecycle', desc_zh: '生产生命周期 · rollout / A/B / 迁移 / 回滚', desc_en: 'Production lifecycle · rollout / A/B / migration / rollback' },
       { path: '/learn/capacity-planning/', labelKey: 'home.entry.capacityPlanning', desc_zh: '容量规划 · 部署链路 step 0 · 7-step sizing 推导', desc_en: 'Capacity planning · deployment chain step 0 · 7-step sizing math' },
       { path: '/learn/troubleshooting/', labelKey: 'home.entry.troubleshooting', desc_zh: '故障诊断 · 按症状的决策树 · 凌晨 3 点 on-call', desc_en: 'Troubleshooting · symptom-driven decision tree · 3 AM on-call' },
-      { path: '/learn/migrations/', labelKey: 'home.entry.migrations', desc_zh: '迁移指南 · 4 类常见演进路径 · 7 步 playbook', desc_en: 'Migration guides · 4 common evolution paths · 7-step playbook', theme: 'accent' }
+      { path: '/learn/migrations/', labelKey: 'home.entry.migrations', desc_zh: '迁移指南 · 4 类常见演进路径 · 7 步 playbook', desc_en: 'Migration guides · 4 common evolution paths · 7-step playbook', theme: 'accent' },
+      { path: '/learn/cost-optimization/', labelKey: 'home.entry.costOpt', desc_zh: '成本优化 playbook · 14 个 lever · 按 workload 排序', desc_en: 'Cost optimization · 14 levers · ranked by workload', theme: 'accent' }
     ]
   },
   {

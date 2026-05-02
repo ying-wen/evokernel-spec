@@ -627,6 +627,38 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.3: /learn/cost-optimization/ — cost-lever playbook', () => {
+  test('renders header + workload-archetype recommendations', async ({ page }) => {
+    await page.goto('/learn/cost-optimization/');
+    await expect(page.getByRole('heading', { name: /成本优化|Cost optimization/i }).first()).toBeVisible();
+    await expect(page.getByText(/工作负载|workload|archetype/i).first()).toBeVisible();
+    // 6 archetype cards
+    await expect(page.getByText(/Chat|RAG|Agent|Code-completion|Batch|Multi-tenant|Long context/i).first()).toBeVisible();
+  });
+
+  test('catalogs 14 cost levers across 4 families', async ({ page }) => {
+    await page.goto('/learn/cost-optimization/');
+    // 4 family headers
+    for (const fam of ['Compute', 'Memory', 'Serving', 'Scheduling']) {
+      await expect(page.getByText(new RegExp(fam, 'i')).first()).toBeVisible();
+    }
+    // Specific levers visible
+    await expect(page.getByText(/FP8 量化|FP4 量化|RadixAttention|prefix-cache/i).first()).toBeVisible();
+  });
+
+  test('shows anti-patterns section (levers that DONT help)', async ({ page }) => {
+    await page.goto('/learn/cost-optimization/');
+    await expect(page.getByText(/反模式|Anti-pattern|不该开/i).first()).toBeVisible();
+  });
+
+  test('cross-links to migrations + engines/compare + operators/hardware-fitness', async ({ page }) => {
+    await page.goto('/learn/cost-optimization/');
+    await expect(page.locator('a[href*="/learn/migrations/"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/engines/compare/"]').first()).toBeVisible();
+    await expect(page.locator('a[href*="/hardware/power-thermal-matrix/"]').first()).toBeVisible();
+  });
+});
+
 test.describe('v2.2: /operators/hardware-fitness/ — op × hw_arch fitness matrix', () => {
   test('/operators/hardware-fitness/ renders header + 12 arch coverage cards', async ({ page }) => {
     await page.goto('/operators/hardware-fitness/');

@@ -1,0 +1,509 @@
+---
+/**
+ * /learn/cost-optimization/ — $/M tokens lever catalog (v2.3).
+ *
+ * Closes a long-asked deploy-chain question: "I have $X/M tokens, want $Y,
+ * which levers fire first?" Existing pages tell you HOW to do each lever
+ * (patterns / fused-kernels / quantizations / migrations) but never gave
+ * a unified ranking by cost-impact × complexity × risk.
+ *
+ * 14 levers grouped into 4 families (compute / memory / serving / scheduling),
+ * each with: $-impact range, complexity, risk, prereqs, anti-pattern note,
+ * cross-links to the entities that actually implement it.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+
+interface Lever {
+  id: string;
+  name: string;
+  family: 'compute' | 'memory' | 'serving' | 'scheduling';
+  /** Typical $/M-token cost reduction range vs an unoptimized baseline. */
+  cost_impact_min: number; // %
+  cost_impact_max: number;
+  complexity: 'low' | 'medium' | 'high';
+  /** Risk of quality / latency regression if mis-applied. */
+  risk: 'low' | 'medium' | 'high';
+  prereq?: string;
+  description: string;
+  /** Concrete entity IDs that implement this lever. */
+  links?: {
+    patterns?: string[];
+    fused?: string[];
+    quants?: string[];
+    pages?: { href: string; label: string }[];
+  };
+  anti_pattern?: string;
+}
+
+const LEVERS: Lever[] = [
+  // === COMPUTE family ===
+  {
+    id: 'fp8-quant',
+    name: 'FP8 量化 (E4M3)',
+    family: 'compute',
+    cost_impact_min: 30,
+    cost_impact_max: 50,
+    complexity: 'low',
+    risk: 'low',
+    prereq: 'Hopper / Blackwell / MI300X+ 硬件',
+    description: 'Hopper 后通用. 卡数 ÷ 2, decode 吞吐 ×1.5-2. quality drift 通常 < 0.3%. 是当前性价比最高的单一 lever.',
+    links: {
+      quants: ['fp8-e4m3'],
+      pages: [{ href: '/learn/migrations/quant-downcast/', label: 'Migration: FP16 → FP8' }]
+    }
+  },
+  {
+    id: 'fp4-quant',
+    name: 'FP4 量化 (NVFP4 / MXFP4)',
+    family: 'compute',
+    cost_impact_min: 50,
+    cost_impact_max: 70,
+    complexity: 'medium',
+    risk: 'medium',
+    prereq: 'Blackwell only (or MI355X+), 完整 calibration 链路',
+    description: '相对 FP8 再减半卡数. NVFP4 (per-16-block) 比 MXFP4 quality 更稳. 需要完整 eval suite — accept rate drift ±0.5% 边界要监控.',
+    links: {
+      quants: ['nvfp4', 'mxfp4'],
+      fused: ['fused-quantized-attention'],
+      pages: [{ href: '/learn/quantization-decision-tree/', label: '量化决策树' }]
+    }
+  },
+  {
+    id: 'int4-weight',
+    name: 'INT4 权重量化 (AWQ / GPTQ)',
+    family: 'compute',
+    cost_impact_min: 25,
+    cost_impact_max: 45,
+    complexity: 'medium',
+    risk: 'medium',
+    prereq: 'Decode-bound workload',
+    description: '权重 ÷ 4. Decode-bound 时直接 ×1.5-2 吞吐. Prefill-bound 收益小. Long context 下 quality drop 常常更大, 单独测.',
+    links: {
+      quants: ['int4-awq', 'int4-gptq'],
+      patterns: ['memory-bound-decode-prefer-int8']
+    }
+  },
+  {
+    id: 'speculative-decode',
+    name: '投机解码 (EAGLE-2/3 / MTP)',
+    family: 'compute',
+    cost_impact_min: 30,
+    cost_impact_max: 60,
+    complexity: 'high',
+    risk: 'medium',
+    prereq: '可训练或可下载 draft 模型 / 接受 multi-token-prediction 模型',
+    description: 'Decode 阶段的"免费 1.5-3× 加速". EAGLE-3 实际 acceptance 60-75% 在常见 chat workload. 但实现复杂 + 与 quant 同时开有时 accept 暴跌 — 单独 tune.',
+    links: {
+      patterns: ['speculative-decoding', 'mtp-multi-token-prediction'],
+      fused: ['fused-spec-decode'],
+      pages: [{ href: '/operators/speculative-verify/', label: 'speculative-verify operator' }]
+    }
+  },
+
+  // === MEMORY family ===
+  {
+    id: 'kv-quant',
+    name: 'KV cache 量化 (FP8 / INT8)',
+    family: 'memory',
+    cost_impact_min: 15,
+    cost_impact_max: 30,
+    complexity: 'low',
+    risk: 'low',
+    prereq: 'Engine 支持 (vLLM / SGLang / TRT-LLM 都有)',
+    description: 'KV cache 通常占 30-60% HBM. FP8 KV 直接 ÷ 2, 同卡装 2× concurrent users. Long context (32K+) 时收益最大.',
+    links: {
+      patterns: ['kv-cache-int8'],
+      fused: ['fused-kv-quant']
+    }
+  },
+  {
+    id: 'kv-offload-cpu',
+    name: 'KV cache CPU offload (HBM → DRAM)',
+    family: 'memory',
+    cost_impact_min: 10,
+    cost_impact_max: 25,
+    complexity: 'medium',
+    risk: 'medium',
+    prereq: '充足 host RAM + PCIe 5+ / NVLink-Chip-2-Chip',
+    description: '把冷 KV (long context tail / inactive sessions) 移到 DRAM. 适合 chat 场景多用户. 切换延迟 ~10-50ms, prefix cache 命中场景影响小.',
+    links: { patterns: ['kv-cache-cpu-offload', 'hot-cold-kv-tiering'] }
+  },
+  {
+    id: 'prefix-cache',
+    name: 'Prefix cache (RadixAttention / vLLM prefix)',
+    family: 'memory',
+    cost_impact_min: 20,
+    cost_impact_max: 60,
+    complexity: 'low',
+    risk: 'low',
+    prereq: 'Workload 中 prompt 重复度 > 30% (RAG / agent / few-shot)',
+    description: 'Agent / RAG 重 prompt 共享 90%+ tokens — prefix cache hit rate 60%+ 直接 ×2-3 吞吐. SGLang RadixAttention 是当前最强实现.',
+    links: {
+      patterns: ['prefix-caching', 'prefix-radix-cache'],
+      fused: ['fused-radix-attention']
+    }
+  },
+  {
+    id: 'mqa-gqa',
+    name: '模型选 GQA / MQA (而非 MHA)',
+    family: 'memory',
+    cost_impact_min: 15,
+    cost_impact_max: 35,
+    complexity: 'low',
+    risk: 'low',
+    prereq: '模型选型阶段 (frontier 模型已默认 GQA)',
+    description: 'KV cache size = num_kv_heads × head_dim × ... GQA 把 KV heads 减少 4-8×, decode 吞吐直接放大. Llama 3+ / Qwen 2+ 都默认 GQA. Choosing model = 选这个 lever.',
+    links: {
+      patterns: ['gqa-mqa-shared-kv'],
+      pages: [{ href: '/learn/attention-variants/', label: 'Attention variants 对比' }]
+    }
+  },
+
+  // === SERVING family ===
+  {
+    id: 'continuous-batch',
+    name: 'Continuous batching',
+    family: 'serving',
+    cost_impact_min: 30,
+    cost_impact_max: 80,
+    complexity: 'low',
+    risk: 'low',
+    prereq: '现代 engine 默认 (vLLM / SGLang / TRT-LLM 都有)',
+    description: 'Naive static batching → continuous (基础) 直接 ×2-5 吞吐. 这不是 lever — 这是地基. 如果你还没开, 先开这个再考虑别的.',
+    links: { patterns: ['continuous-batching'] }
+  },
+  {
+    id: 'chunked-prefill',
+    name: 'Chunked prefill (prefill 与 decode 共享 batch)',
+    family: 'serving',
+    cost_impact_min: 15,
+    cost_impact_max: 35,
+    complexity: 'low',
+    risk: 'low',
+    prereq: 'Prefill / decode 工作负载混合 (典型 LLM serving)',
+    description: '不让长 prefill 阻塞 decode. 显著降低 TTFT 长尾, 同时提高 GPU 利用率. 现代 engine 默认开但需要 tune chunk size.',
+    links: { patterns: ['chunked-prefill'] }
+  },
+  {
+    id: 'pd-disagg',
+    name: 'PD-disagg (Prefill / Decode 池分开)',
+    family: 'serving',
+    cost_impact_min: 20,
+    cost_impact_max: 40,
+    complexity: 'high',
+    risk: 'high',
+    prereq: '足够规模 (≥ 16 卡), KV transfer (Mooncake / NIXL) 可用',
+    description: '彻底分离 P 池与 D 池. P 池满载 prefill (compute-bound), D 池满载 decode (memory-bound). 但增加运维复杂度: 两个池子, KV transfer 进入 hot path.',
+    links: {
+      patterns: ['disaggregated-prefill-decode'],
+      fused: ['mooncake-kv-disaggregation'],
+      pages: [{ href: '/learn/migrations/scaling/', label: 'Scaling migration playbook' }]
+    }
+  },
+  {
+    id: 'multi-lora',
+    name: 'Multi-LoRA (多租户共享 base)',
+    family: 'serving',
+    cost_impact_min: 50,
+    cost_impact_max: 90,
+    complexity: 'medium',
+    risk: 'low',
+    prereq: '场景: 多个 fine-tuned 变体 (per-tenant / per-task)',
+    description: 'N 个 LoRA adapter 共享一个 base model. 1 GPU 服务 50 个 LoRA 比 50 GPU 服务 50 个 fine-tuned 模型, 成本几乎线性下降. Punica / S-LoRA / vLLM multi-lora 都支持.',
+    links: {
+      patterns: ['lora-adapter-multiplexing'],
+      pages: [{ href: '/operators/lora-bgmv/', label: 'lora-bgmv operator' }]
+    }
+  },
+
+  // === SCHEDULING family ===
+  {
+    id: 'engine-swap',
+    name: '换更优引擎 (vLLM → SGLang / TRT-LLM)',
+    family: 'scheduling',
+    cost_impact_min: 10,
+    cost_impact_max: 35,
+    complexity: 'medium',
+    risk: 'medium',
+    prereq: '当前 baseline 跑足 24h+ (有可比数据)',
+    description: '同硬件同模型, 换 engine 通常 10-35% 吞吐 / 延迟 / 成本改善. SGLang 在 RAG/agent 高 prefix 场景特别强. TRT-LLM 在 NVIDIA-only 极致延迟最强.',
+    links: {
+      pages: [
+        { href: '/engines/compare/', label: '引擎对比矩阵' },
+        { href: '/learn/migrations/engine-swap/', label: 'Engine swap migration playbook' }
+      ]
+    }
+  },
+  {
+    id: 'right-size-hardware',
+    name: '硬件右尺寸化 (downsize 或换 vendor)',
+    family: 'scheduling',
+    cost_impact_min: 10,
+    cost_impact_max: 50,
+    complexity: 'high',
+    risk: 'high',
+    prereq: '采购 lead time 6-12 周',
+    description: 'H100 → MI300X (192GB HBM 直接装更大 model, 卡数减半) · H100 → 国产 (合规价格 ÷ 2) · A100 → H200 (代际跳一档). 周期长但 $-impact 最大.',
+    links: {
+      pages: [
+        { href: '/hardware/power-thermal-matrix/', label: 'fp16 TFLOPS/W 排行榜' },
+        { href: '/learn/migrations/hardware-swap/', label: 'Hardware swap migration playbook' }
+      ]
+    }
+  }
+];
+
+const FAMILY_LABEL: Record<Lever['family'], string> = {
+  compute: '⚡️ Compute (算力 / 量化)',
+  memory: '🧠 Memory (KV cache / HBM 利用)',
+  serving: '🛠️ Serving (batch / 池化 / multi-tenant)',
+  scheduling: '🎯 Scheduling (engine / 硬件 选型)'
+};
+
+const FAMILY_COLOR: Record<Lever['family'], string> = {
+  compute: 'oklch(60% 0.18 145)',
+  memory: 'oklch(60% 0.16 250)',
+  serving: 'oklch(65% 0.18 70)',
+  scheduling: 'oklch(60% 0.2 25)'
+};
+
+const RISK_COLOR: Record<Lever['risk'], string> = {
+  low: 'oklch(60% 0.18 145)',
+  medium: 'oklch(70% 0.18 70)',
+  high: 'oklch(55% 0.2 25)'
+};
+
+const COMPLEXITY_COLOR: Record<Lever['complexity'], string> = {
+  low: 'oklch(60% 0.16 145)',
+  medium: 'oklch(65% 0.16 70)',
+  high: 'oklch(55% 0.18 25)'
+};
+
+// Group levers by family
+const grouped = new Map<Lever['family'], Lever[]>();
+for (const l of LEVERS) {
+  if (!grouped.has(l.family)) grouped.set(l.family, []);
+  grouped.get(l.family)!.push(l);
+}
+
+// Sort levers in each family by cost-impact midpoint (descending)
+for (const arr of grouped.values()) {
+  arr.sort((a, b) => (b.cost_impact_min + b.cost_impact_max) / 2 - (a.cost_impact_min + a.cost_impact_max) / 2);
+}
+
+// Workload-archetype recommendations
+const WORKLOAD_RECS = [
+  {
+    workload: 'Chat (multi-turn, 1-4 turns avg)',
+    workload_en: 'Chat',
+    top_3: ['continuous-batch', 'fp8-quant', 'kv-quant'],
+    why: 'Decode-bound; KV cache 占用大. FP8 + KV-quant 双开, decode 直接 ×2 吞吐 + 装 2× users.'
+  },
+  {
+    workload: 'RAG / Agent (long prompt + 短答)',
+    workload_en: 'RAG / Agent',
+    top_3: ['prefix-cache', 'fp8-quant', 'speculative-decode'],
+    why: 'Prefix 重叠 60%+ 时 RadixAttention 是大杀器. SGLang 适合此场景.'
+  },
+  {
+    workload: 'Code-completion (低延迟, 短输出)',
+    workload_en: 'Code-completion',
+    top_3: ['speculative-decode', 'fp8-quant', 'chunked-prefill'],
+    why: '低延迟优先; spec decoding 1.5-3× 加速对短答 effective. 不要 PD-disagg (规模不够 + 增加 latency).'
+  },
+  {
+    workload: 'Batch / 离线推理 (吞吐第一, 延迟次要)',
+    workload_en: 'Batch / Offline',
+    top_3: ['fp4-quant', 'continuous-batch', 'pd-disagg'],
+    why: 'Quality drift 在 batch 场景容忍度更高 — FP4 直接拿 70% 成本下降. 大 batch + PD-disagg 把 utilization 拉到顶.'
+  },
+  {
+    workload: 'Multi-tenant fine-tune (每个 tenant 一个 LoRA)',
+    workload_en: 'Multi-tenant fine-tune',
+    top_3: ['multi-lora', 'fp8-quant', 'continuous-batch'],
+    why: 'Multi-LoRA 是这个场景的存在意义. 1 GPU 服务 50 LoRA vs 50 GPU 服务 50 ft 模型, ROI clear.'
+  },
+  {
+    workload: 'Long context (128K+, summarize / analyze)',
+    workload_en: 'Long context',
+    top_3: ['kv-quant', 'kv-offload-cpu', 'fp8-quant'],
+    why: 'KV cache 是 #1 瓶颈. KV-quant ÷ 2 + CPU offload 让 single GPU 装 4× context.'
+  }
+];
+
+// Anti-patterns: levers that DON'T help (or hurt) under wrong conditions
+const ANTI_PATTERNS = [
+  {
+    title: '盲目 PD-disagg',
+    detail: '< 16 卡规模做 PD-disagg, 运维复杂度爆炸但 throughput 提升 < 10%. 先把 chunked-prefill + continuous-batching 调到极致.'
+  },
+  {
+    title: 'INT4 用在 prefill-bound 工作负载',
+    detail: 'Prefill 是 compute-bound, INT4 量化主要省 memory bandwidth. 改 prefill 时间 < 5%. 走 FP8 / INT8 反而更稳.'
+  },
+  {
+    title: '并发开 spec decoding + 量化 而不单独 tune',
+    detail: 'EAGLE + INT4 / FP4 同时开, accept rate 经常从 70% 跌到 < 30%. 先单独 tune 量化, 再单独 tune spec, 最后并开.'
+  },
+  {
+    title: 'KV cache CPU offload 用在低 PCIe 代际',
+    detail: 'PCIe 4 (32 GB/s) bandwidth 不够支撑活跃用户的 KV swap. PCIe 5 (64 GB/s) 起步, 否则 latency 长尾爆炸.'
+  },
+  {
+    title: '换更便宜硬件而不验证 op 覆盖',
+    detail: '硬件 $/M tok 看似便宜但关键 op (MLA / spec-verify / MoE) 没 native kernel — 走 fallback path 实际 5-10× 慢. 看 /operators/hardware-fitness/.'
+  },
+  {
+    title: '"先优化后测量" 反模式',
+    detail: '没 baseline 数据 (TTFT p95 / decode tok/s / $/M tok) 就开始改东西 — 没法判断是否成功也没法回滚. baseline 必须 24h+ 实流量.'
+  }
+];
+---
+<BaseLayout title="成本优化 playbook — 14 个 lever × 4 工作负载 archetype">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="LEARN · COST OPTIMIZATION"
+        title="成本优化 playbook"
+        subtitle="14 个 $/M tokens lever · 4 大类 (compute / memory / serving / scheduling) · 按工作负载 archetype 排序"
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        现有 /learn 页面告诉你 <em>怎么做某个 lever</em> (patterns / fused-kernels / quantizations / migrations).
+        这一页给你的是 <strong>"我有 $X/M tokens 目标 $Y, 哪些 lever 先开?"</strong> 的优先级排序.
+        每个 lever 标注 $-impact 范围 / 复杂度 / 风险 / 前置条件 / 反模式提醒.
+      </p>
+      <div class="mt-6 rounded-lg p-4 border" style="background: color-mix(in oklch, var(--color-accent) 5%, var(--color-surface-raised)); border-color: var(--color-accent);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-accent);">⚠️ 前置 (无 negotiable)</div>
+        <p class="text-sm">
+          做任何成本优化前: <strong>baseline 跑足 24h+</strong> 真实流量 — 无 baseline = 无法判断成功 = 无法回滚.
+          看 <a href={pathname('/learn/migrations/')} class="underline" style="color: var(--color-accent);">/learn/migrations/</a> 的 7 步框架.
+        </p>
+      </div>
+    </section>
+
+    {/* By workload-archetype recommendations */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🎯 按工作负载 archetype 推荐 top-3 lever</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        不同 workload 的 cost lever 优先级完全不同. 如果你不确定自己属于哪种 archetype, 看 prompt 长度分布 / output 长度分布 / 重复 prompt 比例 三个指标.
+      </p>
+      <div class="grid gap-4 lg:grid-cols-2">
+        {WORKLOAD_RECS.map((rec) => {
+          const lvrs = rec.top_3.map((id) => LEVERS.find((l) => l.id === id)!);
+          return (
+            <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <h3 class="text-base font-semibold mb-2">{rec.workload}</h3>
+              <p class="text-xs mb-3" style="color: var(--color-text-muted);">{rec.why}</p>
+              <ol class="space-y-1.5">
+                {lvrs.map((l, idx) => (
+                  <li class="flex items-baseline gap-2">
+                    <span class="font-mono text-sm font-semibold" style="color: var(--color-accent);">{idx + 1}.</span>
+                    <a href={`#lever-${l.id}`} class="text-sm hover:underline" style="color: var(--color-text);">{l.name}</a>
+                    <span class="text-xs ml-auto font-mono" style="color: var(--color-text-muted);">{l.cost_impact_min}-{l.cost_impact_max}%</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    {/* Lever catalog by family */}
+    {[...grouped.entries()].map(([family, levers]) => (
+      <section class="py-8 border-t" style="border-color: var(--color-border);">
+        <h2 class="text-2xl font-semibold mb-2" style={`color: ${FAMILY_COLOR[family]};`}>{FAMILY_LABEL[family]}</h2>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">{levers.length} 个 lever, 按 $-impact 中位排序</p>
+        <div class="grid gap-3">
+          {levers.map((l) => (
+            <article id={`lever-${l.id}`} class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex items-start justify-between gap-4 mb-3 flex-wrap">
+                <div>
+                  <h3 class="text-lg font-semibold">{l.name}</h3>
+                  {l.prereq && <div class="text-xs mt-1" style="color: var(--color-text-muted);">前置: {l.prereq}</div>}
+                </div>
+                <div class="flex gap-2 flex-wrap items-center">
+                  <span style={`font-family: var(--font-mono); font-size: 0.75rem; padding: 4px 8px; background: color-mix(in oklch, ${FAMILY_COLOR[family]} 15%, transparent); color: ${FAMILY_COLOR[family]}; border-radius: 4px; font-weight: 600;`}>
+                    -{l.cost_impact_min} ~ -{l.cost_impact_max}% $
+                  </span>
+                  <span style={`font-size: 0.7rem; padding: 4px 8px; background: color-mix(in oklch, ${COMPLEXITY_COLOR[l.complexity]} 15%, transparent); color: ${COMPLEXITY_COLOR[l.complexity]}; border-radius: 4px;`}>
+                    复杂度: {l.complexity}
+                  </span>
+                  <span style={`font-size: 0.7rem; padding: 4px 8px; background: color-mix(in oklch, ${RISK_COLOR[l.risk]} 15%, transparent); color: ${RISK_COLOR[l.risk]}; border-radius: 4px;`}>
+                    风险: {l.risk}
+                  </span>
+                </div>
+              </div>
+              <p class="text-sm mb-3">{l.description}</p>
+              {l.links && (
+                <div class="flex gap-3 flex-wrap text-xs" style="color: var(--color-text-muted);">
+                  {l.links.patterns?.map((p) => (
+                    <a href={pathname(`/patterns/${p}/`)} class="hover:underline" style="color: var(--color-accent);">→ pattern: {p}</a>
+                  ))}
+                  {l.links.fused?.map((p) => (
+                    <a href={pathname(`/fused-kernels/${p}/`)} class="hover:underline" style="color: var(--color-accent);">→ fused: {p}</a>
+                  ))}
+                  {l.links.quants?.map((p) => (
+                    <a href={pathname(`/quantizations/${p}/`)} class="hover:underline" style="color: var(--color-accent);">→ quant: {p}</a>
+                  ))}
+                  {l.links.pages?.map((pg) => (
+                    <a href={pathname(pg.href)} class="hover:underline" style="color: var(--color-accent);">→ {pg.label}</a>
+                  ))}
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      </section>
+    ))}
+
+    {/* Anti-patterns */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3" style="color: oklch(55% 0.2 25);">⛔ 反模式: 不该开 / 开了反伤的 lever</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        以下情况比直接的 "什么 lever 开了" 更重要 — 跑错方向比不优化更糟.
+      </p>
+      <div class="grid gap-3 md:grid-cols-2">
+        {ANTI_PATTERNS.map((ap) => (
+          <div class="rounded-lg p-4 border" style="background: color-mix(in oklch, oklch(55% 0.2 25) 5%, var(--color-surface-raised)); border-color: oklch(55% 0.2 25);">
+            <h4 class="text-sm font-semibold mb-1.5" style="color: oklch(55% 0.2 25);">⛔ {ap.title}</h4>
+            <p class="text-xs" style="color: var(--color-text-muted);">{ap.detail}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* Process */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🔁 优化流程 — 一次只动一个 lever</h2>
+      <ol class="space-y-3 max-w-3xl">
+        <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>1. Baseline 24h+</strong>: TTFT p50/p95/p99 · decode tok/s/card · $/M tok · error rate · prefix cache hit rate. 没这些不要动手.
+        </li>
+        <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>2. 选 1 个 lever</strong>: 按 workload archetype 推荐, 一次只动一个. 同时开多个 = 失败时不知是哪个的锅.
+        </li>
+        <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>3. Shadow → Canary</strong>: 1% → 10% → 50% → 100%. 每档跑完整 eval suite (尤其量化 lever).
+        </li>
+        <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>4. 验收 ≥ 24h</strong>: 完整 traffic peak 跨过. 不见 cost gain 或见 quality drift, rollback.
+        </li>
+        <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>5. 把成功 lever 写进 baseline</strong>: 这成为新的 baseline 进入下一个 lever 的优化循环.
+        </li>
+      </ol>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Note: $-impact 数字基于 evokernel-spec corpus 中的部署 case 中位 + 各 lever 的公开 benchmark.
+        实际 impact 因 workload / model / hardware 浮动 ±20%. 用作 priority ranking, 不是合同 SLA. 反例 / 真实数据请提 case PR 至
+        <a href={pathname('/contribute/case-form/')} class="underline" style="color: var(--color-accent);">/contribute/case-form/</a>.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>
