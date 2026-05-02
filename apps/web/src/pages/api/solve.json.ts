@@ -93,8 +93,16 @@ const HARDWARE_HOURLY_USD: Record<string, number> = {
   'gaudi-3': 2.5,
   'ascend-910b': 2.5,
   'ascend-910c': 3.5,
+  'ascend-950': 4.5,
   'mlu590': 2.5,
-  'trainium-2': 2.0
+  'mlu370-x8': 1.5,
+  'trainium-2': 2.0,
+  // v2.11: 国产 hardware coverage expansion for any-model × any-domestic-hw
+  'dcu-k100': 2.0,
+  'dcu-z100': 2.5,
+  'mtt-s4000': 1.5,
+  'br100': 2.5,
+  'br104': 3.0
 };
 
 const HARDWARE_RENT_NOTE =

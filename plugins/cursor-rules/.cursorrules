@@ -1,0 +1,59 @@
+# EvoKernel Spec Cursor Rules
+#
+# Drop into your project root as `.cursorrules` to give Cursor / Cursor IDE
+# direct access to the EvoKernel deployment knowledge base for any
+# (HuggingFace model × any hardware) deployment planning task.
+
+When the user asks about deploying any LLM / SSM / multi-modal model to specific accelerator hardware, you have access to the **EvoKernel Spec corpus** — a structured knowledge base covering 39 accelerators across 28 vendors (NVIDIA / AMD / Huawei / Cambricon / Hygon / Moore Threads / Biren / Apple / Intel / AWS / Google), 34 operators with FLOPs/bytes formulas, 24 fused kernels, 7 inference engines, ISA primitives with cross-vendor equivalents, kernel libraries, and per-(operator × arch) coverage matrix.
+
+## Behavior
+
+For **any deployment question** (e.g., "deploy Llama 4 Scout on MI300X", "best engine for DeepSeek V3 on Ascend 910C", "how many cards for Mistral Large 3 at 1.5/M tokens"):
+
+1. **Run the agent-deploy CLI** to generate the structured plan:
+   ```bash
+   pnpm tsx scripts/agent-deploy/index.ts \
+     --model <HF_MODEL_ID> \
+     --hardware <HARDWARE_ID> \
+     --workload chat \
+     --output ./agent-output
+   ```
+   The CLI generates **13 production-grade artifacts** including Dockerfile, K8s manifests, Prometheus alerts, runbook, rollback plan, license audit, SBOM, and a 53-item production checklist.
+
+2. **Reference the JSON APIs** when partial info is sufficient:
+   - `/api/hardware.json` — 39 accelerator specs
+   - `/api/coverage-matrix.json` — 510-row (op × arch × library) coverage
+   - `/api/solve.json` — pre-computed configurations
+   - `/api/isa-primitives.json` — WGMMA/MFMA/Cube + cross-vendor equivalents
+   - Base URL: `https://yingwen.io/evokernel-spec/api/`
+
+3. **Surface kernel gaps and 国产 considerations explicitly** when relevant — the corpus encodes:
+   - Which (op × arch) pairs lack native library kernels (need codegen)
+   - National-stack engine mandates (Ascend → MindIE, Cambricon → lmdeploy)
+   - Memory hierarchy differences (Ascend explicit GM/UB/L1/L0 vs CUDA SMEM)
+   - Cross-vendor primitive equivalents (WGMMA → 4× Cube 16x16x16, etc.)
+
+## Hardware ID quick reference
+
+```
+NVIDIA:        h100-sxm5, h200-sxm, b200-sxm, b300-sxm, a100-sxm4, l40s
+AMD:           mi300x, mi325x, mi355x
+Huawei:        ascend-910b, ascend-910c, ascend-950
+Cambricon:     mlu590, mlu370-x8
+Hygon:         dcu-k100, dcu-z100
+Moore Threads: mtt-s4000
+Biren:         br100, br104
+Other:         gaudi-3, trainium-2, tpu-v5p, trillium
+```
+
+## Validated combinations
+
+35 (model × hardware) combinations validated end-to-end with 100% success rate at `data/agent-validations.json`. Cross-vendor adaptation is automatic — same model gets different (engine, quant, card count) per hardware. See `https://yingwen.io/evokernel-spec/agents/validations/` for the rendered matrix.
+
+## What NOT to do
+
+- **Don't** invent deployment recipes from training data — the corpus has more current data
+- **Don't** suggest Ascend deployments using vLLM (use MindIE)
+- **Don't** suggest FP4 on hardware that doesn't support it (only Blackwell + MI355X)
+- **Don't** skip the production-checklist when user asks for "production deploy"
+- **Don't** estimate cost without referencing /api/solve.json's similar measured cases

@@ -1,0 +1,167 @@
+---
+/**
+ * /agents/integrations/ — integration paths for LLM tools (v2.11).
+ *
+ * Wraps agent-deploy as MCP server / Claude Code skill / Cursor rules /
+ * Codex integration, so any Codex / Claude Code / Cursor / Continue / Cody /
+ * Zed / VS Code (Cline) user can use the corpus directly.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+---
+<BaseLayout title="Integrations — MCP / Claude Code / Cursor / Codex">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="AGENTS · INTEGRATIONS · v2.11"
+        title="MCP server / Claude Code skill / Cursor rules / Codex 集成"
+        subtitle="不仅是知识库 — 让 Codex / Claude Code / Cursor / Continue / Cline 等 LLM 工具直接调用任意模型 → 任意硬件部署 agent"
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        v2.9 ship 了 agent-deploy CLI; v2.11 把它包装成 4 种集成路径让本地 LLM 工具直接调用 — 实现"任意模型 / 算法到任意硬件，生产级端到端迁移、部署、优化"的 plugin / skill 系统.
+      </p>
+    </section>
+
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-4">🔌 4 种集成路径</h2>
+      <div class="grid gap-4 lg:grid-cols-2">
+
+        {/* MCP server */}
+        <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-accent);">
+          <div class="flex items-baseline justify-between gap-3 mb-2">
+            <h3 class="text-lg font-semibold">1. MCP Server (推荐)</h3>
+            <span class="text-xs px-2 py-0.5 rounded" style="background: var(--color-accent); color: white;">universal</span>
+          </div>
+          <p class="text-xs mb-3" style="color: var(--color-text-muted);">
+            一个包, 兼容: Claude Desktop · Cursor · Continue · VS Code Cline · Codex 0.6+ · Sourcegraph Cody · Zed.
+            包: <code style="font-family: var(--font-mono);">@evokernel/mcp-server</code> (npm)
+          </p>
+          <p class="text-xs mb-3" style="color: var(--color-text-muted);">6 tools exposed:</p>
+          <ul class="text-xs space-y-0.5" style="color: var(--color-text-muted);">
+            <li>· <code style="font-family: var(--font-mono); color: var(--color-accent);">evokernel_query_hardware</code></li>
+            <li>· <code style="font-family: var(--font-mono); color: var(--color-accent);">evokernel_query_operator</code></li>
+            <li>· <code style="font-family: var(--font-mono); color: var(--color-accent);">evokernel_query_isa</code></li>
+            <li>· <code style="font-family: var(--font-mono); color: var(--color-accent);">evokernel_solve</code></li>
+            <li>· <code style="font-family: var(--font-mono); color: var(--color-accent);">evokernel_coverage_matrix</code></li>
+            <li>· <code style="font-family: var(--font-mono); color: var(--color-accent);">evokernel_plan_deployment</code> (full agent-deploy)</li>
+          </ul>
+        </div>
+
+        {/* Claude Code skill */}
+        <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="flex items-baseline justify-between gap-3 mb-2">
+            <h3 class="text-lg font-semibold">2. Claude Code Skill</h3>
+            <span class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">claude-code</span>
+          </div>
+          <p class="text-xs mb-3" style="color: var(--color-text-muted);">
+            Drop <code style="font-family: var(--font-mono);">SKILL.md</code> into <code style="font-family: var(--font-mono);">~/.claude/skills/evokernel-deploy/</code>.
+            Claude Code activates skill when user mentions deployment task.
+          </p>
+          <pre class="rounded p-2 border text-xs overflow-x-auto" style="background: var(--color-bg); border-color: var(--color-border); font-family: var(--font-mono);"><code>{`mkdir -p ~/.claude/skills/evokernel-deploy
+cp plugins/claude-code-skill/SKILL.md \\
+   ~/.claude/skills/evokernel-deploy/`}</code></pre>
+        </div>
+
+        {/* Cursor rules */}
+        <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="flex items-baseline justify-between gap-3 mb-2">
+            <h3 class="text-lg font-semibold">3. Cursor Rules</h3>
+            <span class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">cursor</span>
+          </div>
+          <p class="text-xs mb-3" style="color: var(--color-text-muted);">
+            Drop <code style="font-family: var(--font-mono);">.cursorrules</code> into your project root. Cursor reads it as project-wide context.
+            Includes hardware ID reference + behavior rules + 国产 deployment guidance.
+          </p>
+          <pre class="rounded p-2 border text-xs overflow-x-auto" style="background: var(--color-bg); border-color: var(--color-border); font-family: var(--font-mono);"><code>{`cp plugins/cursor-rules/.cursorrules \\
+   /path/to/your/project/`}</code></pre>
+        </div>
+
+        {/* Codex */}
+        <div class="rounded-lg p-5 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="flex items-baseline justify-between gap-3 mb-2">
+            <h3 class="text-lg font-semibold">4. Codex CLI</h3>
+            <span class="text-xs px-2 py-0.5 rounded" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent);">codex</span>
+          </div>
+          <p class="text-xs mb-3" style="color: var(--color-text-muted);">
+            Three options: (a) point Codex 0.6+ at the MCP server (recommended), (b) slash command, (c) system prompt seed. 见 <code style="font-family: var(--font-mono);">plugins/codex/README.md</code>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    {/* Quick start */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🚀 5 分钟接入 — Claude Desktop</h2>
+      <ol class="space-y-2 text-sm">
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>1.</strong> Clone repo + install:
+          <pre class="text-xs mt-1" style="font-family: var(--font-mono);"><code>git clone https://github.com/ying-wen/evokernel-spec
+cd evokernel-spec && pnpm install
+cd plugins/mcp-server && pnpm install && pnpm build</code></pre>
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>2.</strong> Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:
+          <pre class="text-xs mt-1" style="font-family: var(--font-mono);"><code>{`{
+  "mcpServers": {
+    "evokernel-spec": {
+      "command": "node",
+      "args": ["/path/to/evokernel-spec/plugins/mcp-server/dist/index.js"]
+    }
+  }
+}`}</code></pre>
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>3.</strong> Restart Claude Desktop.
+        </li>
+        <li class="rounded p-3 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <strong>4.</strong> Ask: <em>"Plan a production deployment of meta-llama/Llama-4-Scout-17B-16E on Ascend 910C"</em> — Claude calls <code style="font-family: var(--font-mono);">evokernel_plan_deployment</code> and returns 13 artifacts.
+        </li>
+      </ol>
+    </section>
+
+    {/* What an integrated agent can do */}
+    <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">🎯 集成后能做什么</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        通过任一集成路径, 本地 LLM 工具能以原生方式回答以下端到端部署问题:
+      </p>
+      <div class="grid gap-3 lg:grid-cols-2">
+        {[
+          { q: '"在 H100 集群上部署 DeepSeek V4 Pro"', a: 'Engine + quant + 卡数 + 13 artifact (Dockerfile / K8s / Prometheus / runbook ...)' },
+          { q: '"FP8 量化 vs FP4 哪个更适合 Mistral Large 3 on MI300X?"', a: '基于 coverage-matrix + memory budget 给具体推荐 + cost diff' },
+          { q: '"在国产硬件 Ascend 910C 上跑 Llama 4 Scout 跨厂商移植?"', a: 'Engine 自动切到 MindIE, kernel gaps 标注 ISA 等价映射 (WGMMA → Cube)' },
+          { q: '"我有 8 张 MI300X + 0.5 USD/M tokens 预算, 哪个模型适合?"', a: '查 /api/solve.json + filter, 返回 ranked configurations' },
+          { q: '"MoE-256 在 Cambricon MLU590 上有哪些算子缺 native kernel?"', a: '查 /api/coverage-matrix.json filter by arch_family + missing' },
+          { q: '"WGMMA m64n128k16 在 AMD CDNA3 上的等价是什么?"', a: '查 /api/isa-primitives.json + cross_vendor_equivalents → 2× MFMA 32x32x16' }
+        ].map(({ q, a }) => (
+          <div class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <div class="text-sm font-semibold mb-1" style="color: var(--color-accent);">{q}</div>
+            <div class="text-xs" style="color: var(--color-text-muted);">→ {a}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* Paths summary */}
+    <section class="pb-12 border-t pt-8" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-3">📦 Plugin source code</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        All plugin sources live in <code style="font-family: var(--font-mono); background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 1px 6px; border-radius: 3px;">plugins/</code>:
+      </p>
+      <ul class="space-y-1 text-sm">
+        <li><code style="font-family: var(--font-mono);">plugins/mcp-server/index.ts</code> — MCP server (Stdio transport)</li>
+        <li><code style="font-family: var(--font-mono);">plugins/mcp-server/package.json</code> — npm publishable as <code>@evokernel/mcp-server</code></li>
+        <li><code style="font-family: var(--font-mono);">plugins/claude-code-skill/SKILL.md</code> — Claude Code skill markdown</li>
+        <li><code style="font-family: var(--font-mono);">plugins/cursor-rules/.cursorrules</code> — Cursor project rules</li>
+        <li><code style="font-family: var(--font-mono);">plugins/codex/README.md</code> — Codex CLI integration (3 options)</li>
+      </ul>
+      <p class="text-xs mt-4" style="color: var(--color-text-muted);">
+        See also: <a href={pathname('/agents/example/')} class="underline" style="color: var(--color-accent);">/agents/example/ (CLI walkthrough)</a> ·
+        <a href={pathname('/agents/validations/')} class="underline" style="color: var(--color-accent);">/agents/validations/ (35-run matrix)</a> ·
+        <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/ (overview)</a>
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

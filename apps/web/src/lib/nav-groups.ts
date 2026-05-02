@@ -130,7 +130,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/changelog/', labelKey: 'nav.changelog', desc_zh: '版本日志 · RSS 订阅 · 每个版本一个主题', desc_en: 'Release log · RSS feed · single-theme releases' },
       { path: '/agents/', labelKey: 'nav.agents', desc_zh: '智能体集成入口 · JSON API · /api/solve.json · MCP 路线图', desc_en: 'Agent integration · JSON API · /api/solve.json · MCP roadmap', theme: 'accent' },
       { path: '/agents/example/', labelKey: 'nav.agentsExample', desc_zh: 'E2E 工作样例 · HF 模型 → 任意硬件 · 13 个生产级 artifact', desc_en: 'E2E working sample · HF model → any hardware · 13 production-grade artifacts', theme: 'accent' },
-      { path: '/agents/validations/', labelKey: 'nav.agentsValidations', desc_zh: '实测验证矩阵 · 5 模型 × 3 硬件 = 15 runs · 100% pass', desc_en: 'Validation matrix · 5 models × 3 hardware = 15 runs · 100% pass', theme: 'accent' }
+      { path: '/agents/validations/', labelKey: 'nav.agentsValidations', desc_zh: '实测验证矩阵 · 5 模型 × 7 硬件 (含 4 国产) = 35 runs · 100% pass', desc_en: 'Validation matrix · 5 models × 7 hardware (incl 4 Chinese vendors) = 35 runs · 100% pass', theme: 'accent' },
+      { path: '/agents/integrations/', labelKey: 'nav.agentsIntegrations', desc_zh: 'Plugin / Skill 集成 · MCP / Claude Code / Cursor / Codex', desc_en: 'Plugin / skill integrations · MCP / Claude Code / Cursor / Codex', theme: 'accent' }
     ]
   }
 ];

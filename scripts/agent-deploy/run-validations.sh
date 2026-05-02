@@ -33,7 +33,8 @@ for MODEL_KEY in llama-4-scout llama-3.3-70b mistral-large-3 qwen3.6-plus deepse
   CONFIG_PATH="/tmp/validation-output/${MODEL_KEY}.config.json"
   write_config "$MODEL_KEY" > "$CONFIG_PATH"
 
-  for HW in h100-sxm5 mi300x ascend-910c; do
+  # v2.11: extended to 国产 hardware coverage (Cambricon / Hygon / Moore Threads / Biren)
+  for HW in h100-sxm5 mi300x ascend-910c mlu590 dcu-z100 mtt-s4000 br104; do
     OUTDIR="/tmp/validation-output/${MODEL_KEY}__${HW}"
     mkdir -p "$OUTDIR"
     echo ""
