@@ -6,7 +6,84 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.22** — Apple m4-max / m4-max-npu visible cross-link UI + actual NCU/rocprof/msprof invocation in V3 execution mode + zh i18n for `/agent-deploy` slash command.
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.23** — kernel-runner harness for actual NCU invocation (auto-produce CSV from generated kernel), rocprof + msprof + cnperf output parsers (mirroring v3.22 NCU pattern), zh i18n for `/agent-deploy` slash command, agent:watch test that exercises real fs-watch event delivery.
+
+---
+
+## [3.22.0] — 2026-05-03 — Continuous mode (`agent:watch`) + NCU CSV parser + Apple sub-chip cross-link
+
+**Theme**: Closes the v3.21 perf-gate loop with real NCU CSV parsing and adds `pnpm agent:watch` for continuous re-deploy on corpus changes — the user's "持续根据部署情况持续自动优化闭环" promise. Plus the long-deferred Apple m4-max sub-chip disambiguation.
+
+### H1 — `pnpm agent:watch` continuous mode
+
+`scripts/agent-deploy/watch.ts` (NEW, ~290 LOC). 11th harness CLI command. Watches `data/models/`, `data/hardware/`, `data/dsl-examples/`, `data/operators/`, `data/fused-kernels/` via native `fs.watch` (no chokidar dep). When a YAML mutation lands:
+
+1. **Pair-affected detection** (`isPairAffected()`): for each watched (model, hw) pair, decide whether the changed file matters. Conservative: model YAML, hardware YAML, and any DSL/op/fused-kernel change all trigger.
+2. **Debounce** 2 seconds — rapid edits batch.
+3. **Bounded concurrency** — max 2 deploys in flight (configurable via constant).
+4. **Forwarded flags** — `--use-llm-orchestrator`, `--profile`, `--workload` etc are passed through to each spawned `agent:deploy`.
+
+Discovery shapes:
+
+```bash
+pnpm agent:watch -- --model llama-3.3-70b --hardware h100-sxm5
+pnpm agent:watch -- --pairs llama-3.3-70b:h100-sxm5,boltz-1:mi300x
+pnpm agent:watch -- --pairs ./pairs.txt   # one pair per line, # comments
+pnpm agent:watch -- --pairs <path> --use-llm-orchestrator --profile
+```
+
+Per-pair output goes to `agent-watch-output/<model>-on-<hardware>/`. Liveness counter prints every 60s (`uptime / deploys triggered / active / queued`). Ctrl-C halts cleanly; sub-dirs persist for inspection.
+
+Why this matters: contributors lands a new DSL example or fixes formal_semantics; pre-v3.22 users had to know to re-run their deploy. Now `agent:watch` does it automatically — first real "continuous self-optimization closed loop" surface in the harness.
+
+### H2 — NCU CSV output parser
+
+`scripts/agent-deploy/verify/ncu-parser.ts` (NEW, ~180 LOC). Parses NVIDIA Nsight Compute `--csv` output into structured metrics + a perf-friendliness score. Pre-v3.22 the V3 perf gate detected `ncu` on PATH (v3.21) but never invoked it — "available" status was reported but no measured perf produced.
+
+Metrics extracted:
+- `sm__throughput.avg.pct_of_peak_sustained_elapsed` (compute-bound signal)
+- `dram__throughput.avg.pct_of_peak_sustained_elapsed` (bandwidth-bound signal)
+- `sm__warps_active.avg.pct_of_peak_sustained_elapsed` (occupancy gate)
+
+Each is averaged across captured launches, mapped to good/ok/warn/unknown via thresholds (60/30, 70/40, 50/20), and combined into a weighted perf_score in [0, 1] (SM 0.5 + DRAM 0.35 + Occ 0.15).
+
+`scripts/agent-deploy/verify/perf.ts` extended: when `EVOKERNEL_NCU_INPUT_CSV=path/to/ncu-output.csv` is set + `ncu` is detected (or env-overridden) + execution mode is on + target arch is NVIDIA, the perf gate parses the CSV and emits per-metric `pass`/`fail` checks plus the overall `perf_score >= 0.5` pass gate.
+
+Why CSV not JSON: NCU CSV format is more stable across versions, and existing CI pipelines (e.g. NVIDIA's reference benchmarks) already produce CSV output. **The kernel-runner that actually invokes ncu on the generated kernel** is intentionally out-of-scope here — it lands in v3.23+ once a target-machine integration test exists. v3.22 ships the parser path + env hook so users with existing NCU output can consume it today.
+
+### H3 — Apple m4-max / m4-max-npu visible cross-link
+
+Both YAMLs updated with explicit cross-references in disclaimers:
+
+- `m4-max.yaml`: "PARENT CHIP — `apple-m4-max-npu` ... is a sub-component of this entry. Use **m4-max** for general MLX/Metal deploy (GPU-dominant path); use **apple-m4-max-npu** for ANE-only Core ML deployment..."
+- `m4-max-npu.yaml`: "SUB-COMPONENT of `m4-max` (the full chip entry). This YAML covers ONLY the 16-core Apple Neural Engine subset (38 TFLOPS)..."
+
+The two entries are **legitimately different SKUs** (full chip vs ANE-only Core ML path), so deletion was wrong. v3.22 fix is **explicit relationship documentation** — no schema change needed; the disclaimer field carries the cross-link until a future schema iteration adds a `parent_chip` reference.
+
+### H4 — Tests
+
+`scripts/tests/v3-22-watch-and-ncu.test.ts`: +19 tests:
+
+- **isPairAffected** (8): model/hardware/dsl/operators/fused-kernels positive cases + 3 negative cases (unrelated hardware, unrelated model, scripts/CHANGELOG)
+- **agent:watch CLI** (2): `--help` exits 0 with usage; missing `--pairs` returns exit 2
+- **parseNcuCsv** (7): realistic CSV → averaged metrics; perf_score in [0,1]; per-metric assessment thresholds; human-readable summary; missing-header empty-result; required-column-missing empty-result; single-launch with missing occupancy
+- **runPerfGate ncu integration** (2): `EVOKERNEL_NCU_INPUT_CSV` → pass on high score; fail on low score + ncu_* checks added
+
+Plus a fix-as-you-go: `watch.ts:main()` now guards behind `is_direct_run` so test imports of `isPairAffected` don't trigger a process exit. (Vitest caught this — without the guard, `process.exit(2)` from `parseFlags` fired during module load.)
+
+### Stats
+
+- **CLI commands**: 10 → **11** (+`agent:watch`)
+- **Test count**: 134 → **153** (+19 watch + ncu)
+- **Layer V profiler integration**: 1/6 vendors (NVIDIA NCU CSV ingestion) — full 6-vendor coverage lands in v3.23+
+- **Continuous-mode loop**: closed (corpus change → debounce → re-deploy)
+
+### v3.23 next
+
+- **Kernel-runner harness** that actually invokes `ncu --csv ...` on the generated kernel (auto-produces CSV — replaces the v3.22 env-hook surface).
+- **rocprof / msprof / cnperf parsers** mirroring NCU pattern (CDNA / Ascend / Cambricon profile output).
+- **zh i18n** for `/agent-deploy` slash command (Chinese-translated `.claude/commands/zh/agent-deploy.md`).
+- **agent:watch test** that exercises real fs-watch delivery (currently we test isPairAffected pure logic; integration test would ensure the watcher actually triggers on file mutation).
 
 ---
 

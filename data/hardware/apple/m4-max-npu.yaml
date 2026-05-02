@@ -64,6 +64,7 @@ evidence:
     accessed: '2026-04-29'
     citation: 'Apple M4 Max: 16-core Neural Engine @ 38 TOPS, unified memory architecture (UMA) up to 128 GB LPDDR5X with 546 GB/s bandwidth shared with GPU/CPU. ~11 W package TDP for ANE portion.'
 disclaimers:
+  - 'SUB-COMPONENT of `m4-max` (the full chip entry). This YAML covers ONLY the 16-core Apple Neural Engine subset (38 TFLOPS). For the GPU-dominant MLX/Metal deployment path (70 BF16 TFLOPS, 40-core GPU), see `m4-max`. Use this entry for ANE-only Core ML deployment (low-power, sub-watt-per-token). Use `m4-max` for MLX inference + general LLM serving.'
   - 'Apple M4 NPU rating is 38 TOPS at INT8 precision; FP16 is roughly 38 TFLOPS via Metal Performance Shaders.'
   - 'Unified memory means the 128 GB capacity is shared across CPU/GPU/ANE; for inference, expect ~80-100 GB usable.'
   - 'No multi-card scaling: single-package only. World-size=1 reflects this.'

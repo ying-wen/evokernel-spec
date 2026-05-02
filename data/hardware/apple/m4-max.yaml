@@ -75,7 +75,7 @@ evidence:
     citation: 'Apple M4 Max announcement: 28 B transistors @ TSMC N3E; UMA architecture inheriting from M3 generation.'
 disclaimers:
   - 'M4 Max LLM perf is highly bandwidth-bound. 70B BF16 decode: ~5-8 tok/s typical (MLX), 4× lower on llama.cpp.'
-  - 'Different from existing apple-m4-max-npu entry: this entry covers the FULL chip (GPU dominant for MLX) vs that entry covers the Neural Engine only (38 TFLOPS subset).'
+  - 'PARENT CHIP — `apple-m4-max-npu` (38 TFLOPS, 16-core ANE) is a sub-component of this entry. Use **m4-max** for general MLX/Metal deploy (GPU-dominant path); use **apple-m4-max-npu** for ANE-only Core ML deployment (low-power, no MLX path).'
   - 'MacBook Pro thermal envelope limits sustained workload — long inference jobs throttle after ~10 minutes; Mac Studio M4 Max variant runs continuously.'
 notes: |
   M4 Max is the laptop tier of Apple Silicon LLM inference. 128 GB unified memory fits
