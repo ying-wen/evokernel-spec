@@ -402,8 +402,240 @@ and the radar/bar/table all update automatically. Color comes from
 
 ## See Also
 
-- `CONTRIBUTING.md` — DCO + bilingual contribution guide
+- `CLAUDE.md` (repo root) — project-specific guide for Claude Code agents
+- `CONTRIBUTING.md` — DCO + bilingual contribution guide (5 contribution paths)
 - `DEPLOYMENT.md` — production deployment (Cloudflare Pages, nginx, systemd)
 - `SECURITY.md` — vulnerability disclosure policy
 - `KNOWN_ISSUES.md` — limitations and workarounds
-- `ROADMAP.md` — what's next
+- `ROADMAP.md` — what's next (v2.25+ trajectory + v3.0 planning)
+
+---
+
+## v2.x — Agent layer, plugins, knowledge feedback (added v2.0 → v2.24)
+
+The v1.x guide above covers **data + site** development. The v2.x major
+added three new layers: **agent CLI**, **plugins**, **feedback loop**.
+This section covers each.
+
+### Repository layout — v2.x additions
+
+```
+scripts/
+├── agent-deploy/                  # 7-stage agent CLI (2,177 LOC)
+│   ├── index.ts                   # CLI entry, stages 1-8
+│   ├── kernel-codegen.ts          # Op-class-aware kernel skeleton emission
+│   ├── production-artifacts.ts    # Dockerfile / K8s / runbook / SBOM / etc.
+│   └── run-validations.sh         # Multi-config validation matrix
+├── tests/
+│   ├── kernel-codegen-dispatch.test.ts  # 11 vitest assertions on op-class dispatch (v2.18)
+│   └── fixtures/                  # Offline configs for CI agent-regression
+│       ├── llama-3-3-70b/config.json
+│       ├── deepseek-v4-pro/config.json
+│       └── qwen3-6-plus/config.json
+└── validate-data.ts               # Schema check (now includes agent-learnings)
+
+plugins/
+├── mcp-server/                    # MCP server, 6 tools (v2.11+)
+├── claude-code-skill/             # Claude Code skill
+├── cursor-rules/                  # Cursor MDC rules
+└── codex/                         # OpenAI Codex prompt presets
+
+data/                              # v2.x added 6 new entity types:
+├── isa-primitives/                # Layer A: silicon instructions (v2.6)
+├── dsl-examples/                  # Layer B: kernel DSL examples (v2.7)
+├── kernel-libraries/              # Layer C: vendor BLAS/DNN packages (v2.5)
+├── reference-impls/               # Hand-rolled reference impls (v2.7)
+├── profiling-tools/               # NCU / msprof / cnperf / etc. (v2.7)
+├── model-graphs/                  # Architecture → ops bridge (v2.8)
+├── engine-compile-workflows/      # Engine build steps (v2.12)
+└── agent-learnings/               # Knowledge feedback — per-run observations (v2.20)
+```
+
+### The 5-layer hw-sw gap framework
+
+When you write code or data that crosses hardware archs, identify which
+layer your change affects:
+
+| Layer | What | Where in repo |
+|---|---|---|
+| A — ISA primitive | Actual silicon instruction with cross-vendor mapping ratios | `data/isa-primitives/` · `schemas/isa-primitive.ts` · `/isa-primitives/` page |
+| B — DSL | How a kernel is written (CUDA, HIP, Ascend-C, BANG-C, Triton) | `data/dsl-examples/` · `schemas/dsl-example.ts` · `/dev-toolkit/dsl-examples/` page |
+| C — Kernel library | Vendor-blessed packaged paths (cuBLAS, CUTLASS, aclnn) | `data/kernel-libraries/` · `schemas/kernel-library.ts` · `/kernel-libraries/` page |
+| D — Formal semantics | Per-op `formal_semantics` block with edge_cases + numerical_rules + reference_impl | Embedded in `data/operators/*.yaml` and `data/fused-kernels/*.yaml` |
+| E — Coverage matrix | Which (op × arch) cells have library coverage | `data/coverage-matrix.ts` · `/operators/coverage-matrix/` page |
+
+This framework drives the agent's recommendations. When you change one
+layer, think about whether the others need updates too:
+
+- **Add an ISA primitive (Layer A)** → likely also need `cross_vendor_equivalents` mappings + at least one `used_by_kernels` reference
+- **Add a DSL example (Layer B)** → likely cross-references 1-2 ISA primitives + 1 kernel library
+- **Add a kernel library entry (Layer C)** → list the ops it implements + arch families it supports
+- **Add `formal_semantics` to an op (Layer D)** → no other layer changes needed; this is self-contained
+- **Coverage matrix (Layer E)** is auto-derived; only add manual override entries
+
+### Agent CLI dev recipe
+
+```bash
+# 1. Make changes in scripts/agent-deploy/ or kernel-codegen.ts
+
+# 2. Run unit tests (catches op-class dispatch regressions immediately)
+pnpm --filter @evokernel/scripts test
+
+# 3. Type-check (existing pre-existing errors in audit-data.ts are OK)
+pnpm exec tsc --noEmit -p scripts/tsconfig.json | grep "agent-deploy/index.ts" | grep -v "TS18048\|TS2532\|TS2322"
+# (empty output = your edits are clean)
+
+# 4. Smoke test with offline fixture (no HF / API calls)
+# Note: Stage 2 requires a running dev server for the API. For CI, we skip
+# Stage 2+ and only run dispatch unit tests. Local smoke needs:
+pnpm --filter @evokernel/web dev &  # bg dev server
+sleep 5
+pnpm exec tsx scripts/agent-deploy/index.ts \
+  --source-type local \
+  --model scripts/tests/fixtures/llama-3-3-70b \
+  --hardware h100-sxm5 \
+  --workload chat
+kill %1  # stop dev server
+
+# 5. Verify the emitted agent-learning.yaml stub validates
+cp agent-deploy-output/agent-learning.yaml data/agent-learnings/test-$(date +%s).yaml
+pnpm exec tsx scripts/validate-data.ts
+rm data/agent-learnings/test-*.yaml  # cleanup
+```
+
+The `agent-deploy-output/` directory is gitignored. Production agent runs
+that produce useful learnings should `mv agent-learning.yaml` into
+`data/agent-learnings/` after editing actuals + commit.
+
+### Adding `formal_semantics` to an op or fused-kernel
+
+**Quality bar** (enforced by review, not schema):
+- `signature:` 1-3 line type signature, PyTorch-ish prose
+- `fusion_lifecycle:` (fused-kernels only) one of: `compile-time-template`, `jit-trace`, `runtime-graph`, `manual-kernel`
+- `unfused_penalty:` (fused-kernels only) prose on HBM round-trip cost
+- `edge_cases:` 2-4 cases where libraries diverge; `behaviors:` map per library
+- `numerical_rules:` 1-2 dtype/precision rules; `per_library:` map
+- `reference_impl:` PyTorch snippet (readable, not necessarily compilable)
+
+**Anti-patterns** to avoid:
+- Inventing `fusion_lifecycle` enum values (`runtime-fused` is NOT valid; use `manual-kernel`)
+- Multi-line `source_url:` (must be a single URL; use `notes:` for multi-source)
+- Apostrophes in single-quoted YAML scalars (`'foo's bar'` breaks parse; use double quotes)
+- More than ~100 LOC per `formal_semantics` block (compress; the agent uses structured fields, not prose)
+
+**Reference patterns**:
+- Op: [`data/operators/silu.yaml`](../data/operators/silu.yaml)
+- Fused kernel: [`data/fused-kernels/flash-attention-v3.yaml`](../data/fused-kernels/flash-attention-v3.yaml)
+- DSL example: [`data/dsl-examples/cuda-flash-attention-hopper.yaml`](../data/dsl-examples/cuda-flash-attention-hopper.yaml)
+- Agent learning (open): [`data/agent-learnings/dsv4-pro-on-mlu590-2026-05-02.yaml`](../data/agent-learnings/dsv4-pro-on-mlu590-2026-05-02.yaml)
+- Agent learning (closed): [`data/agent-learnings/qwen3-6-on-ascend-910c-2026-05-02.yaml`](../data/agent-learnings/qwen3-6-on-ascend-910c-2026-05-02.yaml)
+
+### Plugin system dev recipe
+
+The 4 plugins under `plugins/` share a common shape: each is a small TS
+package that wraps the `data/` corpus and surfaces it via the plugin's
+host protocol (MCP, Claude Code skill, Cursor MDC, Codex prompt presets).
+
+```bash
+# Build & test the MCP server
+pnpm --filter @evokernel/mcp-server build
+pnpm --filter @evokernel/mcp-server test
+
+# Local end-to-end smoke (stdio JSON-RPC)
+node plugins/mcp-server/dist/index.js
+# Then in another terminal, send JSON-RPC requests:
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | \
+  node plugins/mcp-server/dist/index.js
+```
+
+**MCP plugin tool list** (verified end-to-end in v2.12-v2.13):
+- `query_hardware` — fetch hardware spec by ID
+- `query_operator` — fetch op spec + formal_semantics
+- `query_isa` — fetch ISA primitive + cross-vendor mappings
+- `solve` — constraint solver: (model, target hw) → recommended (engine, quant, parallelism)
+- `coverage_matrix` — query (op, arch) coverage
+- `plan_deployment` — full agent-deploy pipeline as MCP tool
+
+When adding a new MCP tool, also:
+1. Add JSON Schema for input args in `plugins/mcp-server/src/tools.ts`
+2. Wire to corresponding `data/` reader in `plugins/mcp-server/src/index.ts`
+3. Document in `plugins/mcp-server/README.md`
+4. Cross-reference from [`docs/ROADMAP.md`](ROADMAP.md) MCP section
+
+### Knowledge feedback loop
+
+The v2.x major's keystone: **every agent run can write back what it learned**.
+
+1. `scripts/agent-deploy/` runs (Stage 1-7 same as before)
+2. Stage 8 (v2.24+) emits `agent-learning.yaml` stub with predicted perf + kernel-gap observations
+3. Human reviewer runs the actual deployment, fills `_actual` perf numbers
+4. Reviewer adds post-deploy observations (perf-cliff, numerical-mismatch, missing-primitive, etc.)
+5. Reviewer commits the YAML into `data/agent-learnings/`
+6. CI validates schema → site rebuilds → `/agents/learnings/` page surfaces it
+7. Next agent run queries `/api/agent-learnings.json` to start smarter
+
+**The loop closes** when an observation drives a corpus update:
+- Observation `kind: missing-primitive` → new entry in `data/isa-primitives/`
+- Observation `kind: kernel-gap` → new entry in `data/dsl-examples/` (if novel pattern)
+- Observation `kind: fusion-opportunity` → new entry in `data/fused-kernels/`
+- Observation `kind: numerical-mismatch` → update `formal_semantics.numerical_rules` on existing op
+
+When closure happens: update the agent-learning entry's observation
+`triage_status` → `merged` and add a link to the corpus PR in
+`proposed_corpus_update`.
+
+**Reference**: v2.21 closed the loop on a v2.20 observation (Qwen on Ascend
+→ `huawei-ascend-vector-fp32` ISA primitive). See
+[`data/agent-learnings/qwen3-6-on-ascend-910c-2026-05-02.yaml`](../data/agent-learnings/qwen3-6-on-ascend-910c-2026-05-02.yaml)
+and the corresponding [`data/isa-primitives/huawei-ascend-vector-fp32.yaml`](../data/isa-primitives/huawei-ascend-vector-fp32.yaml).
+
+### CI shape — 7 jobs (v2.24)
+
+| Job | What it catches |
+|---|---|
+| `validate-data` | Schema errors, dangling cross-references, duplicate IDs |
+| `type-check` | TS / Astro type errors |
+| `unit-tests` | Schema unit tests + web vitest |
+| `agent-regression` (v2.24) | Op-class dispatch regressions (11 assertions) + agent-learning schema drift |
+| `build` | Astro SSG build (must be < 8s, < 1000 pages) |
+| `e2e` | Playwright critical user flows |
+| `deployment-smoke` | `./launch.sh` 17-route health check |
+
+Plus weekly `check-links` cron (evidence URL health; non-blocking).
+
+### Performance budget — v2.x updated
+
+| Metric | v1.x budget | v2.x actual | v3.0 budget |
+|---|---|---|---|
+| Site pages | < 1000 | 505 | < 2000 |
+| Build time | < 2 min | 7s | < 30s |
+| Schema validate | < 30s | 3s | < 30s |
+| Dispatch tests | n/a | < 1s (11 assertions) | < 5s |
+| E2E | < 90s | ~60s | < 90s |
+| API endpoints | 6 | 21 | < 50 |
+| JSON API gzip size | < 5 MB | ~1.2 MB combined | < 10 MB |
+
+When budgets stretch, refactor; when they break, reject the change.
+
+### Ralph loop iteration pattern
+
+For autonomous Claude Code sessions, this project uses **Ralph loops**:
+
+```
+1. Survey      — git log, file counts, what changed
+2. Identify    — highest-leverage gap (worst-coverage field, latest learning)
+3. Ship        — focused minor release (v2.x.y), one theme, < 1000 LOC diff
+4. Document    — CHANGELOG, ROADMAP, README updates
+5. Tag + push  — CI catches regressions
+```
+
+**Discipline**: one theme per release. The v2.18 → v2.24 arc was 7 releases
+in one autonomous session — each had narrow scope (op-class codegen, then
+collective ops, then DSL expansion, etc.). Trying to ship two themes per
+release breaks the focus.
+
+**Anti-pattern**: schema-extension habit. The v1.x recipe (add field →
+populate entities → matrix view → nav → tests) was used 4 times in v1.x
+and is now exhausted. v2.x quality gaps are about **depth**, not breadth.
+v3.0 will reopen breadth (new model/hardware classes); until then, focus
+on filling existing fields and closing feedback loops.

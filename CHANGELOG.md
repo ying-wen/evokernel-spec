@@ -6,7 +6,58 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.25 — development workflow optimization docs** (the project has grown to ~360 entities + 7-stage agent pipeline + plugin system; CLAUDE.md / README dev section / CONTRIBUTING / DEVELOPMENT.md need to reflect this). Then **v3.0 planning** — consumer/edge HW + multi-modal/molecule/bio model breadth.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.0 planning** — model breadth (video / image-gen / speech / molecule / bio / materials) + hardware breadth (consumer GPU / Apple Silicon / edge NPU / 国产 consumer-grade). Detailed scoping at the close of v2.x docs (this release).
+
+---
+
+## [2.25.0] — 2026-05-02
+
+**Theme**: development workflow documentation refresh — project has grown to ~360 entities + 7-stage agent pipeline + 4 plugins; the dev docs caught up.
+
+### Added
+
+- **`CLAUDE.md`** (new, repo root) — project-specific guide for Claude Code agents working on this repo. Covers:
+  - 3-layer architecture (data / surfaces / agent) with entity counts
+  - 5-layer hw-sw gap framework (A: ISA primitives → E: coverage matrix)
+  - 3 operating modes (data fix / feature add / agent extension) with command recipes
+  - Decision rules: when to add ISA primitive, DSL example, formal_semantics, agent-learning
+  - Common pitfalls (YAML apostrophe trap, schema drift, dispatch test breakage)
+  - Build commands quick reference
+  - Ralph loop autonomous-iteration pattern + discipline rules
+  - Project-specific facts (entity slug conventions, fixed enums)
+
+### Changed
+
+- **`CONTRIBUTING.md`** — extended from 3 to 5 contribution paths:
+  - **(4) Layer D `formal_semantics` contribution** with quality bar checklist + reference patterns
+  - **(5) `agent-learning` PR pattern** with workflow + closure semantics (`open` → `merged` → linked corpus update)
+  - CI section updated: 5 → 7 jobs (added `agent-regression` + `deployment-smoke`)
+  - Added "v2.x architecture quick-read" section with the 5-layer table
+- **`docs/DEVELOPMENT.md`** — appended new "v2.x — Agent layer, plugins, knowledge feedback" section (~280 LOC):
+  - Repository layout for the new entity types (isa-primitives, dsl-examples, kernel-libraries, agent-learnings, etc.)
+  - Agent CLI dev recipe (test → type-check → smoke → agent-learning round-trip)
+  - `formal_semantics` authoring quality bar with anti-patterns (apostrophe trap, multi-line URL, invalid enum values)
+  - Plugin system dev recipe with MCP tool list
+  - Knowledge feedback loop step-by-step + reference closure example
+  - CI shape table (7 jobs)
+  - Performance budget v2.x actuals + v3.0 budget
+  - Ralph loop iteration pattern + anti-patterns
+- **`README.md`** — added "Contributor required reading" routing table mapping intents to docs (data fix / Claude Code / dev / formal_semantics / agent-learning / deploy / roadmap).
+
+### Why this matters
+
+The project has scaled past ~360 entities, 21 API endpoints, 7-stage agent pipeline, and 4 plugins. New contributors (especially Claude Code agents in autonomous Ralph loops) need a clear map of where to look. The pre-v2.25 docs were structured around v1.x mental model (data + site only); they now reflect the v2.x reality (data + site + agent + feedback loop).
+
+The **5 documents form a layered guide**:
+1. `README.md` — what the project is, with routing table to find the right deep-dive doc
+2. `CLAUDE.md` — Claude Code agent guide (project-specific decision rules)
+3. `CONTRIBUTING.md` — 5 contribution paths + evidence/DCO/CI requirements
+4. `docs/DEVELOPMENT.md` — full dev recipes per layer (data, web, agent, plugins, feedback)
+5. `docs/ROADMAP.md` — what's next (v3.0 model + hardware breadth)
+
+A new contributor (human or agent) lands at README, follows the routing table to their target task, and has all decision rules + commands + reference patterns at hand.
+
+Site stats: 505 pages built; 11/11 dispatch tests pass; 354 entities validate.
 
 ---
 

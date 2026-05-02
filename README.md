@@ -123,19 +123,43 @@ pnpm install
 
 # Development
 pnpm dev          # http://localhost:4321 (HMR)
-pnpm build        # static build to apps/web/dist
+pnpm build        # static build to apps/web/dist (505 pages, < 8s)
 pnpm preview      # serve dist locally
-pnpm test:e2e     # full Playwright sweep (87 tests, ~9s)
+pnpm test:e2e     # full Playwright sweep
 
 # Data quality
-pnpm validate     # zod schema + cross-references
-pnpm check-links  # evidence URL reachability
-pnpm audit:data   # outliers + coverage gaps
+pnpm validate                                       # zod schema + cross-references (~3s)
+pnpm check-links                                    # evidence URL reachability
+pnpm audit:data                                     # outliers + coverage gaps
 
 # Testing
-pnpm test                                       # unit (vitest)
-pnpm --filter web exec playwright test          # e2e + a11y + perf
+pnpm --filter @evokernel/schemas test               # schema unit tests
+pnpm --filter @evokernel/scripts test               # agent dispatch tests (11 assertions, v2.18+)
+pnpm --filter @evokernel/web test                   # web vitest
+pnpm --filter web exec playwright test              # e2e + a11y + perf
+
+# Agent CLI (v2.9+)
+pnpm exec tsx scripts/agent-deploy/index.ts \
+  --model deepseek-ai/DeepSeek-V4-Pro \
+  --hardware h100-sxm5 \
+  --workload chat
+# Output: agent-deploy-output/{deployment_plan.json, launch.sh, kernel_gaps.md,
+#         verification_plan.md, Dockerfile, kubernetes/, monitoring/, runbook.md,
+#         rollback-plan.md, provenance.json, license-audit.md, sbom.json,
+#         agent-learning.yaml (v2.24+, knowledge feedback stub)}
 ```
+
+### 贡献者必读 (Contributor required reading)
+
+| 你想做什么 | 读什么 |
+|---|---|
+| 修数据 / 加新硬件 / 加新模型 / 加 case | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 用 Claude Code 在本仓库工作 | [`CLAUDE.md`](CLAUDE.md) — 项目专属 Claude 指南 (v2.25) |
+| 理解架构 / 调试 / 加 page | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) |
+| 添加 `formal_semantics` (Layer D) | [`docs/DEVELOPMENT.md § Adding formal_semantics`](docs/DEVELOPMENT.md#adding-formal_semantics-to-an-op-or-fused-kernel) |
+| 提交 agent-learning (反馈回路) | [`CONTRIBUTING.md § 5. agent-learning`](CONTRIBUTING.md) + [`/agents/learnings/`](https://yingwen.io/evokernel-spec/agents/learnings/) |
+| 部署到生产 | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
+| 看下一步规划 | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
 
 ## 数据 API
 
