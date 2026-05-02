@@ -107,3 +107,63 @@ references:
   - title: 'PyTorch 2.0 torch.compile + Inductor'
     url: https://pytorch.org/blog/pytorch-2.0-release/
     source_type: blog
+
+formal_semantics:
+  signature: |
+    fused_conv_norm_act(x: [B, C_in, H, W], W_conv: [C_out, C_in, K, K], gamma, beta,
+                        norm_type: 'bn' | 'gn' | 'ln', act: 'relu' | 'gelu' | 'silu')
+        -> y: [B, C_out, H', W']
+    Fuses {Conv2D → Normalization → Activation} into one kernel. Standard CNN /
+    vision-encoder building block; also relevant to vision-language models
+    (CLIP, SigLIP, vision tower of Llama 4 / Qwen3-VL).
+
+  fusion_lifecycle: compile-time-template
+
+  unfused_penalty: |
+    Unfused = conv + norm + act = 3 kernel launches. Each writes [B, C_out, H', W']
+    to HBM. For B=64, C_out=512, H'=W'=56 (typical mid-network): 27 MB per
+    intermediate write × 2 (norm + act outputs) = 54 MB avoidable. Speedup
+    1.3-1.6× per fused block; compounds across CNN depth.
+
+  edge_cases:
+    - input: 'BatchNorm vs LayerNorm vs GroupNorm in the norm slot'
+      behaviors:
+        cudnn-conv-bn-act: 'BN supported via cuDNN graph API; running mean/var lookup from frozen stats at inference.'
+        cudnn-conv-gn-act: 'GroupNorm supported in cuDNN 9+.'
+        cudnn-conv-ln-act: 'LayerNorm in CNN context is rarer (used in some ViT-CNN hybrids); supported.'
+      mitigation: 'Vision-language models (Llama 4 vision tower, Qwen3-VL) typically use LayerNorm in the projection. Verify cudnn version supports your norm type — cuDNN 8.x has BN+GN only.'
+
+    - input: 'inference vs training mode for BN'
+      behaviors:
+        bn-inference: 'Uses frozen running mean/var; degenerate to scale + bias.'
+        bn-training: 'Computes batch statistics; full BN logic.'
+      mitigation: 'Inference path is dramatically simpler. Engine should fold BN-inference into preceding conv weights at engine init (folded-bn optimization).'
+
+    - input: 'activation choice (ReLU/GeLU/SiLU)'
+      behaviors:
+        cudnn-conv-act: 'ReLU + GeLU via cuDNN epilogue; SiLU via custom epilogue (slightly slower).'
+      mitigation: 'For Llama 4 vision tower (uses GELU): cuDNN epilogue path. For older ResNets (ReLU): identical perf.'
+
+  numerical_rules:
+    - aspect: 'norm_partial_sum_dtype'
+      per_library:
+        all_libs: 'BN/GN/LN all use FP32 partial sum even with BF16 inputs — same rule as standalone norm ops.'
+
+    - aspect: 'conv_accumulator'
+      per_library:
+        all_libs: 'FP32 accumulator on tensor-core path; BF16 inputs.'
+      notes: 'No conv-specific precision concerns. Standard tensor-core MMA rules apply.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      import torch.nn.functional as F
+      def fused_conv_norm_act(x, W_conv, gamma, beta, eps=1e-5, act='gelu'):
+          y = F.conv2d(x, W_conv, padding=1)
+          # Layer-norm over channel dim (or batch-norm with running stats)
+          y_fp32 = y.to(torch.float32)
+          mean = y_fp32.mean(dim=1, keepdim=True)
+          var = y_fp32.var(dim=1, keepdim=True)
+          y_normed = (y_fp32 - mean) / (var + eps).sqrt()
+          y_normed = (y_normed.to(y.dtype) * gamma) + beta
+          return F.gelu(y_normed)

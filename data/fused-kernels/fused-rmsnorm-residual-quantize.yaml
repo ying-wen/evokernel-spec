@@ -114,3 +114,57 @@ references:
   - title: 'Flashinfer norm-quantize'
     url: https://github.com/flashinfer-ai/flashinfer
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_rmsnorm_residual_quantize(x: [B, S, D], residual: [B, S, D], gamma: [D],
+                                     eps: float, target_dtype: fp8_e4m3 | int8)
+        -> y_quantized: [...], scale: [B, S]
+    Fuses {residual add → RMSNorm → quantize to FP8/INT8} into one kernel. Used
+    aggressively in FP8 attention paths (Blackwell tcgen05.mma) where the next
+    op (attention QK matmul) consumes FP8 directly.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = residual-add + RMSNorm + quantize = 3 kernel launches + 2 HBM
+    intermediate writes. For B*S=8192, D=8192, BF16 → FP8: 256 MB BF16 written
+    + 64 MB FP8 written. Fused: only 64 MB FP8 written. Speedup 1.4-1.8× per
+    layer; compounds across all transformer layers.
+
+  edge_cases:
+    - input: 'FP8 quantization granularity (per-tensor vs per-row)'
+      behaviors:
+        flashinfer-per-row: 'Each [B*S] row gets its own FP8 scale. Standard for FP8 attention paths.'
+        nv-transformer-engine-per-tensor: 'Single scale for entire tensor; build-time-fixed. Less accurate; faster.'
+      mitigation: 'For inference: per-row preferred. For training (TransformerEngine): per-tensor with delayed-scaling.'
+
+    - input: 'INT8 quantization with calibration table'
+      behaviors:
+        smooth-quant: 'Pre-calibrated per-channel scale; lookup at runtime.'
+        ada-quant: 'Adaptive per-token scale; computed in this kernel (slower but no calibration).'
+      mitigation: 'SmoothQuant for production-validated models; AdaQuant for first-deploy without calibration data.'
+
+  numerical_rules:
+    - aspect: 'partial_sum_dtype_in_rmsnorm_section'
+      per_library:
+        all_libs: 'FP32 partial sum mandatory — same rule as standalone RMSNorm. Quantization is the post-norm step.'
+
+    - aspect: 'quantize_scale_compute'
+      per_library:
+        flashinfer: 'scale = max(abs(x_normed)) / fp8_max; computed AFTER norm completes. FP32 throughout the norm.'
+        transformer-engine-fp8: 'Delayed scaling: scale from PREVIOUS step"s amax history. Smoother but adds 1-step latency.'
+      notes: 'For inference: amax-current is correct. Delayed scaling is a training-only concern.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_rmsnorm_residual_quantize(x, residual, gamma, eps=1e-6):
+          y = x + residual
+          y_fp32 = y.to(torch.float32)
+          rms = torch.rsqrt(y_fp32.pow(2).mean(-1, keepdim=True) + eps)
+          y_normed = (y_fp32 * rms).to(x.dtype) * gamma
+          # Quantize to FP8 per-row
+          scale = y_normed.abs().amax(dim=-1, keepdim=True) / 448.0  # E4M3 max
+          y_fp8 = (y_normed / scale).to(torch.float8_e4m3fn)
+          return y_fp8, scale.to(torch.bfloat16)

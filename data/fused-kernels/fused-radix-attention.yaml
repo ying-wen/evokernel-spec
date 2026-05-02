@@ -94,3 +94,61 @@ references:
   - title: 'Flashinfer (SGLang backend)'
     url: https://github.com/flashinfer-ai/flashinfer
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_radix_attention(q: [B, H, 1, D], radix_tree, prefix_kv_pages,
+                           branch_kv_pages) -> out: [B, H, 1, D]
+    SGLang's prefix-trie KV cache: shared prompts (system prompt, few-shot examples)
+    cache once across many concurrent requests. Attention reads prefix KV from
+    shared pages, branch KV from per-request pages. Memory savings 2-10× for
+    multi-tenant chat workloads.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Without radix tree: each request stores its own copy of system-prompt KV.
+    For 1000 concurrent users with same 512-token system prompt, Llama 3 70B,
+    GQA-8: 1000 * 512 * 8 * 128 * 2 (K+V) * 2 (BF16) = 4 GB redundant KV cache.
+    Radix attention shares the prefix; saves all 4 GB; allows ~10× more concurrent
+    users at same HBM budget.
+
+  edge_cases:
+    - input: 'cache eviction (prefix used but no longer needed)'
+      behaviors:
+        sglang-radix-lru: 'LRU eviction at the trie node level. When budget hit, drop least-recently-shared prefix.'
+        vllm-prefix-caching: 'Hash-based; similar but flatter (no trie).'
+      mitigation: 'Set max_prefix_cache_blocks per engine config based on HBM budget. Default 5-20% of total KV budget.'
+
+    - input: 'partial prefix match (request shares first 100 of system-prompt 200 tokens)'
+      behaviors:
+        sglang-radix: 'Trie naturally handles prefix-of-prefix. Request reuses 100 cached tokens, computes new 100.'
+      mitigation: 'No correctness issue. Saves proportional to shared-prefix length.'
+
+    - input: 'page-table layout for branch KV'
+      behaviors:
+        all_libs: 'Branch KV uses same paged-attention page format as standalone PA. The merge happens at page-list level: [shared_prefix_pages | branch_pages].'
+
+  numerical_rules:
+    - aspect: 'attention_compute_dtype'
+      per_library:
+        all_libs: 'Same FP32 (m, s, acc) state as standard attention. Radix is a memory-layout optimization, not numerical change.'
+      notes: 'Inherits all attention numerical rules. The shared/branch split is a KV-fetch optimization.'
+
+    - aspect: 'cache_consistency_with_engine'
+      per_library:
+        sglang-radix: 'Engine guarantees prefix-KV is computed with same model version, dtype, page_size.'
+      notes: 'Cross-version prefix reuse is unsafe. Engine must invalidate cache on model reload.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_radix_attention(q, radix_tree, request_id):
+          # Get the page list: shared_prefix_pages + per-request branch_pages
+          shared_pages = radix_tree.get_prefix_pages(request_id)
+          branch_pages = radix_tree.get_branch_pages(request_id)
+          all_pages = shared_pages + branch_pages
+          # Fetch K/V from page list (paged-attention style) and run standard attention
+          K, V = fetch_kv_from_pages(all_pages)
+          scores = (q @ K.transpose(-1, -2)) * (D ** -0.5)
+          return scores.softmax(-1) @ V

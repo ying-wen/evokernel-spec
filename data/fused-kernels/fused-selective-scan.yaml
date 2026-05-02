@@ -93,3 +93,66 @@ references:
   - title: 'mamba-ssm repository'
     url: https://github.com/state-spaces/mamba
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_selective_scan(u: [B, L, D], delta: [B, L, D], A: [D, N], B: [B, L, N],
+                          C: [B, L, N]) -> y: [B, L, D]
+    Computes the Mamba selective state-space model recurrence:
+       h_t = exp(delta_t * A) * h_{t-1} + delta_t * B_t * u_t
+       y_t = C_t * h_t
+    Fused: avoids materializing the per-step state h_t in HBM. State stays in
+    registers across the L-axis recurrence.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Naive scan = L sequential kernel launches (can"t parallelize a recurrence).
+    Fused scan uses parallel-prefix-scan to break the recurrence into log(L)
+    rounds: O(L) work but O(log L) depth. Speedup vs naive: 50-200× at L=8192.
+
+  edge_cases:
+    - input: 'parallel-prefix-scan tile size (L per kernel block)'
+      behaviors:
+        mamba-cuda: 'Tile L into chunks of 32-128 per kernel block; tree-reduce within block; cross-block via global-memory partial states.'
+        ssd-block-decomposition: 'SSD (Structured State Duality, Mamba 2): converts scan to matmul-shaped chunks. Faster on tensor cores.'
+      mitigation: 'For Mamba 2: use SSD path — 2-3× faster than Mamba 1 selective-scan on Hopper tensor cores.'
+
+    - input: 'long sequence (L > 16K) numerical stability of A-matrix exponential'
+      behaviors:
+        mamba-stable: 'A is parameterized as -exp(A_log) to ensure all eigenvalues negative; exp(delta * A) decays.'
+      mitigation: 'Reparameterization is part of the model spec, not a fusion concern. As long as A_log is finite, exp(delta * A) is bounded.'
+
+    - input: 'GPU vs Ascend support'
+      behaviors:
+        cuda-mamba-ssm: 'Reference impl on Hopper / Ampere.'
+        triton-mamba: 'Portable; slightly slower than CUDA.'
+        ascend-mamba: 'No native; falls back to per-step Vector unit calls — 10-50× slower than GPU.'
+      mitigation: 'Mamba on Ascend is currently impractical for production. Stick to GPU for SSM models (Mamba, Mamba 2, Jamba).'
+
+  numerical_rules:
+    - aspect: 'state_dtype_in_recurrence'
+      per_library:
+        mamba-ssm: 'Hidden state h_t kept in FP32 across the recurrence; cast to BF16 only for output. Prevents drift over long L.'
+        ssd-mamba2: 'Same — FP32 internal state.'
+      notes: 'Critical: without FP32 state, BF16 recurrence drifts after ~1K-2K tokens. Hard requirement, no library deviates.'
+
+    - aspect: 'delta_softplus_implementation'
+      per_library:
+        all_libs: 'delta = softplus(raw_delta + bias) — must use stable softplus (log(1 + exp(x)) with overflow guard at x > 20).'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_selective_scan(u, delta, A, B, C):
+          # Sequential reference; fused kernel uses parallel-prefix scan
+          B_size, L, D = u.shape
+          N = A.shape[1]
+          h = torch.zeros(B_size, D, N, dtype=torch.float32, device=u.device)  # FP32 state!
+          y = torch.empty_like(u)
+          for t in range(L):
+              dA = (delta[:, t, :, None] * A[None, :, :]).exp()  # [B, D, N]
+              dB = delta[:, t, :, None] * B[:, t, None, :]
+              h = dA * h + dB * u[:, t, :, None]
+              y[:, t, :] = (C[:, t, None, :] * h).sum(-1).to(u.dtype)
+          return y

@@ -105,3 +105,59 @@ references:
   - title: 'vLLM speculative decoding docs'
     url: https://docs.vllm.ai/en/latest/serving/speculative_decoding.html
     source_type: docs
+
+formal_semantics:
+  signature: |
+    fused_spec_decode(target_q: [B, k, H, D], K: [B, H_kv, S, D], V: [B, H_kv, S, D],
+                      tree_mask: [B, k, k]) -> out: [B, k, H, D], accept_count: [B]
+    Fuses {tree-attention over k speculative tokens → softmax → top-1 verify} into a
+    single kernel. Token tree (k = 4-8 typical for Medusa, 16+ for EAGLE) attended
+    to in parallel; tree_mask enforces causal-tree structure.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = (1) k separate attention kernels (one per speculative position);
+    (2) k separate softmax + sampling kernels; (3) verification CPU loop.
+    Fused processes the tree in one kernel pass; speedup at k=4 spec-tokens:
+    1.8-2.5× decode throughput. The end-to-end spec-decode wall-clock benefit
+    is 2-3× (acceptance rate × this kernel speedup).
+
+  edge_cases:
+    - input: 'tree topology: linear chain (k=4) vs branching tree (Medusa k=4×2 heads)'
+      behaviors:
+        medusa-tree: 'Branching tree; tree_mask is upper-triangular within branch + diagonal between branches.'
+        eagle-tree: 'Same — EAGLE inherits Medusa tree structure; differs in the draft head architecture.'
+        deepseek-mtp: 'Linear chain (k=2-4 sequential predictions); simpler tree_mask.'
+      mitigation: 'Tree topology is encoded in tree_mask; kernel is topology-agnostic. Just feed correct mask.'
+
+    - input: 'rejection sampling for verify (token mismatch with target distribution)'
+      behaviors:
+        all_libs: 'Verify step: target_logits[i] is computed; if argmax == speculative[i], accept; else reject + sample from target_logits.'
+      mitigation: 'Standard. Acceptance rate is workload-dependent (typically 60-80% for chat, 40-60% for code).'
+
+    - input: 'CUDA Graph capture of spec-decode kernel'
+      behaviors:
+        vllm-spec-cuda-graph: 'Supported with fixed k. Variable-k requires re-capture per k value.'
+      mitigation: 'Pin k at engine init for graph efficiency. Recapture cost is ~ms — acceptable for occasional retuning.'
+
+  numerical_rules:
+    - aspect: 'tree_attention_dtype'
+      per_library:
+        all_libs: 'Same FP32 (m, s, acc) state as standard attention. Tree structure does not change the precision rule.'
+
+    - aspect: 'verify_threshold'
+      per_library:
+        all_libs: 'Hard accept (greedy): target_argmax == spec_token. Probabilistic accept (rejection sampling): r < target_p / spec_p.'
+      notes: 'Greedy verify is faster + sufficient for most chat/code workloads. Probabilistic verify recovers more diversity for creative-writing workloads.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_spec_decode(target_q, K, V, tree_mask):
+          # target_q: [B, k, H, D] — k speculative tokens, processed as tree
+          # tree_mask: [B, k, k] — 1 where token i can attend to token j
+          scores = (target_q @ K.transpose(-1, -2)) * (D ** -0.5)
+          scores = scores.masked_fill(tree_mask == 0, float('-inf'))
+          attn = scores.softmax(-1)
+          return attn @ V

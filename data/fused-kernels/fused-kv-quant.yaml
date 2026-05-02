@@ -114,3 +114,58 @@ references:
   - title: 'KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache'
     url: https://arxiv.org/abs/2402.02750
     source_type: paper
+
+formal_semantics:
+  signature: |
+    fused_kv_quant(k_bf16: [B, H_kv, S, D], v_bf16: [B, H_kv, S, D],
+                   page_table) -> k_int8: [...], v_int8: [...], scales_per_token, zeros_per_token
+    Fuses {compute K/V → per-token quantize → write to paged KV cache} into the
+    attention kernel"s KV-write epilogue. Quantization happens INSIDE the attention
+    kernel; never materializes BF16 KV cache to HBM.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = (1) attention writes BF16 K/V to HBM; (2) quantize kernel reads BF16,
+    writes INT8 + scales/zeros. Doubles KV-write bandwidth. Fused saves the round-trip;
+    KV cache memory cut 4× (BF16 → INT8) so batch-size doubles at long context.
+
+  edge_cases:
+    - input: 'INT8 vs INT4 vs FP8-E4M3 KV cache dtype'
+      behaviors:
+        vllm-int8-kv: 'Per-token scale/zero (asymmetric INT8); ~0.1pp MMLU loss; default for long-ctx serving.'
+        kivi-int4: 'Per-channel + per-token; 2bit experimental; ~1pp MMLU loss but 4× memory savings on top of INT8.'
+        vllm-fp8-kv: 'FP8-E4M3 with per-tensor scale; native FP8 attention path. Slightly lower quality than INT8 but faster on Blackwell.'
+      mitigation: 'For 32K+ ctx production: INT8 first. FP8 only when Blackwell + native FP8 attention. INT4 only with quality eval pass.'
+
+    - input: 'group_size for quantization (per-token vs per-page vs per-tensor)'
+      behaviors:
+        per-token: 'Most accurate; storage overhead = 1 scale + 1 zero per token (small relative to D).'
+        per-page: 'PagedAttention page-aligned (e.g., 16 tokens per scale). Less storage; minor accuracy loss.'
+        per-tensor: 'Single global scale; loses precision; only acceptable for short-ctx prototyping.'
+      mitigation: 'Per-token is the production default. Per-page only if scale-storage budget is tight.'
+
+  numerical_rules:
+    - aspect: 'quantization_dtype_for_scale'
+      per_library:
+        vllm: 'scale stored as BF16 (sufficient precision for INT8 dequant range).'
+        flashinfer: 'Same; or FP16 if model is FP16-trained.'
+        sglang: 'Same.'
+      notes: 'FP32 scale is overkill for INT8 KV; BF16 sufficient. Confirmed via 0.05pp accuracy delta.'
+
+    - aspect: 'quantize_then_dequantize_for_attention_compute'
+      per_library:
+        all_libs: 'KV stored INT8 in cache; dequant to BF16 inside attention kernel during Q@K^T computation. The dequant happens in registers, no SMEM round-trip.'
+      notes: 'The fusion is two-sided: quantize on KV-write, dequantize on KV-read. Both inside attention kernel boundaries.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def fused_kv_quant(k_bf16, v_bf16):
+          # Per-token asymmetric INT8 quantization
+          k_min = k_bf16.amin(dim=-1, keepdim=True)
+          k_max = k_bf16.amax(dim=-1, keepdim=True)
+          k_scale = (k_max - k_min) / 255.0
+          k_zero = k_min
+          k_int8 = ((k_bf16 - k_zero) / k_scale).round().clamp(0, 255).to(torch.uint8)
+          return k_int8, k_scale.to(torch.bfloat16), k_zero.to(torch.bfloat16)

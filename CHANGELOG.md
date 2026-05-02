@@ -6,7 +6,40 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.23 — fused-kernel formal_semantics depth fill (remaining 7)** (kv-quant + attention-variants families: fused-spec-decode, fused-mtp-head, fused-kv-quant, fused-rmsnorm-residual-quantize, fused-conv-norm-act, fused-radix-attention, fused-selective-scan).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v2.24 — knowledge feedback loop activated + 49-run validation as CI regression** (wires automatic agent-learnings writeback from `scripts/agent-deploy/`; freezes the 49-run validation matrix as a CI job that catches regressions in codegen / planning agent; closes the v2.x major's "spec → plan → dev → test → feedback → spec" cycle).
+
+---
+
+## [2.23.0] — 2026-05-02
+
+**Theme**: fused-kernel formal_semantics depth fill complete — kv-quant + attention-variants families (7 entries).
+
+🎯 **MILESTONE: 24/24 (100%) fused-kernels now have `formal_semantics`.** Layer D depth on the fused-kernel layer is now complete; the agent has structured `numerical_rules` + `edge_cases` + `reference_impl` for every fused kernel it might recommend.
+
+### Added — formal_semantics on remaining 7 fused kernels (17 → 24 / 24)
+
+**KV-quant family (2):**
+
+- **`fused-kv-quant`** — INT8 vs INT4 vs FP8-E4M3 KV dtype trade-offs (vLLM INT8 default for ≥32K ctx; KIVI INT4 with quality eval; FP8-E4M3 native on Blackwell); per-token vs per-page vs per-tensor scale granularity; BF16 scale storage (FP32 overkill).
+- **`fused-rmsnorm-residual-quantize`** — three-way fusion (residual + RMSNorm + FP8/INT8 quantize) for FP8 attention paths; per-row vs per-tensor FP8 scale; SmoothQuant vs AdaQuant calibration; FP32 partial sum mandatory in norm section + amax-current scale compute.
+
+**Attention-variants family (5):**
+
+- **`fused-spec-decode`** — tree-attention over k speculative tokens (Medusa branching, EAGLE inheriting Medusa, DeepSeek MTP linear chain); rejection sampling for verify; CUDA Graph capture per fixed-k.
+- **`fused-mtp-head`** — DeepSeek V3 multi-token prediction head; shared embedding across MTP layers; aux training loss + inference spec-decode source (80%+ acceptance rate); inherits all numerical rules from constituent ops.
+- **`fused-radix-attention`** — SGLang prefix-trie KV cache; LRU eviction at trie node level; partial prefix match (trie of trie); cross-version cache invalidation contract; 2-10× memory savings for multi-tenant chat.
+- **`fused-selective-scan`** — Mamba SSM parallel-prefix-scan (50-200× speedup vs naive at L=8192); SSD (Mamba 2) tensor-core path; **FP32 hidden state mandatory** across recurrence (BF16 drifts after 1-2K tokens); Ascend impractical (10-50× slower).
+- **`fused-conv-norm-act`** — vision tower of Llama 4 / Qwen3-VL / SigLIP; BN/GN/LN slot variants; folded-BN at engine-init for inference; cuDNN epilogue paths for ReLU/GeLU/SiLU; FP32 norm partial sum.
+
+### Why this matters
+
+The kv-quant family is the gateway to **long-context production** — without `formal_semantics` on these fused kernels, the agent can't reason about INT8 vs FP8 KV trade-offs for a 128K-ctx Qwen 3.6 deploy. Now it can: it sees the per-token vs per-tensor granularity rule, the BF16-scale-sufficient rule, and the no-FP32-needed-for-INT8-dequant rule.
+
+The attention-variants family is the **post-LLM frontier** — speculative decoding (fused-spec-decode), Mamba SSMs (fused-selective-scan), DeepSeek MTP (fused-mtp-head), SGLang prefix sharing (fused-radix-attention), and vision encoders (fused-conv-norm-act) are the architectures where 2026 models are actually being shipped. Documenting their fusion semantics makes the agent's recommendations production-relevant, not just LLM-focused.
+
+The Mamba `selective-scan` entry is particularly important: **FP32 state mandatory** is a hard correctness rule that catches a real bug class (BF16 state drift after 1-2K tokens). The agent now warns the human reviewer about this when porting Mamba to any non-CUDA backend.
+
+Site stats: 505 pages built; 11/11 dispatch tests pass; 354 entities validate. Layer D op coverage 25/34 (74%) and fused-kernel coverage **24/24 (100%)** — only 9 op formal_semantics remain for v2.24.
 
 ---
 

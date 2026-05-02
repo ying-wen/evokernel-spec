@@ -90,3 +90,53 @@ references:
   - title: 'Multi-Token Prediction (Meta)'
     url: https://arxiv.org/abs/2404.19737
     source_type: paper
+
+formal_semantics:
+  signature: |
+    fused_mtp_head(hidden_state: [B, 1, D], mtp_weights: [num_predict_tokens, D, D_vocab],
+                   target_tokens: [B, num_predict_tokens]) -> next_hidden, predicted_tokens
+    DeepSeek V3 multi-token prediction head: from current hidden state, predict
+    the next k tokens via k stacked transformer layers (each conditioned on
+    previous prediction). Trained jointly with main model; serves as both
+    aux loss + speculative-decode source at inference.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused = k separate transformer-layer kernels (each = QKV proj + attention
+    + MLP). Fused: weights for all k layers loaded once into SMEM; intermediate
+    hidden states stay in registers across the k layers. ~30% speedup vs
+    unfused at k=4 prediction tokens.
+
+  edge_cases:
+    - input: 'use as aux training loss vs inference spec-decode'
+      behaviors:
+        deepseek-v3-train: 'k=4 predict tokens; each layer adds aux loss; main model still emits 1 token at inference if MTP disabled.'
+        deepseek-v3-infer-mtp: 'k=4 predict tokens drafted; verified by main forward pass; spec-decode ratio 80%+.'
+      mitigation: 'Inference path is the high-leverage one — without MTP at inference, you lose 2-3× spec-decode benefit.'
+
+    - input: 'shared embedding vs separate per-MTP-layer'
+      behaviors:
+        deepseek-v3-shared: 'Token embedding shared across main model + all MTP layers. Saves params.'
+        meta-mtp-separate: 'Per-MTP-layer embedding; more params; rarely worth it.'
+      mitigation: 'Use shared (DeepSeek V3 default).'
+
+  numerical_rules:
+    - aspect: 'mtp_layer_precision_chain'
+      per_library:
+        all_libs: 'Each MTP layer is a standard transformer layer; FP32 (m, s, acc) inside attention; FP32 RMSNorm partial sum. No MTP-specific precision rule.'
+      notes: 'Inherits all numerical rules from constituent ops (attention + RMSNorm + MLP). MTP is a layout/scheduling fusion, not a numerical fusion.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      class FusedMTPHead:
+          def forward(self, hidden_state, embedding, mtp_layers, k=4):
+              # hidden_state: [B, 1, D]; produces k predicted tokens
+              tokens = []
+              h = hidden_state
+              for i in range(k):
+                  h = mtp_layers[i](h)  # transformer layer
+                  logits = h @ embedding.T
+                  tokens.append(logits.argmax(-1))
+              return tokens
