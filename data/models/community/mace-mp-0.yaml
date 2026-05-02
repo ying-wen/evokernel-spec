@@ -6,7 +6,7 @@ license: MIT
 domain: scientific
 workload_kind: graph-iteration
 architecture:
-  family: diffusion
+  family: equivariant-gnn
   total_params_b: 0.005
   active_params_b: 0.005
   layers: 4

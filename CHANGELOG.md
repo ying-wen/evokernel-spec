@@ -6,7 +6,95 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.10 — Continued model breadth + schema extension** (Mochi 1, OpenSora 2, ESMFold, Geneformer, Evo-2, MACE-MP-1; extend `ModelFamilySchema` with `equivariant-gnn`, `flow-matching`, `encoder-decoder-asr` so non-LLM models stop being shoehorned into `family: diffusion`).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.11 — new op-classes + hardware breadth completion** (`triangle_multiplicative_update` op for AlphaFold/Boltz, `clebsch_gordan_tensor_product` for MACE-MP equivariant path; remaining hardware audit gaps: RTX 5070 Ti, RX 9060 XT, Sophgo BM1684X, Horizon Journey 5).
+
+---
+
+## [3.10.0] — 2026-05-03 — ModelFamilySchema extension + 4 new models
+
+**Theme**: fix the v3.8-flagged "`family: diffusion` is being stretched as catch-all" issue by extending `ModelFamilySchema` with proper non-LLM categories. Migrate v3.8 models to correct family values. Add 4 new models showcasing the new categories.
+
+### Schema extension
+
+`schemas/model.ts` `ModelFamilySchema` enum extended from 4 → 8 values:
+
+| Family | Use case | LLM fields required? |
+|---|---|---|
+| `dense` (existing) | GPT/Llama autoregressive | ✅ |
+| `moe` (existing) | Mixture-of-Experts | ✅ |
+| `hybrid` (existing) | Transformer + SSM (Jamba) | ✅ |
+| `diffusion` (existing) | Classic UNet/DiT image gen | ❌ |
+| **`encoder-decoder-asr`** (NEW) | Whisper, Parakeet — has attention + vocab | ✅ |
+| **`flow-matching`** (NEW) | F5-TTS, FLUX, Mochi 1 — flow-matching DiT/UNet | ❌ |
+| **`equivariant-gnn`** (NEW) | MACE-MP, Orb-V2, GNoME — GNN MD | ❌ |
+| **`hybrid-pairformer`** (NEW) | Boltz-1, ESMFold, AF3 — pairformer + structure | ❌ |
+
+Validation refine updated: ASR family is transformer-shaped (so it requires LLM fields like attention/vocab/ffn_size). The other 3 new families don't require LLM fields.
+
+### v3.8 model migrations (5 models corrected)
+
+| Model | v3.8 (wrong) | v3.10 (correct) |
+|---|---|---|
+| `mace-mp-0` | `diffusion` (forced) | **`equivariant-gnn`** |
+| `boltz-1` | `diffusion` (forced) | **`hybrid-pairformer`** |
+| `f5-tts` | `diffusion` (forced) | **`flow-matching`** |
+| `flux-1-1-pro` | `diffusion` (close enough) | **`flow-matching`** (rectified flow is the real category) |
+| `stable-diffusion-3.5-large` | `diffusion` | **`flow-matching`** (RF sampler) |
+| `whisper-large-v3-turbo` | `dense` (technically right but generic) | **`encoder-decoder-asr`** |
+
+`flux-1-dev` left as `family: diffusion` — that's a v1.x entry pre-dating this work; could be migrated in v3.11.
+`wan-2.1`, `hunyuan-video-13b` kept as `family: diffusion` — they're true DDPM-style 3D-DiT, not flow-matching.
+
+### Added — 4 new models (28 → 32)
+
+**Video gen:**
+- **`mochi-1`** (Genmo, Apache-2.0) — 10B asymmetric DiT, rectified flow matching. v3.10 reference for `family: flow-matching`. Apache 2.0 license = commercial-friendly (vs HunyuanVideo Community).
+
+**Bio:**
+- **`esmfold`** (Meta, MIT) — 3B single-sequence protein structure (vs Boltz-1's MSA-aware). 2nd reference for `family: hybrid-pairformer`. ~10× faster than AlphaFold 2 + MIT licensed. Trade-off: only single-chain.
+
+**Speech:**
+- **`parakeet-ctc-1.1b`** (NVIDIA, NVIDIA Open License) — 1.1B FastConformer encoder + CTC head (vs Whisper's transformer decoder). 10× real-time on H100 vs Whisper-Turbo's 8×. English-only (vs Whisper's 99 langs). 2nd reference for `family: encoder-decoder-asr`, demonstrating CTC-style decoder-light variant.
+
+**Materials:**
+- **`orb-v2`** (Orbital Materials, Apache-2.0) — 25M data-augmented GNN universal interatomic potential. ~3× faster than MACE-MP-0 in MD (10ms → 3-5ms per step at 1000 atoms). 2nd reference for `family: equivariant-gnn`, demonstrating non-strictly-equivariant variant.
+
+### Why this matters
+
+Each new family value validates a fundamentally different deployment shape that the v2.x agent couldn't reason about. With v3.10:
+
+1. **Bio/molecule deploys** — Boltz-1 vs ESMFold trade-off (single-chain ESMFold 5× faster but less capable than Boltz-1)
+2. **TTS deploys** — flow-matching (F5-TTS, FLUX) vs classic diffusion (Wan 2.1, HunyuanVideo) — different sampler / NFE / engine implications
+3. **Materials/MD deploys** — equivariant (MACE-MP-0) vs data-augmented (Orb-V2)
+4. **ASR deploys** — autoregressive-decoder (Whisper) vs CTC-head (Parakeet) — KV cache vs no-KV-cache, very different latency profile
+
+### Schema correctness milestone
+
+Pre-v3.10: 5 of 28 models were lying about their family (`diffusion` substitute for everything non-LLM). Post-v3.10: 0 of 32 models are lying. Schema is honest.
+
+This is a small but important correctness milestone — the corpus' self-description matches reality. Agent recommendations that key off `family` (e.g., "use ComfyUI for diffusion") now correctly differentiate between flow-matching and DDPM, between equivariant GNN and non-equivariant.
+
+### Stats
+
+- **Models**: 28 → 32 (+4)
+- **Vendors**: 32 → 34 (+2: Genmo, Orbital Materials)
+- **Schema family enum**: 4 → 8 values
+- **Site pages**: 563 → 573 (+10)
+- **Agent-context bundles**: 1596 → **1824** (+228 = 4 new × 57 hardware)
+- **Layer D coverage**: still 100%
+- **Tests**: still 75/75 passing
+
+### v3.11 next
+
+**New op-classes** that v3.8/v3.10 models surfaced as missing from corpus:
+- `triangle_multiplicative_update` (Boltz-1, ESMFold, AF3 — ~30% wall-clock; key missing op)
+- `clebsch_gordan_tensor_product` (MACE-MP equivariant path)
+- `mel_spectrogram_encode` (Whisper, F5-TTS, Parakeet)
+- `flow_matching_step` (Mochi 1, FLUX, F5-TTS)
+
+PLUS continued hardware breadth: RTX 5070 Ti, RX 9060 XT, Sophgo BM1684X (国产 edge), Horizon Journey 5 (国产 auto).
+
+---
 
 ---
 

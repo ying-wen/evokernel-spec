@@ -1,0 +1,72 @@
+id: esmfold
+name: ESMFold (single-sequence protein structure)
+lab: meta
+release_date: 2022-11-17
+license: MIT
+domain: scientific
+workload_kind: forward-only-batch
+architecture:
+  family: hybrid-pairformer
+  total_params_b: 3.0
+  active_params_b: 3.0
+  layers: 48
+  hidden_size: 2560
+  attention_type: cross-attention
+  notes_arch: |
+    ESMFold 是 Meta 2022 末发布的蛋白结构预测模型, AlphaFold 2 同等水平但**单序列输入**
+    (不需要 MSA 多序列比对). 由 ESM-2 蛋白语言模型 (15B 参数) + 简化结构模块 (3B) 组成.
+
+    与 AlphaFold 2 / Boltz-1 对比:
+    - **AlphaFold 2**: 需要 MSA (1-100 个相似序列), 慢 (5-10 分钟 / 200 残基)
+    - **Boltz-1** (v3.8 entry): 现代 AF3 同款 pairformer + diffusion 模块, 单 sequence + 配体支持
+    - **ESMFold**: 单 sequence, 速度快 (~30 秒 / 200 残基 H100), 准确率比 AF2 略低
+      但比传统 single-sequence 方法 (e.g., trRosetta) 高一个量级
+
+    架构构成:
+    - ESM-2 (15B language model trained on UniRef): 提取 single-sequence embedding
+    - Folding module (3B): pairformer-like 简化版 + structure module (SE(3)-equivariant)
+    - 没有 diffusion 模块 (vs Boltz-1)
+
+    本条目记录的是 folding-only 部分 (3B), ESM-2 backbone (15B) 是 v3.11 的扩展候选
+    (作为独立的 protein-language-model entry).
+
+    部署轮廓:
+    - H100 80GB: 单序列 ≤500 残基, ~30 秒
+    - H200 141GB / MI300X 192GB: ≤1000 残基复合物 (单链限制是 ESMFold 主要不足)
+    - RTX 4090 24GB: ≤200 残基 (显存限制)
+    - 单 M3 Ultra 512GB: 大蛋白可行但速度慢 (没有 tensor core 优势)
+modalities: [text]
+weight_format: fp16
+hf_url: https://huggingface.co/facebook/esmfold_v1
+github_url: https://github.com/facebookresearch/esm
+paper_url: https://www.science.org/doi/10.1126/science.ade2574
+operator_decomposition:
+  - operator: attention
+    flops_per_token: 120000000000
+    bytes_per_token: 50000000000
+  - operator: matmul
+    flops_per_token: 80000000000
+    bytes_per_token: 40000000000
+notes: |
+  ESMFold 是开源蛋白结构预测的"轻量级"选择 (vs AF3-tier Boltz-1):
+
+  | 维度 | ESMFold | Boltz-1 (v3.8) | AlphaFold 2 |
+  |---|---|---|---|
+  | 输入 | Single sequence | Sequence + 配体可选 | MSA (多序列) |
+  | 参数 | 3B (folding only; +15B backbone) | 0.5B | 0.1B (但需 MSA) |
+  | 残基/min (H100) | 400 | 100-200 | 30-50 |
+  | 复合物支持 | ❌ 仅单链 | ✅ 多链 + 配体 + 修饰 | ⚠️ 多链可行但需 MSA |
+  | 输出 | 1 个结构 | 5 个结构 + 置信度 | 1 个结构 |
+  | License | MIT ✅ | MIT ✅ | Apache 2.0 (受 EULA 限制) |
+
+  使用场景:
+  - 大批量序列扫描 (10000+ 蛋白): ESMFold 是首选 (速度优势)
+  - 高准确度复合物预测: Boltz-1 / AF3
+  - 教学 / 单序列研究: ESMFold (无 MSA 依赖)
+
+  v3.10 用 ESMFold 作为 family: hybrid-pairformer 的另一个 sample.
+  与 Boltz-1 一同验证 schema 扩展, 同 family 不同子架构.
+
+  ESM-2 backbone (15B 参数) 是更大模型的 protein language model — 部署轮廓
+  完全不同 (类似 LLM, autoregressive forward 多个 layer 提取 embedding).
+  v3.11 候选条目.

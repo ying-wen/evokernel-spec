@@ -2,7 +2,29 @@ import { z } from 'zod';
 
 const Slug = z.string().regex(/^[a-z0-9.-]+$/);
 
-export const ModelFamilySchema = z.enum(['dense', 'moe', 'hybrid', 'diffusion']);
+/**
+ * v3.10 — extended ModelFamilySchema beyond LLM/diffusion.
+ *
+ * New families capture non-LLM workloads that v3.8 surfaced as edge cases
+ * being shoehorned into "family: diffusion":
+ *   - encoder-decoder-asr: Whisper-style speech recognition (HAS attention/vocab)
+ *   - flow-matching:       F5-TTS, FLUX, SD3.5 — flow-matching diffusion variant
+ *                          (no attention/vocab — like classic diffusion)
+ *   - equivariant-gnn:     MACE-MP, Orb, GNoME — E(3)-equivariant message-passing
+ *                          for materials/molecule MD (no attention/vocab — GNN, not transformer)
+ *   - hybrid-pairformer:   Boltz-1, AlphaFold 3 — pairformer + diffusion module
+ *                          (no traditional vocab; uses residue+ligand encoding)
+ */
+export const ModelFamilySchema = z.enum([
+  'dense',                  // GPT/Llama/DeepSeek-style autoregressive transformer
+  'moe',                    // Mixture-of-Experts transformer
+  'hybrid',                 // transformer + SSM (Jamba, Mamba-Hybrid)
+  'diffusion',              // classic diffusion (UNet/DiT) for image gen
+  'encoder-decoder-asr',    // v3.10: Whisper, Parakeet — encoder-decoder transformer for ASR
+  'flow-matching',          // v3.10: F5-TTS, FLUX (rectified-flow variant) — flow-matching DiT
+  'equivariant-gnn',        // v3.10: MACE-MP, GNoME, Orb — E(3)-equivariant GNN for MD
+  'hybrid-pairformer'       // v3.10: Boltz-1, AlphaFold 3 — pairformer + diffusion structure prediction
+]);
 
 const MoEConfigSchema = z.object({
   num_experts: z.number().int().positive(),
@@ -39,20 +61,32 @@ const ArchitectureSchema = z
     message: 'family=moe requires moe config',
     path: ['moe']
   })
-  // For LLM-class families (dense/moe/hybrid), vocab_size + num_attention_heads
-  // + max_context_length are required. Diffusion models can omit them.
+  // For families that ARE transformer-shaped (have attention + vocab), require
+  // the LLM fields. v3.10 split: ASR family (Whisper) ALSO has these; flow-matching,
+  // equivariant-gnn, and hybrid-pairformer don't.
+  //
+  // Required LLM fields:    dense, moe, hybrid, encoder-decoder-asr
+  // Not required:           diffusion, flow-matching, equivariant-gnn, hybrid-pairformer
   .refine(
-    (a) =>
-      a.family === 'diffusion' ||
-      (a.vocab_size !== undefined &&
+    (a) => {
+      const requiresLLMFields =
+        a.family === 'dense' ||
+        a.family === 'moe' ||
+        a.family === 'hybrid' ||
+        a.family === 'encoder-decoder-asr';
+      if (!requiresLLMFields) return true;
+      return (
+        a.vocab_size !== undefined &&
         a.num_attention_heads !== undefined &&
         a.num_kv_heads !== undefined &&
         a.head_dim !== undefined &&
         a.ffn_size !== undefined &&
-        a.max_context_length !== undefined),
+        a.max_context_length !== undefined
+      );
+    },
     {
       message:
-        'LLM-class family (dense/moe/hybrid) requires vocab_size, num_attention_heads, num_kv_heads, head_dim, ffn_size, max_context_length',
+        'Transformer-shaped families (dense/moe/hybrid/encoder-decoder-asr) require vocab_size, num_attention_heads, num_kv_heads, head_dim, ffn_size, max_context_length. Use diffusion / flow-matching / equivariant-gnn / hybrid-pairformer for non-transformer architectures.',
       path: ['family']
     }
   );

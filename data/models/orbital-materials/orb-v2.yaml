@@ -1,0 +1,70 @@
+id: orb-v2
+name: Orb-V2 (universal interatomic potential)
+lab: orbital-materials
+release_date: 2024-09-30
+license: Apache-2.0
+domain: scientific
+workload_kind: graph-iteration
+architecture:
+  family: equivariant-gnn
+  total_params_b: 0.025
+  active_params_b: 0.025
+  layers: 5
+  hidden_size: 256
+  attention_type: standard
+  notes_arch: |
+    Orb-V2 是 Orbital Materials 2024 Q3 开源的下一代材料 / 分子 universal
+    interatomic potential. 与 v3.8 加入的 MACE-MP-0 是直接竞品:
+
+    架构对比 (vs MACE-MP-0):
+    - **Orb-V2**: 25M 参数, **non-equivariant** GNN (data-augmented, 不是真正 E(3)-equivariant)
+      简化设计 → 推理速度 ~3× 比 MACE
+    - **MACE-MP-0**: 5M 参数, 真正 E(3)-equivariant via Clebsch-Gordan tensor product
+      理论保证旋转对称, 但 CG tensor product 算子开销大
+
+    Trade-off:
+    - Orb-V2 速度优势: 在 H100 上 1000 原子模拟 ~3-5ms / step (MACE: ~10ms / step)
+    - MACE 准确度优势: equivariance 保证 → 在小数据 fine-tuning 场景 generalization 更好
+    - 都用 Materials Project 数据库训练 (~1500 万 DFT 结构)
+
+    部署轮廓 (similar to MACE-MP-0):
+    - H100 / H200: 1000-10000 原子 LMD 模拟流畅
+    - MI300X 192GB: 50000+ 原子超大体系
+    - RTX 4090 / 5090: 桌面 LMD 实时
+    - M3 Ultra: 长时间持续模拟 (能耗 < H100 50%)
+    - Jetson Thor / RK3588: 边缘 / 现场 LMD (INT8 量化后可行)
+modalities: [text]
+weight_format: fp32
+hf_url: https://huggingface.co/orbital-materials/orb-v2
+github_url: https://github.com/orbital-materials/orb-models
+paper_url: https://arxiv.org/abs/2410.22570
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 25000000
+    bytes_per_token: 15000000
+  - operator: attention
+    flops_per_token: 0
+    bytes_per_token: 0
+notes: |
+  Orb-V2 vs MACE-MP-0 (v3.8) 是 v3.10 引入的关键比较 — 同 family: equivariant-gnn
+  (注意: Orb-V2 严格说不是真 equivariant, 但工作负载 / 部署轮廓与 MACE 相同;
+  family 用最近邻 enum 值是合理的).
+
+  **不同子架构**:
+  - MACE-MP-0: 真 E(3)-equivariant via Clebsch-Gordan tensor product
+    → 算子层面有独特 hot path: clebsch_gordan_tensor_product (v3.11 新 op-class 候选)
+  - Orb-V2: data-augmented non-equivariant GNN
+    → 标准 message-passing GEMM, 不需要专用 kernel; 部署更简单
+
+  **使用场景**:
+  - 大规模虚拟筛选 (millions of compounds) → Orb-V2 (速度优势)
+  - 高精度 DFT-replacement (新材料发现) → MACE-MP-0 (equivariance 保证)
+  - 长时间 LMD (1ns 模拟 = 10⁶ steps) → 两者都可行, Orb-V2 略快
+  - Fine-tuning 在小数据 (e.g., 特定催化剂) → MACE 优势 (equivariant 数据效率)
+
+  生态: ASE (Atomic Simulation Environment) 调度, LAMMPS-MACE 类似 LAMMPS-Orb 集成.
+  与 LLM/视频/图像/语音/蛋白完全不同 stack — 没有 vLLM/SGLang, 没有 ComfyUI/Diffusers,
+  完全独立的 atomistic simulation 生态.
+
+  v3.10 验证 family: equivariant-gnn 不局限于真 E(3)-equivariant; 覆盖 GNN-shaped MD
+  models 整体 (含 data-augmented 非 equivariant 变体).

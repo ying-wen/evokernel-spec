@@ -6,7 +6,7 @@ license: BFL-Commercial-License
 domain: vision
 workload_kind: forward-only-batch
 architecture:
-  family: diffusion
+  family: flow-matching
   total_params_b: 12.0
   active_params_b: 12.0
   layers: 57

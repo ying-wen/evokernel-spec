@@ -6,7 +6,7 @@ license: CC-BY-NC-4.0
 domain: speech
 workload_kind: forward-only-batch
 architecture:
-  family: diffusion
+  family: flow-matching
   total_params_b: 0.336
   active_params_b: 0.336
   layers: 22

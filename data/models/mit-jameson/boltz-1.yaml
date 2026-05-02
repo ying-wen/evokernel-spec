@@ -6,7 +6,7 @@ license: MIT
 domain: scientific
 workload_kind: forward-only-batch
 architecture:
-  family: diffusion
+  family: hybrid-pairformer
   total_params_b: 0.5
   active_params_b: 0.5
   layers: 48

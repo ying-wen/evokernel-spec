@@ -6,7 +6,7 @@ license: MIT
 domain: speech
 workload_kind: encoder-decoder
 architecture:
-  family: dense
+  family: encoder-decoder-asr
   total_params_b: 0.809
   active_params_b: 0.809
   layers: 32

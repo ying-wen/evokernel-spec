@@ -6,7 +6,7 @@ license: Stability-AI-Community-License
 domain: vision
 workload_kind: forward-only-batch
 architecture:
-  family: diffusion
+  family: flow-matching
   total_params_b: 8.1
   active_params_b: 8.1
   layers: 38

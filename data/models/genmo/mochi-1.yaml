@@ -1,0 +1,66 @@
+id: mochi-1
+name: Mochi 1 (10B video gen)
+lab: genmo
+release_date: 2024-10-22
+license: Apache-2.0
+domain: vision
+workload_kind: forward-only-batch
+architecture:
+  family: flow-matching
+  total_params_b: 10.0
+  active_params_b: 10.0
+  layers: 48
+  hidden_size: 3072
+  attention_type: cross-attention
+  notes_arch: |
+    Mochi 1 是 Genmo 2024 Q4 开源的 10B 参数 asymmetric DiT video gen 模型,
+    采用 rectified flow matching (vs diffusion).
+
+    架构特点:
+    - **Asymmetric DiT**: 视觉 stream 比文本 stream 大得多 (10× 参数比)
+      — 比 FLUX/Wan 的 dual-stream 设计更视觉-heavy
+    - **Asymmetric attention**: 视觉 token 内部 self-attention; 文本仅作为
+      query 注入 (而非 joint attention)
+    - 文本编码器: T5-XXL (4.7B)
+    - 输出: 5.4 秒 480p 视频 @ 30 fps (162 帧)
+    - VAE: 自家训练的 3D causal VAE, 8× 时间 + 8× 空间下采样
+    - Sampler: rectified flow, 50-200 NFE 默认
+
+    部署轮廓:
+    - H100 80GB SXM: 单卡可生成 480p × 5.4s, 50 NFE 约 90 秒
+    - H200 141GB / MI300X 192GB: 720p × 5.4s 单卡可行
+    - RTX 5090 32GB: 480p × 2.7s, 50 NFE FP8 ~120 秒
+    - 多卡 H100 × 4: xFuser 并行, 720p × 5.4s 约 30 秒
+modalities: [text, video]
+weight_format: bf16
+hf_url: https://huggingface.co/genmo/mochi-1-preview
+github_url: https://github.com/genmoai/models
+paper_url: https://www.genmo.ai/blog
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 75000000000
+    bytes_per_token: 40000000000
+  - operator: attention
+    flops_per_token: 60000000000
+    bytes_per_token: 30000000000
+notes: |
+  Mochi 1 与 Wan 2.1 / HunyuanVideo 是开源视频生成 2024-2025 三巨头:
+
+  | 维度 | Mochi 1 | HunyuanVideo | Wan 2.1 |
+  |---|---|---|---|
+  | 参数 | 10B | 13B | 14B |
+  | License | Apache 2.0 ✅ | Community (受限) | Apache 2.0 ✅ |
+  | 视频长度 | 5.4s | 5s | 5s |
+  | 默认分辨率 | 480p | 720p | 720p |
+  | 文本编码 | T5-XXL | MLLM (混元) | T5-XXL + CLIP |
+  | 速度 (H100) | ~90s | ~70s | ~80s |
+  | Architecture | Asymmetric DiT | Dual-stream MMDiT | DiT 3D |
+
+  Mochi 1 是 v3.10 加入的关键 sample,
+  因为它使用了**新的 family: flow-matching**
+  (vs Wan 2.1 / HunyuanVideo 仍是 family: diffusion).
+  Flow-matching 训练目标不同于经典 diffusion (rectified flow vs DDPM),
+  推理路径相同但 NFE 通常更少 (Mochi 默认 50, classic SD 默认 28-50).
+
+  部署 stack: Diffusers / ComfyUI-Mochi / xFuser 多卡.
+  生态意义: Apache 2.0 让商用部署完全自由 (vs HunyuanVideo Community license).

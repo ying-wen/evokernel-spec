@@ -1,0 +1,85 @@
+id: parakeet-ctc-1.1b
+name: NVIDIA Parakeet CTC 1.1B
+lab: nvidia
+release_date: 2024-04-01
+license: NVIDIA-Open-Model-License
+domain: speech
+workload_kind: encoder-decoder
+architecture:
+  family: encoder-decoder-asr
+  total_params_b: 1.1
+  active_params_b: 1.1
+  layers: 36
+  hidden_size: 1024
+  ffn_size: 4096
+  num_attention_heads: 16
+  num_kv_heads: 16
+  head_dim: 64
+  vocab_size: 1024
+  max_context_length: 1500
+  attention_type: standard
+  notes_arch: |
+    Parakeet CTC 1.1B 是 NVIDIA 2024 Q1 开源的英语 ASR 模型, FastConformer encoder
+    + CTC decoder (vs Whisper 的 transformer decoder). 设计目标:**低延迟 + 高吞吐**
+    (10× real-time on H100, 比 Whisper-Turbo 8× 还快).
+
+    架构:
+    - **FastConformer** encoder: 36 层, conformer block (self-attention + 1D conv)
+      下采样 8× (vs Whisper 2×), 减少 sequence length 让 attention 计算降一个量级
+    - **CTC head** (decoder): 1024-class output (字符 + BPE), 单步 forward
+      (vs Whisper autoregressive token generation)
+    - 无 KV cache (CTC 不是 autoregressive)
+    - 训练数据: 64K 小时英语 (vs Whisper V3 5M 小时多语言)
+
+    优势: 速度 + 实时性
+    劣势: 仅英语 (vs Whisper 99 种)
+
+    部署轮廓:
+    - H100 80GB: 1000+ 并发 streaming, 10× real-time
+    - H200: 同上 (encoder bandwidth-bound, 没大差别)
+    - RTX 4090: 100+ 并发, 8× real-time (FP8 量化)
+    - Apple M3 Ultra: 100+ 并发 streaming (MLX, BF16)
+    - Edge: Jetson Thor 5× real-time, RK3588 NPU 2× real-time (INT8 后)
+modalities: [audio, text]
+weight_format: fp16
+hf_url: https://huggingface.co/nvidia/parakeet-ctc-1.1b
+github_url: https://github.com/NVIDIA/NeMo
+paper_url: https://arxiv.org/abs/2305.05084
+operator_decomposition:
+  - operator: matmul
+    flops_per_token: 2200000000
+    bytes_per_token: 1100000000
+  - operator: attention
+    flops_per_token: 600000000
+    bytes_per_token: 300000000
+  - operator: conv2d
+    flops_per_token: 800000000
+    bytes_per_token: 400000000
+notes: |
+  Parakeet 是 v3.10 开 family: encoder-decoder-asr 第二个 sample (Whisper 是第一个):
+
+  | 维度 | Whisper V3 Turbo | Parakeet CTC 1.1B |
+  |---|---|---|
+  | 参数 | 0.809B | 1.1B |
+  | License | MIT | NVIDIA Open Model |
+  | 实时倍率 (H100) | 8× | 10× |
+  | 多语言 | ✅ 99 种 | ❌ 仅英 |
+  | Decoder 类型 | Autoregressive Transformer (4 层) | CTC head (单步) |
+  | KV cache | 是 (4 层 decoder) | 否 |
+  | Streaming | 30s chunked | 真实时 (chunk-free) |
+  | WER (LibriSpeech) | 2.0% | 1.6% |
+
+  Parakeet 在英语场景**更快 + 更准** (NVIDIA 训练数据策展更精细),
+  但 Whisper 多语言能力是 Parakeet 完全不具备的.
+
+  Parakeet 的 **conv1d + 1D conformer + CTC** 结构与 LLM Transformer 显著不同:
+  - **No KV cache** — Layer R 的 prior_learnings 经验对 LLM-only deployments 不适用
+  - **真实时 streaming** — 不需要 30s chunk 启发式 (Whisper 必须有)
+  - **conv1d 占比高** — 部署优化 hot path 与 LLM/LLM-decode 不同
+  - **CTC alignment** — 输出后处理需要 CTC beam search (而不是 LLM 的 sampling)
+
+  v3.10 用 Parakeet 验证 family: encoder-decoder-asr 不局限于 Whisper-style
+  decoder-heavy ASR; 也覆盖 CTC-style decoder-light ASR.
+
+  生态: NeMo (NVIDIA) ASR 训练 stack, 部署用 Triton Inference Server / TensorRT.
+  社区移植: faster-parakeet (CTranslate2 类似 faster-whisper).
