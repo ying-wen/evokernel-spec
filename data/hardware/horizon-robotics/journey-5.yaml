@@ -1,0 +1,115 @@
+id: journey-5
+name: Horizon Journey 5 (地平线征程 5 车规 NPU)
+vendor: horizon-robotics
+generation: bpu-v3-bayes
+status: in-production
+release_year: 2022
+form_factor: embedded-soc
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 32, evidence_ref: ev-journey5-001 }
+  fp16_tflops: { value: 32, evidence_ref: ev-journey5-001 }
+  int8_tops: { value: 128, evidence_ref: ev-journey5-001 }
+architecture:
+  compute_unit_count: { value: 16, evidence_ref: ev-journey5-arch-001 }
+  compute_unit_label: NPU-Core
+  process_node_nm: { value: 16, evidence_ref: ev-journey5-arch-001 }
+  memory_hierarchy:
+    - name: 'BPU per-core L1'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-journey5-arch-001 }
+      notes: 'Per-BPU-core local SRAM. 16 cores × 256 KB ≈ 4 MB total.'
+    - name: 'L2 / shared SRAM'
+      scope: global
+      size_mb: { value: 16, evidence_ref: ev-journey5-arch-001 }
+    - name: 'LPDDR4X (unified ARM CPU + BPU)'
+      scope: global
+      size_mb: { value: 16384, evidence_ref: ev-journey5-001 }
+      bandwidth_tbs: { value: 0.0512, evidence_ref: ev-journey5-001 }
+      notes: 'Up to 16 GB LPDDR4X. SoC integrated 8-core ARM Cortex-A55 CPU + 16 BPU cores share unified memory.'
+memory:
+  capacity_gb: { value: 16, evidence_ref: ev-journey5-001 }
+  bandwidth_gbps: { value: 51, evidence_ref: ev-journey5-001 }
+  type: LPDDR5
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 51
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+  notes: 'Automotive deployment: J5 SoC connects to other ECUs via CAN-FD / Ethernet 1Gbps; not designed for cluster scale-out.'
+power:
+  tdp_w: { value: 30, evidence_ref: ev-journey5-001 }
+  sustained_w: { value: 25, evidence_ref: ev-journey5-001 }
+  peak_w: { value: 35, evidence_ref: ev-journey5-001 }
+  cooling: passive-conduction
+  operating_temp_c: { min: -40, max: 105 }
+  fp16_tflops_per_watt: { value: 1.07, evidence_ref: ev-journey5-001 }
+  power_connector: integrated
+  notes: 'AEC-Q100 Grade 2 automotive certified. -40 to 105°C operating range. Functional safety: ASIL-B(D). Designed for ADAS / autonomous driving deployment in Chinese OEM vehicles (BYD, NIO, Xpeng, Chery, GAC).'
+software_support:
+  drivers: ['Horizon AI Platform', 'BPU SDK', 'OpenExplorer']
+  engines:
+    - { id: lmdeploy, status: unsupported, notes: 'No LLM stack support; J5 is for vision/perception only' }
+  quantizations: [int8]
+  parallelism: []
+aliases: ['Journey 5', 'J5', '征程 5', 'Horizon J5']
+chinese_names: ['地平线征程 5', '征程 5 车规 NPU', '地平线 J5']
+evidence:
+  - id: ev-journey5-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://en.horizon.cc/journey-5/
+    accessed: '2026-05-03'
+    citation: 'Horizon Journey 5 product page: 128 INT8 TOPS / 32 BF16 TFLOPS in 30W TDP; AEC-Q100 Grade 2 automotive certified; ASIL-B(D) functional safety; deployed in 30+ vehicle models from Chinese OEMs (BYD, NIO, Xpeng, Chery, GAC, Li Auto, Volkswagen China).'
+  - id: ev-journey5-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://en.horizon.cc/blog/journey-5-architecture/
+    accessed: '2026-05-03'
+    citation: 'Horizon Journey 5 architecture: BPU 3.0 (Bayes architecture) — 16 NPU cores, 16nm TSMC FinFET, 16 MB on-chip SRAM, ARM Cortex-A55 8-core CPU + 16 BPU NPU cores integrated.'
+disclaimers:
+  - 'Journey 5 is automotive-tier NPU — designed for camera / radar / LiDAR perception (object detection, lane segmentation, path planning), NOT general LLM inference.'
+  - 'INT8-only path; no BF16/FP16 production deployment (model conversion via Horizon AI Platform produces INT8 quantized models from PyTorch / ONNX).'
+  - 'No vLLM / SGLang / lmdeploy support. The "engines" field is unsupported because LLM inference on J5 is not a target use case.'
+  - 'Successor: Journey 6 (BPU 4.0, Nash architecture, 200-560 TOPS, 2024-2025 development; not yet in this corpus).'
+notes: |
+  Horizon Journey 5 是 v3.12 加入的国产 automotive-tier NPU. 与之前 corpus 中其他
+  edge / consumer hardware 的核心区别:
+
+  - **Use case**: ADAS / 自动驾驶感知 (camera / radar / LiDAR object detection +
+    lane segmentation + path planning), 不是 LLM serving 或 image gen.
+  - **Certification**: AEC-Q100 Grade 2 + ASIL-B(D) — 这是车规级安全认证,
+    没有这个 OEM 不会用.
+  - **Deployment scale**: 累计装车 800万+ 辆 (2024 数据), 包括 BYD 海豹 / 唐 / 元 PLUS,
+    NIO ET / ES, Xpeng P7 / G9, Li Auto L7/L8, VW China, Chery, GAC.
+  - **Software stack**: Horizon AI Platform (HAP) — 模型 INT8 量化 + 编译 + 部署
+    完整 pipeline. PyTorch / ONNX 输入, 输出 .hbm (Horizon Binary Model) 格式.
+
+  对比国产 edge AI 同类:
+
+  | 维度 | Horizon J5 | Sophgo BM1684X | Cambricon MLU220 |
+  |---|---|---|---|
+  | INT8 TOPS | 128 | 32 | 16 |
+  | TDP | 30W | 30W | 8W |
+  | 主要场景 | 车载 ADAS | 工业视觉 / 安防 | 嵌入式 / 边缘 NLP |
+  | 认证 | AEC-Q100 + ASIL-B(D) | 工业 -40~85°C | 商业级 |
+  | LLM 支持 | ❌ (仅 vision) | ⚠️ 有限 | ⚠️ 有限 |
+  | 量化 | INT8-only | INT4/8 + BF16 | INT8 |
+
+  **v3.12 加入 J5 的意义**: 验证 corpus schema 能容纳 "vision-only NPU" 这种与 LLM
+  完全无关的硬件. agent 在被问到 "我要在车上做实时 ADAS" 时, 应该正确推荐 J5 / J6
+  而不是错误推荐 RTX 5090 (后者无车规认证). 这是真实的 production deployment 决策点.
+
+  **未来 v3.13+ 候选**:
+  - Horizon Journey 6 (BPU 4.0, 200-560 TOPS, 2024-2025 ramp)
+  - 黑芝麻 A1000 (Black Sesame, 国产车规 NPU 同代竞品)
+  - 寒武纪 MLU220 (国产 edge embedded NPU)
+  - Mobileye EyeQ6 (Intel 子公司, 全球车规市场)
+
+  v3.13+ 候选 use case: 车载多模态 (车机 LLM 副驾, 智能座舱 — 用 Journey 6 + 高通
+  Snapdragon Cockpit 联合部署). 当前 Journey 5 只覆盖 perception 一半.

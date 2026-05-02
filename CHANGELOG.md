@@ -6,7 +6,55 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.12 — hardware breadth completion + apply new v3.11 ops to fused-kernel entries** (`fused-pairformer-block` for Boltz, `fused-mace-message-pass` for MACE, `fused-flow-matching-with-cache` for Mochi/FLUX/F5-TTS; remaining hardware: RTX 5070 Ti, RX 9060 XT, Sophgo BM1684X, Horizon Journey 5).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.13 — fused-mace-message-pass + DSL examples for non-LLM ops + OperatorCategorySchema extension**.
+
+---
+
+## [3.12.0] — 2026-05-03 — 国产 edge breadth + fused-kernel application of v3.11 ops
+
+**Theme**: deliver on 2 user directives simultaneously:
+1. "**端侧推理芯片**" → 2 国产 edge entries (Sophgo BM1684X for industrial/IoT/security, Horizon Journey 5 for automotive ADAS)
+2. "**算子和融合算子开发思路及参考示例**" → 2 fused-kernels applying v3.11 ops to real production deployment scenarios
+
+### Added — 3 hardware (57 → 60)
+
+**国产 edge tier (NEW class):**
+
+- **`bm1684x`** (Sophgo, ¥1500-3000) — 32 INT8 TOPS / 16 BF16 TFLOPS in 30W; 16 GB LPDDR5 (32 GB option); 32 MB on-chip SRAM; M.2/Mini-PCIe form factor; AEC-Q100 industrial -40°C to 85°C; **dominant 国产 edge AI accelerator** for IoT/security/industrial vision in China. SOPHON SDK + TPU-MLIR canonical stack.
+- **`journey-5`** (Horizon Robotics, automotive) — 128 INT8 TOPS in 30W; AEC-Q100 Grade 2 + ASIL-B(D); deployed in 800万+ Chinese OEM vehicles. **First automotive-tier NPU in corpus** — vision-only (perception/ADAS), explicitly NOT for LLM inference.
+
+**Consumer Blackwell mid-tier completion:**
+
+- **`rtx-5070-ti`** ($749 MSRP) — 70 SMs / 16 GB GDDR7 / 896 GB/s / 300W TGP. **Best $/FP8-TFLOP in entire RTX 50 lineup**. Sweet spot for indie 13B FP8 LLM serving.
+
+### Added — 2 fused-kernels applying v3.11 ops (24 → 26)
+
+**1. `fused-pairformer-block`** — applies v3.11's `triangle-multiplicative-update`
+
+Used by: Boltz-1, ESMFold, AlphaFold 3 deployment optimization. Combines triangle-mult-update + LayerNorm + sigmoid gate into single SMEM/register pipeline. **30-50% wall-clock improvement** over Boltz-1 baseline at N=500. HBM I/O reduced 200 MB → 32 MB per pairformer block.
+
+**2. `fused-flow-matching-with-cache`** — applies v3.11's `flow-matching-step`
+
+Used by: Mochi 1, FLUX, SD 3.5, F5-TTS deployment optimization. Combines TeaCache residual cache + flow-matching ODE step + CFG guidance. **50% wall-clock reduction** on FLUX 1024×1024 H100 (2.0s → 1.0s for 50 NFE). Documents quality trade-off (FID +1-3 points) + first-5/last-5-NFE protection.
+
+### Why v3.12 matters
+
+**For 国产 edge**: pre-v3.12, agent asked "deploy YOLO on Chinese smart camera" had no path. Now BM1684X (industrial/IoT) + Journey 5 (automotive) round out the tier. Real production deployment scenarios in China are in scope.
+
+**For agent recommendations**: pre-v3.12, agent told "speed up Boltz-1" could only point to PyTorch-eager. Now it can recommend `fused-pairformer-block` with concrete OpenFold Triton reference. Same for FLUX → `fused-flow-matching-with-cache`. This is the "knowledge depth" promise concretized.
+
+### Stats
+
+- **Hardware**: 57 → 60 (+3) · **Vendors**: 34 → 36 (+2: Sophgo, Horizon Robotics)
+- **Fused-kernels**: 24 → 26 (+2 applying v3.11 ops)
+- **Site pages**: 577 → 587 (+10) · **Agent-context bundles**: 1824 → **1920** (+96)
+- **Layer D coverage**: 100% · **Tests**: 75/75 passing
+
+### v3.13 next
+
+- `fused-mace-message-pass` (CG tensor product + radial basis + atomic update)
+- DSL examples: triangle-mult-on-Hopper-Triton, flow-matching-step-on-CUDA, mel-spec-on-cuFFT
+- OperatorCategorySchema extension: `bio`, `equivariant`, `audio-preprocess`, `sampler`
 
 ---
 

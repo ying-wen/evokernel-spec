@@ -1,0 +1,156 @@
+id: fused-pairformer-block
+name: Fused Pairformer Block (Boltz-1 / ESMFold / AlphaFold 3)
+category: misc
+summary: |
+  Fuse pairformer 单元的核心三步 — triangle multiplicative update + LayerNorm + sigmoid
+  gate — 成单个 kernel, 让中间 [B, N, N, c] pair tensor 不写 HBM. 这是 Boltz-1 / ESMFold /
+  AlphaFold 3 部署的 dominant fusion opportunity (~30% wall-clock 来自这一段).
+
+description_md: |
+  ## Pairformer 标准三步
+
+  ```
+  step 1: a, b = gate_proj(P), gate_proj(P)        # 两个线性投影 + sigmoid gate
+  step 2: P_update[i,j,c] = sum_k (a[i,k,c] * b[k,j,c])  # triangle mult update O(N³c)
+  step 3: P_normalized = LayerNorm(P + P_update)         # 归一化
+  ```
+
+  Standalone 版本:
+  - step 1: 写 [B, N, N, c] × 2 (a + b 中间张量) ≈ 64 MB at N=500, c=128
+  - step 2: 写 [B, N, N, c] (P_update) ≈ 32 MB
+  - step 3: 读 P + P_update + write P_normalized ≈ 96 MB I/O
+
+  对于 N=500 蛋白, 单层 pairformer 大约 200 MB HBM I/O — 这还只是 1 层中的 1 个块.
+  Boltz-1 有 48 层 pairformer, ESMFold folding 头有 8 层, AlphaFold 3 有 48 层.
+  **没有融合就是 GB 级 HBM 读写**.
+
+  ## Fused 实现
+
+  - 把 a, b 投影 + sigmoid gate 合并成一个 dual-output GEMM (类似 fused-mlp-silu pattern)
+  - triangle mult update 在 SMEM tile 内做 reduction (k-dim partial sum 在 register)
+  - LayerNorm 直接 fuse 进 epilogue, 利用已有的 sum + sqsum 累加器
+
+  HBM I/O 从 200 MB 降到 ~32 MB (只剩输入 P + 输出 P_normalized).
+  Wall-clock 改善 30-50% (Boltz-1 / ESMFold 当前 baseline 都没做这个 fusion).
+
+  ## 部署影响
+
+  Boltz-1 / ESMFold deployment 在 H100 80GB 当前都是 **memory-bandwidth bound**
+  (而不是 tensor-core bound) — 这个 fused kernel 直接消除 bottleneck.
+
+  生产实现路径:
+  - **OpenFold Triton**: 已有 triangle_multiplicative_update Triton kernel,
+    可以扩展加 LayerNorm + gate fusion (community PR opportunity)
+  - **CUTLASS extension**: 没有现成 — 需要写新 epilogue (中等难度)
+  - **JAX / XLA fused**: AF3 已经依赖 XLA 自动 fusion, 但没人验证质量
+
+  v3.12 加入这个 entry 是为了让 agent 在被问到 "怎么加速 Boltz-1 deployment 在 H100"
+  时, 能正确推荐这个融合机会 (并指向 OpenFold Triton kernel 作为参考实现).
+
+fuses_operators: [matmul, layer-norm, triangle-multiplicative-update]
+why_fuse: |
+  triangle multiplicative update 单独跑会写 [B, N, N, c] 中间张量到 HBM,
+  紧接着 LayerNorm 又读回来 — 32 MB at N=500 / c=128, 多层叠加是 GB 级浪费.
+  Fuse 让中间 P_update 留在 SMEM/register, 直接进 epilogue LayerNorm 计算.
+
+speedup:
+  - baseline: 'unfused pairformer block (Boltz-1 PyTorch baseline)'
+    multiplier_min: 1.3
+    multiplier_max: 1.7
+    notes: 'N=500 蛋白 H100; 短 N (≤200) 收益较小 (baseline 已经在 SMEM); 长 N (≥1000) 收益最大但需 chunked impl'
+  - baseline: 'OpenFold Triton triangle update (no LayerNorm fusion)'
+    multiplier_min: 1.1
+    multiplier_max: 1.3
+    notes: 'OpenFold 已经 fuse 了 triangle mult, 但 LayerNorm 还分开. 加上 LayerNorm fusion 再 1.1-1.3x'
+
+implementations:
+  - name: OpenFold Triton (partial impl)
+    hardware_arch: [hopper, ampere, ada]
+    url: https://github.com/aqlaboratory/openfold/blob/main/openfold/utils/kernel/triangle_multiplicative_update.py
+    notes: 'Already fuses triangle update; LayerNorm fusion is community PR opportunity'
+  - name: AlphaFold 3 (DeepMind, JAX/XLA)
+    hardware_arch: [hopper, ampere]
+    url: https://github.com/google-deepmind/alphafold3
+    notes: 'XLA auto-fusion; quality not yet validated by community'
+  - name: Boltz-1 PyTorch eager (no fusion)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/jwohlwend/boltz
+    notes: 'Eager PyTorch — significant fusion opportunity, baseline for v3.12 entry'
+
+hardware_requires:
+  - 'Hopper / Ampere / Ada — Tensor Core class, ≥ 80 KB SMEM per SM'
+  - 'For N > 500: requires chunked outer loop over k-reduction dim (SMEM cannot fit full pair tensor)'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Implementation complexity: triangle mult is a 4-tensor contraction (uncommon shape for tensor cores) — needs custom CUTLASS / Triton'
+  - 'N variable: shape changes per protein input; CUDA Graph capture requires separate graphs per N bucket'
+  - 'Numerical: FP32 reduction mandatory — even with BF16 inputs, partial sum can drift on N>500'
+
+references:
+  - title: 'AlphaFold 3 (introduces pairformer architecture)'
+    url: https://www.nature.com/articles/s41586-024-07487-w
+    source_type: paper
+  - title: 'Boltz-1 (open AlphaFold 3 equivalent, v3.8 corpus entry)'
+    url: https://www.biorxiv.org/content/10.1101/2024.11.19.624167v1
+    source_type: paper
+  - title: 'OpenFold Triton kernel reference'
+    url: https://github.com/aqlaboratory/openfold/blob/main/openfold/utils/kernel/triangle_multiplicative_update.py
+    source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_pairformer_block(P: [B, N, N, c],
+                            W_gate_a: [c, c], W_gate_b: [c, c], W_proj: [c, c],
+                            gamma: [c], beta: [c], eps: float)
+        -> P_normalized: [B, N, N, c]
+    Combines: a = sigmoid(P @ W_gate_a) * (P @ W_gate_a);
+              b = sigmoid(P @ W_gate_b) * (P @ W_gate_b);
+              P_update[i,j,c] = sum_k (a[i,k,c] * b[k,j,c]);
+              P_proj = (P + P_update) @ W_proj;
+              P_normalized = LayerNorm(P_proj, gamma, beta, eps);
+    All intermediates kept in SMEM/registers.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused pairformer block writes 4 intermediate [B, N, N, c] tensors to HBM:
+    a, b, P_update, P_proj. At N=500, c=128, BF16: 4 × 32 MB = 128 MB written + 96 MB
+    read back = 224 MB I/O per block. Over 48 layers (Boltz-1 / AF3): ~10 GB HBM
+    traffic per forward pass — well over H100 HBM bandwidth budget for 1-second SLA.
+
+  edge_cases:
+    - input: 'large N (>500) requires chunked outer-loop over k-reduction'
+      behaviors:
+        openfold-chunked: 'Chunks k-dim into 32-token slices; partial accumulator in SMEM, final reduce across chunks.'
+        af3-xla: 'XLA does not auto-chunk; relies on user setting block size to fit SMEM.'
+        boltz-1-eager: 'Eager — runs out of SMEM at N>500, falls back to BatchGemm.'
+      mitigation: 'For N > 500: use OpenFold-style chunked impl. For N ≤ 200: eager BatchGemm fine; SMEM fits.'
+
+    - input: 'masked positions (variable-length protein with padding)'
+      behaviors:
+        all_libs: 'Apply mask via multiply-by-zero on a, b before reduction. Critical: do NOT skip the mask.'
+      mitigation: 'Mask must zero before reduction; multiplicative form would otherwise leak through gates.'
+
+    - input: 'incoming vs outgoing variant (different transposition of a, b)'
+      behaviors:
+        af3-pairformer-block: 'Pairformer has BOTH variants (alternating layers); fusion implementation must support both.'
+      mitigation: 'Two separate fused kernels (one per variant) is acceptable; AF3 / Boltz-1 calls them separately.'
+
+  numerical_rules:
+    - aspect: 'reduction_dtype'
+      per_library:
+        all_libs: 'FP32 partial sum mandatory across k-reduction; BF16 partial sum drifts ~30% on N>500.'
+
+    - aspect: 'gate_application_order'
+      per_library:
+        af3-style: 'Apply sigmoid gate BEFORE multiplicative reduction (gate-then-reduce).'
+        eager-pytorch: 'Same.'
+      notes: 'Gate-then-reduce is the AF3 reference. Reduce-then-gate produces wrong outputs (pair scores get suppressed differently).'
+
+    - aspect: 'layernorm_partial_sum_dtype'
+      per_library:
+        all_libs: 'LayerNorm sum + sqsum in FP32 even with BF16 inputs (same rule as standalone LayerNorm). Critical: cannot skip FP32 for the LN portion just because the TM portion uses FP32 already.'

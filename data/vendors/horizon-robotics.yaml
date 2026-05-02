@@ -1,0 +1,7 @@
+id: horizon-robotics
+name: Horizon Robotics (地平线)
+country: CN
+type: hardware
+website: https://en.horizon.cc/
+chinese_names: ['地平线', '地平线机器人', '征程']
+aliases: ['Horizon', 'Journey', '地平线征程']

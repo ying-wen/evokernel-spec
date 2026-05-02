@@ -1,0 +1,113 @@
+id: bm1684x
+name: Sophgo BM1684X (算能 BM1684X 边缘 AI 芯片)
+vendor: sophgo
+generation: bm-tpu-v3
+status: in-production
+release_year: 2023
+form_factor: edge-m2
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 16, evidence_ref: ev-bm1684x-001 }
+  fp16_tflops: { value: 16, evidence_ref: ev-bm1684x-001 }
+  int8_tops: { value: 32, evidence_ref: ev-bm1684x-001 }
+architecture:
+  compute_unit_count: { value: 64, evidence_ref: ev-bm1684x-arch-001 }
+  compute_unit_label: NPU-Core
+  process_node_nm: { value: 12, evidence_ref: ev-bm1684x-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-bm1684x-001 }
+  pcie_lanes: { value: 4, evidence_ref: ev-bm1684x-001 }
+  memory_hierarchy:
+    - name: 'NPU per-core local SRAM'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-bm1684x-arch-001 }
+      notes: '64 NPU cores × 256 KB ≈ 16 MB total local memory. Shared between TPU + scalar units.'
+    - name: 'L2 / shared SRAM'
+      scope: global
+      size_mb: { value: 32, evidence_ref: ev-bm1684x-arch-001 }
+      notes: '32 MB global on-chip SRAM. Critical for low-latency inference (model weights + activations co-resident).'
+    - name: 'LPDDR4X'
+      scope: global
+      size_mb: { value: 16384, evidence_ref: ev-bm1684x-001 }
+      bandwidth_tbs: { value: 0.0512, evidence_ref: ev-bm1684x-001 }
+      notes: '16 GB LPDDR4X 64-bit bus = 51 GB/s. Supports up to 32 GB SKU. Bandwidth ceiling for edge LLM inference.'
+memory:
+  capacity_gb: { value: 16, evidence_ref: ev-bm1684x-001 }
+  bandwidth_gbps: { value: 51, evidence_ref: ev-bm1684x-001 }
+  type: LPDDR5
+scale_up:
+  protocol: PCIe-Gen4
+  bandwidth_gbps: 16
+  world_size: 8
+  topology: pcie-fabric
+  notes: 'BM1684X-8 server card combines 8 chips on PCIe carrier; total 256 INT8 TOPS / 128 BF16 TFLOPS in single PCIe slot.'
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+power:
+  tdp_w: { value: 30, evidence_ref: ev-bm1684x-001 }
+  sustained_w: { value: 25, evidence_ref: ev-bm1684x-001 }
+  peak_w: { value: 35, evidence_ref: ev-bm1684x-001 }
+  cooling: passive-conduction
+  operating_temp_c: { min: -40, max: 85 }
+  fp16_tflops_per_watt: { value: 0.64, evidence_ref: ev-bm1684x-001 }
+  power_connector: integrated
+  notes: 'Industrial-grade temperature range. M.2 / Mini-PCIe form factor for embedded systems. Passive cooling typical (fanless).'
+software_support:
+  drivers: ['SOPHON SDK', 'TPU-MLIR']
+  engines:
+    - { id: lmdeploy, status: community-port, notes: 'sophgo-llm community fork' }
+  quantizations: [bf16, fp16, int8, int4-awq]
+  parallelism: [tp]
+aliases: ['BM1684X', 'Sophgo BM1684X', '算能 BM1684X']
+chinese_names: ['算能 BM1684X', 'Sophon BM1684X', '比特大陆边缘 AI 芯片']
+evidence:
+  - id: ev-bm1684x-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.sophgo.com/sophon-u/product/introduce/bm1684x.html
+    accessed: '2026-05-03'
+    citation: 'Sophgo BM1684X product page: 16 BF16 TFLOPS / 32 INT8 TOPS in 30W TDP; 16 GB LPDDR5 (option for 32 GB); 32 MB on-chip SRAM; PCIe Gen4 x4; M.2 + Mini-PCIe + EVB carrier form factors; ¥1500-3000 RMB chip cost.'
+  - id: ev-bm1684x-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://github.com/sophgo/tpu-mlir
+    accessed: '2026-05-03'
+    citation: 'TPU-MLIR documentation: BM1684X architecture details — 64 NPU cores (BM-TPU v3), 12nm TSMC; INT8 path 2× FP16 throughput.'
+disclaimers:
+  - 'BM1684X is edge AI tier — 16 BF16 TFLOPS is well below datacenter GPUs but competitive in 30W envelope.'
+  - 'SOPHON SDK + TPU-MLIR are the canonical software stacks; lmdeploy community port has rough edges.'
+  - 'For serious LLM serving (>13B): not viable. For 7B Llama 3 INT4: real-time on single chip. Multi-chip BM1684X-8 card scales to 70B INT4 with offloading.'
+  - 'Industrial / IoT / smart camera / robotics use case primary. Not a desktop dev kit (vs Jetson Thor / RK3588).'
+notes: |
+  BM1684X 是 国产 edge AI 加速器市场的领头产品 (2023-2025), 在国内 IoT / 安防 / 工业
+  视觉场景大量部署. 与 Jetson Orin / RK3588 同代竞品:
+
+  | 维度 | BM1684X | Jetson Orin Nano | RK3588 NPU |
+  |---|---|---|---|
+  | INT8 TOPS | 32 | 40 (8GB) | 6 |
+  | BF16 TFLOPS | 16 | 20 | 3 |
+  | TDP | 30W | 8-15W | 5-12W |
+  | 内存 | 16 GB LPDDR5 (32 GB option) | 8 GB LPDDR5 | 32 GB LPDDR5 |
+  | 带宽 | 51 GB/s | 102 GB/s | 51 GB/s |
+  | 价格 | ¥1500-3000 | $249-499 | $80-150 (dev board) |
+  | 软件栈 | SOPHON SDK | NVIDIA JetPack | RKNN-Toolkit2 |
+  | 国产 | ✅ | ❌ | ✅ |
+
+  **Sophgo 的主要优势**: 国产化供应链 (政府 / SOE 项目要求), 工业温度范围 (-40 to 85°C),
+  passive cooling 适合 fanless 嵌入式系统. 大模型部署上劣势明显 vs Jetson (后者 GPU 更
+  通用 + CUDA 生态).
+
+  **典型部署**: 安防 camera (实时人脸 / 物体识别), 工业视觉 (缺陷检测), 边缘 NLP
+  (智能客服 7B INT4), AGV 机器人 SLAM. 大模型 LLM 部署仅适合 7B-13B INT4, 长 context
+  受 51 GB/s 内存带宽限制 (decode 慢).
+
+  软件栈成熟度 (vs Jetson 完整的 CUDA 生态):
+  - SOPHON SDK: 官方; 模型 quantize + compile + 部署完整 pipeline
+  - TPU-MLIR: 开源 ONNX → BM1684X 编译器 (类似 TensorRT)
+  - lmdeploy-sophgo: 社区 fork, 实验性 LLM 部署 (vLLM / SGLang 不支持)
+  - 没有 ComfyUI / Diffusers 路径 (image gen + video gen 完全不可行)
+
+  v3.12 加入 BM1684X 的核心动机: 用户多次明确要求 "端侧推理芯片". BM1684X
+  代表了真实国产 edge AI 部署场景 (vs 之前 corpus 偏 server/datacenter).

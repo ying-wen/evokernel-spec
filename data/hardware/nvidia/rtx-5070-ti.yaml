@@ -1,0 +1,118 @@
+id: rtx-5070-ti
+name: NVIDIA GeForce RTX 5070 Ti
+vendor: nvidia
+generation: blackwell
+status: in-production
+release_year: 2025
+form_factor: pcie
+compute:
+  fp4_tflops: { value: 1406, evidence_ref: ev-rtx5070ti-001 }
+  fp8_tflops: { value: 703, evidence_ref: ev-rtx5070ti-001 }
+  bf16_tflops: { value: 88, evidence_ref: ev-rtx5070ti-001 }
+  fp16_tflops: { value: 88, evidence_ref: ev-rtx5070ti-001 }
+  int8_tops: { value: 703, evidence_ref: ev-rtx5070ti-001 }
+architecture:
+  compute_unit_count: { value: 70, evidence_ref: ev-rtx5070ti-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-rtx5070ti-arch-001 }
+  l2_cache_mb: { value: 56, evidence_ref: ev-rtx5070ti-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-rtx5070ti-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-rtx5070ti-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-rtx5070ti-001 }
+  base_clock_mhz: { value: 2295, evidence_ref: ev-rtx5070ti-arch-001 }
+  boost_clock_mhz: { value: 2452, evidence_ref: ev-rtx5070ti-arch-001 }
+  memory_hierarchy:
+    - name: 'Register File'
+      scope: per-cu
+      size_kb: { value: 256, evidence_ref: ev-rtx5070ti-arch-001 }
+    - name: 'L1 / Shared Memory'
+      scope: per-cu
+      size_kb: { value: 128, evidence_ref: ev-rtx5070ti-arch-001 }
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 56, evidence_ref: ev-rtx5070ti-arch-001 }
+      notes: 'GB203 die L2 (smaller than RTX 5080 64 MB; same die, fewer L2 partitions enabled).'
+    - name: 'GDDR7'
+      scope: global
+      size_mb: { value: 16384, evidence_ref: ev-rtx5070ti-001 }
+      bandwidth_tbs: { value: 0.896, evidence_ref: ev-rtx5070ti-001 }
+      notes: '16 GB GDDR7 28 Gbps × 256-bit bus = 896 GB/s. Same VRAM tier as RTX 5080 but ~7% lower bandwidth.'
+  tensor_core_specs:
+    - precision: fp4
+      ops_per_cycle: { value: 4096, evidence_ref: ev-rtx5070ti-arch-001 }
+      sparsity_multiplier: 1
+    - precision: fp8
+      ops_per_cycle: { value: 2048, evidence_ref: ev-rtx5070ti-arch-001 }
+      sparsity_multiplier: 1
+memory:
+  capacity_gb: { value: 16, evidence_ref: ev-rtx5070ti-001 }
+  bandwidth_gbps: { value: 896, evidence_ref: ev-rtx5070ti-001 }
+  type: GDDR7
+scale_up:
+  protocol: PCIe-Gen5
+  bandwidth_gbps: 128
+  world_size: 4
+  topology: pcie-fabric
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: pcie-only
+  nic: none
+power:
+  tdp_w: { value: 300, evidence_ref: ev-rtx5070ti-001 }
+  sustained_w: { value: 280, evidence_ref: ev-rtx5070ti-001 }
+  peak_w: { value: 340, evidence_ref: ev-rtx5070ti-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  throttle_temp_c: 87
+  fp16_tflops_per_watt: { value: 0.29, evidence_ref: ev-rtx5070ti-001 }
+  power_connector: 12V-2x6
+software_support:
+  drivers: ['CUDA-12.7', 'CUDA-13']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.7'] }
+    - { id: sglang, status: officially-supported, versions: ['0.5'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.18'] }
+    - { id: lmdeploy, status: officially-supported, versions: ['0.7'] }
+  quantizations: [bf16, fp16, fp8-e4m3, fp8-e5m2, nvfp4, int8, int4-awq, int4-gptq, w4a16]
+  parallelism: [tp, pp]
+aliases: ['RTX 5070 Ti', 'GeForce RTX 5070 Ti']
+chinese_names: ['GeForce RTX 5070 Ti', 'RTX5070Ti 消费级中端']
+evidence:
+  - id: ev-rtx5070ti-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5070-family/
+    accessed: '2026-05-03'
+    citation: 'NVIDIA RTX 5070 Ti product page (Blackwell consumer mid-tier — 16 GB GDDR7, 896 GB/s, 300W TGP, $749 MSRP).'
+  - id: ev-rtx5070ti-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
+    accessed: '2026-05-03'
+    citation: 'NVIDIA RTX Blackwell Whitepaper (GB203 die: 70 SMs in RTX 5070 Ti vs 84 SMs in RTX 5080; 56 MB L2 vs 64 MB; same die binning).'
+disclaimers:
+  - 'RTX 5070 Ti slots between RTX 5070 ($549) and RTX 5080 ($999) — at $749, it"s the price/perf sweet spot for indie 13B-32B FP4/FP8 LLM serving.'
+  - '16 GB VRAM is identical to RTX 5080 / 5070 — VRAM tier doesn"t differentiate; perf does.'
+notes: |
+  RTX 5070 Ti completes the Blackwell consumer lineup in the corpus
+  (RTX 5090, 5080, 5070 Ti, 5070 — 4 of the 5 SKUs; only RTX 5060 / 5060 Ti remain
+  for v3.13+ if needed).
+
+  Pricing comparison vs RTX 5070 / 5080:
+
+  | SKU | Price | SMs | L2 | GDDR7 BW | TGP | $/FP8-TFLOP |
+  |---|---|---|---|---|---|---|
+  | RTX 5070 | $549 | 48 | 48 MB | 672 GB/s | 250W | $1.11 |
+  | **RTX 5070 Ti** | **$749** | **70** | **56 MB** | **896 GB/s** | **300W** | **$1.07** |
+  | RTX 5080 | $999 | 84 | 64 MB | 960 GB/s | 360W | $1.11 |
+  | RTX 5090 | $1999 | 170 | 96 MB | 1792 GB/s | 575W | $1.19 |
+
+  **RTX 5070 Ti is the $/perf winner** in the lineup — slightly better $/FP8-TFLOP than
+  both RTX 5070 and RTX 5080. For indie LLM serving where 16 GB VRAM fits the model
+  and the goal is throughput-per-dollar, this is the SKU to recommend.
+
+  **When to pick RTX 5070 Ti vs alternatives**:
+  - vs RTX 5080: save $250 for 17% lower throughput. Sweet spot for 13B FP8.
+  - vs RTX 5070: spend $200 more for 46% more compute. Worth it for 32B INT4.
+  - vs RX 9070 XT ($599): NVIDIA wins on FP4 (no AMD FP4) + mature CUDA stack.
+  - vs Arc B580 ($249): 3× the price, ~3× the throughput; same VRAM tier (16 vs 12 GB).

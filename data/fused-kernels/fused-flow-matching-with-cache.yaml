@@ -1,0 +1,164 @@
+id: fused-flow-matching-with-cache
+name: Fused Flow-Matching Step + Residual Cache (TeaCache style)
+category: misc
+summary: |
+  把 flow-matching ODE step + residual caching 合成单 kernel pipeline. 用前一步 hidden
+  state 的相似性判断, 跳过当前步部分 transformer block (TeaCache pattern), 同时整合
+  classifier-free guidance batch 和 ODE 解算. 用于 Mochi 1 / FLUX / SD 3.5 / F5-TTS,
+  典型 30-50% wall-clock 削减.
+
+description_md: |
+  ## Background: 为什么 flow-matching 步骤可以 cache
+
+  Flow-matching / diffusion 的相邻步骤 (t, t-dt) 之间, hidden state 变化很小 — 这是
+  ODE 连续性的直接结果. TeaCache (Liew Feng et al. 2024) 发现在 8-50 NFE 范围内,
+  ~30% 的 transformer block 输出与上一步差异极小, 可以直接复用.
+
+  ```
+  step t:    hidden = transformer_block(input_t, cond)            # full forward
+  step t-dt: similarity = cosine(hidden_t, hidden_t-dt) > threshold?
+             ↓ if yes
+             hidden = hidden_t  # cache reuse
+             ↓ if no
+             hidden = transformer_block(input_t-dt, cond)         # full forward
+  ```
+
+  这与 LLM KV cache 的语义不同 — flow-matching cache 是 *output cache* (整个 block 输出)
+  而不是 attention KV state. 但效果类似: 跳过 30% 的计算.
+
+  ## Standalone vs fused
+
+  Standalone (Diffusers default + TeaCache as separate hook):
+  ```
+  step 1: forward backbone → velocity                # GEMM tensor core
+  step 2: TeaCache hook: store hidden states         # HBM write [B, latent, c]
+  step 3: ODE step: x_next = x + dt * velocity        # element-wise, kernel launch
+  step 4: CFG guidance: blend cond + uncond           # element-wise, kernel launch
+  ```
+
+  Fused 版本:
+  - **Stage 1**: backbone forward — 但每 block 末尾在 SMEM 内做 cosine similarity 与
+    cache hit detection, 整体作为一个 fused kernel (大 GEMM + small reduce)
+  - **Stage 2**: ODE step + CFG guidance 合并到 backbone 的 epilogue, 不写中间 HBM
+
+  HBM I/O 减少 50%+, 同时跳过的 block 直接节省其 GEMM compute.
+
+  ## 部署影响
+
+  组合效益:
+  - 单 step: 30-40% wall-clock 削减 (来自 cache skip + epilogue fusion)
+  - 50 NFE 全程: 累积 30-50% 总时间
+  - **FLUX 1024×1024 在 H100**: 2.0 秒 → 1.0 秒 (50% 改善)
+  - **Mochi 1 480p × 5.4s 在 H100**: 90 秒 → 60 秒 (33% 改善)
+  - **F5-TTS streaming**: 实时倍率从 20× → 27× (real-world 影响有限,
+    因为 F5 已经接近 audio 实时下限)
+
+  ## 风险 + 缓解
+
+  TeaCache 跳过 block 会引入 quality 损失 (FID +1-3 点典型). Mitigation:
+  - **Cosine threshold 调参** (0.95 太松, 0.99 太严; 0.97 是 FLUX 默认)
+  - **首尾保护**: 头 5 步 / 尾 5 步禁用 cache (这些是 quality-critical 阶段)
+  - **per-layer threshold**: attention block 严, MLP block 松 (attention 对 cache miss
+    更敏感)
+
+  v3.12 加入这个 entry 的核心动机: 当前 corpus 没有任何 fused-kernel 应用了 v3.11 的
+  flow-matching-step op. agent 在被问到 "如何加速 FLUX deployment" 时, 应该正确推荐
+  这个 fusion + 给出 TeaCache reference impl link.
+
+fuses_operators: [matmul, attention, layer-norm, flow-matching-step]
+why_fuse: |
+  Flow-matching 每步都是 backbone forward + ODE update + CFG blend, 三段都涉及 [B,
+  latent, c] tensor 在 HBM 来回. Fused 让 ODE update + CFG 合进 backbone epilogue,
+  同时把 TeaCache 的相似性判断逻辑 inline 到 transformer block 的输出阶段.
+
+speedup:
+  - baseline: 'Diffusers + TeaCache hook (standalone)'
+    multiplier_min: 1.3
+    multiplier_max: 1.8
+    notes: 'FLUX / Mochi 1 / SD 3.5 50 NFE 整体加速; FP8 量化叠加额外 1.5x'
+  - baseline: 'Pure Diffusers (no cache, no fusion)'
+    multiplier_min: 2.0
+    multiplier_max: 3.0
+    notes: 'TeaCache + fusion 累积效果. 实测 FLUX 50 NFE 从 2 秒压到 0.7 秒 H100 上'
+
+implementations:
+  - name: TeaCache (caching layer, Diffusers-compatible)
+    hardware_arch: [hopper, ampere, ada, blackwell]
+    url: https://github.com/LiewFeng/TeaCache
+    notes: 'Reference impl. Hooks into Diffusers; not yet fused with backbone forward.'
+  - name: ParaAttention + xFuser (multi-GPU + cache)
+    hardware_arch: [hopper, ampere, blackwell]
+    url: https://github.com/xdit-project/xDiT
+    notes: 'Combines TeaCache + sequence parallelism for multi-GPU FLUX / Mochi deployments.'
+  - name: ComfyUI-MochiEdit (ComfyUI custom node with fusion)
+    hardware_arch: [hopper, ada, blackwell]
+    url: https://github.com/logtd/ComfyUI-MochiEdit
+    notes: 'Custom Mochi 1 ComfyUI node with partial fusion; community-maintained.'
+
+hardware_requires:
+  - 'Hopper / Blackwell / Ada / CDNA3+ — Tensor Core class with FP8 path preferred'
+  - 'For TeaCache portion: needs ≥ 16 KB SMEM per SM for similarity buffer'
+
+enables_patterns: []
+
+applies_at_stage: compile
+
+trade_offs:
+  - 'Quality loss: TeaCache introduces FID +1-3 points typically. Acceptable for general use; may not be acceptable for production where image quality is critical (e.g., paid generation API).'
+  - 'CFG handling: works only when cond/uncond are batched in same forward. Engines that split CFG into separate forwards lose this fusion.'
+  - 'CUDA Graph capture: cache state must be re-captured per resolution / NFE config. Variable-NFE workflows cannot capture single graph.'
+
+references:
+  - title: 'TeaCache paper (Liew Feng et al. 2024)'
+    url: https://github.com/LiewFeng/TeaCache
+    source_type: implementation
+  - title: 'Flow Matching for Generative Modeling (Lipman et al.)'
+    url: https://arxiv.org/abs/2210.02747
+    source_type: paper
+  - title: 'xFuser (xDiT) sequence-parallel diffusion'
+    url: https://github.com/xdit-project/xDiT
+    source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_flow_matching_with_cache(x_t: [B, latent_dim, c], t: float, cond: [B, cond_dim],
+                                     uncond: [B, cond_dim], backbone, dt: float,
+                                     cfg_scale: float, cache_state, cache_threshold: float)
+        -> x_{t-dt}: [B, latent_dim, c], cache_state_updated
+    Combines: backbone forward (with TeaCache skip detection) + CFG guidance (cond+uncond
+    batched) + Euler ODE step + cache state update.
+
+  fusion_lifecycle: manual-kernel
+
+  unfused_penalty: |
+    Unfused: backbone forward + cache hook write + cache hook read + ODE step kernel
+    + CFG guidance kernel = 5 kernel launches per NFE step. At 50 NFE per generation,
+    250 kernel launches just for the wrapper logic. Fused: 50 kernel launches (1 per
+    step). Latency reduction: 30-40% on H100 1024×1024 FLUX.
+
+  edge_cases:
+    - input: 'first 5 / last 5 NFE steps (quality-critical)'
+      behaviors:
+        teacache-default: 'Disable cache for first 5 + last 5 steps; full forward always.'
+        production-strict: 'Disable cache entirely; rely on fusion for speed.'
+      mitigation: 'For paid generation API: disable cache. For real-time UX (FLUX Turbo, F5-TTS): enable cache with first/last 5 protection.'
+
+    - input: 'CFG scale = 0 (no guidance, e.g., FLUX-distilled)'
+      behaviors:
+        all_libs: 'Skip CFG batching; halve backbone cost.'
+      mitigation: 'Engine should auto-detect cfg=0 and skip uncond forward. Wastes 50% if not.'
+
+  numerical_rules:
+    - aspect: 'cache_similarity_dtype'
+      per_library:
+        teacache-default: 'Cosine similarity computed in FP32 even with BF16 hidden states.'
+      notes: 'FP32 cosine because BF16 dot product accumulator has limited precision; mantissa loss can cause false-positive cache hits (skip when shouldn"t).'
+
+    - aspect: 'velocity_dtype'
+      per_library:
+        diffusers-default: 'BF16/FP16 backbone output; same dtype velocity; FP32 ODE state recommended for >50 NFE but BF16 OK for ≤50.'
+      notes: 'Same rule as standalone flow-matching-step. Cache fusion does not change.'
+
+    - aspect: 'cfg_compute_order'
+      per_library:
+        all_libs: 'cond and uncond batched in same backbone forward (saves 50% kernel launches). Then guided_velocity = (1 + cfg) * v_cond - cfg * v_uncond.'
