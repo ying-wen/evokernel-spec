@@ -1,0 +1,45 @@
+id: biren-vance-mma
+vendor: biren
+arch_family: biren-vance
+class: tensor-mma
+name: BR-MMA (Birentech Vance MMA)
+
+description: |
+  Birentech BR100 / BR104 tensor unit. Vance is the chiplet architecture name.
+  CUDA-similar programming model (BR-CTL is the SDK; concepts map closely).
+  Block size 16x16, fp16/bf16/fp8. Used by vllm-br fork.
+
+shapes_supported:
+  - { M: 16, N: 16, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 32, dtype_a: fp8-e4m3, dtype_b: fp8-e4m3, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 32, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+
+memory_model:
+  operand_a_source: shared-memory
+  operand_b_source: shared-memory
+  result_destination: registers
+  async: false
+  notes: 'BR Vance has shared memory abstraction similar to CUDA. Async copy planned for next-gen Vance-Plus silicon.'
+
+calling_convention:
+  asm_intrinsic: 'br_wmma.mma'
+  cpp_intrinsic_header: '<br_wmma.h>'
+  recommended_compiler: 'brcc (BR-CTL compiler)'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: ampere
+    primitive_id: nvidia-ampere-mma-sync
+    mapping_ratio: '1:1 (both 16x16, sync, similar memory model)'
+    notes: 'BR-MMA designed for CUDA-portability. CUDA mma.sync code typically ports with mechanical translation.'
+  - vendor: amd
+    arch_family: cdna3
+    primitive_id: amd-cdna3-mfma-32x32x16
+    mapping_ratio: '4× BR-MMA 16x16x16 ≈ 1 MFMA 32x32x16'
+    notes: 'CDNA aggregates into bigger tiles per wave; BR uses smaller tiles per warp.'
+
+used_by_kernels: []
+
+docs_url: https://www.birentech.com/Developer
+notes: 'Documentation Chinese-primarily. BR104 is the flagship (Vance gen2). Inference-focused — less training-oriented than NVIDIA CDNA equivalents.'

@@ -83,3 +83,57 @@ references:
   - title: 'Mamba reference implementation'
     url: https://github.com/state-spaces/mamba
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    selective_scan(x: [B,S,D], delta_t: [B,S,D], A: [D,N], B: [B,S,N], C: [B,S,N],
+                   state_in: [B,D,N]) -> (output: [B,S,D], state_out: [B,D,N])
+    Recurrent state update: h[t] = exp(delta_t * A) * h[t-1] + delta_t * B[t] * x[t]
+                            y[t] = C[t] * h[t]
+    SSM-Mamba selective recurrence — O(S) compute (vs O(S²) attention).
+
+  edge_cases:
+    - input: 'long sequence (S > 32K)'
+      behaviors:
+        flash-selective-scan: 'OK — chunk-recurrence keeps memory O(D*N)'
+        triton-mamba: 'OK; state cache stays bounded'
+        mindie-ssm: 'Limited support; falls back to chunked CPU recurrence on 910C; native on 910D'
+      mitigation: 'Verify state cache fits HBM at long context. Different from attention KV cache — much smaller (O(D*N) vs O(S*H*D_h)).'
+
+    - input: 'state cache reset (new conversation in serving)'
+      behaviors:
+        all_libs: 'Caller must clear state buffer; engine does not auto-reset'
+      mitigation: 'In serving (vLLM Mamba support), engine maps {request_id → state_buffer}. Reset on session end.'
+
+  numerical_rules:
+    - aspect: 'recurrence_dtype'
+      per_library:
+        flash-selective-scan: 'FP32 internal accumulator (state h is FP32)'
+        triton-mamba: 'Configurable; default FP32'
+        mindie-ssm: 'FP32 state'
+      notes: 'FP16 state accumulator drifts over long sequences. Critical: state always FP32.'
+
+    - aspect: 'delta_t_softplus'
+      per_library:
+        all_libs: 'delta_t passes through softplus before scan (positivity constraint)'
+      notes: 'Some impls fuse softplus into scan kernel; some keep separate. Functionally equivalent.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def selective_scan(x, delta_t, A, B, C, state_in=None):
+          # x: [B,S,D], delta_t: [B,S,D], A: [D,N], B/C: [B,S,N]
+          B_size, S, D = x.shape
+          N = A.shape[1]
+          h = state_in if state_in is not None else torch.zeros(B_size, D, N)
+          y_out = []
+          for t in range(S):
+              # Selective gate
+              dt = F.softplus(delta_t[:, t])  # [B, D]
+              # State recurrence: h = exp(dt*A) * h + dt * B[t] * x[t]
+              decay = torch.exp(dt.unsqueeze(-1) * A.unsqueeze(0))  # [B, D, N]
+              h = decay * h + dt.unsqueeze(-1) * B[:, t].unsqueeze(1) * x[:, t].unsqueeze(-1)
+              # Output: y = C * h
+              y = (C[:, t].unsqueeze(1) * h).sum(dim=-1)  # [B, D]
+              y_out.append(y)
+          return torch.stack(y_out, dim=1), h

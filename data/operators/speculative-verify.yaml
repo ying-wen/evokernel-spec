@@ -106,3 +106,78 @@ references:
   - title: 'EAGLE-2: Faster Inference via Dynamic Draft Tree'
     url: https://arxiv.org/abs/2406.16858
     source_type: paper
+
+formal_semantics:
+  signature: |
+    speculative_verify(target_logits: [B, K+1, V], draft_tokens: [B, K],
+                       draft_logits: [B, K, V], temperature: float = 1.0)
+    -> (accepted_tokens: [B, K_accepted], bonus_token: [B, 1] | None)
+    Speculative decoding rejection sampling: target model verifies K draft
+    tokens; accept up to first rejection; emit bonus token from target.
+
+  edge_cases:
+    - input: 'all draft tokens accepted (perfect prediction)'
+      behaviors:
+        vllm-spec-verify: 'Returns K accepted tokens + 1 bonus from target sample'
+        trtllm-eagle: 'Same'
+        sglang-eagle: 'Same'
+      mitigation: 'Track acceptance rate metric — high rate (>70%) = good draft model match. Low rate = wasted compute.'
+
+    - input: 'first draft token rejected (worst case)'
+      behaviors:
+        vllm-spec-verify: 'Returns 0 accepted + 1 bonus token (sampled from target with rejection-sampled distribution)'
+        all_libs: 'Same'
+      mitigation: 'Rejection at position 0 = no speedup that step. Acceptance rate < 30% means draft model is bad — reconsider.'
+
+    - input: 'temperature mismatch between draft and target'
+      behaviors:
+        vllm-spec-verify: 'Allowed; rejection probability scales accordingly'
+        eagle-paper: 'Empirically: small temperature mismatch tolerated (±0.1); large diverges'
+      mitigation: 'Match draft and target temperature within 0.1 for reliable acceptance rates.'
+
+    - input: 'top_p / top_k filtering applied'
+      behaviors:
+        vllm-spec-verify-topp: 'Renormalize after filtering, then rejection-sample'
+        eagle-impl: 'Same'
+      notes: 'Filtering changes the distribution being rejection-sampled against. Both target and draft must apply same filter for math to work.'
+
+  numerical_rules:
+    - aspect: 'rejection_sampling_dtype'
+      per_library:
+        vllm-spec-verify: 'FP32 for the acceptance probability ratio (P_target / P_draft)'
+        trtllm-eagle: 'FP32'
+        sglang-eagle: 'FP32'
+      notes: 'FP16 for the ratio causes biased acceptance — small probability diffs amplify when divided. Always FP32.'
+
+    - aspect: 'bonus_token_distribution'
+      per_library:
+        all_libs: |
+          On rejection at position i: sample from max(0, P_target[i] - P_draft[i]) renormalized.
+          On full acceptance: sample directly from P_target[K+1].
+      notes: 'Critical: bonus token is NOT just argmax of target. The renormalization preserves true target distribution.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def speculative_verify(target_logits, draft_tokens, draft_logits, temperature=1.0):
+          # target_logits: [B, K+1, V] (K positions + 1 bonus position)
+          # draft_tokens: [B, K]
+          # draft_logits: [B, K, V]
+          B, K = draft_tokens.shape
+          P_target = F.softmax(target_logits / temperature, dim=-1)  # FP32 internally
+          P_draft = F.softmax(draft_logits / temperature, dim=-1)
+
+          accepted = []
+          for k in range(K):
+              tok = draft_tokens[:, k]
+              p_t = P_target[:, k].gather(1, tok.unsqueeze(1)).squeeze(1)
+              p_d = P_draft[:, k].gather(1, tok.unsqueeze(1)).squeeze(1)
+              # Acceptance probability = min(1, P_target / P_draft)
+              accept_prob = (p_t / (p_d + 1e-10)).clamp(max=1.0)
+              accept = (torch.rand_like(accept_prob) < accept_prob)
+              if not accept.all(): break
+              accepted.append(tok)
+
+          # Sample bonus from residual distribution (or target if all accepted)
+          # ... (rejection-resampled bonus token logic)
+          return torch.stack(accepted, dim=1) if accepted else torch.empty(B, 0, dtype=torch.long)

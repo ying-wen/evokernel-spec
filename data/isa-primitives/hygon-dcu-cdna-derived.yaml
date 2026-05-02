@@ -1,0 +1,52 @@
+id: hygon-dcu-cdna-derived
+vendor: hygon
+arch_family: hygon-dcu
+class: tensor-mma
+name: 'Hygon DCU MFMA (CDNA-derived)'
+
+description: |
+  Hygon DCU K100 / Z100 tensor MMA. DCU (Deep Computing Unit) is a license-derived
+  architecture from AMD CDNA-1/2. Same MFMA instruction family with vendor-specific
+  driver extensions. Z100 (newer gen) adds CDNA3-style features.
+
+  HIP-compatible programming model — most ROCm code ports to DCU with minor changes.
+  Used by vllm-rocm-dcu fork + lmdeploy DCU port.
+
+shapes_supported:
+  - { M: 32, N: 32, K: 8, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32, notes: 'DCU K100 — derives from CDNA1' }
+  - { M: 32, N: 32, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32, notes: 'DCU Z100 — closer to CDNA3' }
+  - { M: 16, N: 16, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 32, N: 32, K: 32, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+
+memory_model:
+  operand_a_source: registers
+  operand_b_source: registers
+  result_destination: registers
+  async: false
+  notes: 'Wave-level (64 threads) MFMA, CDNA-style. LDS (shared memory equivalent) for tile load.'
+
+calling_convention:
+  asm_intrinsic: 'v_mfma_f32_32x32x8_fp16 (DCU K100); v_mfma_f32_32x32x16_fp16 (DCU Z100)'
+  cpp_intrinsic_header: '<rocwmma_dcu.hpp>'
+  recommended_compiler: 'hipcc-dcu (Hygon-modified hipcc)'
+
+cross_vendor_equivalents:
+  - vendor: amd
+    arch_family: cdna3
+    primitive_id: amd-cdna3-mfma-32x32x16
+    mapping_ratio: '1:1 for K=16 path on DCU Z100'
+    notes: 'DCU Z100 is essentially CDNA3 silicon with Hygon-specific driver. K100 is older (CDNA1-derived).'
+  - vendor: amd
+    arch_family: cdna4
+    primitive_id: amd-cdna4-mfma-16x16x32-fp4
+    notes: 'No DCU equivalent for FP4 yet; expected in future Hygon gen.'
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    mapping_ratio: '2-4× DCU MFMA ≈ 1 WGMMA m64n64k16'
+    notes: 'No async equivalent on DCU. Pipeline overlap via occupancy.'
+
+used_by_kernels: []
+
+docs_url: https://developer.hygon.cn/dcu
+notes: 'License-derived from AMD CDNA. Best-targeted via vllm-rocm fork (DCU patches upstreamed) or hipBLAS-DCU. CUDA code → HIP → DCU is the typical port path.'

@@ -1,0 +1,50 @@
+id: moore-threads-musa-mma
+vendor: moore-threads
+arch_family: moore-threads
+class: tensor-mma
+name: MUSA MMA (MTT MUSA Matrix Multiply)
+
+description: |
+  Moore Threads MTT-series tensor MMA on MUSA (Moore Unified System Architecture).
+  CUDA-derivative — many concepts (warp / shared memory / streams) translate
+  directly. Block size and async semantics differ from CUDA WMMA.
+
+  MTT S4000 / S80 series. Used by lmdeploy-musa fork + vllm-musa fork.
+
+shapes_supported:
+  - { M: 16, N: 16, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 32, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+
+memory_model:
+  operand_a_source: shared-memory
+  operand_b_source: shared-memory
+  result_destination: registers
+  async: false
+  notes: 'MUSA shared memory similar to CUDA. No TMA-equivalent on current MTT silicon.'
+
+calling_convention:
+  asm_intrinsic: 'musa_wmma.fragment'
+  cpp_intrinsic_header: '<musa_wmma.h>'
+  recommended_compiler: 'mucc (MUSA C++ compiler)'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: ampere
+    primitive_id: nvidia-ampere-mma-sync
+    mapping_ratio: '1:1 (both 16x16x16, sync, register-output)'
+    notes: 'MUSA WMMA designed for CUDA-compat porting. Most CUDA mma.sync code compiles via mucc with minor changes.'
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    mapping_ratio: '~16× MUSA MMA = 1 WGMMA m64n64k16 (per throughput)'
+    notes: 'No async equivalent; pipeline overlap requires occupancy-based hiding.'
+  - vendor: amd
+    arch_family: rdna3
+    primitive_id: amd-rdna3-wmma
+    notes: 'Both consumer/workstation-tier; similar block size + sync semantics.'
+
+used_by_kernels: []
+
+docs_url: https://www.mthreads.com/sw_docs/musa
+notes: 'Documentation primarily Chinese; less mature ecosystem than CUDA but actively developed. MTT S5000 (next-gen) expected to add async-copy similar to TMA.'

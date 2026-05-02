@@ -1,0 +1,65 @@
+id: apple-m4-amx2
+vendor: apple
+arch_family: apple-m4
+class: tensor-mma
+name: 'AMX2 (Apple M4 expanded matrix engine)'
+
+description: |
+  Apple M4 series introduces expanded AMX2 — wider matrix sizes + bf16 native
+  + improved scheduler vs M1/M2/M3 AMX. Targets edge LLM inference (M4 Max
+  can run Llama 3 70B Q4 at ~10 tok/s; M4 Ultra higher).
+
+  Public API still primarily Accelerate framework / MPSGraph / MLX (Apple's
+  open-source ML framework). Direct AMX2 instruction usage in llama.cpp Metal
+  kernels.
+
+shapes_supported:
+  - { M: 32, N: 32, K: 32, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32, notes: 'M4 added native bf16; M3 only fp16' }
+  - { M: 32, N: 32, K: 32, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 32, N: 32, K: 64, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+  - { M: 16, N: 16, K: 32, dtype_a: int4, dtype_b: int4, dtype_c: int32, notes: 'INT4 path — used by llama.cpp Q4 quantization' }
+
+memory_model:
+  operand_a_source: registers
+  operand_b_source: registers
+  result_destination: registers
+  async: false
+  notes: 'AMX2 has its own register file (AMX state). Operands loaded via AMX_LDX/LDY instructions.'
+
+calling_convention:
+  asm_intrinsic: 'AMX_LDX / AMX_LDY / AMX_FMA32 / AMX_STZ (M-series specific, undocumented but stable)'
+  cpp_intrinsic_header: '<simd/simd.h> (Accelerate); <Metal/Metal.h> (MPS)'
+  template_tag: 'MPSGraph.matrixMultiplication / MLX mlx.core.matmul'
+  recommended_compiler: 'xcrun metal / clang via Xcode'
+
+cross_vendor_equivalents:
+  - vendor: apple
+    arch_family: apple-m
+    primitive_id: apple-amx
+    mapping_ratio: 'AMX2 ≈ 2× M3 AMX throughput per cycle (bf16 + wider tile)'
+    notes: 'M4 AMX2 is upward-compatible — M3-targeted code runs but doesn''t use bf16/INT4 paths.'
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    notes: 'AMX2 is coprocessor-style vs unified SM. M4 targets edge/laptop, throughput orders of magnitude lower than data-center silicon.'
+  - vendor: amd
+    arch_family: rdna3
+    primitive_id: amd-rdna3-wmma
+    notes: 'Both edge/consumer-tier. Apple has tighter integration with CPU memory (UMA) vs discrete RDNA.'
+
+used_by_kernels: []
+
+docs_url: https://developer.apple.com/documentation/accelerate/
+
+notes: |
+  Apple M4 is the inflection point — bf16 + INT4 + better scheduler enable
+  practical local LLM inference. MLX framework + llama.cpp Metal backend
+  are the primary production paths.
+
+  AMX2 instruction details remain undocumented but stable since M1. Reverse-
+  engineering by community (asahi-linux project) confirms: 32x32x32 base tile,
+  separate AMX register file, ~2 TFLOPs bf16 per P-core on M4 Max.
+
+  Limited public API — most code goes through MLX, Accelerate, or MPSGraph
+  rather than direct AMX2. Direct usage in llama.cpp (ggml-metal backend) for
+  custom matmul kernels.

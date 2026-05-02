@@ -31,11 +31,27 @@ import {
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 
 const API_BASE = process.env.EVOKERNEL_API_BASE
   || 'https://yingwen.io/evokernel-spec/api';
-const REPO_ROOT = process.env.EVOKERNEL_REPO_ROOT
-  || path.resolve(import.meta.dirname ?? '.', '../..');
+
+// Resolve repo root by walking up from script location until we find
+// scripts/agent-deploy/index.ts. Works whether running from source
+// (plugins/mcp-server/) or compiled dist (plugins/mcp-server/dist/).
+function findRepoRoot(): string {
+  if (process.env.EVOKERNEL_REPO_ROOT) return process.env.EVOKERNEL_REPO_ROOT;
+  let dir = import.meta.dirname ?? process.cwd();
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(path.join(dir, 'scripts/agent-deploy/index.ts'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Fallback: original two-level-up assumption (works when called from source)
+  return path.resolve(import.meta.dirname ?? '.', '../..');
+}
+const REPO_ROOT = findRepoRoot();
 
 async function fetchJson(endpoint: string): Promise<unknown> {
   const r = await fetch(`${API_BASE}/${endpoint}`);

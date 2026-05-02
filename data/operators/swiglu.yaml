@@ -75,3 +75,48 @@ references:
   - title: 'PaLM Technical Report (SwiGLU at scale)'
     url: https://arxiv.org/abs/2204.02311
     source_type: paper
+
+formal_semantics:
+  signature: |
+    swiglu(gate: Tensor[..., D_ff], up: Tensor[..., D_ff]) -> Tensor[..., D_ff]
+    output = silu(gate) * up
+    where silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+    Gated linear unit with SiLU (Swish) activation. Standard FFN activation
+    in Llama / DeepSeek / Qwen / Mistral families.
+
+  edge_cases:
+    - input: 'fused vs unfused matmul (gate proj + up proj + silu * up)'
+      behaviors:
+        vllm-fused-mlp: 'cuBLAS gate+up GEMM + Triton silu_mul fused → 1 epilogue kernel'
+        sglang-fused-mlp: 'Same pattern; ~5-10% TFLOPS gain vs unfused'
+        cudnn-flash-mlp: 'Single fused kernel including both GEMMs (Hopper+)'
+        aclnn-fused-mlp: 'aclnnSwiGLU op fuses silu*up only; GEMMs separate'
+      mitigation: 'For long-seq prefill, fused is necessary for performance. Decode-only impls can get away with unfused.'
+
+    - input: 'extreme negative gate (silu saturates)'
+      behaviors:
+        all_libs: 'silu(x) → 0 for very negative x, but smoothly. No NaN.'
+      notes: 'Numerically stable across all impls; not an edge case in practice.'
+
+  numerical_rules:
+    - aspect: 'sigmoid_implementation'
+      per_library:
+        cuda-fast-sigmoid: 'Uses fast approximation sigmoid via __frcp_rn(1+exp(-x)) — small accuracy diff'
+        cudnn-strict: 'Uses strict IEEE 754 sigmoid'
+        triton-default: 'Strict by default; configurable to fast'
+        aclnn: 'Strict on Ascend (no fast approximation)'
+      notes: 'Fast sigmoid differs by ~1e-5 from strict. Matters for long-seq cumulative drift; not single-token decode.'
+
+    - aspect: 'mul_then_dtype_cast'
+      per_library:
+        all_libs: 'silu(gate) computed in same dtype as input; multiply with up at same dtype'
+      notes: 'No FP32 upcast in middle (unlike RMSNorm). Fast path keeps everything FP16/BF16.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def swiglu(gate, up):
+          # silu(x) = x * sigmoid(x); avoid double sigmoid via F.silu
+          return F.silu(gate) * up
+      # Equivalent expanded:
+      # return gate * torch.sigmoid(gate) * up
