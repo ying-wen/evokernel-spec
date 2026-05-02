@@ -166,7 +166,20 @@ not all cross-refs. Run `pnpm audit:data` for the complete pass.
 `classifyOp()` and `emitCudaInnerByOpClass()`. If you change either function,
 re-run the test and update assertions if the comment text changes.
 
-### 5. Keep agent-learning entries terse
+### 5. Never `git checkout -- pnpm-lock.yaml`
+
+🚨 **Critical lesson learned in v3.2 (2026-05-03)**: when `plugins/mcp-server/package.json` or any other package.json adds dependencies, `pnpm-lock.yaml` updates with them. Reverting the lockfile (because it "looked like a transient diff") breaks CI:
+
+```
+ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because
+pnpm-lock.yaml is not up to date with <ROOT>/plugins/mcp-server/package.json
+```
+
+This regression silently broke CI + Pages auto-deploy for 8 releases (v2.24 → v3.1) — the live site was stuck while the local repo kept advancing. **Always commit lockfile changes alongside the package.json changes that triggered them.** If the diff is genuinely transient (e.g., timestamp-only churn), inspect it first; usually it's real.
+
+After every release, verify: `gh run list --workflow pages.yml --limit 1` should show `success`.
+
+### 6. Keep agent-learning entries terse
 
 The 3 seed entries in `data/agent-learnings/` are 50-100 lines each. Don't
 write essays; the structured fields (kind, op_or_kernel, evidence,
