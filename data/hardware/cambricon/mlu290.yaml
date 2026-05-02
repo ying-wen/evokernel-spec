@@ -1,0 +1,149 @@
+id: mlu290
+name: 寒武纪 MLU290 (思元 290 训练加速卡)
+vendor: cambricon
+generation: mlu290
+status: in-production
+release_year: 2021
+form_factor: oam
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 64, evidence_ref: ev-mlu290-001 }
+  fp16_tflops: { value: 64, evidence_ref: ev-mlu290-001 }
+  int8_tops: { value: 256, evidence_ref: ev-mlu290-001 }
+architecture:
+  compute_unit_count: { value: 32, evidence_ref: ev-mlu290-arch-001 }
+  compute_unit_label: IPU
+  hbm_stacks: { value: 2, evidence_ref: ev-mlu290-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-mlu290-arch-001 }
+  pcie_gen: { value: 4, evidence_ref: ev-mlu290-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-mlu290-001 }
+  memory_hierarchy:
+    - name: 'NRAM (per IPU)'
+      scope: per-cu
+      size_kb: { value: 512, evidence_ref: ev-mlu290-arch-001 }
+      notes: 'MLU290 per-IPU NRAM 是 MLU220 (256 KB) 的 2×, MLU370 同代 (256 KB ×64) 但 MLU290 单 IPU 更大 — 反映 MLUv02 早期设计选择.'
+    - name: 'WRAM (per IPU)'
+      scope: per-cu
+      size_kb: { value: 1024, evidence_ref: ev-mlu290-arch-001 }
+      notes: 'Weight RAM 1 MB per IPU, 32 IPU × 1 MB = 32 MB 总 weight cache. Cambricon-unique 3-tier 内存层级 (NRAM + WRAM + global), BANG-C kernel 与 MLU220/370/590 兼容.'
+    - name: 'L2 cache'
+      scope: global
+      size_mb: { value: 12, evidence_ref: ev-mlu290-arch-001 }
+      notes: '12 MB shared L2 — 比 MLU370 (24 MB chiplet 双 die) 小, 单 die 设计.'
+    - name: 'HBM2'
+      scope: global
+      size_mb: { value: 32768, evidence_ref: ev-mlu290-001 }
+      bandwidth_tbs: { value: 1.23, evidence_ref: ev-mlu290-001 }
+      notes: '4 stacks × 8 GB ⇒ 32 GB / 1.23 TB/s. HBM2 而非 HBM2e — MLU290 是 Cambricon 第一款 HBM2 datacenter 卡, 2021 年早于 MLU370 (HBM2e).'
+memory:
+  capacity_gb: { value: 32, evidence_ref: ev-mlu290-001 }
+  bandwidth_gbps: { value: 1230, evidence_ref: ev-mlu290-001 }
+  type: HBM2
+scale_up:
+  protocol: MLU-Link
+  bandwidth_gbps: 192
+  world_size: 8
+  topology: full-mesh
+  notes: 'MLU-Link gen1 — Cambricon 第一款支持 NVLink 等价的 datacenter 卡. 8 卡 full-mesh 互联 192 GB/s 单向. MLU370 升级到 200 GB/s, MLU590 进一步到 400+ GB/s.'
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: RoCEv2
+  nic: 100GbE-RoCE
+power:
+  tdp_w: { value: 350, evidence_ref: ev-mlu290-001 }
+  sustained_w: { value: 320, evidence_ref: ev-mlu290-001 }
+  peak_w: { value: 400, evidence_ref: ev-mlu290-001 }
+  cooling: liquid-direct
+  fp16_tflops_per_watt: { value: 0.18, evidence_ref: ev-mlu290-001 }
+  power_connector: oam-1.0
+  notes: '350W TDP OAM v1.0 form factor. 2021 国产 datacenter 加速卡里最高功耗之一 — 早期 7nm 工艺 + HBM2 + 32 IPU 配置. 推荐液冷直冷 server 部署.'
+software_support:
+  drivers: ['Neuware-1.x', 'Neuware-2.x', 'CNToolkit', 'CNNL']
+  engines:
+    - { id: lmdeploy, status: community-port, notes: 'lmdeploy-mlu fork; 早期适配 (LLM 还不是 MLU290 主战场)' }
+  quantizations: [fp16, int8, int4-awq]
+  parallelism: [tp, pp]
+aliases: ['MLU290', 'MLU290-M5', 'Cambricon MLU290']
+chinese_names: ['寒武纪思元 290', '思元 290 训练加速卡', 'MLU290 数据中心卡']
+evidence:
+  - id: ev-mlu290-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.cambricon.com/index.php?m=content&c=index&a=lists&catid=68
+    accessed: '2026-05-03'
+    citation: 'Cambricon MLU290-M5 product page: 64 BF16 TFLOPS / 256 INT8 TOPS at 350W TDP; 32 GB HBM2 @ 1.23 TB/s; OAM v1.0 form factor; MLU-Link gen1 8-card scale-up; targeted at LLM training + recommendation system inference.'
+  - id: ev-mlu290-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.cambricon.com/news.php?cid=89&id=1077
+    accessed: '2026-05-03'
+    citation: 'Cambricon MLUv02 architecture (思元 290): 32 IPUs single die @ TSMC 7nm, NRAM 512 KB + WRAM 1 MB per IPU, 12 MB L2, 4× HBM2 stacks 32 GB total. First-gen MLU-Link interconnect 192 GB/s.'
+disclaimers:
+  - 'MLU290 是 Cambricon 第一代 datacenter 训练卡 (2021); MLU370 (2022) + MLU590 (2024) 是后续代际.'
+  - 'INT8 推理是 MLU290 主战场 (推荐系统 + 视觉模型); LLM 训练支持 limited (BF16 64 TFLOPS 不足 H100 SXM 989).'
+  - 'MLU290 不再大规模出货 — 2024 起 Cambricon 主推 MLU370 + MLU590, MLU290 仅在已部署集群里继续运维.'
+  - 'OAM v1.0 form factor — 与 NVIDIA SXM4 / OAM v2.0 不兼容; 必须使用 Cambricon 官方 reference server.'
+notes: |
+  MLU290 是 v3.16 加入的 Cambricon datacenter training 第一代加速卡, 完成 corpus 中
+  Cambricon **完整 4-代际时间轴覆盖**:
+
+  | 维度 | MLU220 (2020 edge) | MLU290 (2021 datacenter) | MLU370 (2022 datacenter) | MLU590 (2024 frontier) |
+  |---|---|---|---|---|
+  | INT8 TOPS | 16 | 256 | 256 | 1024 |
+  | BF16 TFLOPS | 8 | 64 | 96 | 256 |
+  | HBM | LPDDR4X 8 GB | HBM2 32 GB / 1.23 TB/s | HBM2e 48 GB / 0.614 TB/s | HBM3 64 GB / 2.4 TB/s |
+  | TDP | 8W | 350W | 250W | 600W |
+  | Process | 16nm | 7nm | 7nm chiplet | 5nm |
+  | Form factor | M.2 | OAM v1.0 | PCIe | OAM v2.0 |
+  | Scale-up | PCIe-only | MLU-Link gen1 192 | MLU-Link gen2 200 | MLU-Link gen3 400+ |
+  | Software | Neuware 1.x → CNToolkit | Neuware 1.x/2.x | Neuware 2.x | CNToolkit + CNNL |
+  | LLM 友好度 | ⚠️ 1.5-3B INT4 | ⚠️ 推理 (≤30B) | ✅ 推理 + 小模型训练 | ✅ 训练 + 推理 (≤200B) |
+
+  **关键代际跃进**:
+  - **MLU220 → MLU290**: edge → datacenter 的跨阶 (16 vs 256 INT8 TOPS, 8W vs 350W).
+    第一次有 HBM + MLU-Link.
+  - **MLU290 → MLU370**: 单 die → chiplet 双 die (32 IPU → 64 IPU). 容量从 32 GB →
+    48 GB. TDP 反而下降 (350W → 250W) 因为 7nm chiplet 工艺更精细.
+  - **MLU370 → MLU590**: 制程跨代 (7nm → 5nm). 容量翻倍 (48 → 64 GB) + 带宽翻倍
+    (0.614 → 2.4 TB/s HBM3) + INT8 翻 4× (256 → 1024 TOPS). 第一次进入 H100 PCIe
+    同级别. MLU-Link gen3 接近 NVLink 4.0.
+
+  ## MLU290 在 corpus 中的角色 (vs 同代国产 datacenter)
+
+  | 维度 | MLU290 (2021) | 昇腾 910 (2019) | 昇腾 910A (2021) | Iluvatar BI-100 (2023) |
+  |---|---|---|---|---|
+  | BF16 TFLOPS | 64 | 256 | 320 | 95 |
+  | INT8 TOPS | 256 | 512 | 640 | 190 |
+  | HBM | 32 GB / 1.23 TB/s | 32 GB / 1.2 TB/s | 32 GB / 1.6 TB/s | 32 GB / 1.2 TB/s |
+  | 制程 | 7nm | 7nm+ | 7nm+ | 7nm |
+  | 软件栈 | Neuware (BANG-C) | CANN (Ascend-C) | CANN | CoreX (CUDA-compat) |
+  | 上市价格 | ¥80K-150K | 不公开零售 | ¥120K-180K | ¥60K-100K |
+  | 部署规模 | 字节 / 商汤 / OPPO 早期 | 中国电信 / 工行 / 国家超算 | 沈阳超算 / 大模型企业 | 国产替代客户早期 |
+
+  **MLU290 历史定位**: 2021 年 Cambricon 进入 datacenter training 的第一代产品.
+  **不是市场赢家** — 同期昇腾 910 性能更高 + 华为渠道更强, MLU290 沦为推荐系统
+  + 视觉模型推理 niche. 但是 corpus 价值在于 **MLU290 是 Cambricon 软件栈
+  (Neuware → CNToolkit) 的诞生平台** — 后续 MLU370/590 的 BANG-C kernel
+  都是从 MLU290 时代的 BANG-C v1.0 演化来的.
+
+  ## v3.16 加入意义
+
+  - **完成 Cambricon 时间轴 4 代际覆盖** (edge MLU220 + datacenter MLU290/370 +
+    frontier MLU590): 让 agent 在被问到 "Cambricon 软件栈演进" 或 "MLU 系列算
+    子兼容性" 时能跨代际给出准确历史 — BANG-C kernel 在 MLU290 上写的, 90% 不
+    改可以跑在 MLU370/590 (NRAM + WRAM 接口稳定), 只有 MLU-Link multi-card 部
+    分需要重写.
+  - **填补"国产 datacenter 早期"参考**: 客户 brownfield 仍有 MLU290 部署, agent
+    现在可以正确处理 "我们 2021 年装的 MLU290 集群, 怎么部署 Llama 3"
+    这种 legacy migration 问题.
+  - **完整的 Cambricon NRAM + WRAM 内存层级演进文档**: MLU220 (256+512 KB) →
+    MLU290 (512+1024 KB) → MLU370 (256+512 KB chiplet) → MLU590 (TBD) — 这是
+    BANG-C kernel tile 选择的核心数据.
+
+  ## v3.17+ 候选
+
+  - 寒武纪 MLU690 (gen5 frontier, post-MLU590, FP4 + 5nm)
+  - Cambricon Cloud Server v2 (8-MLU590 reference design)
+  - 海光 DCU-K100 (gen5, FP8)
+  - 摩尔线程 MTT S5000 (国产 CUDA-compat 第二家)

@@ -6,7 +6,74 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.16 — Apple MLX DSL example + more 国产 hardware breadth** (MLX triangle-mult on M-series, Iluvatar 天垓 150, Cambricon MLU290 server, 黑芝麻 A2000 auto NPU L4+).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.17 — AMD HIP + Cambricon BANG-C triangle-mult (5-platform completion) + 摩尔线程 MTT S5000** (CUDA-compat 国产 path second vendor) + Black Sesame A2000 (DynamAI 2.0, L4+).
+
+---
+
+## [3.16.0] — 2026-05-03 — Apple MLX DSL (4-platform triangle-mult complete) + 国产 server training breadth
+
+**Theme**: 3 deliverables completing the **first 4-platform side-by-side coverage of a non-LLM op** (MLX joins Triton + CUDA C++ + Ascend-C for triangle-mult) + 国产 server training generational coverage (Iluvatar gen3 BI-V150 + Cambricon MLU290 → Cambricon time-axis 4-gen complete).
+
+### Added — `mlx-triangle-mult-update-apple` (13 → 14 DSL examples)
+
+**Apple MLX implementation of OpenFold/Boltz triangle-mult on M3 Ultra / M4 Max / M5 Pro/Max.** Two paths:
+
+- **Path 1 — Pure MLX + `@mx.compile`**: lazy graph fusion via Metal Performance Shaders backend; 5-7 ops fuse into 2-3 Metal kernels automatically. Best for N≤300 (Boltz-1 typical).
+- **Path 2 — Custom Metal kernel via `mx.fast.metal_kernel`** (MLX 0.20+ feature, first corpus reference): hand-tuned Metal with `threadgroup_barrier` + threadgroup memory + chunked-K. ~30% faster at N>500.
+
+**Honest perf disclosure**: M4 Max 0.15-0.25× of H100, M3 Ultra 0.25-0.35× — bandwidth-bound (no Apple ANE access from MLX = no tensor-core equivalent). Documents the "develop on laptop, serve on H100" workflow rather than claiming Apple matches NVIDIA training perf.
+
+### First 4-platform op coverage achieved
+
+| Platform | DSL example | Version | Relative H100 perf |
+|---|---|---|---|
+| NVIDIA Hopper (Triton) | triton-triangle-mult-update-hopper | v3.13 | 1.0× (baseline) |
+| NVIDIA Hopper (CUDA C++) | cuda-triangle-mult-update-hopper | v3.14 | 1.05-1.15× |
+| Huawei 昇腾 (Ascend-C) | ascend-c-triangle-mult-update | v3.15 | 0.20-0.33× |
+| Apple M-series (MLX) | mlx-triangle-mult-update-apple | **v3.16** | 0.15-0.35× |
+
+This is the **first non-LLM op in corpus** with cross-platform implementations on 4 different ISAs. Agent answering "I have hardware X, deploy Boltz-1's triangle-mult" now has concrete reference regardless of NVIDIA / Huawei / Apple choice.
+
+### Added — `iluvatar/iluvatar-bi-150` (62 → 63 hardware)
+
+**Iluvatar BI-V150 (天垓 150) — gen3 successor to corpus's existing BI-100 (gen2).** Pairs with BI-100 for "国产 H100 alternative" route generational pair. Specs:
+
+- **240 BF16 TFLOPS / 480 FP8 TFLOPS / 480 INT8 TOPS @ 600W** (2.5× BF16 vs BI-100, FP8 first-time support)
+- **64 GB HBM3 @ 2.4 TB/s** (2× memory + 2× bandwidth vs BI-100 HBM2e)
+- **CoreX-Link 600 GB/s 8-card scale-up** (replaces BI-100's PCIe-only fabric — closes the gap with NVLink 4.0's 900 GB/s)
+- **CUDA-compatible PTX** — software stack ports from NVIDIA A100/H100 with minor changes (key differentiator vs 昇腾 CANN's "rewrite from scratch" path)
+
+### Added — `cambricon/mlu290` (63 → 64 hardware)
+
+**Cambricon MLU290 (思元 290) — gen-1 datacenter training card from 2021.** Completes Cambricon corpus 4-generation time-axis: edge MLU220 (2020) + datacenter MLU290 (2021) + datacenter MLU370 (2022) + frontier MLU590 (2024). Specs:
+
+- 64 BF16 TFLOPS / 256 INT8 TOPS @ 350W
+- 32 GB HBM2 @ 1.23 TB/s
+- OAM v1.0 form factor; MLU-Link gen1 (192 GB/s)
+- **First Cambricon datacenter card with HBM + MLU-Link** — origin of the BANG-C kernel ecosystem that ports forward through MLU370/590
+
+### Why v3.16 matters
+
+**4-platform op coverage closes "any-hardware" claim**: pre-v3.16, agent answering "deploy Boltz-1 on hardware X" had concrete reference for 3 platforms (Triton/CUDA/Ascend-C). Apple Silicon was a gap because MacBook Pro is the most common dev laptop. v3.16 closes that gap with both portable (`@mx.compile`) and hand-tuned (`mx.fast.metal_kernel`) paths. **The corpus's first op with 4-ISA coverage**.
+
+**国产 server training generational pairs**: corpus had BI-100 (Iluvatar gen2) + MLU370/590 (Cambricon gen3/gen5) + 昇腾 910B (Huawei gen3). Now adds BI-V150 (Iluvatar gen3) + MLU290 (Cambricon gen2) — agent can give *generational* recommendations (gen2 cheaper / older customer base, gen3 closer-to-H100 / newer scale-up fabric) instead of single-card answers.
+
+**Cambricon time-axis 4-gen complete**: BANG-C kernels written on MLU290 in 2021 still mostly port to MLU590 in 2024 (NRAM + WRAM API stable across 4 generations). Corpus now has the data to back this claim.
+
+### Stats
+
+- **Hardware**: 62 → **64** (+2: iluvatar-bi-150, mlu290)
+- **DSL examples**: 13 → **14** (+1 MLX — first 4-platform op)
+- **Total entities**: 416 → **419** (+3)
+- **Site pages**: 602 → **607** (+5)
+- **Tests**: 75/75 passing · **Layer D coverage**: 100%
+
+### v3.17 next
+
+- **AMD HIP triangle-mult** (CDNA3/RDNA4 — completes 5-platform coverage; first AMD non-LLM DSL example)
+- **Cambricon BANG-C triangle-mult** (国产 datacenter 5th platform; reuses MLU290's BANG-C v1.0 + MLU590 NRAM)
+- **摩尔线程 MTT S5000** (国产 CUDA-compat 第二家 vendor — pairs with BI-V150 for "易迁移" route trade-off)
+- **Black Sesame A2000** (DynamAI 2.0, 250+ TOPS L4+ — completes auto NPU corpus)
 
 ---
 

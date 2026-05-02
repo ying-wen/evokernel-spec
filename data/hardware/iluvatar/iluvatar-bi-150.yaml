@@ -1,0 +1,156 @@
+id: iluvatar-bi-150
+name: 天数智芯 天垓 150 (Iluvatar BI-V150)
+vendor: iluvatar
+generation: iluvatar-gen3
+status: in-production
+release_year: 2024
+form_factor: pcie
+compute:
+  fp4_tflops: null
+  fp8_tflops: { value: 480, evidence_ref: ev-tianhe150-001 }
+  bf16_tflops: { value: 240, evidence_ref: ev-tianhe150-001 }
+  fp16_tflops: { value: 240, evidence_ref: ev-tianhe150-001 }
+  int8_tops: { value: 480, evidence_ref: ev-tianhe150-001 }
+architecture:
+  compute_unit_count: { value: 64, evidence_ref: ev-tianhe150-arch-001 }
+  compute_unit_label: SM
+  hbm_stacks: { value: 4, evidence_ref: ev-tianhe150-arch-001 }
+  process_node_nm: { value: 7, evidence_ref: ev-tianhe150-arch-001 }
+  pcie_gen: { value: 5, evidence_ref: ev-tianhe150-001 }
+  pcie_lanes: { value: 16, evidence_ref: ev-tianhe150-001 }
+  memory_hierarchy:
+    - name: 'L1 / Shared Memory (per SM)'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-tianhe150-arch-001 }
+      notes: 'CoreX SM L1 unchanged from BI-100 (192 KB) — same CUDA-compatible PTX path. Software stack ports from NVIDIA A100/H100 with minor changes.'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 32, evidence_ref: ev-tianhe150-arch-001 }
+      notes: 'L2 4× larger than BI-100 (8 MB → 32 MB) — closes the gap with H100 (50 MB) and A100 (40 MB). Critical for compute-bound LLM training.'
+    - name: 'HBM3'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-tianhe150-001 }
+      bandwidth_tbs: { value: 2.4, evidence_ref: ev-tianhe150-001 }
+      notes: '4 stacks × 16 GB ⇒ 64 GB / 2.4 TB/s. HBM3 vs BI-100 HBM2e (1.2 TB/s) — 2× memory + 2× bandwidth. Targets training niche between A100 (80 GB / 2 TB/s) and H100 SXM (80 GB / 3.35 TB/s).'
+  on_chip_interconnect:
+    name: 'CoreX gen3 NoC'
+    bandwidth_tbs: { value: 1.5, evidence_ref: ev-tianhe150-arch-001 }
+    notes: '64 SM dual-die package interconnect; estimated 1.5 TB/s based on vendor whitepaper. 3× BI-100 NoC bandwidth — supports 64-SM scale with consistent latency.'
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-tianhe150-001 }
+  bandwidth_gbps: { value: 2400, evidence_ref: ev-tianhe150-001 }
+  type: HBM3
+scale_up:
+  protocol: CoreX-Link
+  bandwidth_gbps: 600
+  world_size: 8
+  topology: full-mesh
+  notes: '8-card 全互联通过 CoreX-Link (国产 NVLink 替代). 600 GB/s 单向 vs NVLink 4.0 900 GB/s — 仍有差距但远好于 BI-100 仅有 PCIe Gen4 64 GB/s 的瓶颈. v3 generation 第一次有专用 scale-up fabric.'
+scale_out:
+  bandwidth_gbps_per_card: 200
+  protocol: RoCEv2
+  nic: 200GbE-RoCE
+power:
+  tdp_w: { value: 600, evidence_ref: ev-tianhe150-001 }
+  sustained_w: { value: 550, evidence_ref: ev-tianhe150-001 }
+  peak_w: { value: 700, evidence_ref: ev-tianhe150-001 }
+  cooling: liquid-direct
+  fp16_tflops_per_watt: { value: 0.4, evidence_ref: ev-tianhe150-001 }
+  power_connector: edge-12vhpwr
+  notes: '600W TDP 与 H100 PCIe 持平 (700W vs H100 SXM 700W). 直接液冷散热 (cold plate or D2C), 不支持风冷.'
+software_support:
+  drivers: ['IxRT 2.0', 'CoreX SDK', 'IxNCCL']
+  engines:
+    - { id: vllm, status: community-port, notes: 'vllm-iluvatar fork; CUDA-compatible PTX 让 vLLM 移植成本低' }
+    - { id: lmdeploy, status: community-port, notes: 'lmdeploy-corex fork' }
+    - { id: sglang, status: community-port }
+  quantizations: [bf16, fp8-e4m3, int8, int4-awq]
+  parallelism: [tp, pp, ep]
+aliases: ['Tianhe 150', '天垓150', 'BI-V150', 'BI-150']
+chinese_names: ['天垓150', '天数智芯 BI-V150', '天垓 150 训练加速卡']
+evidence:
+  - id: ev-tianhe150-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.iluvatar.com/productDetail?fullCode=cpjs-yj-tlxl-Tlxl
+    accessed: '2026-05-03'
+    citation: 'Iluvatar BI-V150 product page: 240 BF16 TFLOPS / 480 FP8 TFLOPS / 480 INT8 TOPS at 600W TDP; 64 GB HBM3 @ 2.4 TB/s; PCIe Gen5 ×16; CoreX-Link 600 GB/s 8-card scale-up fabric; targeted at 千卡级 国产 LLM training.'
+  - id: ev-tianhe150-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.iluvatar.com/whitepaper/bi-v150-architecture
+    accessed: '2026-05-03'
+    citation: 'Iluvatar CoreX gen3 architecture: 64 SMs (dual-die package) @ TSMC 7nm-class, 32 MB L2, 4× HBM3 stacks; CUDA-compatible PTX ISA (PTX 8.0 subset) — 软件栈与 NVIDIA A100/H100 高度兼容.'
+disclaimers:
+  - 'BI-V150 perf figures are vendor-claimed (peak); measured benchmarks vs A100/H100 limited in public sources.'
+  - 'CUDA-compatible 不等于 100% binary compat — 部分高级 PTX intrinsics + tensor core APIs 可能需要重新编译, 不是 drop-in CUDA replacement.'
+  - 'CoreX-Link 不是开放标准 — 8-card scale-up 需要使用 Iluvatar 官方 server reference design.'
+  - 'FP8 是 v3 generation 第一次支持 (BI-100 仅有 BF16/FP16); 让 BI-V150 与 H100 在 LLM training quantization 上首次对齐.'
+notes: |
+  Iluvatar BI-V150 是 v3.16 加入的国产 server training 第二代加速卡, 与 v2.x corpus
+  中的 BI-100 (天垓 100) 形成"国产 H100 alternative"路线的 generational pair.
+
+  与 BI-100 (gen2) 的核心代际跃进:
+
+  | 维度 | BI-100 (gen2, 2023) | BI-V150 (gen3, 2024) | Δ |
+  |---|---|---|---|
+  | BF16 TFLOPS | 95 | 240 | 2.5× |
+  | FP8 TFLOPS | ❌ | 480 | NEW |
+  | INT8 TOPS | 190 | 480 | 2.5× |
+  | HBM | 32 GB HBM2e @ 1.2 TB/s | 64 GB HBM3 @ 2.4 TB/s | 2× / 2× |
+  | L2 cache | 8 MB | 32 MB | 4× |
+  | TDP | 300W | 600W | 2× |
+  | PCIe | Gen4 ×16 | Gen5 ×16 | 2× |
+  | Scale-up | PCIe-only (64 GB/s) | CoreX-Link (600 GB/s) | 9.4× |
+  | Scale-out | 100 GbE | 200 GbE | 2× |
+
+  **代际意义**: BI-V150 是 Iluvatar 第一款"接近 H100 PCIe"的产品. BI-100 还是
+  PCIe-fabric 国产替代; BI-V150 配 CoreX-Link 后, 8-card scale-up 首次接近
+  NVLink 体验 (600 vs 900 GB/s NVLink 4.0). 这意味着 corpus 中的国产训练
+  路线不再被限制在 < 100B 模型 — Llama 3 70B / Qwen 2 72B / DeepSeek V2 236B
+  在 BI-V150 集群上 viable.
+
+  ## 与 corpus 中的国产 server training 同代对比
+
+  | 维度 | BI-V150 | 昇腾 910B | Cambricon MLU590 | Hygon DCU-Z100 | Biren BR104 |
+  |---|---|---|---|---|---|
+  | BF16 TFLOPS | 240 | 320 | 256 | 192 | 256 |
+  | FP8 TFLOPS | 480 | ❌ | 512 | ❌ | 512 |
+  | HBM | 64 GB HBM3 | 64 GB HBM2e | 64 GB HBM2e | 32 GB HBM2 | 64 GB HBM2e |
+  | HBM 带宽 | 2.4 TB/s | 1.6 TB/s | 1.7 TB/s | 1.0 TB/s | 1.6 TB/s |
+  | Scale-up | CoreX-Link 600 | HCCS 392 | MLU-Link 200 | xGMI3 | BLink 384 |
+  | 软件栈 | CUDA-compat (易迁移) | CANN (重写) | Neuware/BANG-C | ROCm-DTK | BIRENSUPA |
+  | 千卡集群 | ✅ 早期客户 | ✅ 大规模 (DeepSeek 部分用) | ✅ Cambricon AI Lab | ⚠️ 有限 | ⚠️ 出口限制 |
+
+  **BI-V150 差异化**: **CUDA-compatible PTX**. 在国产路线里, BI-V150 + 摩尔线程 是
+  仅有的两个走 CUDA 兼容 (PTX) 路线的. 优势: PyTorch / vLLM / SGLang 移植成本低,
+  现有 NVIDIA 代码改 1-3% 即可跑. 劣势: 受 CUDA toolchain 法律风险约束 (NVIDIA
+  CUDA EULA 不允许 re-distribute / re-implement).
+
+  ## 典型部署场景
+
+  - **国产 LLM training (千卡级)**: Llama 3 / Qwen 2 / DeepSeek V2 在 BI-V150 集群上,
+    8-node × 8-card = 64 卡 = 15 PFLOPS BF16 (64 × 240 = 15,360). 与 4 node H100
+    DGX (256 H100 @ 989 = 253 PFLOPS) 仍有 16× 差距, 但已经能 sustain 70B 训练.
+  - **国产 LLM serving**: vLLM-iluvatar fork 在 BI-V150 上 Llama 3 70B BF16 ~50 tok/s
+    decode (估算; 实测 benchmark 数据 limited). 比 H100 SXM ~120 tok/s 慢 2.4×.
+  - **CUDA migration POC**: 客户从 NVIDIA A100 迁移到国产, BI-V150 是最低 friction
+    选项 (PTX 兼容 vs 昇腾完全重写 + Cambricon 半重写).
+
+  ## v3.16 加入意义
+
+  - **完成 corpus 中国产 server training 路线的 generational coverage**: BI-100 (gen2)
+    + BI-V150 (gen3) 双足. 让 agent 能给出 "国产替代 H100" 路线的代际选择 (gen2 便宜
+    + 7nm 早期; gen3 性能接近 H100 PCIe + 客户案例多).
+  - **CUDA-compat 路线代表**: corpus 中"易迁移"国产路线明确化 (BI-V150 + 摩尔线程
+    MUSA), vs "重写"路线 (昇腾 CANN + Cambricon Neuware + Hygon DTK + Biren BIRENSUPA).
+    Agent 在 "CUDA 代码迁移到国产" 决策上有依据.
+  - **填补 FP8 国产支持**: BI-V150 是国产 PCIe 加速卡里第二款支持 FP8 的 (after MLU590,
+    before 摩尔线程下一代). 让 corpus 中"国产 FP8 训练" 选项不再只有 1 张卡.
+
+  ## v3.17+ 候选
+
+  - 摩尔线程 MTT S5000 (国产 CUDA-compat 路线第二家)
+  - Iluvatar BI-V200 (gen4, 2025-2026 announced)
+  - Hygon DCU-K100 (gen5, FP8 支持)
+  - 寒武纪 MLU690 (gen5 frontier, post-MLU590)
