@@ -62,3 +62,30 @@ references:
   - title: 'FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision'
     url: https://arxiv.org/abs/2407.08608
     source_type: paper
+
+formal_semantics:
+  signature: |
+    attention(Q: [B, H_q, S, D_h], K: [B, H_kv, S, D_h], V: [B, H_kv, S, D_h],
+              scale: float, mask: Optional[Tensor], is_causal: bool) -> [B, H_q, S, D_h]
+    Abstract attention concept — covers MHA / GQA / MQA / MLA variants.
+    For MLA, see /operators/mla-attention/. For GQA/MQA, see scaled-dot-product-attention.
+
+  edge_cases:
+    - input: 'flash-attention build-time vs runtime mask'
+      behaviors:
+        flash-attn-v3: 'Causal + sliding-window masks compiled into kernel; arbitrary mask = slower path'
+        cudnn-sdpa: 'Same — fast paths for causal/window/none'
+        ascend-incre-fa: 'Causal + ALiBi; arbitrary mask via separate aclnnMaskedSoftmax'
+      mitigation: 'Stick to causal+sliding-window for fast path. Arbitrary masks (e.g., document-boundary attention in long-context) often 2-3× slower.'
+
+  numerical_rules:
+    - aspect: 'attention_variant_dispatch'
+      per_library: {}
+      notes: 'Engines auto-select variant based on H_q / H_kv ratio: H_q==H_kv (MHA), H_kv==1 (MQA), 1<H_kv<H_q (GQA). MLA is opt-in via separate op (mla-attention).'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def attention(Q, K, V, scale=None, mask=None, is_causal=False):
+          # Auto-handles MHA/GQA/MQA via broadcast
+          return F.scaled_dot_product_attention(Q, K, V, attn_mask=mask, is_causal=is_causal, scale=scale)

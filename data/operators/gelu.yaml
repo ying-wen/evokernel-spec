@@ -55,3 +55,39 @@ references:
   - title: 'BERT: Pre-training of Deep Bidirectional Transformers'
     url: https://arxiv.org/abs/1810.04805
     source_type: paper
+
+formal_semantics:
+  signature: |
+    gelu(x: Tensor, approximate: 'tanh'|'none' = 'none') -> Tensor
+    Exact:    gelu(x) = x * 0.5 * (1 + erf(x / sqrt(2)))
+    Tanh approx: gelu(x) ≈ 0.5x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+    GPT-2 / BERT use GELU; modern LLMs (Llama family) prefer SiLU/SwiGLU.
+
+  edge_cases:
+    - input: 'approximate="tanh" vs approximate="none"'
+      behaviors:
+        cudnn-gelu: 'Both supported; tanh is faster, none more accurate'
+        flash-attn-gelu: 'tanh path for inference (fast)'
+        aclnn-gelu: 'Both supported; tanh default'
+      mitigation: 'CRITICAL: must match training-time approximation. Loading a tanh-trained model with exact GELU = systematic offset. Check model card for "gelu_approximate" config field.'
+
+    - input: 'mixed-precision (fp16 input, fp32 erf)'
+      behaviors:
+        all_libs: 'erf typically computed FP32, output cast back to input dtype'
+      notes: 'Same pattern as RMSNorm internal upcast.'
+
+  numerical_rules:
+    - aspect: 'erf_implementation'
+      per_library:
+        cudnn-exact: 'Uses cuda::erff (FP32 internal)'
+        triton-default: 'tl.libdevice erff'
+        aclnn-exact: 'Hardware erf instruction on Ascend 910C+'
+      notes: 'Tanh approximation has ~3e-7 max error vs exact — negligible for inference, may matter for science (AlphaFold uses exact).'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def gelu(x, approximate='none'):
+          if approximate == 'tanh':
+              return 0.5 * x * (1 + torch.tanh(math.sqrt(2/math.pi) * (x + 0.044715 * x**3)))
+          return F.gelu(x)  # exact via erf

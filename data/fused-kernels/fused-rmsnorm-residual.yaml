@@ -86,3 +86,39 @@ references:
   - title: 'vLLM fused_add_rms_norm CUDA kernel'
     url: https://github.com/vllm-project/vllm/blob/main/csrc/layernorm_kernels.cu
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    fused_rmsnorm_residual(x: Tensor, residual: Tensor, weight: Tensor, eps: float)
+    -> (output: Tensor, new_residual: Tensor)
+    Fuses [residual_add, rmsnorm] into single kernel. Stores updated residual
+    inline. Saves one HBM read+write of the residual tensor.
+  fusion_lifecycle: compile-time-template
+  unfused_penalty: |
+    Unfused: residual = residual + x (write); norm_input = residual (read);
+    output = rmsnorm(norm_input). 3× more memory traffic per layer than fused.
+    For 80-layer model: ~30% more HBM bandwidth at decode (memory-bound). Critical fusion.
+  edge_cases:
+    - input: 'in-place vs out-of-place residual update'
+      behaviors:
+        vllm-fused: 'In-place: residual buffer is same as input; saves allocation'
+        sglang-fused: 'Same'
+        flash-rmsnorm: 'In-place; explicit pointer aliasing'
+        aclnn-fused: 'aclnnAddRmsNorm — in-place'
+      mitigation: 'In-place requires careful pointer aliasing in kernel. Verify no read-after-write hazards (residual must be loaded before x is added in).'
+
+    - input: 'pre-norm vs post-norm placement'
+      behaviors:
+        modern-llms: 'PRE-norm: norm before attention/FFN, residual added after (Llama / DeepSeek / Qwen all pre-norm)'
+        legacy-bert-gpt2: 'POST-norm: residual added then norm (skip ops still get unstable training but inference works)'
+      notes: 'Pre-norm is universal in modern LLMs. Fused kernel assumes pre-norm convention (residual_in is from previous block, output residual is for next block).'
+
+  numerical_rules:
+    - aspect: 'residual_dtype'
+      per_library:
+        all_libs: 'Residual stored in same dtype as activations (FP16/BF16)'
+      notes: 'Some research suggests FP32 residual reduces drift, but no production engine does this (HBM cost too high).'
+
+    - aspect: 'norm_internal_accumulation'
+      per_library: {}
+      notes: 'Same as standalone rmsnorm — FP32 internal mean/variance even with FP16 input. See /operators/rmsnorm/.'

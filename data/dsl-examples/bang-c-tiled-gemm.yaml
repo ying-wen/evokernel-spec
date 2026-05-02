@@ -1,0 +1,117 @@
+id: bang-c-tiled-gemm
+language: bang-c
+vendor: cambricon
+arch_family: cambricon-mlu
+title: 'BANG-C Tiled GEMM (Cambricon MLU)'
+category: memory-pipeline
+
+code: |
+  // BANG-C tiled GEMM skeleton — fp16 inputs, fp32 accum.
+  // Demonstrates: explicit GDRAM → NRAM → WRAM staging + MLU MMA + cluster sync.
+  // Cambricon MLU290 / MLU370 / MLU590 series.
+  #include <bang.h>
+
+  #define M_TILE 64
+  #define N_TILE 64
+  #define K_TILE 32
+
+  __mlu_global__ void mlu_gemm_kernel(
+      half* gdram_A, half* gdram_B, float* gdram_C,
+      int M, int N, int K) {
+
+      // NRAM: Neural-net RAM (closest to compute, like CUDA shared memory)
+      __nram__ half nram_A[M_TILE * K_TILE];
+      __nram__ half nram_B[K_TILE * N_TILE];
+      __nram__ float nram_C[M_TILE * N_TILE];
+
+      // WRAM: Weight RAM (typically holds B-side weights, longer-lived)
+      __wram__ half wram_B[K_TILE * N_TILE];
+
+      // Cluster + IPU coordinates (Cambricon's CTA equivalent)
+      int cluster_id = clusterId;
+      int ipu_id = coreId;
+
+      // Tile range for this IPU
+      int m_start = (cluster_id * blockDim.y + ipu_id) * M_TILE;
+      int n_start = clusterId * N_TILE;
+
+      // Initialize accumulator
+      __bang_write_value(nram_C, M_TILE * N_TILE, 0.0f);
+
+      for (int k_outer = 0; k_outer < K; k_outer += K_TILE) {
+          // Stage 1: GDRAM → NRAM (async DMA)
+          __memcpy_async(nram_A,
+                          gdram_A + m_start * K + k_outer,
+                          M_TILE * K_TILE * sizeof(half),
+                          GDRAM2NRAM);
+
+          // Stage 2: GDRAM → WRAM (B side; typically weights)
+          __memcpy_async(wram_B,
+                          gdram_B + k_outer * N + n_start,
+                          K_TILE * N_TILE * sizeof(half),
+                          GDRAM2WRAM);
+
+          __sync_cluster();  // Wait for both DMAs
+
+          // Stage 3: WRAM → NRAM (B-side stage to compute-side)
+          __memcpy(nram_B, wram_B, K_TILE * N_TILE * sizeof(half), WRAM2NRAM);
+
+          // Stage 4: MLU MMA — accumulate into nram_C
+          // __bang_matmul performs nram_C += nram_A * nram_B in tiled fashion
+          __bang_matmul(nram_C, nram_A, nram_B,
+                         M_TILE, K_TILE, N_TILE,
+                         /*accumulate=*/true);
+
+          __sync_cluster();
+      }
+
+      // Stage 5: NRAM → GDRAM writeback
+      __memcpy(gdram_C + m_start * N + n_start,
+                nram_C,
+                M_TILE * N_TILE * sizeof(float),
+                NRAM2GDRAM);
+  }
+loc: 65
+
+walkthrough:
+  - step: 'Allocate NRAM + WRAM buffers'
+    explanation: 'Cambricon has 3 explicit memory levels: GDRAM (global), WRAM (weight RAM, larger), NRAM (closest to compute). Programmer orchestrates DMA between them. Different from CUDA shared memory abstraction.'
+  - step: 'Cluster + IPU coordinates'
+    explanation: 'IPU = Intelligence Processing Unit (Cambricon SM equivalent). clusterId + coreId locate the IPU within the chip. Used to compute tile range similar to blockIdx.y in CUDA.'
+  - step: 'GDRAM → NRAM async DMA'
+    explanation: '__memcpy_async with GDRAM2NRAM direction starts async transfer. Cambricon DMA engine handles staging; programmer issues + syncs.'
+  - step: 'WRAM intermediate stage'
+    explanation: 'B-side weights typically pass through WRAM (closer to compute than GDRAM, larger than NRAM). For activations, skip WRAM and go GDRAM→NRAM directly.'
+  - step: '__bang_matmul accumulate'
+    explanation: 'Cambricon matrix instruction. Tile size derived from (M,K,N) parameters; underlying hardware uses 16x16x16 base block. accumulate=true keeps running sum (like += instead of =).'
+  - step: 'Cluster sync'
+    explanation: '__sync_cluster() — barrier across all IPUs in the cluster. Cambricon uses cluster-level sync more often than CUDA-style block sync due to the explicit memory hierarchy.'
+
+arch_idioms:
+  - '__mlu_global__ qualifier — denotes MLU kernel (not CPU code)'
+  - '__nram__ / __wram__ qualifiers — explicit memory level allocation in type system'
+  - '__memcpy_async with directional suffix (GDRAM2NRAM, WRAM2NRAM) — explicit DMA direction'
+  - '__bang_matmul — high-level MMA primitive; compiler maps to MLU MMA hardware'
+  - '__sync_cluster() — cluster-wide barrier; coarser than CUDA __syncthreads'
+  - 'No "warp" concept — Cambricon uses cluster + IPU only'
+
+build_command: 'cncc bang_gemm.mlu -o gemm.bin --target=mlu590'
+run_command: './run_mlu_kernel gemm.bin input_a.bin input_b.bin'
+
+related_isa_primitives: [cambricon-mlu-mma]
+related_kernel_libraries: [cnnl]
+
+source_url: https://www.cambricon.com/docs/bang_c
+notes: |
+  Compare to Ascend-C: structurally similar (explicit memory hierarchy + DMA staging
+  + cluster sync) but Cambricon's WRAM is unique — provides a longer-lived buffer
+  closer to compute than GDRAM. CUDA equivalent: think L2 cache, but explicit.
+
+  Cross-vendor mapping:
+    1× WGMMA m64n64k16 fp16 ≈ 4× MLU MMA 16x16x16 (per-throughput)
+    Programming model gap: similar to CUDA-vs-Ascend (explicit memory + cluster sync
+    vs unified SM). CUDA users should expect ~4× more lines of code per equivalent
+    kernel due to explicit DMA staging.
+
+  Used by: lmdeploy MLU fork + vllm-mlu fork. CNNL library wraps these primitives
+  for opaque-API access (like cuBLAS/cuDNN equivalent).

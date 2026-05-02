@@ -104,3 +104,40 @@ references:
   - title: 'TensorRT-LLM FP4 quantization guide'
     url: https://nvidia.github.io/TensorRT-LLM/quantization
     source_type: docs
+
+formal_semantics:
+  signature: |
+    fused_quantized_attention(Q_fp4/fp8, K_fp4/fp8, V_fp4/fp8, scales, ...) -> O_fp16
+    Attention with FP4 (NVFP4 / MXFP4) or FP8 quantized Q/K/V. Per-block scaling
+    factors integrated into attention kernel. Available on Blackwell (TCGEN05) /
+    MI355X (CDNA4) for FP4; broader on FP8.
+  fusion_lifecycle: compile-time-template
+  unfused_penalty: |
+    Unfused: dequantize Q/K/V to FP16 first → 4× more HBM traffic. Quantization
+    pointless if you dequant first. Fusion is required to realize FP4 benefits.
+  edge_cases:
+    - input: 'NVFP4 (per-16 block) vs MXFP4 (per-32 block) scaling layout'
+      behaviors:
+        cutlass-fp4-attn: 'Both supported; selectable via template tag'
+        flash-attn-v3-fp4: 'NVFP4 native (Blackwell); MXFP4 in roadmap'
+        ck-fp4-attn: 'Both on MI355X+ (CDNA4)'
+        trtllm-fp4: 'NVFP4 native; MXFP4 via separate path'
+      mitigation: 'Cross-vendor port: scaling factor LAYOUT differs (block size 16 vs 32). Cannot just swap dtype — must regenerate scaling factors.'
+
+    - input: 'mixed-precision (FP8 Q/K/V, FP16 accumulator)'
+      behaviors:
+        all_libs: 'Standard pattern — quantized inputs, FP32 accumulator, FP16 output'
+      notes: 'FP4 inputs always paired with FP32 accum (FP16 accum loses too much precision at FP4 input range).'
+
+  numerical_rules:
+    - aspect: 'softmax_dtype_with_quant_inputs'
+      per_library:
+        cudnn-fp8-attn: 'Softmax in FP32 (always)'
+        flash-attn-v3-fp8: 'FP32 softmax'
+        trtllm-fp4: 'FP32 softmax'
+      notes: 'Even with FP4/FP8 Q/K, softmax is always FP32. The cost savings come from QK matmul + PV matmul, not from softmax.'
+
+    - aspect: 'output_dequantization'
+      per_library:
+        all_libs: 'Output (P @ V) dequantized to FP16/BF16 before returning'
+      notes: 'Output dtype matches the rest of the model (typically BF16 for inference). FP4 stays internal to the kernel.'

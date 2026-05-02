@@ -75,3 +75,69 @@ references:
   - title: 'vLLM sampling kernels'
     url: https://github.com/vllm-project/vllm/blob/main/csrc/sampling
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    top_k_sampling(logits: [B, V], k: int, temperature: float, top_p: float) -> tokens [B]
+    1. logits → logits / temperature
+    2. top-k filter: keep highest k values, set rest to -inf
+    3. top-p (nucleus) filter: keep smallest set whose cumprob ≥ p
+    4. softmax → multinomial sample
+
+  edge_cases:
+    - input: 'temperature = 0 (greedy / argmax)'
+      behaviors:
+        all_libs: 'Bypass softmax — return argmax directly'
+      mitigation: 'Critical: temperature=0 should NEVER reach softmax (1/0 NaN). Engines branch before sampling kernel.'
+
+    - input: 'top_k = 1 (greedy with temp != 0)'
+      behaviors:
+        vllm-sampling: 'Still does softmax but only 1 candidate'
+        sglang-sampling: 'Same'
+      notes: 'No reason to use top_k=1 with temp != 0. Use temp=0 for greedy.'
+
+    - input: 'top_k > vocab_size'
+      behaviors:
+        all_libs: 'Treated as no top_k filter'
+
+    - input: 'logit penalties (presence / frequency / repetition)'
+      behaviors:
+        vllm-sampling: 'Applied BEFORE temperature scaling'
+        trtllm-sampling: 'Applied BEFORE temperature scaling'
+        aclnn-sampling: 'Order varies; check engine docs'
+      mitigation: 'When porting: replicate penalty application order. Wrong order = different outputs at same temp.'
+
+  numerical_rules:
+    - aspect: 'softmax_in_sampling'
+      per_library:
+        vllm-fast-sampling: 'FP32 softmax + multinomial (rng deterministic given seed)'
+        sglang-sampling: 'Same'
+        trtllm-sampling: 'FP32; cuRAND for sampling'
+      notes: 'FP16 softmax in sampling can cause silent token-distribution shift. Always FP32.'
+
+    - aspect: 'reproducibility'
+      per_library:
+        all_libs: 'Deterministic given same RNG seed + same logits'
+      notes: 'For debugging: pin seed. Production: random seed per request.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def top_k_sampling(logits, k, temperature, top_p):
+          if temperature == 0:
+              return logits.argmax(dim=-1)
+          logits = logits / temperature
+          # top-k filter
+          if k > 0 and k < logits.size(-1):
+              vals, _ = logits.topk(k, dim=-1)
+              logits[logits < vals[:, -1:]] = float('-inf')
+          # top-p filter
+          if top_p < 1.0:
+              probs = F.softmax(logits, dim=-1)
+              sorted_probs, sorted_idx = probs.sort(dim=-1, descending=True)
+              cumprob = sorted_probs.cumsum(dim=-1)
+              keep = cumprob <= top_p
+              keep[:, 0] = True  # always keep at least one
+              # ... mask + renormalize ...
+          probs = F.softmax(logits, dim=-1)
+          return torch.multinomial(probs, num_samples=1).squeeze(-1)

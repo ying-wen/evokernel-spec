@@ -46,3 +46,44 @@ references:
   - title: 'Sigmoid-Weighted Linear Units for Neural Network Function Approximation'
     url: https://arxiv.org/abs/1702.03118
     source_type: paper
+
+formal_semantics:
+  signature: |
+    silu(x: Tensor) -> Tensor
+    silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+    Also called Swish activation. Standard in modern LLM FFNs (Llama / Qwen / DeepSeek).
+
+  edge_cases:
+    - input: 'x = 0'
+      behaviors:
+        all_libs: 'silu(0) = 0 * 0.5 = 0 (exact)'
+    - input: 'x = -∞'
+      behaviors:
+        all_libs: 'silu → 0 smoothly (no NaN); sigmoid saturates to 0'
+    - input: 'x = +∞'
+      behaviors:
+        all_libs: 'silu(∞) = ∞ (linear in tail); rare in practice with normalized activations'
+      mitigation: 'No special handling needed in practice — RMSNorm + bf16 keeps activations bounded.'
+
+  numerical_rules:
+    - aspect: 'sigmoid_implementation'
+      per_library:
+        cuda-fast-math: 'Uses 1/(1+exp(-x)) with fast __expf — ~1e-4 accuracy diff vs strict'
+        cuda-strict: 'Strict IEEE 754 expf'
+        triton-default: 'Strict; configurable to fast'
+        aclnn-silu: 'Strict (Ascend hardware sigmoid is correctly-rounded)'
+      notes: 'Fast path acceptable for inference; long-context training prefers strict to avoid cumulative drift.'
+
+    - aspect: 'fused_with_matmul_epilogue'
+      per_library:
+        cublas-fused-silu: 'cuBLASLt epilogue does silu after GEMM'
+        cutlass-silu: 'Template-instantiated epilogue'
+        aclnn-fused: 'Mostly fused into FFN epilogue; standalone aclnnSilu also exists'
+      notes: 'Standalone silu = unfused = ~2× slower than fused. Production paths always fuse.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def silu(x):
+          return x * torch.sigmoid(x)
+      # F.silu(x) is the canonical fused implementation

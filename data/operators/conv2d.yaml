@@ -81,3 +81,48 @@ references:
   - title: 'Winograd Minimal Filtering Algorithm'
     url: https://arxiv.org/abs/1509.09308
     source_type: paper
+
+formal_semantics:
+  signature: |
+    conv2d(input: [B, C_in, H_in, W_in], weight: [C_out, C_in, K_h, K_w],
+           stride, padding, dilation, groups) -> [B, C_out, H_out, W_out]
+    Standard 2D convolution. Used by vision encoders (CLIP, DINOv2, Llama 4 vision)
+    + diffusion U-Nets (FLUX, SD3) + early conv layers in some hybrid models.
+
+  edge_cases:
+    - input: 'depthwise (groups = C_in) vs full conv'
+      behaviors:
+        cudnn-depthwise: 'Specialized fast path; ~2-5× faster than groups=1 for same shape'
+        miopen-depthwise: 'Specialized path; less mature than cuDNN'
+        aclnn-depthwise: 'Specialized path on 910C+'
+      mitigation: 'When porting: verify engine takes depthwise fast path (not generic conv with groups=1).'
+
+    - input: 'padding mode (zero / reflect / replicate)'
+      behaviors:
+        cudnn: 'Zero padding default; reflect/replicate require manual pad before conv'
+        miopen: 'Same'
+        aclnn: 'aclnnConvolution default zero; aclnnReflectionPad2d for reflect'
+      mitigation: 'Vision models use zero padding ~always; reflect only in some image-restoration nets.'
+
+    - input: 'NCHW vs NHWC layout'
+      behaviors:
+        cudnn-nhwc: 'Tensor cores prefer NHWC on Volta+; ~30% faster than NCHW'
+        cudnn-nchw: 'Legacy default; works but slower on tensor cores'
+        aclnn: 'Uses NCHW internally (Ascend Cube wants this layout)'
+      mitigation: 'For NVIDIA: use NHWC (channels-last) for inference. For Ascend: NCHW is native.'
+
+  numerical_rules:
+    - aspect: 'accumulation_dtype'
+      per_library:
+        cudnn-fp16: 'FP32 internal accum (default)'
+        cudnn-tf32: 'TF32 internal (Ampere+; ~10% faster than FP32, slight accuracy loss)'
+        miopen-fp16: 'FP32 internal'
+        aclnn-fp16: 'FP32 internal'
+      notes: 'TF32 vs FP32 distinguishable for diffusion models (cumulative through 50 steps).'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def conv2d(x, weight, stride=1, padding=0, dilation=1, groups=1):
+          return F.conv2d(x, weight, stride=stride, padding=padding,
+                          dilation=dilation, groups=groups)

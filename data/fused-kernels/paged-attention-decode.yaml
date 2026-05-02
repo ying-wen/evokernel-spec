@@ -80,3 +80,53 @@ references:
   - title: 'vLLM PagedAttention CUDA kernel'
     url: https://github.com/vllm-project/vllm/tree/main/csrc/attention
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    paged_attention_decode(Q: [B,1,H,D_h], K_pages: [#pages, page_size, H_kv, D_h],
+                           V_pages: [#pages, page_size, H_kv, D_h],
+                           block_table: [B, max_blocks_per_seq], context_lens: [B])
+    -> [B, 1, H, D_h]
+    Decode-only attention reading from PagedAttention's block-paged KV cache.
+    O(ctx_len) per token, memory-bound. Fuses [block_table indirection, K/V gather, QK matmul, softmax, P@V] in one kernel.
+  fusion_lifecycle: compile-time-template
+  unfused_penalty: |
+    Unfused: 4 separate kernels + 3 intermediate writes. At ctx=32K: ~180GB extra HBM
+    traffic per request decode step. Fusion is REQUIRED, not optional, for any
+    serving system at >2K ctx.
+  edge_cases:
+    - input: 'KV-quant FP8 cache (per-page or per-token scaling)'
+      behaviors:
+        vllm-paged-attn-fp8: 'Per-page scale factor stored alongside; dequant on read'
+        flash-paged-attn-fp8: 'Same approach (Tri Dao convention)'
+        mindie-fp8-kv: '910C limited; 910D full support with per-token scale'
+      mitigation: 'Per-token scale is more accurate but more metadata. Production: per-page (16/32 token block) scale is the sweet spot.'
+
+    - input: 'GQA H_q / H_kv ratio with broadcast'
+      behaviors:
+        vllm-paged-attn: 'Properly broadcasts K/V to H_q heads'
+        flash-paged-attn: 'Same'
+        mindie-paged-attn: 'Same on 910C+'
+      mitigation: 'Tested in v2.10/2.14 validation matrix — Llama 3.3 (H=64, H_kv=8) works correctly across all major libs.'
+
+    - input: 'block_table contains -1 sentinel (sequence shorter than max blocks)'
+      behaviors:
+        vllm-paged-attn: 'Skips -1 blocks via masked attention'
+        sglang-radix-attn: 'No block table; uses radix tree — N/A'
+        mindie-paged-attn: 'Custom Ascend-C handles via context_lens parameter'
+      mitigation: 'Always pass context_lens; do not rely solely on -1 sentinel.'
+
+  numerical_rules:
+    - aspect: 'softmax_partial_sum_combine'
+      per_library:
+        vllm-paged-attn: 'FlashAttention-style 2-pass partial-sum + final combine — FP32 internal'
+        flash-paged-attn: 'Same'
+        mindie-paged-attn: 'FP32 internal accumulator on 910C+'
+      notes: 'FP16 partial-sum loses precision on long context. Always FP32.'
+
+    - aspect: 'page_size_alignment'
+      per_library:
+        vllm: 'Default 16; configurable (8/16/32/64)'
+        sglang: 'Radix tree, no fixed page_size'
+        mindie: 'Default 128 (Ascend-aligned)'
+      notes: 'Larger page = less metadata overhead; smaller page = less waste at sequence end. Production: tune per workload.'
