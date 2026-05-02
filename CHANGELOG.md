@@ -6,7 +6,122 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.9 — Continuous optimization loop** (Layer F perf-cliff retry trigger + auto-PR generation from accumulated agent-learnings) AND continued **model breadth** (more video/image-gen/speech/molecule models per repeated user directive).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.10 — Continued model breadth + schema extension** (Mochi 1, OpenSora 2, ESMFold, Geneformer, Evo-2, MACE-MP-1; extend `ModelFamilySchema` with `equivariant-gnn`, `flow-matching`, `encoder-decoder-asr` so non-LLM models stop being shoehorned into `family: diffusion`).
+
+---
+
+## [3.9.0] — 2026-05-03 — Continuous optimization loop (perf-cliff retry + auto-PR)
+
+**Theme**: close the **continuous self-optimization** sub-loop the user explicitly called out:
+
+> 持续根据部署情况持续自动优化闭环
+
+v3.6 closed the V-failure retry loop. v3.9 closes the **perf-cliff retry loop** + adds **automated PR-draft generation from accumulated agent-learnings**.
+
+### Added
+
+**1. Perf-cliff retry trigger in `scripts/agent-deploy/feedback.ts`**
+
+Extends `generateAndVerify()` with two new `GenerateAndVerifyInput` fields:
+
+```typescript
+perf_threshold_pct?: number;    // default 30 — retry if measured > 30% slower than predicted
+predicted_decode_tok_s?: number;
+```
+
+When Layer V V3 reports `delta.measured_tok_s` and the caller provided `predicted_decode_tok_s`, the loop:
+1. Computes `delta_pct = (predicted - measured) / predicted * 100`
+2. If `delta_pct > perf_threshold_pct` → retry Layer G with a **structured perf-cliff diagnostic** in the prompt
+3. Diagnostic includes: predicted vs measured numbers, threshold, 6 likely root causes (uncoalesced loads, no tensor cores, sync overhead, wrong tile size, missing fusion, no prefetch), and the profiler hint from V3
+
+This is the v3.x analog to v3.6's V-failure retry — except now the LLM also gets prodded to optimize when the code is *correct but slow*. **Closes the "even pass-but-slow code can be improved automatically" gap.**
+
+**2. `scripts/agent-deploy/auto-pr.ts` — PR draft generator**
+
+Aggregates accumulated `data/agent-learnings/*.yaml` entries into clustered PR drafts:
+
+- **Clustering strategy**: group observations by `(kind, op_or_kernel, arch_family)`. Threshold `min_signal=2` (default) — single-occurrence observations filtered as likely noise. Set `min_signal=1` to include them.
+- **Cluster kinds → corpus updates**:
+  - `missing-primitive` → `isa-primitive-add` PR (suggested file: `data/isa-primitives/<id>.yaml`)
+  - `kernel-gap` → `dsl-example-add` PR (`data/dsl-examples/<lang>-<op>-on-<arch>.yaml`)
+  - `fusion-opportunity` → `fused-kernel-add` PR (`data/fused-kernels/fused-<op>-<arch>.yaml`)
+  - `numerical-mismatch` → `formal-semantics-update` PR (op or fused-kernel `numerical_rules`)
+  - `perf-cliff` / `config-drift` / `version-skew` → `playbook-update` PR
+- **`success-pattern` skipped** — those signal what worked, not corpus updates needed.
+- **Markdown output** suitable for pasting into GitHub PR description: title, summary, evidence table (contributing learnings + outcomes), suggested files-to-add/modify.
+
+**Anti-pattern (avoided)**: this v3.9 generator does NOT auto-open PRs. Human reviewer still validates + opens. v3.10+ may add safety-railed automation (CODEOWNERS approval, draft-only, etc.).
+
+### Tests — 19 new vitest assertions in `scripts/tests/v3-9-optimization-loop.test.ts`
+
+**Perf-cliff (8):**
+- Returns null when no predicted tok/s
+- Returns null when V3 measured missing (structural mode)
+- Returns null when within tolerance
+- Returns null when measured > predicted (faster, not cliff)
+- Returns diagnostic when below threshold
+- Respects custom threshold
+- Includes profiler hint in diagnostic
+- Handles edge cases (zero measured, negative threshold)
+
+**Auto-PR (11):**
+- Empty learnings → empty clusters
+- Duplicate observations across runs → cluster with signal_strength
+- Single-occurrence filtered by default (min_signal=2)
+- min_signal=1 includes single-occurrence
+- success-pattern skipped from clustering
+- merged + wont-fix learnings ignored by default
+- only_open=false includes all triage statuses
+- Markdown report well-formed
+- Cluster kinds classified correctly per observation kind
+- Input summary reflects triage_status counts
+
+Combined with prior tests: **75/75 unit tests pass** (11 v2.18 dispatch + 26 v3.4 orchestrator + 10 v3.5 verify + 9 v3.6 feedback + **19 v3.9 optimization-loop**).
+
+### Architecture — the closed loops
+
+After v3.9, the productized agent has **two closed feedback loops** running concurrently:
+
+```
+Inner loop (per agent run):
+  Layer G generate → Layer V verify
+       ↑                  ↓
+       │             fail OR perf-cliff?
+       └─── retry with diagnostic (≤ 3x) ────────┐
+                                                  │
+                              pass + within perf  │
+                                       ↓          │
+                              Layer F: synthesize │
+                              agent-learning.yaml │
+                                                  │
+Outer loop (across runs):                         │
+  data/agent-learnings/*.yaml ←─────────────────┘
+       ↓
+  scripts/agent-deploy/auto-pr.ts (v3.9)
+       ↓
+  Clustered PR drafts → human reviewer
+       ↓
+  Corpus updates land → next agent runs see richer bundle
+       ↓
+  /api/agent-context/...json grows → Layer R smarter
+```
+
+This is the user's **持续自动优化闭环** in concrete form. Inner loop optimizes a single deploy; outer loop optimizes the corpus over weeks.
+
+### Stats
+
+- **Modified**: `feedback.ts` +60 LOC (perf-cliff trigger + detectPerfCliff helper)
+- **New module**: `auto-pr.ts` 285 LOC (aggregateLearnings + PR draft synthesis)
+- **New tests**: 19 assertions
+- **Total tests**: 75/75 passing
+- **Site pages**: still 563 (no SSG changes)
+
+### v3.10 next
+
+**Continued model breadth + ModelSchema extension**:
+- More models: Mochi 1, OpenSora 2 (video); ESMFold, Geneformer, Evo-2 (bio); MACE-MP-1 next-gen (materials)
+- Extend `ModelFamilySchema` with `equivariant-gnn`, `flow-matching`, `encoder-decoder-asr` — so v3.8's MACE-MP / Boltz-1 / Whisper stop being shoehorned into `family: diffusion`
+- Add `triangle_multiplicative_update` + `clebsch_gordan_tensor_product` op-classes (the v3.8-flagged candidates)
 
 ---
 

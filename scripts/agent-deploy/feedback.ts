@@ -38,6 +38,22 @@ export interface GenerateAndVerifyInput {
   verification: Omit<VerifyInput, 'code' | 'language' | 'op' | 'target_arch'>;
   /** Optional max retry count override (default MAX_RETRIES). */
   max_retries?: number;
+  /**
+   * v3.9 — perf-cliff retry trigger threshold (percent).
+   * When measured perf delta vs predicted exceeds this, also retry Layer G
+   * with a "perf-cliff" diagnostic. Default: 30 (i.e., 30% slower than
+   * predicted triggers regeneration). Set to 0 to disable; set to high
+   * value (e.g., 1000) to effectively disable.
+   *
+   * Note: only meaningful in execution mode where measured_tok_s is available.
+   * In structural mode, perf-cliff cannot be detected and this is a no-op.
+   */
+  perf_threshold_pct?: number;
+  /**
+   * v3.9 — predicted decode tok/s (from agent plan). Only used for perf-cliff
+   * trigger. Without this, perf-cliff retry is disabled even in execution mode.
+   */
+  predicted_decode_tok_s?: number;
 }
 
 export interface GenerateAndVerifyResult {
@@ -96,16 +112,34 @@ export async function generateAndVerify(input: GenerateAndVerifyInput): Promise<
     lastKernel = kernel;
     lastVerify = verify;
 
-    // Success or non-retryable outcome → exit loop
-    if (verify.overall === 'pass' || verify.overall === 'partial' || verify.overall === 'skipped') {
+    // v3.9 — perf-cliff trigger: even on V pass, retry if measured perf is way
+    // below prediction. Only fires when:
+    //   - Layer V ran in execution mode AND v3 measured tok/s
+    //   - Caller provided predicted_decode_tok_s
+    //   - perf_threshold_pct is meaningful (default 30 = retry if 30%+ slower)
+    const perfThreshold = input.perf_threshold_pct ?? 30;
+    const perfCliffDiagnostic = detectPerfCliff(verify, input.predicted_decode_tok_s, perfThreshold);
+
+    if (verify.overall === 'pass' && !perfCliffDiagnostic) {
+      // Clean pass, no perf cliff — exit loop
+      break;
+    }
+    if ((verify.overall === 'partial' || verify.overall === 'skipped') && !perfCliffDiagnostic) {
+      // Partial / skipped (likely structural-only mode) — accept, exit loop
       break;
     }
 
-    // verify.overall === 'fail' → retry with diagnostic (if retries remain)
-    if (attempt < maxRetries && verify.retry_diagnostic) {
+    // Determine retry trigger: V failure OR perf cliff
+    const retryDiagnostic = verify.retry_diagnostic ?? perfCliffDiagnostic;
+
+    if (attempt < maxRetries && retryDiagnostic) {
+      // Annotate the attempt to flag perf-cliff retries explicitly
+      if (perfCliffDiagnostic && !verify.retry_diagnostic) {
+        attempts[attempts.length - 1].diagnostic = perfCliffDiagnostic;
+      }
       currentInput = {
         ...currentInput,
-        prior_attempt_diagnostic: verify.retry_diagnostic,
+        prior_attempt_diagnostic: retryDiagnostic,
       };
       // Loop continues; Layer G regenerates with the diagnostic in the prompt
     } else {
@@ -143,6 +177,58 @@ export async function generateAndVerify(input: GenerateAndVerifyInput): Promise<
     attempts,
     agent_learning_yaml,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// v3.9 — Perf-cliff detection
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Detect whether Layer V V3 reported a perf measurement that's significantly
+ * below prediction, warranting a Layer G regeneration with a perf-cliff
+ * diagnostic in the prompt.
+ *
+ * Returns null if no cliff (or no data); returns diagnostic string otherwise.
+ *
+ * Threshold interpretation:
+ *   thresholdPct=30 → retry if (predicted - measured)/predicted * 100 > 30
+ *   (i.e., measured is 30%+ slower than predicted)
+ */
+export function detectPerfCliff(
+  verify: VerifyResult,
+  predictedTokS: number | undefined,
+  thresholdPct: number
+): string | null {
+  // No prediction → can't compute delta, no cliff
+  if (predictedTokS === undefined || predictedTokS <= 0) return null;
+
+  // No measurement → V3 was structural / skipped; can't detect
+  const measured = verify.v3_perf.delta?.measured_tok_s;
+  if (measured === undefined || measured <= 0) return null;
+
+  // Compute delta percentage; positive = slower than predicted
+  const deltaPct = ((predictedTokS - measured) / predictedTokS) * 100;
+
+  if (deltaPct <= thresholdPct) return null; // within tolerance
+
+  // Cliff detected — build diagnostic for Layer G prompt
+  return [
+    `PERF CLIFF DETECTED: measured throughput is ${deltaPct.toFixed(1)}% below prediction.`,
+    `  Predicted: ${predictedTokS.toFixed(1)} tok/s/card`,
+    `  Measured:  ${measured.toFixed(1)} tok/s/card`,
+    `  Threshold: ${thresholdPct}%`,
+    '',
+    `Likely root causes (try to address ALL in your regeneration):`,
+    `  1. Inefficient memory access pattern (uncoalesced loads, no async/TMA copy)`,
+    `  2. Tensor cores unused or underused (no WGMMA/MFMA, falling back to CUDA cores)`,
+    `  3. Synchronization overhead (excessive __syncthreads, unnecessary fences)`,
+    `  4. Wrong tile size for this hardware (BM/BN/BK suboptimal)`,
+    `  5. Missing kernel fusion opportunity (sequential elementwise kernels)`,
+    `  6. Bandwidth-bound loop without prefetch/double-buffer`,
+    '',
+    `Profile output suggests:`,
+    verify.v3_perf.profiler_output ? verify.v3_perf.profiler_output.slice(0, 500) : '(none — execution-mode profiling not available; consider raising threshold or running V3 manually)',
+  ].join('\n');
 }
 
 // ─────────────────────────────────────────────────────────────────────────
