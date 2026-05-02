@@ -6,7 +6,105 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.7 — Productized Codex + Claude Code plugins** (wrap the 5-layer R→P→G→V→F pipeline as `agent_full_pipeline` MCP tool + Claude Code skill + Codex prompt presets — the user's "ship as plugin/skill" promise).
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.8 — Continuous optimization loop** (Layer F observations drive Layer P heuristic updates automatically; v3.7 manual, v3.8 auto-tuning) AND **hardware/model breadth completion** (RTX 5070 Ti, RX 9070 non-XT, Sophgo BM1684X, Horizon Journey 5, video/image-gen/speech/bio models).
+
+---
+
+## [3.7.0] — 2026-05-03 — Productized Codex + Claude Code plugins
+
+🎯 **MILESTONE: the 5-layer agent is now user-callable from any agent IDE.** Wraps the v3.3-v3.6 R→P→G→V→F pipeline as MCP tools + Claude Code skill + Codex prompt presets. Fulfills the user directive:
+
+> 在 codex/claude code 提供完整能端到端交付的 skill 或 plugin
+
+### Added
+
+**1. `plugins/claude-code-productized/SKILL.md`** — Claude Code skill that wraps the v3.6 `generateAndVerify()` orchestrator. Includes:
+- When-to-use guidance (vs older `evokernel-deploy` v2.x skill)
+- 5-layer pipeline diagram + invocation patterns
+- Single-command and step-by-step usage
+- Environment variable spec (ANTHROPIC_API_KEY, EVOKERNEL_LLM_MODEL, EVOKERNEL_OFFLINE_ONLY, EVOKERNEL_TEST_MODE)
+- Cost expectations ($0.05-$1.00 per full deploy; $0 for cache hits)
+- Hardware ID reference (all 57 cards)
+- Output handling (verification summary, agent-learning YAML, kernel files)
+
+**2. `plugins/codex-productized/README.md`** — Codex CLI integration guide:
+- MCP server setup (`~/.config/codex/mcp.json` config)
+- 4 usage patterns (full deploy / single kernel / verify hand-written / context-only)
+- Cost expectations
+- v2.x query MCP vs v3.7 productized comparison table
+- Slash command shortcut for Codex 0.7+
+- Troubleshooting (skeleton-mode fallback diagnosis, kernel-gap-blocked recovery)
+
+**3. `plugins/mcp-server/index.ts`** — extended with **3 new MCP tools** (was 6, now 9):
+
+- **`evokernel_agent_context`** — Layer R smart-retrieval. Fetches the pre-generated bundle for (model, hardware) pair from `/api/agent-context/<model>-on-<hardware>.json`. The full RAG context an LLM needs in one call.
+- **`evokernel_verify_kernel`** — Layer V verification on arbitrary code. Wraps `runVerification()` from v3.5. V1/V2/V3 gates, structural mode default, optional execution mode. Returns Markdown summary + structured result.
+- **`evokernel_agent_full_pipeline`** — the crown jewel. Full R→P→G→V→F pipeline via `generateAndVerify()` from v3.6. Takes (model, hardware, op), returns: outcome (shipped/partial/kernel-gap-blocked) + final kernel code + verification result + agent-learning YAML. Bounded retries (max 3) with diagnostic-driven regeneration on V failure.
+
+### MCP tool inventory
+
+| Tool | Layer | Since |
+|---|---|---|
+| `evokernel_query_hardware` | (utility) | v2.11 |
+| `evokernel_query_operator` | (utility) | v2.11 |
+| `evokernel_query_isa` | (utility) | v2.11 |
+| `evokernel_solve` | (utility) | v2.11 |
+| `evokernel_coverage_matrix` | (utility) | v2.11 |
+| `evokernel_plan_deployment` | P (planning) | v2.13 |
+| **`evokernel_agent_context`** | **R (retrieval)** | **v3.7** |
+| **`evokernel_verify_kernel`** | **V (verification)** | **v3.7** |
+| **`evokernel_agent_full_pipeline`** | **R+P+G+V+F (end-to-end)** | **v3.7** |
+
+### Usage patterns (Codex / Claude Code)
+
+```
+> Use evokernel-productized to deploy DeepSeek V4 Pro on Cambricon MLU590 for chat workload.
+```
+
+→ Codex / Claude calls `evokernel_agent_full_pipeline(model=deepseek-v4-pro, hardware=mlu590, op=fused-rope-qkv)`. Returns full pipeline result with generated kernel + verification + agent-learning YAML.
+
+```
+> I wrote this CUDA kernel for attention on Hopper. Verify it.
+[paste code]
+```
+
+→ Codex calls `evokernel_verify_kernel(code=..., language=cuda-cpp, op=attention, target_arch=hopper)`. Returns V1/V2/V3 status + Markdown summary.
+
+```
+> What do I need to know to manually port FlashAttention to Ascend 910C?
+```
+
+→ Codex calls `evokernel_agent_context(model=any-llm, hardware=ascend-910c)`. Returns full knowledge bundle (formal_semantics + DSL examples + ISA primitives + prior agent-learnings).
+
+### Why this matters
+
+Before v3.7, the productized agent was a CLI-only Node.js library. No external IDE could invoke it directly. With v3.7:
+
+- **Claude Code users**: install the skill → ask "deploy X on Y" → Claude orchestrates the full pipeline
+- **Codex CLI users**: configure MCP → use slash command `/deploy MODEL=X HARDWARE=Y` → Codex orchestrates
+- **Cursor users**: existing `plugins/cursor-rules/` provides MDC rules; v3.8 will add productized integration
+- **Custom agents**: import `feedback.ts:generateAndVerify()` directly
+
+The architecture spec promised "shippable as plugin/skill" — v3.7 delivers it. The end-to-end scenario from the architecture spec § "Success criteria for v3.10" is now achievable from any MCP-capable IDE:
+
+> User runs `claude-code --skill evokernel-productized-agent "deploy DeepSeek V4 Pro on Cambricon MLU590"`. Claude Code → agent_full_pipeline → real kernels generated + verified + agent-learning emitted → user reviews + commits PR.
+
+### Stats
+
+- **3 new MCP tools** (6 → 9 tools)
+- **2 new plugin packages** (`claude-code-productized/`, `codex-productized/`)
+- **Total tests**: still 56/56 passing (no test regressions)
+- **Site pages**: still 542
+- **Plugin surfaces**: 4 → 6 (existing 4 + 2 productized variants)
+
+### v3.8 next
+
+**Continuous optimization loop** — close the auto-tuning sub-loop:
+1. Layer F observations (perf-cliff, success-pattern with delta) feed back into Layer P heuristic weights
+2. v3.7 retry loop fires on V failure; v3.8 also fires on **perf cliff** (predicted vs measured >30%)
+3. Auto-PR generation from accumulated `agent-learning.yaml` entries with similar `proposed_corpus_update`
+
+Plus continued **hardware/model breadth** completion: RTX 5070 Ti, RX 9070 non-XT, Sophgo BM1684X, Horizon Journey 5, first video/image-gen/speech/bio models.
 
 ---
 

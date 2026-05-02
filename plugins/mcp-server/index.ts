@@ -148,6 +148,63 @@ const TOOLS: Tool[] = [
         config_path: { type: 'string', description: 'Path to local model config.json (offline / private models).' }
       }
     }
+  },
+  {
+    name: 'evokernel_agent_context',
+    description:
+      'v3.7 — Layer R: smart-retrieval bundle for given (model, hardware) pair. Returns the FULL knowledge bundle an LLM-orchestrator needs in ONE fetch: model + execution graphs + hardware + vendor + applicable_ops (with formal_semantics) + applicable_fused_kernels (with formal_semantics) + dsl_examples + isa_primitives + kernel_libraries + engine_compile_workflows + prior_learnings + coverage_hints. Pre-built at SSG time as 1140 static JSON files. Use this to seed any agent that needs corpus context.',
+    inputSchema: {
+      type: 'object',
+      required: ['model', 'hardware'],
+      properties: {
+        model: { type: 'string', description: 'Model id from corpus (e.g. "deepseek-v4-pro").' },
+        hardware: { type: 'string', description: 'Hardware id from corpus (e.g. "h100-sxm5").' }
+      }
+    }
+  },
+  {
+    name: 'evokernel_verify_kernel',
+    description:
+      'v3.7 — Layer V: run V1/V2/V3 verification gates on arbitrary kernel code. V1 build (structural checks + optional compile), V2 correctness (op-class structural invariants + numerical_rules cross-checks), V3 perf-friendliness checks. Returns pass/fail/partial + Markdown summary + retry_diagnostic for Layer G regeneration. Structural mode is CI-safe; execution mode requires target hardware.',
+    inputSchema: {
+      type: 'object',
+      required: ['code', 'language', 'op', 'target_arch'],
+      properties: {
+        code: { type: 'string', description: 'Generated kernel code to verify.' },
+        language: {
+          type: 'string',
+          enum: ['cuda-cpp', 'hip', 'ascend-c', 'bang-c', 'musa-c', 'br-cuda', 'metal', 'triton'],
+          description: 'Source language of the kernel.'
+        },
+        op: { type: 'string', description: 'Op id (matmul / attention / rmsnorm / expert-permute / allreduce / etc.) — drives V2 op-class invariant checks.' },
+        target_arch: { type: 'string', description: 'Target arch family (hopper / cdna3 / ascend-da-vinci-3 / cambricon-mlu / etc.).' },
+        execution_mode: {
+          type: 'boolean',
+          default: false,
+          description: 'If true, attempts real compile/run (requires target compiler/hardware in PATH). Default: false (structural-only, CI-safe).'
+        }
+      }
+    }
+  },
+  {
+    name: 'evokernel_agent_full_pipeline',
+    description:
+      'v3.7 PRODUCTIZED AGENT — full R→P→G→V→F end-to-end pipeline. Takes (model, hardware, op) and runs: Layer R smart context fetch → Layer G real-code generation via Anthropic Claude API (requires ANTHROPIC_API_KEY env) → Layer V build+correctness+perf verification → Layer F retry-on-fail with diagnostic (≤3 attempts) → Layer F auto-emit agent-learning.yaml. Returns: outcome (shipped/partial/kernel-gap-blocked) + final kernel + verification result + attempt history + agent-learning YAML stub. Without ANTHROPIC_API_KEY: skeleton fallback mode (v2.16 path). EVOKERNEL_TEST_MODE=true: deterministic stubs for testing.',
+    inputSchema: {
+      type: 'object',
+      required: ['model', 'hardware', 'op'],
+      properties: {
+        model: { type: 'string', description: 'Model id from corpus (e.g. "deepseek-v4-pro").' },
+        hardware: { type: 'string', description: 'Hardware id from corpus (e.g. "h100-sxm5", "mlu590").' },
+        op: { type: 'string', description: 'Op id to generate (e.g. "fused-rope-qkv", "matmul", "expert-permute").' },
+        max_retries: { type: 'number', default: 3, description: 'Max LLM regenerations on V failure (cost/quality trade-off).' },
+        execution_mode: {
+          type: 'boolean',
+          default: false,
+          description: 'If true: V1 attempts compile, V2 attempts PyTorch comparison (v3.6+ only), V3 attempts profiling (v3.6+ only). Default: structural-only (CI-safe).'
+        }
+      }
+    }
   }
 ];
 
@@ -262,6 +319,108 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       } catch (e: any) {
         return {
           content: [{ type: 'text', text: `❌ agent-deploy failed: ${e.message || e}\n\nstdout:\n${e.stdout ?? ''}\nstderr:\n${e.stderr ?? ''}` }],
+          isError: true
+        };
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // v3.7 — productized agent surfaces
+    // ─────────────────────────────────────────────────────────────────
+
+    case 'evokernel_agent_context': {
+      // Fetch the pre-generated bundle for (model, hardware) directly
+      const bundlePath = `agent-context/${String(args.model)}-on-${String(args.hardware)}.json`;
+      try {
+        const bundle = await fetchJson(bundlePath);
+        return { content: [{ type: 'text', text: JSON.stringify(bundle, null, 2) }] };
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Bundle not found for (${args.model}, ${args.hardware}). Check /api/agent-context-index.json for valid pairs. Error: ${e.message ?? e}` }],
+          isError: true
+        };
+      }
+    }
+
+    case 'evokernel_verify_kernel': {
+      // Wrap scripts/agent-deploy/verify/index.ts. Run via subprocess to
+      // isolate from MCP server process state.
+      const verifyScript = path.join(REPO_ROOT, 'scripts/agent-deploy/verify/index.ts');
+      const verifyInput = JSON.stringify({
+        code: String(args.code),
+        language: String(args.language),
+        op: String(args.op),
+        target_arch: String(args.target_arch),
+        execution_mode: Boolean(args.execution_mode ?? false)
+      });
+      try {
+        const stdout = execFileSync(
+          'pnpm',
+          ['tsx', '-e', `import('${verifyScript}').then(async m => { const r = await m.runVerification(JSON.parse(process.argv[1])); console.log(JSON.stringify(r, null, 2)); })`, verifyInput],
+          { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }
+        );
+        const result = JSON.parse(stdout);
+        return {
+          content: [{ type: 'text', text: result.summary_md + '\n\nFull JSON:\n' + JSON.stringify(result, null, 2) }],
+          isError: result.overall === 'fail'
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Verification invocation failed: ${e.message ?? e}\n\nstderr:\n${e.stderr ?? ''}` }],
+          isError: true
+        };
+      }
+    }
+
+    case 'evokernel_agent_full_pipeline': {
+      // The crown jewel: full R→P→G→V→F via scripts/agent-deploy/feedback.ts
+      // Returns: outcome + kernel + verification + agent-learning YAML
+      const feedbackScript = path.join(REPO_ROOT, 'scripts/agent-deploy/feedback.ts');
+      const bundlePath = `agent-context/${String(args.model)}-on-${String(args.hardware)}.json`;
+      let bundle: any;
+      try {
+        bundle = await fetchJson(bundlePath);
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Layer R: bundle not found for (${args.model}, ${args.hardware}).` }],
+          isError: true
+        };
+      }
+      const opEntry = (bundle.bundle?.applicable_ops ?? []).find((o: any) => o.id === args.op)
+        ?? (bundle.bundle?.applicable_fused_kernels ?? []).find((k: any) => k.id === args.op);
+      const fullInput = JSON.stringify({
+        generation: {
+          bundle: bundle.bundle,
+          op: String(args.op),
+          target_arch: bundle.bundle?.hardware?.generation ?? String(args.hardware).split('-')[0],
+        },
+        verification: {
+          numerical_rules: opEntry?.formal_semantics?.numerical_rules,
+          reference_impl_python: opEntry?.formal_semantics?.reference_impl?.snippet,
+          execution_mode: Boolean(args.execution_mode ?? false),
+        },
+        max_retries: Number(args.max_retries ?? 3),
+      });
+      try {
+        const stdout = execFileSync(
+          'pnpm',
+          ['tsx', '-e', `import('${feedbackScript}').then(async m => { const r = await m.generateAndVerify(JSON.parse(process.argv[1])); console.log(JSON.stringify(r, null, 2)); })`, fullInput],
+          { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000 }
+        );
+        const result = JSON.parse(stdout);
+        const summary =
+          `# Productized Agent Pipeline — ${args.model} × ${args.hardware} × ${args.op}\n\n` +
+          `**Outcome:** ${result.outcome}  ·  **Attempts:** ${result.attempts.length}  ·  **Source:** ${result.kernel.source}\n\n` +
+          `## Verification\n${result.verification.summary_md}\n\n` +
+          `## Generated Code\n\`\`\`${result.kernel.language}\n${result.kernel.code.slice(0, 4000)}\n\`\`\`\n\n` +
+          `## Agent-Learning YAML (review + commit to data/agent-learnings/)\n\`\`\`yaml\n${result.agent_learning_yaml}\`\`\``;
+        return {
+          content: [{ type: 'text', text: summary }],
+          isError: result.outcome === 'kernel-gap-blocked'
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: `❌ Full-pipeline invocation failed: ${e.message ?? e}\n\nstderr:\n${e.stderr ?? ''}` }],
           isError: true
         };
       }
