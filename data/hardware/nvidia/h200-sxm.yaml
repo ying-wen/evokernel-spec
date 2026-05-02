@@ -73,6 +73,14 @@ scale_out:
   nic: ConnectX-7
 power:
   tdp_w: { value: 700, evidence_ref: ev-h200-001 }
+  sustained_w: { value: 600, evidence_ref: ev-h200-001 }
+  peak_w: { value: 700, evidence_ref: ev-h200-001 }
+  cooling: liquid-direct
+  operating_temp_c: { min: 5, max: 45 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 1.41, evidence_ref: ev-h200-001 }
+  power_connector: SXM-board
+  notes: 'SXM5 socket; same TDP as H100 but with HBM3e (141GB / 4.8 TB/s).'
 software_support:
   drivers: ['CUDA-12.x']
   engines:

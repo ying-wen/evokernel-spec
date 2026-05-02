@@ -1,0 +1,241 @@
+---
+/**
+ * /hardware/power-thermal-matrix/ — power & thermal envelope axis (v2.1).
+ *
+ * Closes a gap that affects deployment-readiness decisions:
+ * - Cooling readiness: can my data center support liquid? Which cards lock that in?
+ * - Power budgeting: per-rack / per-cabinet power cap drives card-count
+ * - Perf/watt ranking: directly informs $/M tokens at PUE-fixed datacenters
+ *
+ * Same schema-extension recipe as host_cpu / network_topology /
+ * storage_architecture / engine_capabilities.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getResolvedHardware } from '~/lib/data';
+
+const hardware = (await getResolvedHardware()).sort((a, b) =>
+  a.vendor.name.localeCompare(b.vendor.name) || a.name.localeCompare(b.name)
+);
+
+// Cards with v2.1 power-thermal data populated (anything beyond just tdp_w)
+const enriched = hardware.filter((h) =>
+  h.power.cooling != null || h.power.sustained_w != null || h.power.fp16_tflops_per_watt != null
+);
+
+// Grouped by cooling for the "by cooling" matrix
+const byCooling = new Map<string, typeof hardware>();
+for (const h of enriched) {
+  const c = h.power.cooling ?? 'unknown';
+  if (!byCooling.has(c)) byCooling.set(c, [] as typeof hardware);
+  byCooling.get(c)!.push(h);
+}
+
+// Sorted by perf/watt for the "leaderboard"
+const perfPerWatt = [...enriched]
+  .filter((h) => h.power.fp16_tflops_per_watt != null)
+  .sort((a, b) => (b.power.fp16_tflops_per_watt!.value) - (a.power.fp16_tflops_per_watt!.value));
+
+const COOLING_LABEL: Record<string, string> = {
+  'air': '风冷 Air',
+  'liquid-direct': '冷板液冷 Liquid (cold plate)',
+  'liquid-immersion': '浸没液冷 Immersion',
+  'hybrid-air-liquid': '风液混合 Hybrid',
+  'phase-change': '相变制冷 Phase change',
+  'passive-conduction': '无风扇导热 Passive',
+  'unknown': '未文档化 Unknown'
+};
+
+const COOLING_COLOR: Record<string, string> = {
+  'air': 'oklch(70% 0.18 70)',
+  'liquid-direct': 'oklch(60% 0.18 230)',
+  'liquid-immersion': 'oklch(50% 0.2 250)',
+  'hybrid-air-liquid': 'oklch(65% 0.18 150)',
+  'phase-change': 'oklch(55% 0.2 280)',
+  'passive-conduction': 'oklch(75% 0.15 110)',
+  'unknown': 'oklch(60% 0 0)'
+};
+---
+<BaseLayout title="电源 / 散热矩阵 — Power & Thermal">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="HARDWARE · POWER & THERMAL"
+        title="电源 / 散热矩阵"
+        subtitle={`${enriched.length} / ${hardware.length} 张卡填充 power-thermal 数据 · TDP / sustained / 散热类型 / 工作温度 / 性能每瓦`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        部署前看这页可以提前回答三个问题: <strong>(1) 我的机房支持液冷吗?</strong>
+        若仅风冷, B200 / B300 / MI355X 等液冷强制卡直接淘汰. <strong>(2) 我的电源 budget 够吗?</strong>
+        per-rack 功率上限 ÷ sustained_w 决定每柜卡数. <strong>(3) 性能每瓦排名?</strong>
+        在 PUE 固定的机房, fp16 TFLOPS / W 直接体现为 $/M tokens.
+      </p>
+    </section>
+
+    {/* Coverage stats */}
+    <section class="pb-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">总覆盖</div>
+        <div class="text-lg font-semibold">{enriched.length} / {hardware.length}</div>
+        <div class="text-xs" style="color: var(--color-text-muted);">{Math.round(enriched.length / hardware.length * 100)}% 卡有 v2.1 power data</div>
+      </div>
+      <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">最高 perf/W</div>
+        <div class="text-lg font-semibold">{perfPerWatt[0]?.name.split(' ').slice(-2).join(' ') ?? '—'}</div>
+        <div class="text-xs" style="color: var(--color-text-muted);">{perfPerWatt[0]?.power.fp16_tflops_per_watt?.value} fp16 TFLOPS/W</div>
+      </div>
+      <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">需液冷</div>
+        <div class="text-lg font-semibold">{(byCooling.get('liquid-direct')?.length ?? 0) + (byCooling.get('liquid-immersion')?.length ?? 0)}</div>
+        <div class="text-xs" style="color: var(--color-text-muted);">卡 · 风冷机房直接淘汰</div>
+      </div>
+      <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+        <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">最高 TDP</div>
+        <div class="text-lg font-semibold">{Math.max(...enriched.map((h) => h.power.tdp_w.value))} W</div>
+        <div class="text-xs" style="color: var(--color-text-muted);">单卡功耗上限</div>
+      </div>
+    </section>
+
+    {/* Detail matrix */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">📊 完整电源 / 散热矩阵</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        每行一张卡; TDP 是峰值上限, sustained 是真实推理工作负载下持续值 (通常 80-90% TDP). 散热类型决定机房改造投入.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 180px;">卡型号</th>
+              <th class="p-2 text-right" style="border-bottom: 1px solid var(--color-border);">TDP (W)</th>
+              <th class="p-2 text-right" style="border-bottom: 1px solid var(--color-border);">Sustained (W)</th>
+              <th class="p-2 text-right" style="border-bottom: 1px solid var(--color-border);">Peak (W)</th>
+              <th class="p-2 text-left" style="border-bottom: 1px solid var(--color-border);">散热</th>
+              <th class="p-2 text-right" style="border-bottom: 1px solid var(--color-border);">温度 (°C)</th>
+              <th class="p-2 text-right" style="border-bottom: 1px solid var(--color-border);">throttle</th>
+              <th class="p-2 text-right" style="border-bottom: 1px solid var(--color-border);">fp16 TFLOPS/W</th>
+              <th class="p-2 text-left" style="border-bottom: 1px solid var(--color-border);">连接器</th>
+            </tr>
+          </thead>
+          <tbody>
+            {enriched.map((h) => {
+              const cooling = h.power.cooling ?? 'unknown';
+              const ppw = h.power.fp16_tflops_per_watt?.value;
+              const isTopPpw = ppw != null && ppw === perfPerWatt[0]?.power.fp16_tflops_per_watt?.value;
+              return (
+                <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);">
+                  <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                    <a href={pathname(`/hardware/${h.id}/`)} class="hover:underline" style="color: var(--color-accent); font-weight: 500;">{h.name}</a>
+                    <div class="text-xs" style="color: var(--color-text-muted);">{h.vendor.name}</div>
+                  </td>
+                  <td class="p-2 text-right font-mono">{h.power.tdp_w.value}</td>
+                  <td class="p-2 text-right font-mono" style="color: var(--color-text-muted);">{h.power.sustained_w?.value ?? '—'}</td>
+                  <td class="p-2 text-right font-mono" style="color: var(--color-text-muted);">{h.power.peak_w?.value ?? '—'}</td>
+                  <td class="p-2">
+                    <span style={`display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; background: color-mix(in oklch, ${COOLING_COLOR[cooling]} 15%, transparent); color: ${COOLING_COLOR[cooling]};`}>
+                      {COOLING_LABEL[cooling]}
+                    </span>
+                  </td>
+                  <td class="p-2 text-right font-mono" style="color: var(--color-text-muted);">
+                    {h.power.operating_temp_c ? `${h.power.operating_temp_c.min ?? '—'} ~ ${h.power.operating_temp_c.max ?? '—'}` : '—'}
+                  </td>
+                  <td class="p-2 text-right font-mono" style="color: var(--color-text-muted);">{h.power.throttle_temp_c ?? '—'}</td>
+                  <td class="p-2 text-right font-mono" style={isTopPpw ? 'color: var(--color-accent); font-weight: 600;' : ''}>
+                    {ppw != null ? ppw.toFixed(2) : '—'}{isTopPpw ? ' 🏆' : ''}
+                  </td>
+                  <td class="p-2" style="color: var(--color-text-muted); font-size: 0.7rem;">{h.power.power_connector ?? '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Perf/watt leaderboard */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🏆 性能每瓦排行榜 — fp16 TFLOPS / W</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        在 PUE 固定的机房 (典型 1.2-1.5), 这个数字直接体现为 $/M tokens 的下界. 数字越高越好.
+      </p>
+      <div class="grid gap-2">
+        {perfPerWatt.slice(0, 10).map((h, idx) => {
+          const ppw = h.power.fp16_tflops_per_watt!.value;
+          const max = perfPerWatt[0].power.fp16_tflops_per_watt!.value;
+          const widthPct = (ppw / max) * 100;
+          return (
+            <a href={pathname(`/hardware/${h.id}/`)} class="block rounded p-3 border transition-transform hover:translate-x-0.5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex items-center justify-between gap-3 mb-1">
+                <div class="text-sm">
+                  <span style="color: var(--color-text-muted); font-weight: 600;">{(idx + 1).toString().padStart(2, '0')}.</span>
+                  <span class="ml-2 font-semibold">{h.name}</span>
+                  <span class="ml-2 text-xs" style="color: var(--color-text-muted);">{h.vendor.name}</span>
+                </div>
+                <div class="font-mono text-sm font-semibold">{ppw.toFixed(2)} TFLOPS/W</div>
+              </div>
+              <div style="height: 6px; background: color-mix(in oklch, var(--color-border) 40%, transparent); border-radius: 3px; overflow: hidden;">
+                <div style={`width: ${widthPct}%; height: 100%; background: var(--color-accent);`}></div>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+
+    {/* Cooling distribution */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">❄️ 散热类型分布</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        如果你的机房只有风冷, 任何 <strong>liquid-direct</strong> / <strong>liquid-immersion</strong> 卡都需要先做机房改造 — 通常是 6-12 个月的 critical path.
+      </p>
+      <div class="grid gap-3">
+        {[...byCooling.entries()].map(([cooling, cards]) => (
+          <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <div class="flex items-center gap-3 mb-3">
+              <span style={`display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: 600; background: color-mix(in oklch, ${COOLING_COLOR[cooling]} 18%, transparent); color: ${COOLING_COLOR[cooling]};`}>
+                {COOLING_LABEL[cooling]}
+              </span>
+              <span class="text-sm" style="color: var(--color-text-muted);">{cards.length} 张卡</span>
+            </div>
+            <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {cards.map((h) => (
+                <a href={pathname(`/hardware/${h.id}/`)} class="text-sm hover:underline" style="color: var(--color-accent);">
+                  {h.name} <span style="color: var(--color-text-muted); font-size: 0.7rem;">({h.power.tdp_w.value}W)</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* Decision shortcuts */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🎯 部署决策快捷</h2>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">仅风冷机房</div>
+          <p class="text-sm">候选: A100 / L40s / MLU590 / Ascend 910B / Gaudi 3 PCIe (HL-338).</p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">追求最低 $/M tokens</div>
+          <p class="text-sm">看 perf/W 排行榜前 3 + 机房 PUE — Blackwell 系优先 (B200 2.25 TFLOPS/W, MI355X 1.79).</p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">每柜 30kW 上限</div>
+          <p class="text-sm">8×H100 (5.6kW sustained) ✓; 8×B200 (6.8kW) ✓; 8×B300 (9.6kW) ⚠ 接近上限; NVL72 整机 130kW 需要 50kW+ 的高密度柜.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Note: TDP / sustained / cooling 数据来自各厂商产品页 / datasheet (accessed 2026-04). fp16 TFLOPS/W 计算自 fp16_tflops ÷ tdp_w.
+        欢迎 PR 补全剩余 {hardware.length - enriched.length} 张卡的数据 — 编辑 <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 0 4px; border-radius: 3px;">data/hardware/&lt;vendor&gt;/&lt;id&gt;.yaml</code> 的 power: 块.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

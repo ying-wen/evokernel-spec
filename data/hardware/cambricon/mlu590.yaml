@@ -47,6 +47,14 @@ scale_out:
   protocol: RoCEv2
 power:
   tdp_w: { value: 350, evidence_ref: ev-mlu590-001 }
+  sustained_w: { value: 300, evidence_ref: ev-mlu590-001 }
+  peak_w: { value: 350, evidence_ref: ev-mlu590-001 }
+  cooling: air
+  operating_temp_c: { min: 5, max: 50 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 1.21, evidence_ref: ev-mlu590-001 }
+  power_connector: 12V-2x6
+  notes: 'PCIe 双槽风冷; 国产推理主流低功耗选项. 单卡能效相对接近 H100/W (但绝对算力低)。'
 software_support:
   drivers: ['Neuware-3.x']
   engines:

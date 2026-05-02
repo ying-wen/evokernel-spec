@@ -49,6 +49,14 @@ scale_out:
   protocol: RoCEv2
 power:
   tdp_w: { value: 400, evidence_ref: ev-asc910b-001 }
+  sustained_w: { value: 350, evidence_ref: ev-asc910b-001 }
+  peak_w: { value: 400, evidence_ref: ev-asc910b-001 }
+  cooling: air
+  operating_temp_c: { min: 5, max: 55 }
+  throttle_temp_c: 105
+  fp16_tflops_per_watt: { value: 0.96, evidence_ref: ev-asc910b-001 }
+  power_connector: proprietary-board
+  notes: 'Atlas 800/900 风冷部署主力. 单 die 设计 (相比 910C dual-die).'
 software_support:
   drivers: ['CANN-7.0', 'CANN-8.0']
   engines:

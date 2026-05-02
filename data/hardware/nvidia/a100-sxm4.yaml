@@ -72,6 +72,14 @@ scale_out:
   nic: ConnectX-6
 power:
   tdp_w: { value: 400, evidence_ref: ev-a100-001 }
+  sustained_w: { value: 350, evidence_ref: ev-a100-001 }
+  peak_w: { value: 400, evidence_ref: ev-a100-001 }
+  cooling: air
+  operating_temp_c: { min: 5, max: 50 }
+  throttle_temp_c: 92
+  fp16_tflops_per_watt: { value: 0.78, evidence_ref: ev-a100-001 }
+  power_connector: SXM-board
+  notes: 'SXM4 socket; air-cooled in HGX A100. PCIe variant available (300W TDP). Lower fp16/W than Hopper but mature ecosystem.'
 software_support:
   drivers: ['CUDA-11.x', 'CUDA-12.x']
   engines:

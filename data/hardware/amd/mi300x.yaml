@@ -74,6 +74,14 @@ scale_out:
   protocol: RoCEv2
 power:
   tdp_w: { value: 750, evidence_ref: ev-mi300x-001 }
+  sustained_w: { value: 650, evidence_ref: ev-mi300x-001 }
+  peak_w: { value: 750, evidence_ref: ev-mi300x-001 }
+  cooling: liquid-direct
+  operating_temp_c: { min: 5, max: 45 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 1.74, evidence_ref: ev-mi300x-001 }
+  power_connector: OAM-board
+  notes: 'OAM (Open Accelerator Module). Available in air-cooled (MI300X-A, 600W) variant; flagship is liquid. Best HBM/W in production: 192GB / 5.3 TB/s at 750W.'
 software_support:
   drivers: ['ROCm-6.x']
   engines:

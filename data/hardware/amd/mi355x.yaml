@@ -66,6 +66,14 @@ scale_out:
   protocol: RoCEv2
 power:
   tdp_w: { value: 1400, evidence_ref: ev-mi355x-001 }
+  sustained_w: { value: 1200, evidence_ref: ev-mi355x-001 }
+  peak_w: { value: 1400, evidence_ref: ev-mi355x-001 }
+  cooling: liquid-direct
+  operating_temp_c: { min: 5, max: 35 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 1.79, evidence_ref: ev-mi355x-001 }
+  power_connector: OAM-board
+  notes: 'OAM. Liquid mandatory. CDNA4 architecture; FP4 native (1× the FLOPS of MI300X at 1.87× power).'
 software_support:
   drivers: ['ROCm-6.x']
   engines:

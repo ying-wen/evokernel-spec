@@ -10,6 +10,41 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
 
 ---
 
+## [2.1.0] — 2026-05-02
+
+**Theme**: Hardware power & thermal envelope axis — first post-GA additive feature, addressing data-center deployment-readiness questions (cooling, power budget, perf/watt).
+
+### Added
+- **Hardware schema extended** (`schemas/hardware.ts`) with 9 new optional power/thermal fields:
+  - `sustained_w` / `peak_w` (vs existing TDP)
+  - `cooling`: air / liquid-direct / liquid-immersion / hybrid-air-liquid / phase-change / passive-conduction / unknown
+  - `operating_temp_c` (min/max ambient)
+  - `throttle_temp_c` (die thermal limit)
+  - `fp16_tflops_per_watt` / `int8_tops_per_watt` (perf/watt rankings)
+  - `power_connector` (12V-2x6 / SXM-board / OAM-board / etc.)
+  - `notes`
+- **14 flagship cards populated** (NVIDIA H100/H200/B200/B300/A100/L40s, AMD MI300X/MI325X/MI355X, Huawei 910B/910C, Intel Gaudi 3, Cambricon MLU590, AWS Trainium 2). All optional, so the remaining 25 cards stay valid.
+- **`/hardware/power-thermal-matrix/`** — new view answering 3 deployment-readiness questions:
+  - "Will my data center support this card?" — cooling type (air vs liquid-required) is filterable
+  - "What's my per-rack capacity?" — TDP × card-count vs rack PDU budget
+  - "Best $/M tokens at fixed PUE?" — fp16 TFLOPS/W leaderboard
+  - Plus cooling-type distribution + 3 decision shortcut cards
+- **Per-hardware detail page** gains a Power & Thermal section (only renders when extended fields populated — graceful degrade for cards without).
+- **nav-groups.ts**: `电源散热矩阵` entry added to tools dropdown (theme: accent).
+- **i18n**: `nav.powerThermalMatrix` zh="电源散热矩阵" / en="Power & thermal matrix".
+- **6 v2.1 E2E tests** covering matrix structure, cooling badges, decision shortcuts, detail-page surfacing, callout link.
+
+### Why
+Cooling readiness determines whether a card is even deployable in a given facility — Blackwell-class (B200/B300/MI355X) is liquid-mandatory. Per-rack power budget × TDP determines real card count, not the FLOPS-equivalence math. fp16 TFLOPS/W directly drives $/M tokens at PUE-fixed datacenters. None of this was filterable before v2.1; the data was scattered across vendor product pages.
+
+### Stats
+- 6 new v2.1 E2E tests pass · full suite green
+- Build: 452 pages (was 451)
+- 14/39 cards (36%) have power-thermal data; remaining 25 are PR opportunities
+- Schema is backward-compatible (all new fields optional)
+
+---
+
 ## [2.0.0] — 2026-05-02 — GA
 
 **First stable public release** after 27 single-themed iterations (v1.17 → v1.43).

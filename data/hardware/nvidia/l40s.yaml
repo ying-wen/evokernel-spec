@@ -66,6 +66,14 @@ scale_out:
   nic: ConnectX-7
 power:
   tdp_w: { value: 350, evidence_ref: ev-l40s-001 }
+  sustained_w: { value: 300, evidence_ref: ev-l40s-001 }
+  peak_w: { value: 350, evidence_ref: ev-l40s-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 50 }
+  throttle_temp_c: 89
+  fp16_tflops_per_watt: { value: 0.52, evidence_ref: ev-l40s-001 }
+  power_connector: 12V-2x6
+  notes: 'Dual-slot PCIe air-cooled; designed for inference servers without liquid infrastructure. GDDR6 memory (no HBM) reflects in lower TFLOPS/W.'
 software_support:
   drivers: ['CUDA-12.x']
   engines:

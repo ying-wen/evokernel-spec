@@ -54,6 +54,14 @@ scale_out:
   protocol: RoCEv2
 power:
   tdp_w: { value: 700, evidence_ref: ev-asc910c-001 }
+  sustained_w: { value: 600, evidence_ref: ev-asc910c-001 }
+  peak_w: { value: 700, evidence_ref: ev-asc910c-001 }
+  cooling: liquid-direct
+  operating_temp_c: { min: 5, max: 50 }
+  throttle_temp_c: 105
+  fp16_tflops_per_watt: { value: 1.0, evidence_ref: ev-asc910c-001 }
+  power_connector: proprietary-board
+  notes: '910C 是 dual-die package; CloudMatrix 384 集成液冷. 单卡也可风冷部署但目标是大规模 super-pod 整体液冷.'
 software_support:
   drivers: ['CANN-8.0', 'CANN-8.1']
   engines:

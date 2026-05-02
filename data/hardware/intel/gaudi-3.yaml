@@ -49,6 +49,14 @@ scale_out:
   protocol: RoCEv2
 power:
   tdp_w: { value: 900, evidence_ref: ev-gaudi3-001 }
+  sustained_w: { value: 750, evidence_ref: ev-gaudi3-001 }
+  peak_w: { value: 900, evidence_ref: ev-gaudi3-001 }
+  cooling: liquid-direct
+  operating_temp_c: { min: 5, max: 35 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 1.61, evidence_ref: ev-gaudi3-001 }
+  power_connector: OAM-board
+  notes: 'OAM. PCIe HL-338 variant available at 600W (air-cooled). 24×200GbE on-die NICs differentiate from peers.'
 software_support:
   drivers: ['Habana SynapseAI']
   engines:

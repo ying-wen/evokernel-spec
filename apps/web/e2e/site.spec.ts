@@ -627,6 +627,53 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.1: /hardware/power-thermal-matrix/ — power & thermal envelope', () => {
+  test('/hardware/power-thermal-matrix/ renders header + 4 stat cards + table + leaderboard', async ({ page }) => {
+    await page.goto('/hardware/power-thermal-matrix/');
+    await expect(page.getByRole('heading', { name: /电源.*散热|Power.*Thermal/i }).first()).toBeVisible();
+    // Coverage stats card present
+    await expect(page.getByText(/v2\.1 power data|总覆盖|coverage/i).first()).toBeVisible();
+    // Detail matrix has TDP / Sustained / cooling / TFLOPS/W columns
+    await expect(page.getByText(/TDP \(W\)|fp16 TFLOPS\/W/i).first()).toBeVisible();
+    // Leaderboard section present
+    await expect(page.getByText(/性能每瓦排行|leaderboard|TFLOPS \/ W/i).first()).toBeVisible();
+  });
+
+  test('Power-thermal matrix shows ✓ data for ≥10 cards', async ({ page }) => {
+    await page.goto('/hardware/power-thermal-matrix/');
+    // Should have multiple cooling badges (one per row)
+    const coolingBadges = page.locator('span', { hasText: /风冷|液冷|Air|Liquid/i });
+    expect(await coolingBadges.count()).toBeGreaterThanOrEqual(8);
+  });
+
+  test('Cooling distribution section groups cards by cooling type', async ({ page }) => {
+    await page.goto('/hardware/power-thermal-matrix/');
+    await expect(page.getByText(/散热类型分布|Cooling distribution/i).first()).toBeVisible();
+    // air + liquid sections
+    await expect(page.getByText(/液冷|Liquid|cold plate/i).first()).toBeVisible();
+  });
+
+  test('Decision shortcuts section has 3 deployment scenarios', async ({ page }) => {
+    await page.goto('/hardware/power-thermal-matrix/');
+    await expect(page.getByText(/部署决策快捷|Decision/i).first()).toBeVisible();
+    await expect(page.getByText(/风冷机房|air-only/i).first()).toBeVisible();
+    await expect(page.getByText(/perf\/W|TFLOPS\/W/i).first()).toBeVisible();
+  });
+
+  test('Per-hardware detail page surfaces power-thermal section (H100)', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    await expect(page.getByRole('heading', { name: /电源.*散热|Power.*Thermal/i }).first()).toBeVisible();
+    // sustained + cooling + perf/watt all present for H100
+    await expect(page.getByText(/Sustained|液冷|liquid-direct|TFLOPS \/ W/i).first()).toBeVisible();
+  });
+
+  test('Per-hardware detail page links to matrix', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    const matrixLink = page.locator('a[href$="/hardware/power-thermal-matrix/"]').first();
+    await expect(matrixLink).toBeVisible();
+  });
+});
+
 test.describe('v1.43: /learn/migrations/ — migration playbooks', () => {
   test('/learn/migrations/ hub renders 4 migration cards + 7-step framework', async ({ page }) => {
     await page.goto('/learn/migrations/');

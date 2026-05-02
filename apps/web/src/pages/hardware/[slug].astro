@@ -196,6 +196,44 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
       )}
     </section>
 
+    {/* v2.1: power-thermal envelope detail (only when extended fields present) */}
+    {(hw.power.cooling || hw.power.sustained_w || hw.power.fp16_tflops_per_watt || hw.power.operating_temp_c || hw.power.power_connector) && (
+      <section class="pb-8" id="power-thermal">
+        <h3 class="text-lg font-semibold mb-3">⚡ 电源 / 散热</h3>
+        <div class="grid lg:grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">功耗</h4>
+            <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              <SpecRow label="TDP">{hw.power.tdp_w.value} W</SpecRow>
+              {hw.power.sustained_w && <SpecRow label="Sustained (持续)">{hw.power.sustained_w.value} W</SpecRow>}
+              {hw.power.peak_w && <SpecRow label="Peak (峰值)">{hw.power.peak_w.value} W</SpecRow>}
+              {hw.power.fp16_tflops_per_watt && <SpecRow label="fp16 TFLOPS / W">{hw.power.fp16_tflops_per_watt.value}</SpecRow>}
+              {hw.power.int8_tops_per_watt && <SpecRow label="int8 TOPS / W">{hw.power.int8_tops_per_watt.value}</SpecRow>}
+              {hw.power.power_connector && <SpecRow label="连接器">{hw.power.power_connector}</SpecRow>}
+            </div>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">散热 / 温度</h4>
+            <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+              {hw.power.cooling && <SpecRow label="散热类型">{hw.power.cooling}</SpecRow>}
+              {hw.power.operating_temp_c && (
+                <SpecRow label="工作温度 (°C)">
+                  {hw.power.operating_temp_c.min ?? '—'} ~ {hw.power.operating_temp_c.max ?? '—'}
+                </SpecRow>
+              )}
+              {hw.power.throttle_temp_c && <SpecRow label="Throttle 温度">{hw.power.throttle_temp_c} °C</SpecRow>}
+            </div>
+            {hw.power.notes && (
+              <p class="text-xs mt-3" style="color: var(--color-text-muted);">{hw.power.notes}</p>
+            )}
+          </div>
+        </div>
+        <p class="text-xs mt-4" style="color: var(--color-text-muted);">
+          → 横向对比所有卡的电源 / 散热: <a href={pathname('/hardware/power-thermal-matrix/')} class="underline" style="color: var(--color-accent);">/hardware/power-thermal-matrix/</a>
+        </p>
+      </section>
+    )}
+
     <section class="pb-8" id="interconnect">
       <div class="grid lg:grid-cols-2 gap-6">
         <div>

@@ -101,6 +101,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/calculator/capacity-planner/', labelKey: 'home.entry.capacityCalculator', desc_zh: '容量规划计算器 · 选模型/硬件 → 推荐卡数', desc_en: 'Capacity planner · pick (model × hw) → recommended cards' },
       { path: '/compare/', labelKey: 'nav.compare', desc_zh: '硬件对比 · 雷达图 / 表格 / Roofline 叠加', desc_en: 'Hardware compare · radar / table / Roofline overlay' },
       { path: '/servers/compare/', labelKey: 'nav.serversCompare', desc_zh: '超节点对比 · NVL72 vs Atlas vs CM384', desc_en: 'Compare super-pods · NVL72 vs Atlas vs CM384' },
+      { path: '/hardware/power-thermal-matrix/', labelKey: 'nav.powerThermalMatrix', desc_zh: '电源 / 散热矩阵 · TDP / 散热 / fp16 TFLOPS/W 排行', desc_en: 'Power / thermal matrix · TDP / cooling / perf-per-watt leaderboard', theme: 'accent' },
       { path: '/servers/host-cpu-matrix/', labelKey: 'nav.hostCpuMatrix', desc_zh: 'Host CPU 矩阵 · 14/14 super-pod 全填', desc_en: 'Host-CPU matrix · 14/14 super-pods covered' },
       { path: '/servers/network-topology-matrix/', labelKey: 'nav.networkTopoMatrix', desc_zh: '网络拓扑矩阵 · fat-tree / dragonfly+ / torus / mesh', desc_en: 'Network-topology matrix · fat-tree / dragonfly+ / torus / mesh' },
       { path: '/servers/storage-matrix/', labelKey: 'nav.storageMatrix', desc_zh: '存储架构矩阵 · GDS / Lustre / Weka / OceanStor', desc_en: 'Storage matrix · GDS / Lustre / Weka / OceanStor' },

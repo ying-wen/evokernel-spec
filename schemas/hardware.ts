@@ -173,7 +173,38 @@ export const HardwareSchema = z.object({
   memory: MemorySchema,
   scale_up: ScaleUpSchema,
   scale_out: ScaleOutSchema,
-  power: z.object({ tdp_w: ValueWithEvidenceSchema(z.number().positive()) }),
+  power: z.object({
+    tdp_w: ValueWithEvidenceSchema(z.number().positive()),
+    // v2.1: power & thermal envelope axis (all optional)
+    /** Sustained / continuous power under typical inference workload. Often less than TDP. */
+    sustained_w: ValueWithEvidenceSchema(z.number().positive()).optional(),
+    /** Peak / boost power. Often higher than TDP for short bursts (training spikes). */
+    peak_w: ValueWithEvidenceSchema(z.number().positive()).optional(),
+    /** Cooling type. Drives data-center / chassis design. */
+    cooling: z.enum([
+      'air',                    // standard air cooling
+      'liquid-direct',          // direct-to-chip liquid (cold plate)
+      'liquid-immersion',       // submerged in dielectric fluid
+      'hybrid-air-liquid',      // air for memory + liquid for die
+      'phase-change',           // 2-phase (boiling) immersion
+      'passive-conduction',     // edge / embedded — no fan
+      'unknown'
+    ]).optional(),
+    /** Operating temperature range (°C). Min/max ambient supported. */
+    operating_temp_c: z.object({
+      min: z.number().optional(),
+      max: z.number().optional()
+    }).optional(),
+    /** Maximum die / junction temperature before throttle (°C). */
+    throttle_temp_c: z.number().optional(),
+    /** Inference perf / watt — fp16 TFLOPS / TDP. Auto-derivable but storing makes ranking fast. */
+    fp16_tflops_per_watt: ValueWithEvidenceSchema(z.number().positive()).optional(),
+    /** Inference perf / watt — int8 TOPS / TDP. */
+    int8_tops_per_watt: ValueWithEvidenceSchema(z.number().positive()).optional(),
+    /** Power connector type (PCIe form factor). 12V-2x6 / 12VHPWR / EPS / SXM-board / etc. */
+    power_connector: z.string().optional(),
+    notes: z.string().optional()
+  }),
   software_support: SoftwareSupportSchema,
   aliases: z.array(z.string()).default([]),
   chinese_names: z.array(z.string()).default([]),

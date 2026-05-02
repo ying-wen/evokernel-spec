@@ -51,6 +51,14 @@ scale_out:
   protocol: EFA
 power:
   tdp_w: { value: 500, evidence_ref: ev-trn2-001 }
+  sustained_w: { value: 425, evidence_ref: ev-trn2-001 }
+  peak_w: { value: 500, evidence_ref: ev-trn2-001 }
+  cooling: liquid-direct
+  operating_temp_c: { min: 5, max: 35 }
+  throttle_temp_c: 95
+  fp16_tflops_per_watt: { value: 1.30, evidence_ref: ev-trn2-001 }
+  power_connector: proprietary-aws
+  notes: 'AWS-only deployment in Trn2 UltraServer (16-card chassis liquid-cooled). No standalone purchase — only available via EC2 Trn2 instances.'
 software_support:
   drivers: ['Neuron SDK']
   engines:
