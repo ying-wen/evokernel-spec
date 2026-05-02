@@ -75,6 +75,14 @@ For each stage below: what we have, what's missing, and how to add.
 
 ## Stage 3 — Cross-hardware op equivalence (BIGGEST GAP)
 
+> **Note 2026-05-02**: This stage was deepened in the supplement
+> [`2026-05-02-hw-sw-gap.md`](./2026-05-02-hw-sw-gap.md) — decomposed into
+> 5 distinct layers (ISA primitives / programming model / operator library /
+> functional semantics / coverage matrix). The schema additions and v2.5–v2.7
+> roadmap below are the simplified version; the supplement has the complete
+> decomposition.
+
+
 **What we have**: per-operator `engine_implementations[].hardware_arch` listing which architectures have a fast kernel. `/operators/hardware-fitness/` (v2.2) surfaces gaps.
 
 **What's missing — the keystone for "operator generation"**:
