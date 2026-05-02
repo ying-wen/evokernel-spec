@@ -10,6 +10,48 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
 
 ---
 
+## [2.6.0] — 2026-05-02
+
+**Theme**: hw-sw gap **Layer A + Layer E** — ISA primitives + auto-derived coverage matrix. The keystone unlock for cross-vendor kernel codegen.
+
+### Added — Layer A: ISA Primitives
+
+- New `IsaPrimitiveSchema` (`schemas/isa-primitive.ts`) capturing: vendor, arch_family, class (tensor-mma / matrix-vector / async-copy / etc.), shapes_supported, memory_model (operand sources, async, requires_descriptor), calling_convention (asm intrinsic / cpp header / template tag / compiler), **`cross_vendor_equivalents`** (the keystone field — primitive-to-primitive mapping), used_by_kernels.
+- 11 ISA primitive entries:
+  - **NVIDIA**: WGMMA (Hopper), TCGEN05 (Blackwell), mma.sync (Ampere), TMA (Hopper async copy)
+  - **AMD**: MFMA-32x32x16 (CDNA3), MFMA-16x16x32-FP4 (CDNA4), WMMA (RDNA3)
+  - **Huawei**: Cube unit (Ascend 910), Vector unit (Ascend 910)
+  - **Cambricon**: MLU MMA
+  - **Apple**: AMX (M-series)
+- **HardwareSchema.architecture.tensor_isa** field added; populated on 8 flagship cards (H100/H200/B200/B300/A100/MI300X/MI355X/Ascend910C/MLU590).
+- `/api/isa-primitives.json` endpoint.
+- `/isa-primitives/` index (vendor-grouped) + `/isa-primitives/<slug>/` detail pages with shapes table, memory model, calling convention, cross_vendor_equivalents, hardware-using-this-primitive list.
+
+### Added — Layer E: Coverage Matrix (auto-derived)
+
+- **`/api/coverage-matrix.json`** — flat 510-row data-frame composed from operators (Layer C+D) × hardware archs × kernel libraries × ISA primitives. Each row carries: operator_id, operator_class, vendor, arch_family, library, library_coverage, isa_primitives, precision_support, has_formal_semantics, notes.
+- Includes `count_by_coverage` aggregates (full / partial / experimental / missing) — currently 161 full + 29 partial + 10 experimental + 310 missing. The 310 missing cells are the materialized PR-opportunity surface.
+- `query_examples` field shows common filter patterns (find missing on Ascend 910C / find ops with formal_semantics / list ISA primitives by op).
+
+### Why
+The keystone unlock for cross-vendor kernel codegen. v2.5 (kernel libraries) tells an agent "use aclnnMatmul instead of cublasGemmEx" when a library equivalent exists. v2.6 (ISA primitives) tells the agent "WGMMA m64n64k16 ≈ 4× Cube 16x16x16" when **no library equivalent exists** — enabling autonomous kernel translation. Without this layer, agents can rank existing implementations but cannot generate new kernels for missing (op, hw) pairs.
+
+The auto-derived `/api/coverage-matrix.json` is the single endpoint an agent queries before deciding "can I deploy this op on this hw?" Empty cells = either fallback path (slow but correct) or genuine gap (custom kernel needed) — both quantifiable, not vague.
+
+### Wiring
+- Loader registration + validate-data registration for isa-primitive entity
+- nav-groups.ts: ISA 原语 entry in optimize dropdown (theme: accent)
+- i18n: nav.isaPrimitives zh/en
+- 6 v2.6 E2E tests covering API endpoint shape, vendor-grouped index, WGMMA cross-vendor links, coverage matrix data-frame structure, missing-cells aggregate
+
+### Stats
+- 6 new v2.6 E2E tests pass · full suite green
+- Build: 478 pages (was 464, +14 = isa-primitives × 12 + 2 endpoints)
+- Schema additions all backward-compatible
+- Agent-readiness ~62% → ~78%
+
+---
+
 ## [2.5.0] — 2026-05-02
 
 **Theme**: Hardware-software gap **Layer C + Layer D** — kernel libraries catalog + operator formal semantics. Directly addresses the user's pushback: "CUDA算子和实现，CANN和类似其他算子实现语法不同，功能不同，覆盖度不同".

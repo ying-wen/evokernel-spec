@@ -5,7 +5,7 @@ import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
-  PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema
+  PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema
 } from '@evokernel/schemas';
 import { loadYaml } from './lib/load-yaml.ts';
 
@@ -37,7 +37,8 @@ const ENTITY_GLOBS: Array<{ name: string; glob: string; schema: ZodSchema }> = [
   { name: 'playbook', glob: 'playbooks/*.yaml', schema: PlaybookSchema },
   { name: 'citation', glob: 'citations/*.yaml', schema: CitationSchema },
   { name: 'tour', glob: 'tours/*.yaml', schema: TourSchema },
-  { name: 'kernel-library', glob: 'kernel-libraries/*.yaml', schema: KernelLibrarySchema }
+  { name: 'kernel-library', glob: 'kernel-libraries/*.yaml', schema: KernelLibrarySchema },
+  { name: 'isa-primitive', glob: 'isa-primitives/*.yaml', schema: IsaPrimitiveSchema }
 ];
 
 export async function validateAll(opts: { dataDir: string }): Promise<ValidationReport> {

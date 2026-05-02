@@ -1,0 +1,164 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SpecRow from '~/components/ui/SpecRow.astro';
+import Badge from '~/components/ui/Badge.astro';
+import { pathname } from '~/lib/i18n';
+import { getIsaPrimitives, getResolvedHardware } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const prims = await getIsaPrimitives();
+  return prims.map((p) => ({ params: { slug: p.id }, props: { prim: p } }));
+}
+
+const { prim } = Astro.props;
+
+// Find hardware that uses this primitive
+const allHw = await getResolvedHardware();
+const hwUsingThis = allHw.filter((h) =>
+  h.architecture?.tensor_isa?.includes(prim.id) ?? false
+);
+---
+<BaseLayout title={`${prim.name} — ISA primitive`}>
+  <Container>
+    <section class="pt-12 pb-8">
+      <a href={pathname('/isa-primitives/')} class="text-sm" style="color: var(--color-text-muted);">← ISA primitives</a>
+      <div class="mt-4 flex items-baseline gap-3 flex-wrap">
+        <h1 style="font-size: clamp(2rem, 1.5rem + 1.5vw, 3rem); font-weight: 600;">{prim.name}</h1>
+        <Badge variant="accent">{prim.class}</Badge>
+        <Badge>{prim.vendor}</Badge>
+        <Badge>{prim.arch_family}</Badge>
+        {prim.memory_model?.async && <Badge variant="accent">async</Badge>}
+      </div>
+      {prim.description && <p class="mt-3 text-base whitespace-pre-line" style="color: var(--color-text-muted);">{prim.description}</p>}
+    </section>
+
+    {prim.shapes_supported.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">支持的形状 ({prim.shapes_supported.length})</h3>
+        <div class="overflow-x-auto">
+          <table class="text-xs w-full" style="border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <th class="p-2 text-left">M</th>
+                <th class="p-2 text-left">N</th>
+                <th class="p-2 text-left">K</th>
+                <th class="p-2 text-left">A dtype</th>
+                <th class="p-2 text-left">B dtype</th>
+                <th class="p-2 text-left">C dtype</th>
+                <th class="p-2 text-left">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prim.shapes_supported.map((s) => (
+                <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
+                  <td class="p-2 font-mono">{s.M ?? '—'}</td>
+                  <td class="p-2 font-mono">{Array.isArray(s.N) ? s.N.join(', ') : (s.N ?? '—')}</td>
+                  <td class="p-2 font-mono">{Array.isArray(s.K) ? s.K.join(', ') : (s.K ?? '—')}</td>
+                  <td class="p-2 font-mono">{s.dtype_a ?? '—'}</td>
+                  <td class="p-2 font-mono">{s.dtype_b ?? '—'}</td>
+                  <td class="p-2 font-mono">{s.dtype_c ?? '—'}</td>
+                  <td class="p-2" style="color: var(--color-text-muted); font-size: 0.7rem;">{s.notes ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
+    {prim.memory_model && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Memory model</h3>
+        <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          {prim.memory_model.operand_a_source && <SpecRow label="Operand A source">{prim.memory_model.operand_a_source}</SpecRow>}
+          {prim.memory_model.operand_b_source && <SpecRow label="Operand B source">{prim.memory_model.operand_b_source}</SpecRow>}
+          {prim.memory_model.result_destination && <SpecRow label="Result dest">{prim.memory_model.result_destination}</SpecRow>}
+          <SpecRow label="Async">{prim.memory_model.async ? '✓ async' : 'sync'}</SpecRow>
+          {prim.memory_model.requires_descriptor && <SpecRow label="Requires descriptor">{prim.memory_model.requires_descriptor}</SpecRow>}
+        </div>
+        {prim.memory_model.notes && <p class="text-xs mt-2" style="color: var(--color-text-muted);">{prim.memory_model.notes}</p>}
+      </section>
+    )}
+
+    {prim.calling_convention && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Calling convention</h3>
+        <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+          {prim.calling_convention.asm_intrinsic && <SpecRow label="ASM intrinsic"><code class="text-xs">{prim.calling_convention.asm_intrinsic}</code></SpecRow>}
+          {prim.calling_convention.cpp_intrinsic_header && <SpecRow label="C++ header"><code class="text-xs">{prim.calling_convention.cpp_intrinsic_header}</code></SpecRow>}
+          {prim.calling_convention.template_tag && <SpecRow label="Template tag"><code class="text-xs">{prim.calling_convention.template_tag}</code></SpecRow>}
+          {prim.calling_convention.recommended_compiler && <SpecRow label="Compiler"><code class="text-xs">{prim.calling_convention.recommended_compiler}</code></SpecRow>}
+        </div>
+      </section>
+    )}
+
+    {prim.cross_vendor_equivalents.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">🔄 跨厂商等价 ({prim.cross_vendor_equivalents.length}) <span class="text-xs ml-2 font-normal" style="color: var(--color-accent);">keystone field</span></h3>
+        <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+          智能体做 kernel 移植时查询此表. 每条等价指向另一个 ISA 原语 + mapping ratio + caveats.
+        </p>
+        <div class="grid gap-3">
+          {prim.cross_vendor_equivalents.map((eq) => (
+            <div class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex items-center gap-3 mb-2 flex-wrap">
+                <a href={pathname(`/isa-primitives/${eq.primitive_id}/`)} class="text-sm font-semibold hover:underline" style="color: var(--color-accent);">→ {eq.primitive_id}</a>
+                <Badge>{eq.vendor}</Badge>
+                <Badge>{eq.arch_family}</Badge>
+              </div>
+              {eq.mapping_ratio && (
+                <div class="text-xs mb-2 px-2 py-1 rounded inline-block font-mono" style="background: color-mix(in oklch, var(--color-accent) 10%, transparent); color: var(--color-accent);">
+                  {eq.mapping_ratio}
+                </div>
+              )}
+              {eq.notes && <p class="text-xs" style="color: var(--color-text-muted);">{eq.notes}</p>}
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {hwUsingThis.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">使用此原语的硬件 ({hwUsingThis.length})</h3>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {hwUsingThis.map((h) => (
+            <a href={pathname(`/hardware/${h.id}/`)} class="text-sm hover:underline rounded p-2 border" style="background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-accent);">
+              {h.name}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {prim.used_by_kernels.length > 0 && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">使用此原语的 fused kernel ({prim.used_by_kernels.length})</h3>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {prim.used_by_kernels.map((k) => (
+            <a href={pathname(`/fused-kernels/${k}/`)} class="text-sm hover:underline rounded p-2 border" style="background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-accent);">
+              {k}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {prim.notes && (
+      <section class="pb-8">
+        <h3 class="text-lg font-semibold mb-3">Notes</h3>
+        <p class="text-sm whitespace-pre-line" style="color: var(--color-text-muted);">{prim.notes}</p>
+      </section>
+    )}
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Layer A entry. See <a href={pathname('/isa-primitives/')} class="underline" style="color: var(--color-accent);">all primitives</a> ·
+        <a href={pathname('/kernel-libraries/')} class="underline" style="color: var(--color-accent);">kernel libraries (Layer C)</a> ·
+        <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/</a>.
+        欢迎 PR 修正/补充至 <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 0 4px; border-radius: 3px;">data/isa-primitives/{prim.id}.yaml</code>.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

@@ -12,6 +12,7 @@ compute:
   fp16_tflops: { value: 800, evidence_ref: ev-asc910c-001 }
   int8_tops: { value: 1600, evidence_ref: ev-asc910c-001 }
 architecture:
+  tensor_isa: [huawei-ascend-cube, huawei-ascend-vector]
   compute_unit_count: { value: 64, evidence_ref: ev-asc910c-arch-001 }
   compute_unit_label: AI Core
   l2_cache_mb: { value: 192, evidence_ref: ev-asc910c-arch-001 }

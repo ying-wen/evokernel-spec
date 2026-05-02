@@ -17,3 +17,4 @@ export * from './citation';
 export * from './tour';
 export * from './manifest';
 export * from './kernel-library';
+export * from './isa-primitive';

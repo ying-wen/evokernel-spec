@@ -1,0 +1,106 @@
+---
+/**
+ * /isa-primitives/ — ISA primitive catalog (v2.6 / Layer A).
+ *
+ * The actual silicon-level instructions (WGMMA / TCGEN05 / MFMA / Cube /
+ * WMMA / TMA / AMX). Each carries a `cross_vendor_equivalents` table —
+ * the keystone field for cross-vendor kernel codegen.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+import { getIsaPrimitives } from '~/lib/data';
+
+const primitives = (await getIsaPrimitives()).sort((a, b) =>
+  a.vendor.localeCompare(b.vendor) || a.id.localeCompare(b.id)
+);
+
+// Group by vendor
+const byVendor = new Map<string, typeof primitives>();
+for (const p of primitives) {
+  if (!byVendor.has(p.vendor)) byVendor.set(p.vendor, []);
+  byVendor.get(p.vendor)!.push(p);
+}
+
+const VENDOR_LABEL: Record<string, string> = {
+  nvidia: 'NVIDIA',
+  amd: 'AMD',
+  huawei: 'Huawei (Ascend)',
+  cambricon: 'Cambricon',
+  apple: 'Apple Silicon'
+};
+
+const CLASS_LABEL: Record<string, string> = {
+  'tensor-mma': '🟦 Tensor MMA',
+  'matrix-vector': '🟩 Matrix-Vector',
+  'reduction': '🔺 Reduction',
+  'scan': '🌊 Scan',
+  'conv': '🌀 Conv',
+  'special-fn': '✨ Special Fn',
+  'async-copy': '🚀 Async Copy',
+  'sync': '🔒 Sync',
+  'shuffle': '🎲 Shuffle'
+};
+
+// Count cross_vendor_equivalents per primitive
+const equivCounts = new Map(primitives.map((p) => [p.id, p.cross_vendor_equivalents.length]));
+---
+<BaseLayout title="ISA primitives — 硬件指令集原语">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="ISA PRIMITIVES · v2.6 · LAYER A"
+        title="硬件指令集原语"
+        subtitle={`${primitives.length} 个张量 / 矩阵 / async-copy 原语 · ${[...new Set(primitives.flatMap((p) => p.cross_vendor_equivalents.map((e) => `${p.id}::${e.primitive_id}`))).keys()].length}+ 跨厂商等价对照`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        最底层 — 硅片真正暴露的张量指令. WGMMA (Hopper), TCGEN05 (Blackwell), MFMA (CDNA), Cube (Ascend), WMMA (RDNA), TMA (async copy), AMX (Apple).
+        每个原语都携带 <strong>cross_vendor_equivalents 对照表</strong> — 让智能体能从一个 ISA 移植到另一个.
+      </p>
+      <p class="text-sm mt-2 max-w-3xl" style="color: var(--color-text-muted);">
+        参见 <a href={pathname('/agents/')} class="underline" style="color: var(--color-accent);">/agents/</a> ·
+        <a href={pathname('/kernel-libraries/')} class="underline" style="color: var(--color-accent);">/kernel-libraries/ (Layer C)</a> ·
+        Layer A 5-层 spec (docs/superpowers/specs/2026-05-02-hw-sw-gap.md).
+      </p>
+    </section>
+
+    {/* Cross-vendor equivalence summary */}
+    <section class="pb-8">
+      <h2 class="text-xl font-semibold mb-3">🔄 跨厂商等价对照</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        最关键的字段. 每条 equivalence 给出:
+        (源 primitive) → (目标 primitive) + mapping_ratio + caveats. e.g.
+        "1× WGMMA m64n64k16 ≈ 4× Cube 16x16x16" 让智能体知道一个 CUDA WGMMA tile 在 Ascend 上需要 4 个 Cube ops 来覆盖等同的 throughput.
+      </p>
+    </section>
+
+    {/* By vendor */}
+    {[...byVendor.entries()].map(([vendor, primitiveList]) => (
+      <section class="pb-8 border-t pt-8" style="border-color: var(--color-border);">
+        <h2 class="text-2xl font-semibold mb-3">{VENDOR_LABEL[vendor] ?? vendor}</h2>
+        <div class="grid gap-3 lg:grid-cols-2">
+          {primitiveList.map((p) => (
+            <a href={pathname(`/isa-primitives/${p.id}/`)} class="block rounded-lg p-4 border transition-transform hover:-translate-y-0.5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+              <div class="flex items-start justify-between gap-3 mb-2">
+                <div>
+                  <h3 class="text-base font-semibold">{p.name}</h3>
+                  <code class="text-xs" style="color: var(--color-text-muted);">{p.id}</code>
+                </div>
+                <span class="text-xs px-2 py-1 rounded shrink-0" style="background: color-mix(in oklch, var(--color-accent) 12%, transparent); color: var(--color-accent); font-weight: 600;">
+                  {CLASS_LABEL[p.class] ?? p.class}
+                </span>
+              </div>
+              <div class="text-xs mb-2" style="color: var(--color-text-muted);">
+                Arch: <code style="color: var(--color-text);">{p.arch_family}</code> ·
+                {p.shapes_supported.length} 形状 ·
+                {p.cross_vendor_equivalents.length > 0 ? `${p.cross_vendor_equivalents.length} 跨厂商等价` : '无等价'}
+              </div>
+              {p.description && <p class="text-xs line-clamp-3" style="color: var(--color-text-muted);">{p.description.split('\n')[0]}</p>}
+            </a>
+          ))}
+        </div>
+      </section>
+    ))}
+  </Container>
+</BaseLayout>

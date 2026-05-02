@@ -2,11 +2,11 @@ import {
   VendorSchema, HardwareSchema, ServerSchema, InterconnectSchema,
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
-  PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema,
+  PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
   type Vendor, type Hardware, type Server, type Interconnect,
   type Operator, type Engine, type Quantization, type ParallelStrategy,
   type Model, type Case, type Pattern, type PipelineStage, type FusedKernel,
-  type Playbook, type Citation, type Tour, type KernelLibrary
+  type Playbook, type Citation, type Tour, type KernelLibrary, type IsaPrimitive
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
@@ -77,6 +77,9 @@ export async function getTours(): Promise<Tour[]> {
 }
 export async function getKernelLibraries(): Promise<KernelLibrary[]> {
   return loadAll('kernel-libraries/*.yaml', KernelLibrarySchema);
+}
+export async function getIsaPrimitives(): Promise<IsaPrimitive[]> {
+  return loadAll('isa-primitives/*.yaml', IsaPrimitiveSchema);
 }
 
 export async function getResolvedHardware(): Promise<ResolvedHardware[]> {

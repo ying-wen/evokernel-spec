@@ -1,0 +1,49 @@
+id: nvidia-ampere-mma-sync
+vendor: nvidia
+arch_family: ampere
+class: tensor-mma
+name: mma.sync (Ampere WMMA)
+
+description: |
+  Per-warp synchronous MMA on Ampere (sm_80). 32 threads operate as a single
+  warp executing one MMA cooperatively. Predecessor to WGMMA — synchronous
+  (blocks the warp) so no async pipelining; data must be in registers, not
+  shared memory directly.
+
+shapes_supported:
+  - { M: 16, N: 8, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 16, N: 8, K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 16, N: 8, K: 32, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+  - { M: 16, N: 8, K: 64, dtype_a: int4, dtype_b: int4, dtype_c: int32, notes: "Sub-byte path" }
+
+memory_model:
+  operand_a_source: registers
+  operand_b_source: registers
+  result_destination: registers
+  async: false
+  notes: 'Synchronous — warp blocks until MMA completes. Operands must be loaded into registers via ldmatrix or manual loads.'
+
+calling_convention:
+  asm_intrinsic: 'mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32'
+  cpp_intrinsic_header: '<mma.h>'
+  template_tag: 'cutlass::arch::Sm80'
+  recommended_compiler: 'nvcc -arch=sm_80'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    mapping_ratio: '1 WGMMA m64n64k16 ≈ 16× mma.sync m16n8k16'
+    notes: 'Hopper WGMMA superseded mma.sync; Ampere has no WGMMA. Async pipeline pattern requires significant rewrite.'
+  - vendor: amd
+    arch_family: cdna3
+    primitive_id: amd-cdna3-mfma-32x32x16
+    mapping_ratio: '1 MFMA 32x32x16 ≈ 8× mma.sync m16n8k16'
+    notes: 'AMD MFMA blocks at larger tile, fewer ops per equivalent throughput.'
+
+used_by_kernels:
+  - flash-attention-v2
+  - paged-attention-decode
+
+docs_url: https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions
+notes: 'Used by FA-2 + earlier kernels. A100 / A40 / A30 silicon. No FP8 / FP4 path on Ampere.'

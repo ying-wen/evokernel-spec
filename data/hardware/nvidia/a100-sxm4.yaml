@@ -12,6 +12,7 @@ compute:
   fp16_tflops: { value: 312, evidence_ref: ev-a100-001 }
   int8_tops: { value: 624, evidence_ref: ev-a100-001 }
 architecture:
+  tensor_isa: [nvidia-ampere-mma-sync]
   compute_unit_count: { value: 108, evidence_ref: ev-a100-arch-001 }
   compute_unit_label: SM
   tensor_cores_per_cu: { value: 4, evidence_ref: ev-a100-arch-001 }

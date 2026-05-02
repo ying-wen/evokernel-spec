@@ -12,6 +12,7 @@ compute:
   fp16_tflops: { value: 2250, evidence_ref: ev-b200-001 }
   int8_tops: { value: 4500, evidence_ref: ev-b200-001 }
 architecture:
+  tensor_isa: [nvidia-blackwell-tcgen05, nvidia-hopper-wgmma, nvidia-hopper-tma]
   compute_unit_count: { value: 160, evidence_ref: ev-b200-arch-001 }
   compute_unit_label: SM
   tensor_cores_per_cu: { value: 4, evidence_ref: ev-b200-arch-001 }

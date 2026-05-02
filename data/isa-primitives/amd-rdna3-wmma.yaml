@@ -1,0 +1,48 @@
+id: amd-rdna3-wmma
+vendor: amd
+arch_family: rdna3
+class: tensor-mma
+name: WMMA (RDNA3 Wave Matrix Multiply Accumulate)
+
+description: |
+  Consumer-class AMD GPU tensor unit (Radeon RX 7000 series, W7900). Block
+  size 16x16x16. Targets gaming + content-creation workloads with some
+  AI inference capability — not data-center class. Uses LDS for operand
+  loads (similar to CDNA but smaller scale).
+
+shapes_supported:
+  - { M: 16, N: 16, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 16, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+
+memory_model:
+  operand_a_source: registers
+  operand_b_source: registers
+  result_destination: registers
+  async: false
+  notes: 'Operands loaded via LDS_PERMUTE_B32 from LDS. Smaller scale than CDNA MFMA.'
+
+calling_convention:
+  asm_intrinsic: 'v_wmma_f32_16x16x16_fp16'
+  cpp_intrinsic_header: '<rocwmma/rocwmma.hpp>'
+  recommended_compiler: 'amdclang++ --offload-arch=gfx1100'
+
+cross_vendor_equivalents:
+  - vendor: amd
+    arch_family: cdna3
+    primitive_id: amd-cdna3-mfma-32x32x16
+    mapping_ratio: '4× WMMA 16x16x16 ≈ 1 MFMA 32x32x16 (per throughput)'
+    notes: 'CDNA is data-center class; RDNA is consumer. Same vendor, different ISA family.'
+  - vendor: nvidia
+    arch_family: ada
+    primitive_id: nvidia-ampere-mma-sync  # Ada uses similar sm_89 mma.sync
+    notes: 'Both target consumer/workstation silicon. RTX 4000 / Radeon W7900.'
+  - vendor: apple
+    arch_family: apple-m
+    primitive_id: apple-amx
+    notes: 'Both edge/consumer-tier; AMX is coprocessor model vs RDNA WMMA inline.'
+
+used_by_kernels: []
+
+docs_url: https://gpuopen.com/learn/wmma_on_rdna3/
+notes: 'Limited LLM serving deployment; consumer cards are workstation/dev use rather than production. No FP8 / FP4 native.'

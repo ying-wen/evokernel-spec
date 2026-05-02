@@ -1,0 +1,72 @@
+id: nvidia-hopper-wgmma
+vendor: nvidia
+arch_family: hopper
+class: tensor-mma
+name: WGMMA (Warp Group Matrix Multiply Accumulate)
+
+description: |
+  Async matrix-multiply across a warp group (4 warps = 128 threads).
+  Replaces WMMA from Volta/Ampere. Enables independent compute and
+  memory pipelines via async semantics. Operands typically loaded via
+  TMA (Tensor Memory Accelerator) into shared memory.
+
+shapes_supported:
+  - { M: 64, N: [8, 16, 32, 64, 96, 128, 192, 256], K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32, notes: "Most common for LLM serving" }
+  - { M: 64, N: [8, 16, 32, 64, 96, 128, 192, 256], K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 64, N: [8, 16, 32, 64, 128, 256], K: 32, dtype_a: fp8-e4m3, dtype_b: fp8-e4m3, dtype_c: fp32, notes: "Hopper FP8 fast path" }
+  - { M: 64, N: [8, 16, 32, 64, 128, 256], K: 32, dtype_a: fp8-e5m2, dtype_b: fp8-e5m2, dtype_c: fp32 }
+
+memory_model:
+  operand_a_source: shared-memory
+  operand_b_source: shared-memory
+  result_destination: registers
+  async: true
+  requires_descriptor: 'TMA descriptor (cuda::barrier)'
+  notes: 'Operands MUST be loaded via TMA for full performance; cp.async fallback exists but loses async pipelining.'
+
+calling_convention:
+  asm_intrinsic: 'wgmma.mma_async.sync.aligned.m64nNk16.f32.f16.f16'
+  cpp_intrinsic_header: '<cuda/std/mma>'
+  template_tag: 'cutlass::arch::Sm90'
+  recommended_compiler: 'nvcc -arch=sm_90a'
+
+cross_vendor_equivalents:
+  - vendor: amd
+    arch_family: cdna3
+    primitive_id: amd-cdna3-mfma-32x32x16
+    mapping_ratio: '1 WGMMA m64n64k16 ≈ 2× MFMA 32x32x16 (per-MM throughput similar)'
+    notes: 'CDNA3 lacks async-with-TMA equivalent; uses LDS_DIRECT load instead. Pipeline overlap requires explicit __builtin_amdgcn_s_sleep.'
+  - vendor: amd
+    arch_family: cdna4
+    primitive_id: amd-cdna4-mfma-16x16x32-fp4
+    mapping_ratio: 'For FP4: 1 WGMMA m64nNk32 ≈ 4× MFMA 16x16x32'
+    notes: 'CDNA4 added FP4 native; aligns with Blackwell. CDNA3 still lacks FP4.'
+  - vendor: huawei
+    arch_family: ascend-910c
+    primitive_id: huawei-ascend-cube
+    mapping_ratio: '1 WGMMA m64n64k16 fp16 ≈ 4× Cube 16x16x16 fp16'
+    notes: 'Cube unit blocks at 16x16x16; achieving WGMMA-equivalent throughput requires 4 cube ops per WGMMA. Async via OE/OQ pipeline (different programming model).'
+  - vendor: cambricon
+    arch_family: cambricon-mlu
+    primitive_id: cambricon-mlu-mma
+    mapping_ratio: '1 WGMMA m64n64k16 fp16 ≈ ~4× MLU MMA 16x16x16'
+    notes: 'Cambricon proprietary tensor unit; 16x16x16 base shape similar to Cube.'
+  - vendor: nvidia
+    arch_family: blackwell
+    primitive_id: nvidia-blackwell-tcgen05
+    mapping_ratio: 'WGMMA superseded by TCGEN05 on Blackwell'
+    notes: 'Blackwell adds FP4 native + larger N dimensions; WGMMA still usable but TCGEN05 is the recommended fast path.'
+
+used_by_kernels:
+  - flash-attention-v3
+  - paged-attention-decode
+  - fused-mlp-silu
+  - fused-rope-qkv
+
+docs_url: https://docs.nvidia.com/cuda/parallel-thread-execution/#asynchronous-warpgroup-level-matrix-instructions
+
+notes: |
+  Critical for FP8 throughput on H100/H200. Without TMA descriptors loaded
+  for operands, WGMMA falls back to slower path (cp.async) and loses 30-50%
+  throughput. Warp-group programming model: 4 warps = 128 threads operate
+  collaboratively as a single "warp group" — different from per-warp WMMA.

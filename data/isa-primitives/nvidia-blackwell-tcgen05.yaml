@@ -1,0 +1,60 @@
+id: nvidia-blackwell-tcgen05
+vendor: nvidia
+arch_family: blackwell
+class: tensor-mma
+name: TCGEN05 (Tensor Core Gen-5, Blackwell)
+
+description: |
+  Fifth-generation tensor cores on Blackwell (sm_100). Adds FP4 native
+  (NVFP4 + MXFP4 with per-block scaling), larger N dimensions, and
+  improved async overlap via 5th-gen TMA. Supersedes WGMMA as the
+  recommended fast path for sm_100+; WGMMA still works for backward compat.
+
+shapes_supported:
+  - { M: 128, N: [16, 32, 64, 128, 256, 512], K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 128, N: [16, 32, 64, 128, 256, 512], K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 128, N: [16, 32, 64, 128, 256, 512], K: 32, dtype_a: fp8-e4m3, dtype_b: fp8-e4m3, dtype_c: fp32 }
+  - { M: 128, N: [16, 32, 64, 128, 256, 512], K: 64, dtype_a: nvfp4, dtype_b: nvfp4, dtype_c: fp32, notes: "FP4 native; per-16-block scaling" }
+  - { M: 128, N: [16, 32, 64, 128, 256, 512], K: 64, dtype_a: mxfp4, dtype_b: mxfp4, dtype_c: fp32, notes: "OCP MXFP4 standard; per-32-block scaling" }
+
+memory_model:
+  operand_a_source: shared-memory
+  operand_b_source: shared-memory
+  result_destination: registers
+  async: true
+  requires_descriptor: 'TMA-5 descriptor'
+  notes: 'TMA-5 supports tensor-mode addressing and improved swizzling. Async pipeline depth increased vs Hopper.'
+
+calling_convention:
+  asm_intrinsic: 'tcgen05.mma_async.sync.aligned.m128nNk{16,32,64}.f32...'
+  cpp_intrinsic_header: '<cuda/std/mma>'
+  template_tag: 'cutlass::arch::Sm100'
+  recommended_compiler: 'nvcc -arch=sm_100a'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    mapping_ratio: 'TCGEN05 m128 ≈ 2× WGMMA m64 (Blackwell increased M dimension)'
+    notes: 'Blackwell-only; backwards-compat WGMMA still works on Blackwell silicon at Hopper performance level.'
+  - vendor: amd
+    arch_family: cdna4
+    primitive_id: amd-cdna4-mfma-16x16x32-fp4
+    mapping_ratio: 'For FP4: 1 TCGEN05 m128n128k64 ≈ 16× MFMA 16x16x32'
+    notes: 'AMD CDNA4 added FP4 native (MI355X+) — most direct equivalent vs Blackwell.'
+  - vendor: huawei
+    arch_family: ascend-910d
+    primitive_id: huawei-ascend-cube
+    notes: 'Ascend 910D has improved Cube but no FP4 native; only fp16/bf16/int8 path.'
+
+used_by_kernels:
+  - flash-attention-v3
+  - fused-quantized-attention
+  - fused-mlp-silu
+
+docs_url: https://docs.nvidia.com/cuda/blackwell-tuning-guide/
+
+notes: |
+  Required for FP4 throughput on B200/B300. NVFP4 (per-16) and MXFP4 (per-32)
+  use different scaling factor layouts — TCGEN05 supports both via different
+  descriptor flags. CUTLASS 3.7+ has the high-level templates.

@@ -1,0 +1,46 @@
+id: cambricon-mlu-mma
+vendor: cambricon
+arch_family: cambricon-mlu
+class: tensor-mma
+name: MLU MMA (Cambricon Matrix Multiply Unit)
+
+description: |
+  Cambricon proprietary tensor unit on MLU290 / MLU370 / MLU590. Block
+  shape similar to Ascend Cube (16x16x16 base). Unlike CUDA, Cambricon
+  uses BANG-C (similar paradigm to Ascend-C — explicit memory hierarchy
+  + pipeline orchestration). MLU has dedicated NRAM (Neural RAM) /
+  WRAM (Weight RAM) / SRAM hierarchy.
+
+shapes_supported:
+  - { M: 16, N: 16, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 32, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+
+memory_model:
+  operand_a_source: other  # NRAM
+  operand_b_source: other  # WRAM (typically weights)
+  result_destination: other  # NRAM or SRAM
+  async: false
+  notes: 'NRAM / WRAM / SRAM are explicit memory levels in BANG-C. Programmer orchestrates DMA between them.'
+
+calling_convention:
+  asm_intrinsic: '__bang_mlp / __bang_matmul (BANG-C primitives)'
+  cpp_intrinsic_header: '<bang.h>'
+  recommended_compiler: 'cncc (Cambricon compiler)'
+
+cross_vendor_equivalents:
+  - vendor: huawei
+    arch_family: ascend-910
+    primitive_id: huawei-ascend-cube
+    mapping_ratio: '~1:1 (both 16x16x16 base unit)'
+    notes: 'Both Chinese NPUs use similar block shape; programming models also similar (explicit memory hierarchy + pipeline). Ecosystem differs (CANN vs Neuware).'
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    mapping_ratio: '4× MLU MMA 16x16x16 fp16 ≈ 1 WGMMA m64n64k16 fp16'
+    notes: 'Programming model gap similar to CUDA-vs-Ascend: CUDA unified compute vs MLU explicit hierarchy.'
+
+used_by_kernels:
+  - paged-attention-decode  # via lmdeploy MLU port
+
+notes: 'Used by lmdeploy MLU fork. CNNL library wraps these primitives for opaque-API access.'

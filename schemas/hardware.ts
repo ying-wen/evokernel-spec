@@ -117,6 +117,12 @@ const ArchitectureSchema = z.object({
   // v1.3: per-precision tensor-core peak per cycle (rare disclosure).
   tensor_core_specs: z.array(TensorCoreSpecSchema).default([]),
 
+  // v2.6 / Layer A: ISA primitives this card exposes.
+  // Slugs into data/isa-primitives/. Each primitive carries its own
+  // cross_vendor_equivalents table — the keystone field for cross-vendor
+  // kernel codegen. Optional during migration.
+  tensor_isa: z.array(z.string().regex(/^[a-z0-9-]+$/)).default([]),
+
   // v1.3: clock domains
   base_clock_mhz: ValueWithEvidenceSchema(z.number().positive()).optional(),
   boost_clock_mhz: ValueWithEvidenceSchema(z.number().positive()).optional(),

@@ -12,6 +12,7 @@ compute:
   fp16_tflops: { value: 256, evidence_ref: ev-mlu590-001 }
   int8_tops: { value: 512, evidence_ref: ev-mlu590-001 }
 architecture:
+  tensor_isa: [cambricon-mlu-mma]
   compute_unit_count: { value: 80, evidence_ref: ev-mlu590-arch-001 }
   compute_unit_label: IPU
   hbm_stacks: { value: 4, evidence_ref: ev-mlu590-arch-001 }

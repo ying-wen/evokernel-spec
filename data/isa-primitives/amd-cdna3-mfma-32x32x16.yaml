@@ -1,0 +1,60 @@
+id: amd-cdna3-mfma-32x32x16
+vendor: amd
+arch_family: cdna3
+class: tensor-mma
+name: MFMA 32x32x16 (Matrix Fused Multiply Accumulate, CDNA3)
+
+description: |
+  Wave-level matrix multiply on AMD CDNA3 (MI300X / MI325X). 64 threads
+  (one wavefront) operate together. Synchronous (no async pipelining
+  equivalent to TMA + WGMMA). Operands loaded via LDS (Local Data Share —
+  AMD's shared-memory equivalent).
+
+shapes_supported:
+  - { M: 32, N: 32, K: 16, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32 }
+  - { M: 32, N: 32, K: 16, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 32, N: 32, K: 32, dtype_a: fp8-e4m3, dtype_b: fp8-e4m3, dtype_c: fp32 }
+  - { M: 32, N: 32, K: 32, dtype_a: fp8-e5m2, dtype_b: fp8-e5m2, dtype_c: fp32 }
+  - { M: 16, N: 16, K: 32, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32, notes: "Smaller alt shape" }
+
+memory_model:
+  operand_a_source: registers
+  operand_b_source: registers
+  result_destination: registers
+  async: false
+  notes: 'Synchronous wave-level MFMA. Operands loaded via LDS_DIRECT (cdna3) or buffer_load_lds_dword. No TMA-equivalent for full async pipelining.'
+
+calling_convention:
+  asm_intrinsic: 'v_mfma_f32_32x32x16_fp16'
+  cpp_intrinsic_header: '<rocwmma/rocwmma.hpp>'
+  template_tag: 'ck::tensor_operation::device::DeviceGemm (Composable Kernel)'
+  recommended_compiler: 'amdclang++ --offload-arch=gfx942'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    mapping_ratio: '2× MFMA 32x32x16 ≈ 1 WGMMA m64n64k16 (per-throughput)'
+    notes: 'WGMMA is async; MFMA is sync. CDNA3 no async-pipeline equivalent — explicit __builtin_amdgcn_s_sleep used for overlap.'
+  - vendor: nvidia
+    arch_family: ampere
+    primitive_id: nvidia-ampere-mma-sync
+    mapping_ratio: '1 MFMA 32x32x16 ≈ 8× mma.sync m16n8k16'
+    notes: 'Both synchronous. Programming models similar; ABI differs.'
+  - vendor: huawei
+    arch_family: ascend-910c
+    primitive_id: huawei-ascend-cube
+    mapping_ratio: '1 MFMA 32x32x16 fp16 ≈ 4× Cube 16x16x16'
+    notes: 'Cube blocks at smaller tile; need 4 cube ops per MFMA.'
+  - vendor: amd
+    arch_family: cdna4
+    primitive_id: amd-cdna4-mfma-16x16x32-fp4
+    mapping_ratio: 'CDNA4 added smaller-tile FP4 path; CDNA3 has only 32x32 / 16x16 fp16/bf16/fp8'
+    notes: 'CDNA4 (MI355X+) supersedes for FP4 workloads; CDNA3 still primary for fp16/bf16/fp8.'
+
+used_by_kernels:
+  - flash-attention-v3      # via CK
+  - paged-attention-decode  # vLLM-rocm path
+
+docs_url: https://www.amd.com/system/files/documents/cdna3-white-paper.pdf
+notes: 'Primary tensor-MMA for MI300X / MI325X. FP8 path mature. No FP4 native — that comes in CDNA4.'

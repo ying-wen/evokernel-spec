@@ -1,0 +1,46 @@
+id: huawei-ascend-vector
+vendor: huawei
+arch_family: ascend-910
+class: matrix-vector
+name: Vector Unit (Ascend AI Core)
+
+description: |
+  Vector unit on Huawei Ascend AI Core — handles elementwise ops (activation,
+  layer-norm, softmax inner loops, residual adds). Operates on UB (unified
+  buffer) directly. Distinct from Cube unit; the two run in parallel via
+  OE/OQ pipeline.
+
+shapes_supported:
+  - { N: [256, 512, 1024, 2048], dtype_a: fp16, dtype_b: fp16, dtype_c: fp16, notes: "Vectorized elementwise" }
+  - { N: [256, 512, 1024, 2048], dtype_a: bf16, dtype_b: bf16, dtype_c: bf16 }
+  - { N: [256, 512, 1024, 2048], dtype_a: fp32, dtype_b: fp32, dtype_c: fp32 }
+
+memory_model:
+  operand_a_source: other  # UB (unified buffer)
+  operand_b_source: other
+  result_destination: other  # UB
+  async: true
+  notes: 'Operates on UB directly (no DMA between Vector and UB needed). Pipelines with Cube unit via OE/OQ.'
+
+calling_convention:
+  asm_intrinsic: 'vmla / vadd / vexp (compiler-generated)'
+  cpp_intrinsic_header: '<kernel_operator.h>'
+  template_tag: 'AscendC::Vector primitives (Add, Mul, Exp, Sqrt, etc.)'
+  recommended_compiler: 'bisheng'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    notes: 'No equivalent — NVIDIA SMs are unified compute units, not split into Cube/Vector. The Vector unit role is filled by CUDA cores in elementwise epilogue ops within the same SM. Programming model gap: CUDA kernels write epilogue inline; Ascend-C kernels orchestrate Vector unit explicitly.'
+  - vendor: cambricon
+    arch_family: cambricon-mlu
+    primitive_id: cambricon-mlu-mma
+    notes: 'Cambricon also has explicit vector/SIMD units separate from MMA — similar architectural split.'
+
+used_by_kernels:
+  - fused-rmsnorm-residual
+  - flash-attention-v2
+
+docs_url: https://www.hiascend.com/document/detail/zh/ascend-c-api/
+notes: 'Vector unit handles non-MMA ops; without it, Cube would idle during elementwise stages. Pipeline efficiency depends on balancing Cube vs Vector workload.'

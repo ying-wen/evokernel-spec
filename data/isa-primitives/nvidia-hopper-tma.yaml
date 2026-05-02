@@ -1,0 +1,58 @@
+id: nvidia-hopper-tma
+vendor: nvidia
+arch_family: hopper
+class: async-copy
+name: TMA (Tensor Memory Accelerator)
+
+description: |
+  Hopper-introduced async data movement engine. Loads tensor tiles from
+  global memory directly to shared memory without going through registers.
+  Required to feed WGMMA at full throughput. Replaces the Ampere-era
+  cp.async pattern (still available as fallback).
+
+  TMA descriptors are pre-built CUDA driver objects describing tile
+  shape + layout + swizzling. The PTX `cp.async.bulk` instruction pulls
+  tiles using the descriptor.
+
+shapes_supported:
+  - { dtype_a: fp16, dtype_b: fp16, dtype_c: fp16, notes: "Tile shapes 64x16 to 256x256" }
+  - { dtype_a: bf16, dtype_b: bf16, dtype_c: bf16 }
+  - { dtype_a: fp8-e4m3, dtype_b: fp8-e4m3, dtype_c: fp8-e4m3 }
+
+memory_model:
+  operand_a_source: global-memory
+  result_destination: shared-memory
+  async: true
+  requires_descriptor: 'cuTensorMapEncodeTiled (driver API) returns CUtensorMap'
+
+calling_convention:
+  asm_intrinsic: 'cp.async.bulk.tensor.shared::cluster.global'
+  cpp_intrinsic_header: '<cuda/std/atomic>, <cuda/barrier>'
+  template_tag: 'cutlass::arch::Sm90 + TMA descriptor builder'
+  recommended_compiler: 'nvcc -arch=sm_90a'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: blackwell
+    primitive_id: nvidia-blackwell-tcgen05
+    notes: 'TMA-5 on Blackwell adds tensor-mode addressing; Hopper TMA still works on Blackwell.'
+  - vendor: amd
+    arch_family: cdna3
+    primitive_id: amd-cdna3-mfma-32x32x16
+    notes: 'No direct equivalent. CDNA3 uses LDS_DIRECT (buffer_load_lds_dword) which is sync. Pipeline depth must be managed manually with __builtin_amdgcn_s_sleep — significantly more complex code than TMA + WGMMA pairing.'
+  - vendor: huawei
+    arch_family: ascend-910
+    primitive_id: huawei-ascend-cube
+    notes: 'Ascend uses OE/OQ pipeline + explicit DMA between memory levels. Functionally analogous to TMA (async data movement) but programming model entirely different.'
+
+used_by_kernels:
+  - flash-attention-v3
+  - fused-mlp-silu
+
+docs_url: https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async
+
+notes: |
+  Without TMA, WGMMA loses 30-50% throughput on long sequences. Critical
+  to understand for any agent porting CUDA kernels: the lack of TMA-equivalent
+  on AMD/Ascend means the kernel pipeline structure has to be redesigned,
+  not just translated.

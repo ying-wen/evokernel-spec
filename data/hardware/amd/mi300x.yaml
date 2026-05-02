@@ -12,6 +12,7 @@ compute:
   fp16_tflops: { value: 1307, evidence_ref: ev-mi300x-001 }
   int8_tops: { value: 2614, evidence_ref: ev-mi300x-001 }
 architecture:
+  tensor_isa: [amd-cdna3-mfma-32x32x16]
   compute_unit_count: { value: 304, evidence_ref: ev-mi300x-arch-001 }
   compute_unit_label: CU
   l2_cache_mb: { value: 256, evidence_ref: ev-mi300x-arch-001 }

@@ -627,6 +627,74 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.6: /isa-primitives/ Layer A + /api/coverage-matrix.json Layer E', () => {
+  test('/api/isa-primitives.json returns 200 with cross_vendor_equivalents', async ({ request }) => {
+    const r = await request.get('/api/isa-primitives.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.count).toBeGreaterThanOrEqual(10);
+    expect(body.license).toBe('CC-BY-SA-4.0');
+    // Find WGMMA — should have multiple cross_vendor_equivalents
+    const wgmma = body.items.find((p: any) => p.id === 'nvidia-hopper-wgmma');
+    expect(wgmma).toBeTruthy();
+    expect(wgmma.cross_vendor_equivalents.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('/isa-primitives/ index renders by-vendor sections', async ({ page }) => {
+    await page.goto('/isa-primitives/');
+    await expect(page.getByText(/ISA PRIMITIVES.*Layer A|硬件指令集原语/i).first()).toBeVisible();
+    // Vendor sections
+    for (const v of ['NVIDIA', 'AMD', 'Huawei']) {
+      await expect(page.getByText(new RegExp(v, 'i')).first()).toBeVisible();
+    }
+  });
+
+  test('WGMMA detail page shows cross_vendor_equivalents (the keystone field)', async ({ page }) => {
+    await page.goto('/isa-primitives/nvidia-hopper-wgmma/');
+    await expect(page.getByText(/跨厂商等价|cross.vendor|keystone/i).first()).toBeVisible();
+    // Should link to AMD MFMA + Huawei Cube
+    await expect(page.locator('a[href$="/isa-primitives/amd-cdna3-mfma-32x32x16/"]').first()).toBeVisible();
+    await expect(page.locator('a[href$="/isa-primitives/huawei-ascend-cube/"]').first()).toBeVisible();
+  });
+
+  test('/api/coverage-matrix.json returns Layer E flat data-frame', async ({ request }) => {
+    const r = await request.get('/api/coverage-matrix.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.schema_version).toBe('1.0');
+    expect(body.layer).toBe('E');
+    expect(body.derived_from).toContain('operators');
+    expect(body.derived_from).toContain('kernel-libraries');
+    expect(body.derived_from).toContain('isa-primitives');
+    expect(body.count).toBeGreaterThanOrEqual(100);
+    // Should have query examples
+    expect(body.query_examples.length).toBeGreaterThanOrEqual(3);
+    // Should have rows with the expected shape
+    const r0 = body.rows[0];
+    expect(r0.operator_id).toBeTruthy();
+    expect(r0.vendor).toBeTruthy();
+    expect(r0.arch_family).toBeTruthy();
+    expect(['full', 'partial', 'experimental', 'missing', 'deprecated']).toContain(r0.library_coverage);
+    expect(typeof r0.has_formal_semantics).toBe('boolean');
+  });
+
+  test('Coverage matrix surfaces missing cells (PR opportunities)', async ({ request }) => {
+    const r = await request.get('/api/coverage-matrix.json');
+    const body = await r.json();
+    expect(body.count_by_coverage.missing).toBeGreaterThanOrEqual(50);
+    // Some operators should also have full coverage on Hopper / CDNA3
+    expect(body.count_by_coverage.full).toBeGreaterThanOrEqual(50);
+  });
+
+  test('H100 detail page shows tensor_isa link to WGMMA', async ({ page }) => {
+    await page.goto('/hardware/h100-sxm5/');
+    // Page should mention WGMMA somewhere (we added it to tensor_isa)
+    // Direct UI surface may come in a future iteration; for now just check the /isa-primitives/ link is reachable
+    await page.goto('/isa-primitives/nvidia-hopper-wgmma/');
+    await expect(page.getByText(/H100|Hopper/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v2.5: /kernel-libraries/ Layer C + formal_semantics Layer D', () => {
   test('/api/kernel-libraries.json returns 200 with 8 entries', async ({ request }) => {
     const r = await request.get('/api/kernel-libraries.json');

@@ -1,0 +1,49 @@
+id: apple-amx
+vendor: apple
+arch_family: apple-m
+class: tensor-mma
+name: AMX (Apple Matrix Extension)
+
+description: |
+  Apple Silicon (M-series) tensor extension. Coprocessor-style: not part
+  of the GPU or CPU pipeline directly, but an accelerator block accessed
+  via undocumented (stable) instructions or via Accelerate framework /
+  MPSGraph. M3 / M4 increased AMX capability significantly.
+
+shapes_supported:
+  - { M: 32, N: 32, K: 32, dtype_a: fp16, dtype_b: fp16, dtype_c: fp32, notes: "M3+ shapes; varies by SoC" }
+  - { M: 32, N: 32, K: 32, dtype_a: bf16, dtype_b: bf16, dtype_c: fp32 }
+  - { M: 32, N: 32, K: 64, dtype_a: int8, dtype_b: int8, dtype_c: int32 }
+
+memory_model:
+  operand_a_source: registers  # AMX has its own register file
+  operand_b_source: registers
+  result_destination: registers
+  async: false
+
+calling_convention:
+  asm_intrinsic: 'AMX_LDX / AMX_LDY / AMX_FMA32 / AMX_STZ (undocumented but stable)'
+  cpp_intrinsic_header: '<simd/simd.h> (high-level via Accelerate)'
+  template_tag: 'MPSGraph.matrixMultiplication / Metal Performance Shaders'
+  recommended_compiler: 'xcrun metal / xcode-select clang'
+
+cross_vendor_equivalents:
+  - vendor: nvidia
+    arch_family: hopper
+    primitive_id: nvidia-hopper-wgmma
+    notes: 'AMX is fundamentally different — coprocessor model vs unified SM. M-series targets edge/laptop inference, not data-center; throughput orders of magnitude lower. No FP8 native (M4 still bf16/fp16 ceiling).'
+  - vendor: amd
+    arch_family: rdna3
+    primitive_id: amd-rdna3-wmma
+    notes: 'Both target consumer/edge silicon. Both lack data-center FP8 path.'
+
+used_by_kernels: []
+
+docs_url: https://developer.apple.com/documentation/accelerate/
+
+notes: |
+  AMX is **not** the public-facing API — most code goes through Accelerate
+  / MPSGraph / MLX. Direct AMX use exists in some llama.cpp Metal kernels.
+  M-series is mostly used for edge inference (Llama 3 8B / Phi-4 / etc.)
+  rather than serving production LLMs. NPU (Neural Engine) is a separate
+  accelerator block with even more limited public API.

@@ -12,6 +12,7 @@ compute:
   fp16_tflops: { value: 2300, evidence_ref: ev-mi355x-001 }
   int8_tops: { value: 4600, evidence_ref: ev-mi355x-001 }
 architecture:
+  tensor_isa: [amd-cdna4-mfma-16x16x32-fp4, amd-cdna3-mfma-32x32x16]
   compute_unit_count: { value: 256, evidence_ref: ev-mi355x-arch-001 }
   compute_unit_label: CU
   l2_cache_mb: { value: 256, evidence_ref: ev-mi355x-arch-001 }
