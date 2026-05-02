@@ -44,3 +44,46 @@ references:
   - title: 'Root Mean Square Layer Normalization'
     url: https://arxiv.org/abs/1910.07467
     source_type: paper
+
+formal_semantics:
+  signature: |
+    rmsnorm(x: Tensor[..., D], weight: Tensor[D], eps: float = 1e-6) -> Tensor[..., D]
+    output[..., i] = x[..., i] * weight[i] / sqrt(mean(x[..., :]^2) + eps)
+    Variance computed across last dim only (no shift/mean).
+
+  edge_cases:
+    - input: 'all-zero input (mean(x²)=0)'
+      behaviors:
+        cudnn: 'eps prevents div-by-zero → output is 0'
+        aclnn: 'Same — eps protects; output is 0'
+        triton: 'Same convention'
+        flash-rms: 'Same'
+      mitigation: 'Always use eps ≥ 1e-6. Some legacy impls used 1e-12 (unstable in fp16).'
+    - input: 'eps=0 (some research configs disable it)'
+      behaviors:
+        cudnn: 'NaN if any dim is all-zero'
+        all_libs: 'Same; user responsibility'
+
+  numerical_rules:
+    - aspect: 'variance_accumulation_dtype'
+      per_library:
+        cudnn: 'FP32 internal even with FP16/BF16 input (default)'
+        aclnn: 'FP32 internal'
+        flash-rms: 'FP32 internal'
+        custom_triton: 'Configurable; default FP32'
+      notes: 'FP16 internal causes silent quality drop on long sequences. Always verify.'
+    - aspect: 'eps_value'
+      per_library:
+        llama_family: 'eps = 1e-5 (standard)'
+        deepseek_family: 'eps = 1e-6 (tighter)'
+        qwen_family: 'eps = 1e-6'
+      notes: 'Mismatched eps between training + inference = systematic drift.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def rmsnorm(x, weight, eps=1e-6):
+          # Variance across last dim only — no mean subtraction (vs LayerNorm)
+          variance = (x.float() ** 2).mean(dim=-1, keepdim=True)
+          x = x * torch.rsqrt(variance + eps)
+          return x.to(weight.dtype) * weight

@@ -84,3 +84,47 @@ references:
   - title: 'flash-mla repository'
     url: https://github.com/deepseek-ai/FlashMLA
     source_type: implementation
+
+formal_semantics:
+  signature: |
+    mla_attention(Q_compressed: [B,S,D_q_low], KV_compressed: [B,S,D_kv],
+                  Q_decomp_W: [D_q_low,H*D_h], K_decomp_W: [D_kv,H*D_h],
+                  V_decomp_W: [D_kv,H*D_h]) -> [B,S,H,D_h]
+    DeepSeek-V3 MLA: KV cache stored compressed (D_kv≈512); decompress on-fly
+    during attention. Roughly 6× smaller cache than equivalent MHA.
+
+  edge_cases:
+    - input: 'Mixed Q-low-rank dim and full-rank K/V (DeepSeek-V3 hybrid)'
+      behaviors:
+        flash-mla: 'Handles via decoupled rope-only k-tile path'
+        sglang-flash-mla: 'Same — uses Tri Dao FlashMLA reference'
+        mindie: 'aclnnIncreFlashAttention with MLA mode flag (910C+)'
+      mitigation: 'When porting, verify decoupled-rope variant matches; not all impls support it.'
+
+    - input: 'KV cache stored at fp8 vs fp16'
+      behaviors:
+        flash-mla-fp8: 'Decompression W matrices may need higher precision to avoid drift'
+        flash-mla-fp16: 'Standard path; matches reference'
+      mitigation: 'For FP8 KV: keep decomp W in BF16/FP16; only cache+compute is FP8.'
+
+  numerical_rules:
+    - aspect: 'kv_compression_dim'
+      per_library:
+        flash-mla: 'D_kv typically 512 (DeepSeek-V3 default)'
+        mindie: 'Same; tunable per model config'
+      notes: 'Smaller D_kv = smaller cache but accuracy floor; tune per model.'
+    - aspect: 'rope_application'
+      per_library:
+        flash-mla: 'RoPE applied to decoupled K-tile only (not the compressed body)'
+        mindie: 'Same convention'
+      notes: 'Critical: RoPE on full-decompressed K breaks the algorithm. Always decoupled.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      # Simplified MLA (DeepSeek-V3 paper Eq. 12-19)
+      Q_full = Q_compressed @ Q_decomp_W   # [B,S,H,D_h]
+      K_full = KV_compressed @ K_decomp_W  # decompressed at compute time
+      V_full = KV_compressed @ V_decomp_W
+      # Decoupled-rope: applied to a SEPARATE k_rope component, not full K
+      attn = F.scaled_dot_product_attention(Q_full, K_full, V_full, is_causal=True)

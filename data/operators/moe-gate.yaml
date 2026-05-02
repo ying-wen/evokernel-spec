@@ -59,3 +59,62 @@ references:
   - title: 'GShard: Scaling Giant Models with Conditional Computation'
     url: https://arxiv.org/abs/2006.16668
     source_type: paper
+
+formal_semantics:
+  signature: |
+    moe_gate(x: [B, S, D], W_router: [D, E], top_k: int) -> (indices: [B,S,K], weights: [B,S,K])
+    logits = x @ W_router
+    indices, weights = top_k(softmax(logits), k=top_k)
+    Routes each token to top-K experts (E total experts).
+
+  edge_cases:
+    - input: 'extreme load imbalance (1 expert gets 90%+ tokens)'
+      behaviors:
+        vllm-deepep: 'OK — pad/drop with aux loss tracking; warn'
+        sglang-deepep: 'Same'
+        mindie-moe: 'Triggers expert-overload alert; may quantize / drop low-prio'
+      mitigation: 'Add aux balance loss during training. At inference: monitor per-expert utilization, alert if max/min > 4×.'
+
+    - input: 'top_k > num_experts (config error)'
+      behaviors:
+        all_libs: 'ASSERT or undefined behavior'
+      mitigation: 'Validate config: top_k ≤ E. Llama 4 Scout uses K=1, DeepSeek V3 K=8, Qwen 3.6 K=8 — all valid.'
+
+    - input: 'shared_experts > 0 (DeepSeek/Mixtral hybrid)'
+      behaviors:
+        vllm-shared: 'Shared experts always active; routed top-K added on top'
+        sglang-shared: 'Same'
+        deepseek-r1: 'Built-in: 1 shared + top-8 routed per token'
+      mitigation: 'When porting, distinguish shared (always-on) from routed (top-K). Different compute path.'
+
+    - input: 'noisy gating (training-only) vs deterministic (inference)'
+      behaviors:
+        vllm-inference: 'Deterministic; no noise injection'
+        sglang-inference: 'Same'
+      notes: 'Training-time noise (Switch Transformer) is OFF at inference.'
+
+  numerical_rules:
+    - aspect: 'softmax_position'
+      per_library:
+        vllm-deepep: 'softmax over all E logits, then top-K'
+        sglang: 'Same'
+        deepseek-paper: 'Some variants softmax AFTER top-K (sigmoid+norm)'
+      notes: 'Pre vs post softmax matters for numerical stability + load distribution. Verify match with model paper.'
+    - aspect: 'gate_dtype'
+      per_library:
+        vllm-default: 'FP32 router (even when model is FP16/FP8 quantized)'
+        sglang-default: 'FP32 router'
+      notes: 'Router precision is critical — quantizing it loses load balance fidelity.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def moe_gate(x, W_router, top_k=8):
+          # Router is always full-precision (fp32)
+          logits = (x.float() @ W_router.float())  # [B, S, E]
+          # softmax then top-k (DeepSeek convention)
+          weights = F.softmax(logits, dim=-1)
+          top_weights, top_indices = weights.topk(top_k, dim=-1)
+          # renormalize so top-K weights sum to 1
+          top_weights = top_weights / top_weights.sum(dim=-1, keepdim=True)
+          return top_indices, top_weights

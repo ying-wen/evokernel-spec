@@ -1,0 +1,62 @@
+id: mindie-conversion
+engine_id: mindie
+name: 'MindIE model conversion (HF → MindIE format)'
+trigger: one-time-build
+
+target_archs: [ascend-910b, ascend-910c, ascend-910d, ascend-da-vinci-3, ascend-da-vinci-4]
+
+prerequisites:
+  - 'CANN 8.0.RC3+ toolkit installed (matches Ascend driver)'
+  - 'MindIE 1.0.RC3+ Python package'
+  - 'ATB-models repository cloned'
+  - 'Ascend NPU hardware (910B/C/D) or simulator for build'
+  - 'sufficient disk: model-size × 2.5 (HF + ATB intermediate + MindIE)'
+
+steps:
+  - step: 'Clone ATB-models conversion scripts'
+    command: 'git clone https://gitee.com/ascend/atb-models.git && cd atb-models'
+    duration_estimate: '< 1 min'
+
+  - step: 'Run model-specific converter (varies by family)'
+    command: 'python examples/atb_models/convert.py --model-type llama --hf-checkpoint ./hf_model --output ./mindie_model --tp-size 8 --quantization fp16'
+    duration_estimate: '10-30 min'
+    notes: 'Different families have different converters: llama / qwen / deepseek / mixtral. Use the matching one.'
+
+  - step: 'Generate calibration data (FP8/INT8 only)'
+    command: 'python tools/calibrate.py --model ./mindie_model --calibration-set ./cal_data.jsonl --output ./mindie_model/calibration'
+    duration_estimate: '5-20 min (depends on calibration set size)'
+    notes: 'Required for FP8/INT8 quantization. Skip for fp16/bf16.'
+
+  - step: 'Smoke test the converted model'
+    command: 'python examples/atb_models/run.py --model-path ./mindie_model --input "Hello, world."'
+    duration_estimate: '1-2 min (first run includes graph compile)'
+    notes: 'First run does graph capture. Subsequent runs are fast.'
+
+inputs:
+  - { type: hf-checkpoint, description: 'HuggingFace safetensors (Llama / Qwen / DeepSeek / Mixtral families)' }
+  - { type: calibration-set, description: 'JSONL of representative prompts (~128-512 samples) for FP8/INT8 only' }
+
+outputs:
+  - { type: mindie-model, description: 'MindIE-format weights + per-TP-rank shards', size_estimate: '~0.9× HF weights for fp16; smaller for quantized' }
+  - { type: graph-cache, description: 'Compiled execution graph (built JIT on first run, cached after)', size_estimate: '~1 GB' }
+
+total_duration_estimate: '20-60 min for 70B class on Atlas 800T-A2'
+
+gotchas:
+  - 'CANN version must match driver version EXACTLY. CANN 8.0.RC3 + driver 24.1.0 — drift breaks at runtime.'
+  - 'Ascend 910B and 910C have different fp8 paths — converter flags differ. 910C also adds MLA support; 910B does not.'
+  - 'MoE models require ATB-models 1.x+. Older versions silently produce dense FFN even if input is MoE.'
+  - 'CloudMatrix 384 super-pod deployment: shard layout differs from Atlas 800. Use --topology=cloudmatrix vs --topology=atlas.'
+  - 'Custom kernels for unsupported ops (e.g., MLA on 910B) require manual Ascend-C kernel + register.'
+
+cache_strategy: |
+  ATB conversion is deterministic given (HF checkpoint sha + ATB version + flags).
+  Cache via OBS (Object Storage Service) on Huawei Cloud or local PVC.
+  Re-trigger when: ATB-models version, CANN driver, or model checkpoint changes.
+
+reproducibility_notes: |
+  Conversion is deterministic. Graph compile (JIT on first inference) is non-deterministic
+  due to kernel autotuning, but functionally equivalent. Pin: ATB-models commit + CANN version + driver.
+
+docs_url: https://www.hiascend.com/document/detail/zh/mindie/10RC3/mindieapi/atb-models/
+source_url: https://gitee.com/ascend/atb-models

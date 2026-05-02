@@ -1,0 +1,53 @@
+id: lmdeploy-turbomind-convert
+engine_id: lmdeploy
+name: 'lmdeploy convert (HF → TurboMind format)'
+trigger: optional-aot
+
+target_archs: [hopper, ampere, ada, blackwell, ascend-910b, ascend-910c, cambricon-mlu]
+
+prerequisites:
+  - 'CUDA 12.x or CANN 8.0+ (depending on target)'
+  - 'lmdeploy 0.6+ Python package'
+  - 'sufficient disk: model-size × 1.5'
+
+steps:
+  - step: 'Run TurboMind converter'
+    command: 'lmdeploy convert llama --model-path ./hf_model --dst-path ./turbomind_model --tp 8 --model-format hf'
+    duration_estimate: '3-8 min'
+    notes: 'Fast — primarily reorganizes weights for TurboMind tile layout. No autotuning.'
+
+  - step: 'For W4A16 (AWQ): pre-quantize'
+    command: 'lmdeploy lite auto_awq --model ./hf_model --calib-dataset wikitext-2 --output ./awq_model'
+    duration_estimate: '15-30 min'
+    notes: 'AWQ requires calibration. Skip for fp16/bf16 deploy.'
+
+  - step: 'Smoke test'
+    command: 'lmdeploy chat ./turbomind_model'
+    duration_estimate: '< 1 min cold start'
+
+inputs:
+  - { type: hf-checkpoint, description: 'HuggingFace safetensors' }
+  - { type: calibration-set, description: 'For AWQ INT4 only (e.g., wikitext-2 default)' }
+
+outputs:
+  - { type: turbomind-model, description: 'TurboMind-format weights + config', size_estimate: '~1× HF weights' }
+  - { type: awq-model, description: 'INT4 quantized weights (when AWQ used)', size_estimate: '~0.3× HF weights' }
+
+total_duration_estimate: '5-30 min depending on quantization'
+
+gotchas:
+  - 'TurboMind format is NOT portable between lmdeploy versions. Pin lmdeploy version + reconvert on upgrade.'
+  - 'TP must be set at convert time. Cannot change at inference.'
+  - 'On Cambricon MLU: requires lmdeploy MLU fork (separate package). Conversion path differs from CUDA.'
+  - 'AWQ + multi-LoRA combination is incompatible (in lmdeploy 0.6). Pick one.'
+
+cache_strategy: |
+  Conversion is deterministic. Cache via PVC or OCI registry layer.
+  Re-trigger when: lmdeploy version, model checkpoint, or TP size changes.
+
+reproducibility_notes: |
+  Bit-exact reproducible (no kernel autotuning at convert time).
+  Pin: lmdeploy version + model checkpoint sha + flags.
+
+docs_url: https://lmdeploy.readthedocs.io/en/latest/get_started.html
+source_url: https://github.com/InternLM/lmdeploy

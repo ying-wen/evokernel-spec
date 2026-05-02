@@ -1,0 +1,51 @@
+id: vllm-no-compile
+engine_id: vllm
+name: 'vLLM (no AOT compile — JIT path; CUDA Graph capture)'
+trigger: first-load
+
+target_archs: [hopper, ampere, ada, blackwell, cdna3, cdna4, ascend-910b, ascend-910c, cambricon-mlu, moore-threads]
+
+prerequisites:
+  - 'vLLM 0.6+ installed (for target arch)'
+  - 'CUDA 12.x / ROCm 6.x / CANN 8.x / etc. (depending on backend)'
+
+steps:
+  - step: 'Direct serve from HF checkpoint (no convert step)'
+    command: 'vllm serve meta-llama/Llama-4-Scout-17B-16E --tensor-parallel-size 8 --quantization auto'
+    duration_estimate: 'Cold start: 2-10 min (model load + CUDA Graph capture)'
+    notes: 'No separate build step. vLLM loads HF weights, JIT-traces with CUDA Graph at first batch.'
+
+  - step: '(Optional) Pre-warm CUDA Graphs'
+    command: 'curl -X POST http://localhost:8000/v1/completions -d ''{"prompt":"warm","max_tokens":10}'''
+    duration_estimate: '30-60 sec for first batch (graph capture); fast after'
+    notes: 'First request includes CUDA Graph capture. Subsequent requests use cached graph.'
+
+  - step: '(Optional) For SGLang: precompile with --enable-cudagraph'
+    command: 'python -m sglang.launch_server --model-path ./hf_model --enable-cuda-graph --tp 8'
+    duration_estimate: '1-2 min CUDA Graph capture at first batch'
+
+inputs:
+  - { type: hf-checkpoint, description: 'HuggingFace safetensors — used directly, no conversion needed' }
+
+outputs:
+  - { type: cuda-graph-cache, description: 'In-memory CUDA Graph cache (lost on restart)' }
+  - { type: kv-cache-allocator, description: 'PagedAttention block table allocated' }
+
+total_duration_estimate: '2-10 min cold start (no separate AOT build)'
+
+gotchas:
+  - 'vLLM has no separate compile step — but cold start can still be 5+ min for large models. Plan startupProbe accordingly (Kubernetes default 60s probe will kill the pod).'
+  - '--enforce-eager disables CUDA Graph (slower but simpler debug). Default off.'
+  - 'CUDA Graph capture is memory-hungry — adds 1-2 GB per replica. Account for in HBM budget.'
+  - 'vLLM-rocm fork (AMD path) has same workflow but slower CUDA Graph capture due to HIP overhead.'
+  - 'For multi-LoRA: must enable at startup (--enable-lora --max-loras N), can swap LoRAs at runtime.'
+
+cache_strategy: |
+  HF checkpoint cached locally (PVC or HF cache dir). No AOT artifacts.
+  CUDA Graph cache rebuilds on every startup — accept the cold-start cost or use vLLM 0.6.4+ persistent CUDA Graph mode.
+
+reproducibility_notes: |
+  HF checkpoint determines all behavior; pin model_revision in production. CUDA Graph capture is non-deterministic (autotuning) but functionally equivalent.
+
+docs_url: https://docs.vllm.ai/en/latest/getting_started/quickstart.html
+source_url: https://github.com/vllm-project/vllm

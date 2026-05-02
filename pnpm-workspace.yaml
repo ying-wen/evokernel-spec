@@ -2,3 +2,4 @@ packages:
   - "apps/*"
   - "schemas"
   - "scripts"
+  - "plugins/mcp-server"

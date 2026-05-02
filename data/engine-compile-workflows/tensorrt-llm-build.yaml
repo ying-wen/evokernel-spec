@@ -1,0 +1,59 @@
+id: tensorrt-llm-build
+engine_id: tensorrt-llm
+name: 'TensorRT-LLM engine build (trtllm-build)'
+trigger: one-time-build
+
+target_archs: [hopper, blackwell, ada, ampere]
+
+prerequisites:
+  - 'CUDA 12.x toolkit installed'
+  - 'TensorRT 10.x runtime'
+  - 'TensorRT-LLM 0.14+ Python package'
+  - 'sufficient disk: model-size × 2 (HF weights + engine binary)'
+  - 'compile machine matches inference arch (engine is per-arch)'
+
+steps:
+  - step: 'Convert HF checkpoint to TRT-LLM format'
+    command: 'python convert_checkpoint.py --model-dir ./hf_model --output-dir ./trt_ckpt --dtype bfloat16 --tp-size 8'
+    duration_estimate: '5-15 min'
+    notes: 'For MoE models, add --moe-tp-size and --moe-renormalize-router-weight flags'
+
+  - step: 'Build TRT engine (the slow step)'
+    command: 'trtllm-build --checkpoint-dir ./trt_ckpt --output-dir ./engine --max-batch-size 256 --max-input-len 8192 --max-num-tokens 16384 --use-paged-context-fmha enable --gpt-attention-plugin bfloat16 --gemm-plugin bfloat16 --remove-input-padding enable --paged-kv-cache enable'
+    duration_estimate: '45-90 min'
+    notes: 'CUDA Graph capture + kernel autotuning is what takes long. Disable autotuning (--use-fused-mlp disable etc) for faster build but lower perf.'
+
+  - step: 'Verify engine integrity'
+    command: 'python summarize.py --test_trt_llm --hf_model_dir ./hf_model --engine_dir ./engine --tokenizer_dir ./hf_model'
+    duration_estimate: '2-5 min'
+    notes: 'Runs sample generation; failure here usually means OOM or bad TP/PP combo'
+
+inputs:
+  - { type: hf-checkpoint, description: 'HuggingFace safetensors / Llama / Qwen / DeepSeek formats' }
+  - { type: calibration-set, description: 'For FP8/FP4 weight quantization (optional but recommended)' }
+
+outputs:
+  - { type: trt-engine, description: 'Per-rank engine .bin files (one per TP rank)', size_estimate: '0.5× to 2× HF weights' }
+  - { type: tokenizer, description: 'Copied alongside engine for inference' }
+
+total_duration_estimate: '60-120 min for 70B class on 8×H100'
+
+gotchas:
+  - 'Engine is bound to (CUDA version × GPU arch × TRT-LLM version × precision × max_batch_size). Any change → rebuild.'
+  - 'Different (TP × PP) combos require different engines. Keep multiple if scaling out.'
+  - 'FP4 path requires Blackwell + TRT-LLM 0.14+; older builds silently downgrade to FP8.'
+  - 'Multi-LoRA support requires --use-lora-plugin; bake at build time, can''t enable at runtime.'
+  - 'Engine binaries are not portable across host driver versions even with same GPU. Rebuild on driver upgrade.'
+
+cache_strategy: |
+  Engine artifacts SHOULD be cached: (model-checkpoint-sha + trt-llm-version + GPU-arch + build-flags-hash).
+  Same hash → reuse cached engine. Different hash → rebuild from scratch.
+  Recommended: cache via OCI registry layer or PVC snapshot.
+
+reproducibility_notes: |
+  TRT-LLM engine build is NOT bit-exact reproducible (kernel autotuning explores
+  randomly). For audit / regression: pin --build-config-cache-strategy=full-cache
+  + same build-machine + same TRT-LLM version. Production: hash + commit build artifacts.
+
+docs_url: https://nvidia.github.io/TensorRT-LLM/build_guide.html
+source_url: https://github.com/NVIDIA/TensorRT-LLM

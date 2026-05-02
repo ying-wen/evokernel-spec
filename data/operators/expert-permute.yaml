@@ -96,3 +96,57 @@ references:
   - title: 'DeepSeek-V3 Technical Report (MoE 路由细节)'
     url: https://arxiv.org/abs/2412.19437
     source_type: paper
+
+formal_semantics:
+  signature: |
+    expert_permute(tokens: [B*S, D], indices: [B*S, K]) -> dispatched: [B*S*K, D]
+    Sorts tokens by their assigned expert id; each expert sees a contiguous slice.
+    Inverse op (combine) reverses the permutation, weighted by router weights.
+
+  edge_cases:
+    - input: 'tokens dispatched to a single expert (degenerate routing)'
+      behaviors:
+        vllm-deepep: 'OK — that expert gets B*S*K tokens, others get 0'
+        sglang-deepep: 'Same'
+        mindie-moe: 'Same; flagged as overload in metrics'
+      mitigation: 'Aux load-balance loss during training. At inference: alert if max/min expert occupancy > 4×.'
+
+    - input: 'EP > 1 (expert parallelism — experts split across cards)'
+      behaviors:
+        vllm-deepep-ep: 'all-to-all between cards needed; uses NCCL/HCCL'
+        sglang-deepep-ep: 'Same'
+        mindie-ep: 'Uses HCCL (Huawei collective)'
+      mitigation: 'EP requires fast collective bandwidth. Cross-node EP works but with 2-5× latency penalty vs intra-node.'
+
+    - input: 'duplicate destination (token sent to same expert twice via top-K)'
+      behaviors:
+        most_libs: 'Forbidden — top-K is unique-expert sampling'
+      mitigation: 'Verify top_k_unique=True in router config.'
+
+  numerical_rules:
+    - aspect: 'permute_implementation'
+      per_library:
+        vllm-deepep: 'CUDA scatter+gather kernels; supports CUDA Graph'
+        sglang-deepep: 'Same DeepEP backend'
+        mindie-moe: 'Custom Ascend-C kernel (no DeepEP equivalent yet)'
+        triton-moe: 'Pure Triton implementation (slower but portable)'
+      notes: 'DeepEP is the gold-standard; non-DeepEP impls typically 1.5-2× slower for cross-node EP.'
+
+    - aspect: 'kv_cache_handling_during_permute'
+      per_library:
+        all_libs: 'KV cache is per-layer, permute happens token-level — independent'
+      notes: 'Common confusion: permute does NOT affect KV cache. Each token flows through its expert; KV is per-attention-layer.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def expert_permute(tokens, indices, num_experts):
+          # tokens: [N, D], indices: [N, K] (top-K expert ids per token)
+          N, K = indices.shape
+          flat_idx = indices.reshape(-1)             # [N*K]
+          flat_tok = tokens.unsqueeze(1).expand(-1, K, -1).reshape(-1, tokens.size(-1))
+          # Sort by expert id so each expert sees a contiguous slice
+          sort_order = flat_idx.argsort()
+          dispatched = flat_tok[sort_order]
+          expert_offsets = torch.bincount(flat_idx, minlength=num_experts).cumsum(0)
+          return dispatched, expert_offsets, sort_order

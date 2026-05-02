@@ -49,3 +49,57 @@ references:
   - title: 'YaRN: Efficient Context Window Extension of Large Language Models'
     url: https://arxiv.org/abs/2309.00071
     source_type: paper
+
+formal_semantics:
+  signature: |
+    rope(x: Tensor[..., S, H, D_h], freqs: Tensor[S, D_h/2]) -> Tensor[..., S, H, D_h]
+    Applies rotary position embedding to even/odd dim pairs:
+    [x_2k, x_2k+1] → [x_2k cos θ - x_2k+1 sin θ, x_2k sin θ + x_2k+1 cos θ]
+    where θ = freqs[s, k] (precomputed from base*freq^(-2k/D_h))
+
+  edge_cases:
+    - input: 'D_h is odd (rare but possible)'
+      behaviors:
+        cudnn-sdpa-fused: 'ASSERT — RoPE requires even head_dim'
+        flash-attn-rope: 'ASSERT'
+        aclnn-rope: 'ASSERT'
+      mitigation: 'Pad to even D_h or skip last dim. Most LLMs use even D_h (64, 128, 256).'
+
+    - input: 'rope_theta variant (Llama vs Llama 3 vs Yarn)'
+      behaviors:
+        llama_v1: 'theta=10000 (default)'
+        llama_v3: 'theta=500000 (long-context)'
+        deepseek_v3: 'theta=10000 + Yarn scaling (context extension)'
+        qwen_v3: 'theta=1000000 (very long context)'
+      mitigation: 'Pin rope_theta from model config. Mismatch = positional encoding drift.'
+
+    - input: 'NTK-aware / dynamic-NTK / Yarn long-context scaling'
+      behaviors:
+        cudnn-rope: 'Configurable scaling factor + extrapolation strategy'
+        flash-attn-rope: 'Same set of scaling modes'
+        aclnn-rope: 'Limited Yarn support; check arch_family'
+      mitigation: 'Long-context (32K+) requires correct scaling mode; default linear RoPE breaks at >2× train length.'
+
+  numerical_rules:
+    - aspect: 'cos/sin precision'
+      per_library:
+        cudnn-rope: 'Precomputed in FP32, cast to input dtype for fused use'
+        flash-attn-rope: 'Same'
+        aclnn-rope: 'FP32 internal'
+      notes: 'FP16 cos/sin precomputation introduces 1e-3 angular drift at long context — always FP32.'
+    - aspect: 'fusion_with_qkv'
+      per_library:
+        flash-attn-rope: 'Fused into QKV projection epilogue (best perf)'
+        cudnn-rope: 'Standalone or fused (configurable)'
+        aclnn-rope: 'Standalone (no QKV fusion currently on 910C)'
+      notes: 'Fused saves 1 read/write of Q,K. Watch for memory layout assumptions when porting.'
+
+  reference_impl:
+    framework: pytorch
+    snippet: |
+      def apply_rope(x, freqs):  # x: [B,S,H,D_h], freqs: [S, D_h/2]
+          x_even, x_odd = x[..., 0::2], x[..., 1::2]
+          cos, sin = freqs.cos(), freqs.sin()  # [S, D_h/2]
+          x_rotated_even = x_even * cos - x_odd * sin
+          x_rotated_odd  = x_even * sin + x_odd * cos
+          return torch.stack([x_rotated_even, x_rotated_odd], dim=-1).flatten(-2)

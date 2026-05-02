@@ -20,3 +20,4 @@ export * from './kernel-library';
 export * from './isa-primitive';
 export * from './dsl-example';
 export * from './model-execution-graph';
+export * from './engine-compile-workflow';
