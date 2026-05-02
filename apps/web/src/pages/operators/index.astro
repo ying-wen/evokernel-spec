@@ -63,6 +63,21 @@ function aiBound(op: typeof operators[number]): { label: string; color: string }
         </div>
       )}
 
+      {/* v2.2: hardware-fitness matrix callout */}
+      <a href={pathname('/operators/hardware-fitness/')} class="block mb-8 rounded-lg p-4 border transition-transform hover:-translate-y-0.5"
+         style="background: color-mix(in oklch, var(--color-accent) 8%, var(--color-surface-raised)); border-color: var(--color-accent);">
+        <div class="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-xs font-semibold mb-1" style="color: var(--color-accent);">NEW · v2.2</div>
+            <h3 class="text-base font-semibold mb-1">算子 × 硬件 适配矩阵</h3>
+            <p class="text-sm" style="color: var(--color-text-muted);">
+              "我有 hardware X, 哪些算子有 native fast kernel?" 一页查表. 按 vendor 架构家族聚合 (Hopper / Blackwell / CDNA / Ascend / ...).
+            </p>
+          </div>
+          <div style="color: var(--color-accent); font-size: 1.5rem;">→</div>
+        </div>
+      </a>
+
       {groupOrder.map((cat) => {
         const ops = grouped.get(cat) ?? [];
         if (ops.length === 0) return null;

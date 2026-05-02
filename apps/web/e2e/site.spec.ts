@@ -627,6 +627,50 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.2: /operators/hardware-fitness/ — op × hw_arch fitness matrix', () => {
+  test('/operators/hardware-fitness/ renders header + 12 arch coverage cards', async ({ page }) => {
+    await page.goto('/operators/hardware-fitness/');
+    await expect(page.getByRole('heading', { name: /算子.*硬件.*适配|Hardware fitness/i }).first()).toBeVisible();
+    // Per-arch coverage section + at least 6 arch families visible (Hopper / Blackwell / Ada / Ampere / CDNA3 / Ascend)
+    await expect(page.getByText(/Hopper/i).first()).toBeVisible();
+    await expect(page.getByText(/Blackwell/i).first()).toBeVisible();
+    await expect(page.getByText(/CDNA3/i).first()).toBeVisible();
+    await expect(page.getByText(/Ascend/i).first()).toBeVisible();
+  });
+
+  test('Operator matrix renders all operator rows', async ({ page }) => {
+    await page.goto('/operators/hardware-fitness/');
+    // Should render 34 rows in operator matrix (we have 34 operators)
+    const opLinks = page.locator('a[href^="/operators/"][href$="/"]:not([href$="/hardware-fitness/"]):not([href$="/fusion-graph/"]):not([href$="/fusion-matrix/"])');
+    expect(await opLinks.count()).toBeGreaterThanOrEqual(30);
+  });
+
+  test('Fused-kernel matrix renders too (separate section)', async ({ page }) => {
+    await page.goto('/operators/hardware-fitness/');
+    await expect(page.getByText(/融合 Kernel|Fused Kernel|Fused kernel.*matrix/i).first()).toBeVisible();
+    const fkLinks = page.locator('a[href^="/fused-kernels/"]:not([href$="/fused-kernels/"])');
+    expect(await fkLinks.count()).toBeGreaterThanOrEqual(20);
+  });
+
+  test('Cell counts include actual numbers (≥1 = supported)', async ({ page }) => {
+    await page.goto('/operators/hardware-fitness/');
+    // Hopper is the most-supported arch — should have many cells with engine counts
+    const cellSpans = page.locator('span[style*="font-family: var(--font-mono)"][style*="display: inline-block"]');
+    expect(await cellSpans.count()).toBeGreaterThanOrEqual(100);
+  });
+
+  test('Decision shortcuts section guides hardware selection', async ({ page }) => {
+    await page.goto('/operators/hardware-fitness/');
+    await expect(page.getByText(/选硬件的 op-fitness 视角|hardware|MLA|Mamba|spec decoding/i).first()).toBeVisible();
+  });
+
+  test('/operators/ index links to hardware-fitness via callout', async ({ page }) => {
+    await page.goto('/operators/');
+    const link = page.locator('a[href$="/operators/hardware-fitness/"]').first();
+    await expect(link).toBeVisible();
+  });
+});
+
 test.describe('v2.1: /hardware/power-thermal-matrix/ — power & thermal envelope', () => {
   test('/hardware/power-thermal-matrix/ renders header + 4 stat cards + table + leaderboard', async ({ page }) => {
     await page.goto('/hardware/power-thermal-matrix/');

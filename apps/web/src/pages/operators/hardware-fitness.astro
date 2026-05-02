@@ -1,0 +1,323 @@
+---
+/**
+ * /operators/hardware-fitness/ — operator × hardware-arch fitness matrix (v2.2).
+ *
+ * Derived view over existing data: each operator's `engine_implementations[].hardware_arch`
+ * already lists which architectures have native engine kernels for the op. Aggregating
+ * this across all 34 ops × 13 distinct arch tokens reveals:
+ *
+ *   - Per-arch coverage: "Hopper has kernels for 33/34 ops" (industry leader)
+ *   - Per-op risk: "MLA has kernels on hopper/blackwell only — 2 archs" (gap signal)
+ *   - Cross-cutting gaps: cells with 0 engines = community PR opportunities
+ *
+ * Symmetric to /engines/compare/ which is engine × feature; this is op × hardware.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { pathname } from '~/lib/i18n';
+import { getOperators, getFusedKernels } from '~/lib/data';
+
+const [operators, fusedKernels] = await Promise.all([getOperators(), getFusedKernels()]);
+
+// Canonical arch families for grouping. Order matters — display order in the matrix.
+// Per-arch tokens collapse into one column; we keep multiple display rows for major
+// vendor families to avoid one massive Ascend column.
+type ArchToken = string;
+type ArchFamily = {
+  /** Canonical column id (used for grouping). */
+  id: string;
+  /** Display label. */
+  label: string;
+  /** Vendor color theme. */
+  color: string;
+  /** Tokens (matched case-insensitively) that belong to this family. */
+  tokens: ArchToken[];
+};
+
+const ARCHES: ArchFamily[] = [
+  { id: 'hopper',     label: 'NVIDIA Hopper (H100/H200)',  color: 'oklch(60% 0.18 145)', tokens: ['hopper'] },
+  { id: 'blackwell',  label: 'NVIDIA Blackwell (B200/B300)', color: 'oklch(55% 0.18 160)', tokens: ['blackwell'] },
+  { id: 'ada',        label: 'NVIDIA Ada (L40s/RTX 4090)',  color: 'oklch(65% 0.16 130)', tokens: ['ada'] },
+  { id: 'ampere',     label: 'NVIDIA Ampere (A100/A40)',    color: 'oklch(70% 0.14 115)', tokens: ['ampere'] },
+  { id: 'jetson',     label: 'NVIDIA Jetson (edge)',        color: 'oklch(75% 0.12 100)', tokens: ['jetson'] },
+  { id: 'cdna3',      label: 'AMD CDNA3 (MI300X/MI325X)',   color: 'oklch(60% 0.2 25)',  tokens: ['cdna3'] },
+  { id: 'cdna4',      label: 'AMD CDNA4 (MI355X)',          color: 'oklch(55% 0.22 15)', tokens: ['cdna4'] },
+  { id: 'rdna3',      label: 'AMD RDNA3 (W7900/consumer)',  color: 'oklch(65% 0.18 35)', tokens: ['rdna3'] },
+  { id: 'ascend-910', label: 'Huawei Ascend 910B/C/D',      color: 'oklch(55% 0.18 250)', tokens: ['ascend-910b', 'ascend-910c', 'ascend-910d', 'ascend-da-vinci-3', 'ascend-da-vinci-4', 'davinci-3'] },
+  { id: 'cambricon',  label: 'Cambricon MLU',                color: 'oklch(60% 0.16 280)', tokens: ['cambricon-mlu'] },
+  { id: 'moore',      label: 'Moore Threads',                color: 'oklch(65% 0.15 305)', tokens: ['moore-threads'] },
+  { id: 'apple',      label: 'Apple Silicon (M-series)',     color: 'oklch(70% 0.05 240)', tokens: ['apple-m'] }
+];
+
+function archFamilyOf(token: string): ArchFamily | null {
+  const t = token.toLowerCase();
+  for (const fam of ARCHES) {
+    if (fam.tokens.some((x) => x === t)) return fam;
+  }
+  return null;
+}
+
+interface Cell {
+  /** Engines with implementations for (op × arch). */
+  engines: Set<string>;
+  /** Distinct hardware_arch tokens that fell into this family. */
+  tokens: Set<string>;
+}
+
+// Build (opId × archFamily) → Cell index
+const opMatrix = new Map<string, Map<string, Cell>>();
+for (const op of operators) {
+  const row = new Map<string, Cell>();
+  for (const impl of op.engine_implementations ?? []) {
+    for (const tok of impl.hardware_arch ?? []) {
+      const fam = archFamilyOf(tok);
+      if (!fam) continue;
+      let cell = row.get(fam.id);
+      if (!cell) {
+        cell = { engines: new Set<string>(), tokens: new Set<string>() };
+        row.set(fam.id, cell);
+      }
+      cell.engines.add(impl.engine_id ?? impl.name ?? 'unknown');
+      cell.tokens.add(tok);
+    }
+  }
+  opMatrix.set(op.id, row);
+}
+
+// Same for fused kernels
+const fkMatrix = new Map<string, Map<string, Cell>>();
+for (const fk of fusedKernels) {
+  const row = new Map<string, Cell>();
+  for (const impl of fk.engine_implementations ?? []) {
+    for (const tok of impl.hardware_arch ?? []) {
+      const fam = archFamilyOf(tok);
+      if (!fam) continue;
+      let cell = row.get(fam.id);
+      if (!cell) {
+        cell = { engines: new Set<string>(), tokens: new Set<string>() };
+        row.set(fam.id, cell);
+      }
+      cell.engines.add(impl.engine_id ?? impl.name ?? 'unknown');
+      cell.tokens.add(tok);
+    }
+  }
+  fkMatrix.set(fk.id, row);
+}
+
+// Per-arch coverage stats: for each arch family, how many of N ops have ≥1 kernel?
+function coverageFor(matrix: Map<string, Map<string, Cell>>, archId: string, total: number) {
+  let covered = 0;
+  for (const row of matrix.values()) {
+    if ((row.get(archId)?.engines.size ?? 0) > 0) covered++;
+  }
+  return { covered, total, pct: Math.round((covered / total) * 100) };
+}
+
+const opCoverages = ARCHES.map((a) => ({
+  arch: a,
+  ...coverageFor(opMatrix, a.id, operators.length)
+})).sort((a, b) => b.covered - a.covered);
+
+const fkCoverages = ARCHES.map((a) => ({
+  arch: a,
+  ...coverageFor(fkMatrix, a.id, fusedKernels.length)
+})).sort((a, b) => b.covered - a.covered);
+
+// Color a cell based on engine count (depth of support)
+function cellShade(engineCount: number): { bg: string; fg: string; label: string } {
+  if (engineCount === 0) return { bg: 'transparent', fg: 'color-mix(in oklch, var(--color-text-muted) 50%, transparent)', label: '—' };
+  if (engineCount === 1) return { bg: 'color-mix(in oklch, oklch(70% 0.18 70) 25%, transparent)', fg: 'oklch(50% 0.2 50)', label: String(engineCount) };
+  if (engineCount === 2) return { bg: 'color-mix(in oklch, var(--color-accent) 25%, transparent)', fg: 'var(--color-accent)', label: String(engineCount) };
+  return { bg: 'color-mix(in oklch, oklch(60% 0.18 145) 30%, transparent)', fg: 'oklch(45% 0.2 145)', label: String(engineCount) };
+}
+---
+<BaseLayout title="算子 × 硬件适配矩阵 — Hardware fitness">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="OPERATORS · HARDWARE FITNESS"
+        title="算子 × 硬件架构 适配矩阵"
+        subtitle={`${operators.length} 个算子 + ${fusedKernels.length} 个融合 kernel × ${ARCHES.length} 个硬件架构 · 单元格数字 = engine 实现数 (深度)`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        这页回答 <strong>"我有 hardware X, 哪些算子 / fused kernel 有原生 fast kernel?"</strong>
+        数字越大 = 越多 engine 都有该 op 的优化实现 (vLLM + SGLang + TRT-LLM + MindIE 都有 = 4).
+        空白 = 无 engine 文档化原生 kernel — 通常意味着 op 在该 arch 上走 fallback 路径 (慢 5-10×) 或不被支持.
+        <strong>空白单元格 = 社区 PR 机会</strong>.
+      </p>
+    </section>
+
+    {/* Per-arch operator coverage cards */}
+    <section class="pb-8">
+      <h2 class="text-2xl font-semibold mb-3">📊 每个硬件架构的算子覆盖率</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        覆盖率 = 该 arch 至少有 1 个 engine 实现的算子数 / {operators.length} 总算子数. 高覆盖 = 软件栈成熟.
+      </p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {opCoverages.map(({ arch, covered, total, pct }) => (
+          <div class="rounded-lg p-4 border" style={`background: var(--color-surface-raised); border-color: ${pct >= 90 ? arch.color : 'var(--color-border)'};`}>
+            <div class="flex items-baseline justify-between mb-2">
+              <span class="text-sm font-semibold">{arch.label}</span>
+              <span class="font-mono text-xs" style="color: var(--color-text-muted);">{covered} / {total}</span>
+            </div>
+            <div style={`height: 8px; background: color-mix(in oklch, ${arch.color} 12%, transparent); border-radius: 4px; overflow: hidden;`}>
+              <div style={`width: ${pct}%; height: 100%; background: ${arch.color};`}></div>
+            </div>
+            <div class="text-xs mt-1" style="color: var(--color-text-muted);">{pct}% 覆盖</div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* Operator matrix */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">⚙️ 算子 × 硬件 矩阵 ({operators.length} ops × {ARCHES.length} archs)</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        颜色深浅按支持深度: <span style="color: oklch(50% 0.2 50);">1 engine</span> · <span style="color: var(--color-accent);">2 engines</span> · <span style="color: oklch(45% 0.2 145);">3+ engines</span> · 空白 = 0
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs" style="border-collapse: collapse; min-width: 100%;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 200px;">算子 ↓ × 架构 →</th>
+              {ARCHES.map((a) => (
+                <th class="p-2 text-center" style={`border-bottom: 1px solid var(--color-border); min-width: 60px; vertical-align: bottom;`}>
+                  <div style={`font-size: 0.65rem; color: ${a.color}; font-weight: 600; transform: rotate(-15deg); transform-origin: bottom left; white-space: nowrap;`}>{a.label.split('(')[0].trim()}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {operators.map((op) => {
+              const row = opMatrix.get(op.id) ?? new Map();
+              return (
+                <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
+                  <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                    <a href={pathname(`/operators/${op.id}/`)} class="text-sm hover:underline" style="color: var(--color-accent); font-weight: 500;">{op.id}</a>
+                    {op.category && <div class="text-xs" style="color: var(--color-text-muted); font-size: 0.65rem;">{op.category}</div>}
+                  </td>
+                  {ARCHES.map((a) => {
+                    const cell = row.get(a.id);
+                    const cnt = cell?.engines.size ?? 0;
+                    const shade = cellShade(cnt);
+                    const title = cell ? `${[...cell.engines].join(', ')} (tokens: ${[...cell.tokens].join(', ')})` : 'no engine implementation declared';
+                    return (
+                      <td class="p-2 text-center" title={title}>
+                        <span style={`display: inline-block; width: 28px; height: 22px; line-height: 22px; background: ${shade.bg}; color: ${shade.fg}; border-radius: 3px; font-weight: 600; font-family: var(--font-mono); font-size: 0.7rem;`}>
+                          {shade.label}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Fused kernel matrix */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🔗 融合 Kernel × 硬件 矩阵 ({fusedKernels.length} kernels × {ARCHES.length} archs)</h2>
+      <p class="text-sm mb-4" style="color: var(--color-text-muted);">
+        Fused kernel 比 op 更稀疏 — 通常只有 1-2 个 engine 投资写 (FlashAttention-3 默认 hopper/blackwell, paged-attention vLLM-only on most archs).
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs" style="border-collapse: collapse; min-width: 100%;">
+          <thead>
+            <tr>
+              <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 220px;">Fused kernel ↓ × 架构 →</th>
+              {ARCHES.map((a) => (
+                <th class="p-2 text-center" style={`border-bottom: 1px solid var(--color-border); min-width: 60px; vertical-align: bottom;`}>
+                  <div style={`font-size: 0.65rem; color: ${a.color}; font-weight: 600; transform: rotate(-15deg); transform-origin: bottom left; white-space: nowrap;`}>{a.label.split('(')[0].trim()}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {fusedKernels.map((fk) => {
+              const row = fkMatrix.get(fk.id) ?? new Map();
+              return (
+                <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
+                  <td class="p-2 sticky left-0" style="background: var(--color-bg); white-space: nowrap;">
+                    <a href={pathname(`/fused-kernels/${fk.id}/`)} class="text-sm hover:underline" style="color: var(--color-accent); font-weight: 500;">{fk.id}</a>
+                  </td>
+                  {ARCHES.map((a) => {
+                    const cell = row.get(a.id);
+                    const cnt = cell?.engines.size ?? 0;
+                    const shade = cellShade(cnt);
+                    const title = cell ? `${[...cell.engines].join(', ')}` : 'no engine implementation declared';
+                    return (
+                      <td class="p-2 text-center" title={title}>
+                        <span style={`display: inline-block; width: 28px; height: 22px; line-height: 22px; background: ${shade.bg}; color: ${shade.fg}; border-radius: 3px; font-weight: 600; font-family: var(--font-mono); font-size: 0.7rem;`}>
+                          {shade.label}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* Decision shortcuts */}
+    <section class="py-8 border-t" style="border-color: var(--color-border);">
+      <h2 class="text-2xl font-semibold mb-2">🎯 选硬件的 op-fitness 视角</h2>
+      <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+        硬件性能再强, 如果你的关键 op 没 native kernel, 也跑不快. 用这视角辅助硬件选型:
+      </p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">主流 LLM (Llama / Qwen / DeepSeek)</h4>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            Hopper / Blackwell / CDNA3+ 全部有 90%+ op 覆盖. 选硬件主要看 HBM / FP4 / 价格.
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">DeepSeek V3+ (用 MLA)</h4>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            MLA 在 Hopper / Blackwell 上有 fast kernel; 在 CDNA3 / Ascend 上正在追赶. 看 MLA 行的细节.
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">SSM / Mamba (MiniMax M2.7 / Jamba)</h4>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            selective-scan / mamba-conv1d 主要在 Hopper / Blackwell + vLLM/TRT-LLM. CDNA / Ascend 路径不成熟.
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">Spec decoding (EAGLE / Medusa)</h4>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            speculative-verify 在 Hopper / Blackwell + SGLang/TRT-LLM 最深. 国产 arch 未广覆.
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">国产化部署</h4>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            Ascend 910 系覆盖率最高 (60%+ ops via MindIE / vLLM-ascend); Cambricon / Moore 仍稀疏.
+          </p>
+        </div>
+        <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+          <h4 class="text-sm font-semibold mb-2">边缘部署 (Jetson / Apple)</h4>
+          <p class="text-xs" style="color: var(--color-text-muted);">
+            主要 LLM ops 都有, 但 fused-kernel 稀疏. quant + lower-precision 路径 mature 一些.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="pb-12 pt-6 border-t" style="border-color: var(--color-border);">
+      <p class="text-xs" style="color: var(--color-text-muted);">
+        Note: 数据自动从 <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 0 4px; border-radius: 3px;">data/operators/&lt;id&gt;.yaml</code> 与
+        <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 0 4px; border-radius: 3px;">data/fused-kernels/&lt;id&gt;.yaml</code>
+        的 <code>engine_implementations[].hardware_arch</code> 字段聚合. 空白单元格 = 该 op/kernel 没有任何 engine 文档化原生实现 — 不一定是 fundamentally 不可能,
+        通常意味着尚无人写 (PR 机会). 同样的 op 可能在该 arch 上有 fallback path (compile from PyTorch eager / triton template), 性能不可比.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>

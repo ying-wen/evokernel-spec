@@ -10,6 +10,35 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan.
 
 ---
 
+## [2.2.0] — 2026-05-02
+
+**Theme**: Operator × hardware-arch fitness matrix — answer "I have hardware X, which operators have native fast kernels?" without reading 34 operator yamls.
+
+### Added
+- **`/operators/hardware-fitness/`** — derived view aggregating each operator's `engine_implementations[].hardware_arch` into an (op × arch family) matrix. 34 operators × 12 hardware-arch families × engine-depth coloring.
+- **Per-arch coverage cards** — 12 hardware-arch families ranked by operator coverage. Hopper / Blackwell typically near 100%; Ascend 910 ~60%; Cambricon / Moore Threads sparse — gap signals.
+- **Fused kernel × arch sub-matrix** — same shape applied to 24 fused kernels (typically sparser; flags single-vendor kernels).
+- **6 decision shortcut cards** — "I have requirement X (mainstream LLM / DeepSeek MLA / SSM-Mamba / spec decoding / 国产化 / edge), here's what arch coverage looks like."
+- **Tooltip per cell**: hovering shows which engines + which exact hardware_arch tokens fell into that family (helps disambiguate ascend-910b vs ascend-910c vs davinci-3).
+- **`/operators/` index callout** linking to the matrix.
+- **nav-groups.ts**: `算子硬件适配` entry in optimize dropdown (theme: accent).
+- **i18n**: `nav.opHardwareFitness` zh="算子硬件适配" / en="Op × HW fitness".
+- **6 v2.2 E2E tests** covering matrix structure, cell counts, fused-kernel sub-matrix, decision shortcuts, callout link.
+
+### Why
+Hardware FLOPS / HBM specs don't tell you whether your specific operators (MLA, selective-scan, fused-kv-quant, spec-verify) actually have a fast kernel on that hardware. A card with great peak performance but missing kernel coverage falls back to PyTorch eager / triton template paths that run 5-10× slower. This view surfaces those gaps as discrete cells — and the empty cells are explicitly community PR opportunities.
+
+### Why derived view (no new schema)
+The data was always in `engine_implementations[].hardware_arch`. v2.2 adds zero schema fields; it just exposes existing data through a new aggregation. This means PRs that add a new engine implementation automatically populate the matrix on next build — no separate maintenance burden.
+
+### Stats
+- 6 new v2.2 E2E tests pass · full suite green
+- Build: 453 pages (was 452, +1 = `/operators/hardware-fitness/`)
+- Schema unchanged · 100% derived from existing data
+- Symmetric counterpart to `/engines/compare/` (engines × features) — completes the "arch × capability" axis quartet
+
+---
+
 ## [2.1.0] — 2026-05-02
 
 **Theme**: Hardware power & thermal envelope axis — first post-GA additive feature, addressing data-center deployment-readiness questions (cooling, power budget, perf/watt).
