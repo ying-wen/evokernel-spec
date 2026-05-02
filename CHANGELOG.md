@@ -6,7 +6,92 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md) for the prioritized site/UI cleanup queue. Next up: **v3.19 — UI sprint** (timeline overlapping labels, filter panel classification rebuild, hardware/model card metadata richness, Apple m4-max-npu dedup, ROADMAP.md prune).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.20 — UI sprint** (timeline overlapping labels, filter panel classification rebuild, hardware/model card metadata richness) + harness extension (`--profile` flag for V3 execution-mode perf measurement, zh i18n for `/agent-deploy`).
+
+---
+
+## [3.19.0] — 2026-05-03 — Agent Harness: doctor diagnostic + MCP productized tools + landing-page surface
+
+**Theme**: Continue the harness extension per the user's repeated emphasis on "Agent Harness" — make the harness *discoverable* + *self-diagnosing* + *MCP-callable*. Three new product surfaces, 8 new tests, all green.
+
+### H1 — `pnpm agent:doctor` diagnostic command
+
+`scripts/agent-deploy/doctor.ts` (NEW, 290 LOC). 12 setup checks, each emits PASS/WARN/FAIL with actionable fix:
+
+| Check id | Validates |
+|---|---|
+| ENV-NODE-VERSION | Node.js >= 22 (per package.json engines) |
+| ENV-PNPM-VERSION | pnpm >= 9 |
+| REPO-INSTALL | `pnpm install` ran (node_modules present) |
+| REPO-DIST-BUILT | agent-context bundles built (≥100 expected) |
+| REPO-DIST-FRESH | bundles not stale relative to data/ (5-min freshness heuristic) |
+| REPO-CHANGELOG | parser regression guard — counts ≥20 versions |
+| API-ANTHROPIC-KEY | optional, warns if missing (skeleton fallback explained) |
+| FS-AGENT-LEARNINGS | data/agent-learnings/ has parseable entries |
+| PLUGIN-CODEX-BIN | binary present + executable |
+| PLUGIN-CC-COMMAND | slash command file present |
+| INSTALL-CODEX | ~/.local/bin/evokernel-deploy installed |
+| INSTALL-CC | ~/.claude/commands/agent-deploy.md installed |
+
+`--json` mode for machine consumers; `--verbose` for full detail on PASS checks too. Exit code 1 if any FAIL, 0 otherwise. **First-time-user friction reduction**: pre-v3.19, broken setups produced cryptic ImportErrors; now `pnpm agent:doctor` says exactly what's wrong + how to fix it.
+
+### H2 — MCP server adds 3 productized tools (9 → 12 tools)
+
+`plugins/mcp-server/index.ts` extended with:
+
+- **`evokernel_agent_resolve_bundle`** — fuzzy-match user input to canonical (model, hw) slug. Wraps v3.18's `resolveBundleId()`. Surfaces strategy (exact/normalized/substring/none) + candidates on ambiguity.
+- **`evokernel_agent_list_bundles`** — discovery: list all (model, hw) pairs in dist/. Optional `hardware` + `model` filters + `limit`.
+- **`evokernel_agent_auto_pr`** — F-loop closure: aggregate `data/agent-learnings/` into PR-draft Markdown. `min_signal` + `include_merged` flags.
+
+Pre-v3.19 the MCP server was 9 query-only tools (read corpus, return JSON). Now it has 3 action tools, putting the productized loop on the same surface as the corpus queries. Codex / Claude Code agents talking to the MCP server can resolve bundles + discover deploys + close the F-loop without leaving the protocol.
+
+### H3 — Landing page Agent Harness surface
+
+`apps/web/src/pages/index.astro` adds an **Agent Harness hero section** above the quick-stats: the v3.19 badge + 3-step quickstart card (install / health-check / deploy) with copy-pasteable CLI snippets + 4 capability badges (8 npm scripts · 12 MCP tools · 2 plugin executables · 113 tests). Pre-v3.19 the harness was buried in `plugins/` markdown — first-time visitors to https://yingwen.io/evokernel-spec/ saw only the corpus + calculator. Now the productized agent path is **the most prominent thing on the page** (right after the headline + CTAs).
+
+### H4 — Tests for doctor + MCP (8 new, 113 total)
+
+`scripts/tests/v3-19-doctor-mcp.test.ts`:
+- **doctor**: `--json` produces parseable structured output with all 12 check ids; default text mode prints summary + status icons; node + pnpm version checks pass; CHANGELOG regression guard counts ≥20 versions.
+- **MCP**: TOOLS array contains all 3 new tools; each has `inputSchema` with `required` + `properties`; dispatcher has matching `case` branches; total tool count ≥12.
+
+Tests run via subprocess (`spawnSync pnpm exec tsx`) so they catch real registration regressions without needing the MCP SDK handshake.
+
+### Stats
+
+- **CLI commands**: 8 → **9** (+`agent:doctor`)
+- **MCP tools**: 9 → **12** (+3 productized)
+- **Test count**: 105 → **113** (+8 doctor + MCP-registration)
+- **Landing-page sections**: harness hero added (above quick-stats, links to HARNESS.md)
+- **Layer R helper modules**: 2 → **3** (+doctor.ts)
+- **Lines of new code**: ~600 LOC (290 doctor + 200 MCP + ~80 landing page + tests)
+
+### Cumulative harness state (post-v3.19)
+
+```bash
+# Discovery + setup
+pnpm agent:list-bundles -- --hardware h100-sxm5
+pnpm agent:doctor                # 12-check setup diagnosis
+pnpm agent:install -- --target both
+
+# Deploy (skeleton or real-mode)
+pnpm agent:deploy --model llama-3.3-70b --hardware h100-sxm5
+ANTHROPIC_API_KEY=sk-ant-... pnpm agent:deploy:productized \
+  --model meta-llama/Llama-3.3-70B-Instruct --hardware h100-sxm5
+
+# F-loop closure (after multiple deploys triaged into corpus)
+pnpm agent:auto-pr -- --output ./pr-drafts.md
+
+# Or via Codex/Claude Code
+evokernel-deploy --model llama-3.3-70b --hardware h100-sxm5
+/agent-deploy llama-3.3-70b h100-sxm5
+```
+
+### v3.20 next
+
+- **UI sprint** per `docs/CLEANUP-TODO.md`: timeline overlapping labels (HIGH), filter panel classification rebuild (HIGH), hardware/model card metadata expansion (MED), Apple m4-max-npu dedup (MED).
+- **Harness `--profile` flag**: V3 execution-mode real-hardware perf measurement.
+- **zh i18n** for `/agent-deploy` slash command.
 
 ---
 

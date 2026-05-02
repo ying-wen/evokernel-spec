@@ -91,6 +91,58 @@ const themeBg = (theme?: 'accent' | 'china') =>
       </aside>
     </section>
 
+    <!-- v3.19 — Agent Harness public surface. Pre-v3.19 the harness was
+         tucked away in plugins/ markdown only; landing page only mentioned
+         the corpus + calculator. Now first-time visitors see the productized
+         agent path without digging. -->
+    <section class="py-10 border-t" style="border-color: var(--color-border);" data-testid="home-agent-harness">
+      <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 4%, var(--color-bg));">
+        <div class="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+          <h2 class="text-2xl font-semibold" style="color: var(--color-text);">
+            EvoKernel Agent Harness <span class="text-xs font-mono" style="color: var(--color-accent);">v3.19</span>
+          </h2>
+          <a href="https://github.com/ying-wen/evokernel-spec/blob/main/docs/HARNESS.md" target="_blank" rel="noopener noreferrer"
+             class="text-xs font-mono px-3 py-1 rounded-md border"
+             style="border-color: var(--color-accent); color: var(--color-accent);">
+            HARNESS.md →
+          </a>
+        </div>
+        <p class="text-sm max-w-3xl mb-5" style="color: var(--color-text-muted);">
+          不止 MCP 查询服务 — 端到端 productized agent. 给定 (model, hardware) 自动检索语料 → 真实生产代码生成 → V1/V2/V3 验证 → 失败重试 → 反馈回语料库. Codex 二进制 + Claude Code slash 命令开箱即用.
+        </p>
+        <div class="grid sm:grid-cols-3 gap-3">
+          <div class="p-3 rounded-md border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs font-mono mb-1" style="color: var(--color-accent);">1 — 安装 (一次)</div>
+            <pre class="text-[11px] overflow-x-auto" style="color: var(--color-text);"><code>git clone .../evokernel-spec
+cd evokernel-spec && pnpm install
+pnpm --filter @evokernel/web build
+pnpm agent:install -- --target both</code></pre>
+          </div>
+          <div class="p-3 rounded-md border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs font-mono mb-1" style="color: var(--color-accent);">2 — 健康检查</div>
+            <pre class="text-[11px] overflow-x-auto" style="color: var(--color-text);"><code>pnpm agent:doctor
+# 12 checks · 0 fail = 准备好了
+pnpm agent:list-bundles \
+    -- --hardware h100-sxm5</code></pre>
+          </div>
+          <div class="p-3 rounded-md border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
+            <div class="text-xs font-mono mb-1" style="color: var(--color-accent);">3 — 部署 (一行)</div>
+            <pre class="text-[11px] overflow-x-auto" style="color: var(--color-text);"><code>ANTHROPIC_API_KEY=sk-ant-... \
+evokernel-deploy \
+  --model meta-llama/Llama-3.3-70B \
+  --hardware h100-sxm5 \
+  --use-llm-orchestrator</code></pre>
+          </div>
+        </div>
+        <div class="mt-4 flex gap-3 flex-wrap text-xs">
+          <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">8 npm scripts</span>
+          <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">12 MCP tools</span>
+          <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">2 plugin executables (Codex + Claude Code)</span>
+          <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">105 tests</span>
+        </div>
+      </div>
+    </section>
+
     <!-- Quick stats: 6 numbers -->
     <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 py-6">
       {stats.map((s) => (

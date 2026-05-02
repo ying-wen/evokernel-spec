@@ -205,6 +205,44 @@ const TOOLS: Tool[] = [
         }
       }
     }
+  },
+  {
+    name: 'evokernel_agent_resolve_bundle',
+    description:
+      'v3.18 PRODUCTIZED AGENT — fuzzy-resolve a (model, hardware) pair to the canonical bundle slug. Accepts HF id ("meta-llama/Llama-3.3-70B-Instruct"), partial slug, or exact canonical slug. Returns the resolved canonical pair plus the strategy used (exact | normalized | substring | none). When resolution is ambiguous, returns up to 8 candidates. Use this BEFORE evokernel_agent_full_pipeline if the user gave a non-canonical model id — saves a "bundle not found" error.',
+    inputSchema: {
+      type: 'object',
+      required: ['model', 'hardware'],
+      properties: {
+        model: { type: 'string', description: 'User-provided model id — HF id, partial slug, or canonical.' },
+        hardware: { type: 'string', description: 'Hardware id (must be exact).' }
+      }
+    }
+  },
+  {
+    name: 'evokernel_agent_list_bundles',
+    description:
+      'v3.18 PRODUCTIZED AGENT — discovery: list all (model, hardware) pairs with pre-built agent-context bundles. Optionally filter by --hardware or --model substring. Use BEFORE planning to confirm the target deploy is supported.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        hardware: { type: 'string', description: 'Filter to one hardware id (optional).' },
+        model: { type: 'string', description: 'Filter to one model id (optional).' },
+        limit: { type: 'number', default: 50, description: 'Cap result count (default 50).' }
+      }
+    }
+  },
+  {
+    name: 'evokernel_agent_auto_pr',
+    description:
+      'v3.18 PRODUCTIZED AGENT — F-loop closure: aggregate data/agent-learnings/*.yaml into PR-draft Markdown. Clusters observations by (kind, op_or_kernel, arch_family). Returns the auto-PR result (clusters + signal_strength + body_md per cluster + input summary). Use AFTER several deploys to surface emergent patterns the corpus should add.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        min_signal: { type: 'number', default: 2, description: 'Min independent runs per cluster (default 2; set to 1 to include single-run observations).' },
+        include_merged: { type: 'boolean', default: false, description: 'Include already-merged learnings (default: open only).' }
+      }
+    }
   }
 ];
 
@@ -422,6 +460,95 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         return {
           content: [{ type: 'text', text: `❌ Full-pipeline invocation failed: ${e.message ?? e}\n\nstderr:\n${e.stderr ?? ''}` }],
           isError: true
+        };
+      }
+    }
+
+    case 'evokernel_agent_resolve_bundle': {
+      // v3.19 — fuzzy-resolve a (model, hardware) pair to canonical slug.
+      // Calls scripts/agent-deploy/fetch-bundle.ts:resolveBundleId().
+      const fetchBundleModule = path.join(REPO_ROOT, 'scripts/agent-deploy/fetch-bundle.ts');
+      try {
+        const stdout = execFileSync(
+          'pnpm',
+          ['tsx', '-e',
+            `import('${fetchBundleModule}').then(async m => { const r = await m.resolveBundleId({ model: process.argv[1], hardware: process.argv[2] }); console.log(JSON.stringify(r, null, 2)); })`,
+            String(args.model), String(args.hardware)],
+          { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 }
+        );
+        const result = JSON.parse(stdout);
+        const headline = result.resolved
+          ? `Resolved "${args.model}" → \`${result.resolved.model}\` on \`${result.resolved.hardware}\` (strategy: ${result.strategy})`
+          : `❌ Could not resolve "${args.model}" on "${args.hardware}".\n\nNormalized form: \`${result.normalized_model}\``;
+        const candidates = result.candidates.length > 0
+          ? `\n\nCandidates (${result.candidates.length}):\n${result.candidates.map((c: any) => `- \`${c.model}\` on \`${c.hardware}\``).join('\n')}`
+          : '';
+        return {
+          content: [{ type: 'text', text: `${headline}${candidates}` }],
+          isError: !result.resolved,
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: `❌ resolveBundleId failed: ${e.message ?? e}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'evokernel_agent_list_bundles': {
+      // v3.19 — discovery surface.
+      const fetchBundleModule = path.join(REPO_ROOT, 'scripts/agent-deploy/fetch-bundle.ts');
+      try {
+        const stdout = execFileSync(
+          'pnpm',
+          ['tsx', '-e',
+            `import('${fetchBundleModule}').then(async m => { const r = await m.listBundles(); console.log(JSON.stringify(r)); })`,
+          ],
+          { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 }
+        );
+        let pairs: Array<{ model: string; hardware: string; slug: string }> = JSON.parse(stdout);
+        if (args.hardware) pairs = pairs.filter((p) => p.hardware === args.hardware);
+        if (args.model) pairs = pairs.filter((p) => p.model.includes(String(args.model)));
+        const limit = Number(args.limit ?? 50);
+        const truncated = pairs.length > limit;
+        pairs = pairs.slice(0, limit);
+        const summary = `${pairs.length}${truncated ? `+ (capped at ${limit})` : ''} bundles${args.hardware ? ` for ${args.hardware}` : ''}${args.model ? ` matching "${args.model}"` : ''}:\n\n${pairs.map((p) => `- \`${p.model}\` on \`${p.hardware}\``).join('\n')}`;
+        return { content: [{ type: 'text', text: summary }] };
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: `❌ listBundles failed: ${e.message ?? e}` }],
+          isError: true,
+        };
+      }
+    }
+
+    case 'evokernel_agent_auto_pr': {
+      // v3.19 — F-loop closure: aggregate agent-learnings into PR drafts.
+      const cliScript = path.join(REPO_ROOT, 'scripts/agent-deploy/auto-pr-cli.ts');
+      const cliArgs = ['tsx', cliScript, '--json'];
+      if (args.min_signal !== undefined) cliArgs.push('--min-signal', String(args.min_signal));
+      if (args.include_merged) cliArgs.push('--include-merged');
+      try {
+        const stdout = execFileSync('pnpm', ['exec', ...cliArgs], {
+          cwd: REPO_ROOT,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 60_000,
+        });
+        const result = JSON.parse(stdout);
+        const summary =
+          `# Auto-PR Aggregation\n\n` +
+          `From **${result.input_summary.total_learnings}** total learnings ` +
+          `(open: ${result.input_summary.open}, merged: ${result.input_summary.merged}, wont-fix: ${result.input_summary.wont_fix}).\n\n` +
+          `**${result.clusters.length}** PR draft cluster${result.clusters.length === 1 ? '' : 's'} at signal ≥ ${args.min_signal ?? 2}.\n\n` +
+          (result.clusters.length === 0
+            ? '_No clusters met the signal threshold. More deploys needed._'
+            : result.clusters.map((c: any) => `## [Signal ${c.signal_strength}] ${c.title}\n\n${c.body_md.slice(0, 1500)}\n`).join('\n---\n\n'));
+        return { content: [{ type: 'text', text: summary }] };
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: `❌ auto-pr failed: ${e.message ?? e}\n\nstderr:\n${e.stderr ?? ''}` }],
+          isError: true,
         };
       }
     }
