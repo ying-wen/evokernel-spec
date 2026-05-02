@@ -1,0 +1,91 @@
+id: rk3588-npu
+name: Rockchip RK3588 NPU
+vendor: rockchip
+generation: rknpu-3
+status: in-production
+release_year: 2022
+form_factor: embedded-soc
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 3, evidence_ref: ev-rk3588-001 }
+  fp16_tflops: { value: 3, evidence_ref: ev-rk3588-001 }
+  int8_tops: { value: 6, evidence_ref: ev-rk3588-001 }
+architecture:
+  compute_unit_count: { value: 3, evidence_ref: ev-rk3588-arch-001 }
+  compute_unit_label: NPU-Core
+  process_node_nm: { value: 8, evidence_ref: ev-rk3588-arch-001 }
+  memory_hierarchy:
+    - name: 'NPU per-core SRAM'
+      scope: per-cu
+      size_kb: { value: 1024, evidence_ref: ev-rk3588-arch-001 }
+      notes: 'Per-NPU-core 1 MB local SRAM. RK3588 has 3 NPU cores; 3 MB total NPU-local memory.'
+    - name: 'LPDDR5 (shared with ARM CPU + GPU)'
+      scope: global
+      size_mb: { value: 32768, evidence_ref: ev-rk3588-001 }
+      bandwidth_tbs: { value: 0.0512, evidence_ref: ev-rk3588-001 }
+      notes: 'Up to 32 GB LPDDR5-5500 quad-channel = 51 GB/s. The bandwidth ceiling at this tier — every modern edge SoC has roughly the same DRAM tier (M4 Pro 273 GB/s is dramatically more, RK3588 is true edge).'
+memory:
+  capacity_gb: { value: 32, evidence_ref: ev-rk3588-001 }
+  bandwidth_gbps: { value: 51, evidence_ref: ev-rk3588-001 }
+  type: LPDDR5
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 51
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+power:
+  tdp_w: { value: 8, evidence_ref: ev-rk3588-001 }
+  sustained_w: { value: 5, evidence_ref: ev-rk3588-001 }
+  peak_w: { value: 12, evidence_ref: ev-rk3588-001 }
+  cooling: passive-conduction
+  operating_temp_c: { min: -20, max: 85 }
+  fp16_tflops_per_watt: { value: 0.6, evidence_ref: ev-rk3588-001 }
+  power_connector: integrated
+  notes: '5-12 W envelope — true edge tier. Passive cooling for fanless designs (Orange Pi, Rock 5, Khadas Edge2).'
+software_support:
+  drivers: ['RKNN-Toolkit2', 'RKNPU2 driver']
+  engines:
+    - { id: lmdeploy, status: community-port, versions: ['0.7'], notes: 'lmdeploy-rknn community fork' }
+  quantizations: [int8, int4-awq]
+  parallelism: []
+aliases: ['RK3588 NPU', 'Rockchip RK3588', 'RKNPU-3']
+chinese_names: ['瑞芯微 RK3588 NPU', 'RK3588 边缘 AI']
+evidence:
+  - id: ev-rk3588-001
+    tier: official
+    source_type: vendor-datasheet
+    url: https://www.rock-chips.com/a/cn/product/RK35xilie/2022/0926/1660.html
+    accessed: '2026-05-03'
+    citation: 'Rockchip RK3588 product page: 8nm SoC with 8-core ARM Cortex-A76/A55 CPU + Mali-G610 GPU + 3-core NPU @ 6 TOPS INT8; supports up to 32 GB LPDDR5; ~$30 chip cost, ~$80-150 dev board (Orange Pi 5 Plus, Rock 5B, Khadas Edge2 Pro).'
+  - id: ev-rk3588-arch-001
+    tier: official
+    source_type: vendor-whitepaper
+    url: https://www.rock-chips.com/uploads/pdf/RK3588%20Brief%20Datasheet.pdf
+    accessed: '2026-05-03'
+    citation: 'RK3588 datasheet: NPU-3 generation with 3 cores, INT4/INT8/FP16 support, 6 TOPS INT8 peak, RKNN-Toolkit2 SDK.'
+disclaimers:
+  - 'RK3588 NPU is true edge tier — 6 INT8 TOPS limits to small models (TinyLlama, Phi-3-mini, Qwen 1.5B INT4). Llama 3 8B INT4 runs at ~1-3 tok/s.'
+  - 'RKNN-Toolkit2 is the canonical SW stack; LLM inference relies on community llama.cpp + RKNPU patches.'
+  - 'Bandwidth (51 GB/s) is the constraint — even quantized small models are bandwidth-bound at decode.'
+  - 'Sub-$150 dev boards (Orange Pi 5, Rock 5B) make RK3588 the volume entry point for hobbyist edge AI.'
+notes: |
+  RK3588 NPU is the **国产 mass-market edge** tier — at $30 chip / $80-150 dev board cost,
+  it powers consumer-grade edge AI (smart cameras, robotics dev kits, single-board
+  computers). 6 INT8 TOPS is enough for TinyLlama/Phi-3-mini/Qwen-1.5B INT4 but not
+  serious LLM workloads.
+
+  This is the volume tier for indie embedded AI projects. Edge AI hobbyists run llama.cpp +
+  RKNPU patch; commercial deployments use RKNN-Toolkit2 SDK.
+
+  v3.3 opens the **国产 edge class** — RK3588 NPU joins as the first entry. v3.9 will
+  add Sophgo BM1684X (16 TOPS), Horizon Journey 5 (128 TOPS auto), Allwinner V853
+  (1 TOPS ultra-low-power).
+
+  Compared to NVIDIA Jetson Orin Nano ($249, 40 INT8 TOPS, 8W): RK3588 is 6× cheaper but
+  6× lower TOPS. RK3588 wins on $/dev-board accessibility; Orin wins on raw inference
+  perf for the hobbyist tier.

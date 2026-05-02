@@ -6,7 +6,76 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.3 — edge NPU + 国产 edge** (Jetson Thor, Hailo-10, Rockchip RK3588 NPU, Sophgo BM1684X, Horizon Journey 5) — true edge tier with sub-25W power budgets.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized plan. Next up: **v3.4 — Layer G real-code generator** (refactor `kernel-codegen.ts` from skeleton emitter to LLM-orchestrator using the v3.3 agent-context bundle as RAG context; emit code that compiles).
+
+---
+
+## [3.3.0] — 2026-05-03 — productized agent foundation
+
+**Theme**: response to user directive — evolve agent from "MCP query service + skeleton emitter" to **productized end-to-end agent**. v3.3 ships the foundation; v3.4-v3.10 implements per the new architecture spec.
+
+### User directive (2026-05-03)
+
+> 不仅仅是现在只是一个 MCP 的查询服务...能根据给定模型和硬件需求，智能化检索相应需要的知识...这个 agent 能完成真实生产算子及部署代码，并保证验证测试通过，会持续根据部署情况持续自动优化闭环，还能把这过程所有经验和知识，反馈回本项目知识库。
+
+Translation: not just MCP query, not just kernel skeletons. Need real production code that passes verification, self-optimizes, feeds back automatically, and ships as Codex + Claude Code productized plugins.
+
+### Added
+
+**1. Productized agent architecture spec — `docs/superpowers/specs/2026-05-03-productized-agent.md`**
+
+Defines the **5-layer agent architecture** (R/P/G/V/F) replacing the v2.x monolithic CLI:
+
+| Layer | Purpose |
+|---|---|
+| **R — Retrieval** | Smart context bundle for given (model, hw) |
+| **P — Planning** | Engine/quant/parallelism selection |
+| **G — Generation** | Real production code (not skeletons) |
+| **V — Verification** | Build + correctness + perf gates |
+| **F — Feedback** | Auto-writeback to corpus |
+
+Plus the v3.3 → v3.10 trajectory mapping each Ralph iteration to a layer's deliverable. The success criteria is the end-to-end "Claude Code → DSV4 Pro on Cambricon → 3 generated kernels pass verify → corpus PR opens automatically" scenario.
+
+**2. Layer R foundation — `/api/agent-context/[model]-on-[hardware].json`**
+
+Static-generated endpoint: **1140 bundles pre-built at SSG time** (one per (model, hardware) combination). Each bundle returns:
+- model spec + execution graphs
+- hardware spec + vendor + ISA primitives + cross-vendor mappings
+- applicable ops (with full `formal_semantics`) + fused-kernel options
+- DSL examples for this hw's arch_family
+- kernel libraries + engine compile workflows
+- prior agent-learnings on similar (model, hw) pairs
+- coverage hints (op coverage %, dsl example count, etc.)
+
+Companion endpoint `/api/agent-context-index.json` lists all 1140 generated combinations for discovery.
+
+**Why this matters**: previously the agent CLI made 8-10 separate corpus queries per deploy (model, hardware, ops, fused-kernels, DSL examples, ISA primitives, kernel libraries, prior learnings) and lost context coherence between them. With v3.3, an LLM orchestrator gets the full RAG context in **one fetch**. v3.4's real-code generator will use this directly as system-prompt context.
+
+**3. 4 more hardware (53 → 57 cards)**
+
+- **`rtx-5070`** — Blackwell consumer entry; 12 GB GDDR7, 672 GB/s, 250W, $549. The cost-efficient Blackwell entry for indie 7B-8B inference.
+- **`m5-pro`** — Apple M5 Pro mid-tier; 64 GB unified @ 336 GB/s; M5-generation dedicated tensor units. Mac mini M5 Pro at $1599.
+- **`jetson-thor`** — NVIDIA edge robotics flagship (T5000); ARM Grace + Blackwell GPU; 128 GB unified @ 273 GB/s; 30-130W configurable; -40°C to 105°C operating range. **Opens the edge NPU class** (was empty pre-v3.3). 1035 FP8 TFLOPS in 100W envelope.
+- **`rk3588-npu`** — Rockchip RK3588 (NEW vendor); $30 chip / $80-150 dev board cost; 6 INT8 TOPS in 5-12W envelope. **Opens the 国产 mass-market edge class** — Orange Pi 5, Rock 5B, Khadas Edge2 Pro.
+
+### Why these 4 hardware specifically
+
+- **RTX 5070 + M5 Pro**: completes the Blackwell consumer + M5 family lineups (RTX 5080/5090 already shipped v3.0/3.2; M5 Max shipped v3.2).
+- **Jetson Thor**: opens the entire **edge NPU class** that was missing pre-v3.3. Critical for v3.x hardware breadth promise.
+- **RK3588 NPU**: opens the **国产 edge class**. Volume tier (sub-$150 dev boards) — the indie embedded AI entry point. v3.9 will add Sophgo BM1684X, Horizon Journey 5, Allwinner V853.
+
+### Stats
+
+- **Hardware**: 53 → 57 (+4: 2 consumer + 2 edge)
+- **Vendors**: 28 → 29 (+1 Rockchip)
+- **Site pages**: 533 → 542 (+9)
+- **Static API endpoints**: 22 → 23 (added `/api/agent-context-index.json`) + **1140 dynamic-route bundles** (`/api/agent-context/<model>-on-<hardware>.json`)
+- **Layer D coverage**: still 100% (no regression)
+- **Validation**: 367 entities valid
+
+### v3.4 next
+
+The Layer G real-code generator: refactor `scripts/agent-deploy/kernel-codegen.ts` from the v2.16/v2.18 skeleton emitter to an LLM-orchestrator that calls Anthropic Claude API with the v3.3 agent-context bundle as system-prompt context, the formal_semantics + reference_impl as exemplars, and emits code that **passes verification** (Layer V — v3.5).
 
 ---
 

@@ -1,0 +1,80 @@
+id: m5-pro
+name: Apple M5 Pro
+vendor: apple
+generation: apple-m5
+status: in-production
+release_year: 2025
+form_factor: embedded-soc
+compute:
+  fp4_tflops: null
+  fp8_tflops: null
+  bf16_tflops: { value: 50, evidence_ref: ev-m5-pro-001 }
+  fp16_tflops: { value: 50, evidence_ref: ev-m5-pro-001 }
+  int8_tops: { value: 100, evidence_ref: ev-m5-pro-001 }
+architecture:
+  compute_unit_count: { value: 20, evidence_ref: ev-m5-pro-001 }
+  compute_unit_label: XPU
+  process_node_nm: { value: 3, evidence_ref: ev-m5-pro-001 }
+  memory_hierarchy:
+    - name: 'GPU L1 (with tensor units)'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-m5-pro-arch-001 }
+      notes: 'M5 Pro GPU with dedicated tensor units (M5-generation feature). Per-core L1 + scratchpad.'
+    - name: 'System Level Cache (SLC)'
+      scope: global
+      size_mb: { value: 24, evidence_ref: ev-m5-pro-arch-001 }
+    - name: 'LPDDR5X (unified)'
+      scope: global
+      size_mb: { value: 65536, evidence_ref: ev-m5-pro-001 }
+      bandwidth_tbs: { value: 0.336, evidence_ref: ev-m5-pro-001 }
+      notes: 'Up to 64 GB unified at 336 GB/s — 23% bandwidth boost vs M4 Pro (273). Same memory ceiling.'
+memory:
+  capacity_gb: { value: 64, evidence_ref: ev-m5-pro-001 }
+  bandwidth_gbps: { value: 336, evidence_ref: ev-m5-pro-001 }
+  type: LPDDR5X
+scale_up:
+  protocol: UMA
+  bandwidth_gbps: 336
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 0
+  protocol: none
+  nic: none
+power:
+  tdp_w: { value: 40, evidence_ref: ev-m5-pro-001 }
+  sustained_w: { value: 32, evidence_ref: ev-m5-pro-001 }
+  peak_w: { value: 50, evidence_ref: ev-m5-pro-001 }
+  cooling: air
+  operating_temp_c: { min: 0, max: 35 }
+  fp16_tflops_per_watt: { value: 1.56, evidence_ref: ev-m5-pro-001 }
+  power_connector: integrated
+software_support:
+  drivers: ['Metal 5', 'Core ML 9', 'MLX 0.22']
+  engines:
+    - { id: vllm, status: community-port, notes: 'mlx-vllm port' }
+    - { id: lmdeploy, status: community-port }
+  quantizations: [bf16, fp16, int8, int4-awq, mlx-q4]
+  parallelism: [tp]
+aliases: ['M5 Pro', 'Apple M5 Pro', 'MacBook Pro M5 Pro', 'Mac mini M5 Pro']
+chinese_names: ['苹果 M5 Pro']
+evidence:
+  - id: ev-m5-pro-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.apple.com/macbook-pro/specs/
+    accessed: '2026-05-03'
+    citation: 'Apple MacBook Pro M5 Pro specs (October 2025 — 14-core CPU, 20-core GPU with tensor units, 16-core Neural Engine; up to 64 GB unified memory @ 336 GB/s; from $2299).'
+  - id: ev-m5-pro-arch-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://www.apple.com/newsroom/2025/10/apple-introduces-m5-the-next-big-leap-in-ai-performance-for-mac/
+    accessed: '2026-05-03'
+    citation: 'Apple M5 family announcement: M5 Pro inherits dedicated GPU tensor units; mid-tier between M5 base and M5 Max.'
+notes: |
+  M5 Pro completes the M5 family alongside M5 Max (v3.2). Mid-tier MacBook Pro / Mac mini
+  inference platform. With dedicated GPU tensor units (the M5 generation step-change),
+  real LLM perf uplift on MLX is ~1.5× vs M4 Pro for the same model + quant.
+
+  Mac mini M5 Pro at $1599 starting price is the next-step-up from M4 Pro ($1399) for
+  indie LLM developers who want the M5 tensor-unit boost.

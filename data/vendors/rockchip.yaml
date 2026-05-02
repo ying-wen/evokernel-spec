@@ -1,0 +1,7 @@
+id: rockchip
+name: Rockchip
+country: CN
+type: hardware
+website: https://www.rock-chips.com/
+chinese_names: ['瑞芯微', '瑞芯微电子']
+aliases: ['Rockchip', 'RK']

@@ -1,0 +1,102 @@
+id: jetson-thor
+name: NVIDIA Jetson Thor (T5000)
+vendor: nvidia
+generation: blackwell
+status: in-production
+release_year: 2025
+form_factor: embedded-soc
+compute:
+  fp4_tflops: { value: 2070, evidence_ref: ev-jetson-thor-001 }
+  fp8_tflops: { value: 1035, evidence_ref: ev-jetson-thor-001 }
+  bf16_tflops: { value: 130, evidence_ref: ev-jetson-thor-001 }
+  fp16_tflops: { value: 130, evidence_ref: ev-jetson-thor-001 }
+  int8_tops: { value: 1035, evidence_ref: ev-jetson-thor-001 }
+architecture:
+  compute_unit_count: { value: 96, evidence_ref: ev-jetson-thor-arch-001 }
+  compute_unit_label: SM
+  tensor_cores_per_cu: { value: 4, evidence_ref: ev-jetson-thor-arch-001 }
+  l2_cache_mb: { value: 96, evidence_ref: ev-jetson-thor-arch-001 }
+  process_node_nm: { value: 4, evidence_ref: ev-jetson-thor-arch-001 }
+  memory_hierarchy:
+    - name: 'GPU SMEM (per SM)'
+      scope: per-cu
+      size_kb: { value: 192, evidence_ref: ev-jetson-thor-arch-001 }
+      notes: 'Blackwell SM register + scratchpad. T5000 die has 96 SMs (between RTX 5080 84 and RTX 5090 170).'
+    - name: 'L2 Cache'
+      scope: global
+      size_mb: { value: 96, evidence_ref: ev-jetson-thor-arch-001 }
+    - name: 'LPDDR5X (unified ARM CPU + Blackwell GPU)'
+      scope: global
+      size_mb: { value: 131072, evidence_ref: ev-jetson-thor-001 }
+      bandwidth_tbs: { value: 0.273, evidence_ref: ev-jetson-thor-001 }
+      notes: '128 GB unified LPDDR5X at 273 GB/s — same memory tier as DGX Spark + Apple M4 Pro / M5 Pro. Edge robotics target: full Llama 3 70B BF16 fits in unified memory.'
+  on_chip_interconnect:
+    name: 'NVLink-C2C (ARM Grace ↔ Blackwell GPU)'
+    bandwidth_tbs: { value: 0.6, evidence_ref: ev-jetson-thor-arch-001 }
+    notes: 'NVLink Chip-to-Chip — same family as DGX Spark / GH200 superchip, scaled for edge form factor.'
+memory:
+  capacity_gb: { value: 128, evidence_ref: ev-jetson-thor-001 }
+  bandwidth_gbps: { value: 273, evidence_ref: ev-jetson-thor-001 }
+  type: LPDDR5X
+scale_up:
+  protocol: NVLink-C2C
+  bandwidth_gbps: 600
+  world_size: 1
+  topology: unified
+scale_out:
+  bandwidth_gbps_per_card: 100
+  protocol: 100GbE
+  nic: integrated
+  notes: 'Built-in 100 GbE — multi-Thor scale-out for autonomous-vehicle / robotics swarms.'
+power:
+  tdp_w: { value: 130, evidence_ref: ev-jetson-thor-001 }
+  sustained_w: { value: 100, evidence_ref: ev-jetson-thor-001 }
+  peak_w: { value: 150, evidence_ref: ev-jetson-thor-001 }
+  cooling: air
+  operating_temp_c: { min: -40, max: 105 }
+  fp16_tflops_per_watt: { value: 1.0, evidence_ref: ev-jetson-thor-001 }
+  power_connector: integrated
+  notes: 'Edge / automotive thermal envelope: -40°C to 105°C operating range. Configurable TDP 30-130W (switches power profile based on application).'
+software_support:
+  drivers: ['CUDA-12.7', 'JetPack 7.0', 'Isaac ROS']
+  engines:
+    - { id: vllm, status: officially-supported, versions: ['0.7'] }
+    - { id: tensorrt-llm, status: officially-supported, versions: ['0.18'] }
+    - { id: sglang, status: community-port, versions: ['0.5'] }
+  quantizations: [bf16, fp16, fp8-e4m3, nvfp4, int8, int4-awq]
+  parallelism: [tp]
+aliases: ['Jetson Thor', 'Jetson AGX Thor', 'Thor T5000', 'Jetson T5000']
+chinese_names: ['Jetson Thor', '英伟达边缘机器人芯片']
+evidence:
+  - id: ev-jetson-thor-001
+    tier: official
+    source_type: vendor-product-page
+    url: https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-thor/
+    accessed: '2026-05-03'
+    citation: 'NVIDIA Jetson Thor product page (T5000 SoC: ARM Grace 14-core CPU + Blackwell GPU 96 SMs + dedicated NVDLA + Tensor Core; 128 GB unified LPDDR5X @ 273 GB/s; 30-130W configurable TDP; designed for humanoid robots, autonomous vehicles, edge AI workstations).'
+  - id: ev-jetson-thor-arch-001
+    tier: official
+    source_type: vendor-press-release
+    url: https://nvidianews.nvidia.com/news/nvidia-launches-jetson-thor-the-ultimate-platform-for-physical-ai-and-humanoid-robotics
+    accessed: '2026-05-03'
+    citation: 'NVIDIA Jetson Thor announcement (2025): 7.5× perf vs Jetson Orin; Grace ARM CPU + Blackwell GPU; 8× I/O bandwidth for multi-camera robotics.'
+disclaimers:
+  - 'Jetson Thor is a developer kit + module form factor (not a discrete GPU). Marketed for physical-AI / robotics use case but architecturally identical to a "DGX Spark Lite".'
+  - 'TDP configurable 30-130W — at low-power profile, throughput drops ~3-4×. Edge deployments typically run 40-60W sustained.'
+  - 'Same software stack as DGX Spark + RTX 5090 (CUDA + cuDNN + TensorRT-LLM); applications port across with no code changes.'
+notes: |
+  Jetson Thor opens the **edge NPU class** in this corpus (was empty pre-v3.3). At 128 GB
+  unified memory + 273 GB/s + 1035 FP8 TFLOPS in a 100W envelope, it's the SOTA edge
+  inference platform 2025-2026 — surpasses the Apple M4 Pro / M5 Pro for raw throughput
+  while matching their memory tier.
+
+  Use case: humanoid robots (NVIDIA Isaac), autonomous vehicles (NVIDIA DRIVE), edge AI
+  workstations, robotics research. Commercial price ~$3000 dev kit.
+
+  Compared to consumer GPU class:
+    - vs RTX 5090 ($1999, 575W desktop): Thor has 4× memory (128 vs 32 GB) at 1/5 the
+      power; loses on raw throughput (1035 vs 1676 FP8 TFLOPS).
+    - vs DGX Spark ($3000, 170W): same 128 GB / 273 GB/s memory; Thor adds NVDLA + I/O
+      for robotics; Spark has higher CPU core count for desktop-AI workloads.
+    - vs Apple M5 Pro ($1599, 40W): Thor 7× more compute, 1.6× more memory, 5× the power.
+      Choose Thor for robotics / sustained inference; M5 Pro for indie / battery-life.
