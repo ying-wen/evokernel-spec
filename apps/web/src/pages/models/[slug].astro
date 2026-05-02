@@ -5,7 +5,7 @@ import Container from '~/components/ui/Container.astro';
 import KpiCard from '~/components/ui/KpiCard.astro';
 import SpecRow from '~/components/ui/SpecRow.astro';
 import Badge from '~/components/ui/Badge.astro';
-import { getModels, getResolvedHardware, getHardware, getCases, getPlaybooks } from '~/lib/data';
+import { getModels, getResolvedHardware, getHardware, getCases, getPlaybooks, getModelGraphs } from '~/lib/data';
 import Breadcrumbs from '~/components/ui/Breadcrumbs.astro';
 import { modelLD, breadcrumbLD } from '~/lib/jsonld';
 import RecommendedHardware from '~/components/model/RecommendedHardware.astro';
@@ -32,6 +32,10 @@ const cases = await getCases();
 const allPlaybooks = await getPlaybooks();
 const matchingPlaybooks = findPlaybooksForModel(model, allPlaybooks);
 const modelArchetype = inferModelArchetype(model);
+
+// v2.8: execution graphs for this model (per-phase)
+const allGraphs = await getModelGraphs();
+const modelGraphs = allGraphs.filter((g) => g.model_id === model.id);
 
 function statusOnHw(hwId: string): 'measured' | 'claimed' | 'unknown' {
   const has = cases.some((c) => c.stack.hardware.id === hwId && c.stack.model.id === model.id);
@@ -127,6 +131,70 @@ const labelMap = { measured: '🟢 实测', claimed: '🟡 声称', unknown: '�
     )}
 
     <RecommendedPlaybooks playbooks={matchingPlaybooks} pivot="model" inferredLabel={modelArchetype} />
+
+    {/* v2.8: Model execution graph(s) */}
+    {modelGraphs.length > 0 && (
+      <section class="pb-8" id="execution-graph">
+        <h3 class="text-lg font-semibold mb-3">🔀 Execution graph <span class="text-xs ml-2 font-normal" style="color: var(--color-text-muted);">v2.8 — 智能体 codegen 输入</span></h3>
+        <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
+          逐 op 的执行序列 + shape 模板. 智能体把 model arch 解析为 op 调用顺序时的核心数据.
+          结合 operator FLOPs/bytes 公式 + hardware specs, 可以在不实际跑的前提下预测 per-token 资源.
+        </p>
+        {modelGraphs.map((g) => (
+          <details class="rounded-lg border mb-3" style="background: var(--color-surface-raised); border-color: var(--color-border);">
+            <summary class="p-4 cursor-pointer flex items-center gap-3 flex-wrap">
+              <Badge variant="accent">{g.phase}</Badge>
+              <span class="font-semibold">{g.layer_count} layers · {g.per_layer_ops.length} ops/layer</span>
+              <span class="text-xs" style="color: var(--color-text-muted);">{g.pre_layer_ops.length} pre + {g.post_layer_ops.length} post</span>
+            </summary>
+            <div class="px-4 pb-4">
+              {Object.keys(g.placeholder_definitions).length > 0 && (
+                <div class="mb-3">
+                  <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">Placeholders</div>
+                  <div class="flex gap-1 flex-wrap">
+                    {Object.entries(g.placeholder_definitions).map(([k, v]) => (
+                      <span style="font-size: 0.7rem; padding: 2px 6px; background: color-mix(in oklch, var(--color-border) 30%, transparent); border-radius: 3px; font-family: var(--font-mono);">
+                        <strong>{k}</strong>: {v}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div class="text-xs font-semibold mb-2" style="color: var(--color-text-muted);">Per-layer ops ({g.per_layer_ops.length})</div>
+                <ol class="space-y-1.5">
+                  {g.per_layer_ops.map((op) => (
+                    <li class="text-xs rounded p-2 border" style="background: var(--color-bg); border-color: color-mix(in oklch, var(--color-border) 60%, transparent);">
+                      <div class="flex items-baseline gap-2 flex-wrap">
+                        <span class="font-mono shrink-0" style="color: var(--color-accent); font-weight: 600;">{op.order}.</span>
+                        <a href={pathname(`/operators/${op.op_id}/`)} class="hover:underline" style="color: var(--color-accent);">{op.op_id}</a>
+                        {op.label && <span style="color: var(--color-text-muted);">— {op.label}</span>}
+                        {op.repeat_per_layer > 1 && <span style="color: var(--color-accent); font-size: 0.65rem;">×{op.repeat_per_layer}</span>}
+                      </div>
+                      {Object.keys(op.shape_template).length > 0 && (
+                        <div class="mt-1" style="font-family: var(--font-mono); font-size: 0.65rem; color: var(--color-text-muted);">
+                          {Object.entries(op.shape_template).map(([k, v]) => (
+                            <span class="mr-3">{k}: {v}</span>
+                          ))}
+                        </div>
+                      )}
+                      {op.notes && <div class="text-xs mt-1" style="color: var(--color-text-muted); font-style: italic;">{op.notes}</div>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {g.notes && (
+                <div class="mt-3 pt-3 border-t" style="border-color: color-mix(in oklch, var(--color-border) 50%, transparent);">
+                  <div class="text-xs whitespace-pre-line" style="color: var(--color-text-muted);">{g.notes}</div>
+                </div>
+              )}
+            </div>
+          </details>
+        ))}
+      </section>
+    )}
 
     <section class="pb-8">
       <h3 class="text-lg font-semibold mb-3">兼容硬件</h3>

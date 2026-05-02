@@ -19,3 +19,4 @@ export * from './manifest';
 export * from './kernel-library';
 export * from './isa-primitive';
 export * from './dsl-example';
+export * from './model-execution-graph';

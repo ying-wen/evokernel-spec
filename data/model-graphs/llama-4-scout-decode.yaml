@@ -1,0 +1,115 @@
+id: llama-4-scout-decode
+model_id: llama-4-scout
+phase: decode
+layer_count: 80
+
+placeholder_definitions:
+  B: 'batch_size'
+  S: 'seq_len (1 for incremental decode)'
+  D: 'd_model (8192)'
+  H: 'num_attention_heads (64)'
+  H_kv: 'num_kv_heads (8 — GQA factor 8x reduction)'
+  D_h: 'head_dim (128)'
+  E: 'num_experts (16)'
+  K: 'top_k_experts (1 — Llama 4 Scout uses sparse top-1)'
+  D_ff: 'expert_intermediate_dim (28672)'
+  V: 'vocab_size (128256)'
+
+default_dimensions:
+  B: 1
+  S: 1
+  D: 8192
+  H: 64
+  H_kv: 8
+  D_h: 128
+  E: 16
+  K: 1
+  D_ff: 28672
+  V: 128256
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  # 1. RMSNorm before attention
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm (pre-attn)',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  # 2. QKV projection (fused or separate; engines differ)
+  - { order: 2, op_id: matmul, label: 'Q projection',
+      shape_template: { input: '[B, S, D]', weight: '[D, H*D_h]', output: '[B, S, H, D_h]' } }
+  - { order: 3, op_id: matmul, label: 'K projection (GQA — H_kv heads)',
+      shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+  - { order: 4, op_id: matmul, label: 'V projection (GQA — H_kv heads)',
+      shape_template: { input: '[B, S, D]', weight: '[D, H_kv*D_h]', output: '[B, S, H_kv, D_h]' } }
+
+  # 3. RoPE on Q + K
+  - { order: 5, op_id: rope, label: 'RoPE on Q + K',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, S, H_kv, D_h]', output: '[B, S, H, D_h]' } }
+
+  # 4. Attention with GQA (Q has H heads, K/V have H_kv — broadcast to H)
+  - { order: 6, op_id: scaled-dot-product-attention, label: 'GQA flash attention',
+      shape_template: { Q: '[B, S, H, D_h]', K: '[B, ctx_len, H_kv, D_h]', V: '[B, ctx_len, H_kv, D_h]', output: '[B, S, H, D_h]' },
+      notes: 'GQA: K/V have H_kv=8 heads; Q has H=64 heads. Broadcast factor = H/H_kv = 8.' }
+
+  # 5. Output projection
+  - { order: 7, op_id: matmul, label: 'Attn output projection (W_O)',
+      shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+
+  # 6. RMSNorm before MoE
+  - { order: 8, op_id: rmsnorm, label: 'RMSNorm (pre-MoE)',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  # 7. MoE gate
+  - { order: 9, op_id: moe-gate, label: 'MoE router (top-1 from 16 experts — Scout sparse)',
+      shape_template: { input: '[B, S, D]', weight: '[D, E]', output_indices: '[B, S, K]' } }
+
+  # 8. Expert permute
+  - { order: 10, op_id: expert-permute, label: 'Token dispatch to expert',
+      shape_template: { tokens: '[B*S, D]', indices: '[B*S, K]', dispatched: '[B*S*K, D]' } }
+
+  # 9. Expert FFN: SwiGLU = silu(gate(x)) * up(x), then down(x)
+  - { order: 11, op_id: grouped-matmul, label: 'Expert gate proj',
+      shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 12, op_id: grouped-matmul, label: 'Expert up proj',
+      shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 13, op_id: swiglu, label: 'SwiGLU = silu(gate) * up',
+      fused_with: [grouped-matmul],
+      shape_template: { gate: '[B*S*K/E, D_ff]', up: '[B*S*K/E, D_ff]', output: '[B*S*K/E, D_ff]' } }
+  - { order: 14, op_id: grouped-matmul, label: 'Expert down proj',
+      shape_template: { input: '[B*S*K/E, D_ff]', weight: '[E, D_ff, D]', output: '[B*S*K/E, D]' } }
+
+  # 10. Reverse permute
+  - { order: 15, op_id: expert-permute, label: 'Expert outputs combine',
+      shape_template: { dispatched: '[B*S*K, D]', combined: '[B*S, D]' } }
+
+  # 11. TP allreduce
+  - { order: 16, op_id: allreduce, label: 'TP allreduce',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', weight: '[D, V]', output: '[B, S, V]' } }
+  - { order: 102, op_id: top-k-sampling, label: 'Sampling', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, V]', output_token: '[B, S]' } }
+
+notes: |
+  Llama 4 Scout (109B total / ~17B active) decode-phase graph. Key characteristics:
+
+  1. **GQA with H_kv=8** (vs H=64 query heads) — KV cache 8× smaller than MHA
+     equivalent. Standard frontier-LLM design (Llama 3 also uses GQA).
+
+  2. **MoE top-1 routing**: only 1 expert active per token vs DeepSeek's top-8.
+     Trade-off: lower compute per token (~17B active) but more sensitive
+     to load imbalance.
+
+  3. **Standard SDPA** — no MLA. KV cache size = B * ctx_len * H_kv * D_h * 2 bytes (fp16).
+     For ctx=128K, B=1: 128K * 8 * 128 * 2 = 256 MB per layer = 20.5 GB across 80 layers.
+
+  4. **Per-decode-step compute**: ~3e9 FLOPs/token at batch=1 (top-1 sparse).
+     Lower than DeepSeek V3 due to top-1 routing.
+
+reference_url: https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E

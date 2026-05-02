@@ -6,7 +6,8 @@ import {
   OperatorSchema, EngineSchema, QuantizationSchema, ParallelStrategySchema,
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
   PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
-  DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema
+  DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema,
+  ModelExecutionGraphSchema
 } from '@evokernel/schemas';
 import { loadYaml } from './lib/load-yaml.ts';
 
@@ -42,7 +43,8 @@ const ENTITY_GLOBS: Array<{ name: string; glob: string; schema: ZodSchema }> = [
   { name: 'isa-primitive', glob: 'isa-primitives/*.yaml', schema: IsaPrimitiveSchema },
   { name: 'dsl-example', glob: 'dsl-examples/*.yaml', schema: DslExampleSchema },
   { name: 'reference-impl', glob: 'reference-impls/*.yaml', schema: ReferenceImplementationSchema },
-  { name: 'profiling-tool', glob: 'profiling-tools/*.yaml', schema: ProfilingToolSchema }
+  { name: 'profiling-tool', glob: 'profiling-tools/*.yaml', schema: ProfilingToolSchema },
+  { name: 'model-graph', glob: 'model-graphs/*.yaml', schema: ModelExecutionGraphSchema }
 ];
 
 export async function validateAll(opts: { dataDir: string }): Promise<ValidationReport> {

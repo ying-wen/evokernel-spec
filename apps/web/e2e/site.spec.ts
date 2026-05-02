@@ -627,6 +627,44 @@ test.describe('v1.41: 5 more operators (lora-bgmv, online-softmax, block-quantiz
   });
 });
 
+test.describe('v2.8: model execution graphs (bridge from arch → ops)', () => {
+  test('/api/model-graphs.json returns 200 with at least 2 graphs', async ({ request }) => {
+    const r = await request.get('/api/model-graphs.json');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.count).toBeGreaterThanOrEqual(2);
+    const ids = body.items.map((g: any) => g.id);
+    expect(ids).toContain('deepseek-v4-pro-decode');
+    expect(ids).toContain('llama-4-scout-decode');
+  });
+
+  test('DeepSeek V4 Pro graph has MLA op + MoE structure', async ({ request }) => {
+    const r = await request.get('/api/model-graphs.json');
+    const body = await r.json();
+    const dsv4 = body.items.find((g: any) => g.id === 'deepseek-v4-pro-decode');
+    expect(dsv4).toBeTruthy();
+    expect(dsv4.layer_count).toBe(61);
+    const ops = dsv4.per_layer_ops.map((o: any) => o.op_id);
+    expect(ops).toContain('mla-attention');
+    expect(ops).toContain('moe-gate');
+    expect(ops).toContain('grouped-matmul');
+  });
+
+  test('/models/deepseek-v4-pro/ surfaces execution graph section', async ({ page }) => {
+    await page.goto('/models/deepseek-v4-pro/');
+    await expect(page.getByText(/Execution graph|执行|graph/i).first()).toBeVisible();
+    // Should mention MLA somewhere
+    await expect(page.getByText(/MLA|mla-attention/i).first()).toBeVisible();
+  });
+
+  test('/models/llama-4-scout/ surfaces decode-phase graph', async ({ page }) => {
+    await page.goto('/models/llama-4-scout/');
+    await expect(page.getByText(/Execution graph|graph/i).first()).toBeVisible();
+    // GQA mentioned
+    await expect(page.getByText(/GQA|H_kv/i).first()).toBeVisible();
+  });
+});
+
 test.describe('v2.7: /dev-toolkit/ — DSL examples + reference impls + profiling tools', () => {
   test('/api/dsl-examples.json + /api/reference-impls.json + /api/profiling-tools.json all 200', async ({ request }) => {
     for (const url of ['/api/dsl-examples.json', '/api/reference-impls.json', '/api/profiling-tools.json']) {

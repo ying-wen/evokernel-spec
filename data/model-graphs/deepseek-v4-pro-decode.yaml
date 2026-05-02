@@ -1,0 +1,129 @@
+id: deepseek-v4-pro-decode
+model_id: deepseek-v4-pro
+phase: decode
+layer_count: 61
+
+placeholder_definitions:
+  B: 'batch_size (concurrent requests)'
+  S: 'seq_len (1 for incremental decode; or current context len for KV cache reads)'
+  D: 'd_model (7168 for DeepSeek V3)'
+  H: 'num_attention_heads (128)'
+  D_h: 'head_dim (64 — note MLA-specific reduced head_dim)'
+  D_kv: 'kv_compressed_dim (512 — MLA latent KV compression)'
+  D_q_low: 'q_compression_dim (1536 — MLA low-rank query)'
+  E: 'num_experts (256)'
+  K: 'top_k_experts (8)'
+  D_ff: 'expert_intermediate_dim (2048 per expert)'
+  V: 'vocab_size (129280)'
+  L: 'layer_idx'
+
+default_dimensions:
+  B: 1
+  S: 1
+  D: 7168
+  H: 128
+  D_h: 64
+  D_kv: 512
+  D_q_low: 1536
+  E: 256
+  K: 8
+  D_ff: 2048
+  V: 129280
+
+pre_layer_ops:
+  - { order: 0, op_id: embedding-lookup, label: 'Token embedding', layer_scope: embedding-only,
+      shape_template: { input: '[B, S]', weight: '[V, D]', output: '[B, S, D]' } }
+
+per_layer_ops:
+  # 1. RMSNorm before attention
+  - { order: 1, op_id: rmsnorm, label: 'RMSNorm (pre-attn)',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  # 2. MLA: Q low-rank projection + decompression
+  - { order: 2, op_id: matmul, label: 'MLA Q low-rank proj (W_DQ)',
+      shape_template: { input: '[B, S, D]', weight: '[D, D_q_low]', output: '[B, S, D_q_low]' } }
+  - { order: 3, op_id: rmsnorm, label: 'MLA Q layer-norm',
+      shape_template: { input: '[B, S, D_q_low]', output: '[B, S, D_q_low]' } }
+  - { order: 4, op_id: matmul, label: 'MLA Q decompression (W_UQ)',
+      shape_template: { input: '[B, S, D_q_low]', weight: '[D_q_low, H*D_h]', output: '[B, S, H, D_h]' } }
+
+  # 3. MLA KV compressed (read from cache, NOT recompute)
+  - { order: 5, op_id: matmul, label: 'MLA KV compressed proj (W_DKV) — only Q-side; K/V come from compressed cache',
+      shape_template: { input: '[B, S, D]', weight: '[D, D_kv + D_h]', output: '[B, S, D_kv + D_h]' },
+      notes: 'In decode mode, K/V are read from compressed cache; this proj only computes new compressed Q context.' }
+
+  # 4. RoPE on Q + K decoupled
+  - { order: 6, op_id: rope, label: 'RoPE (Q + decoupled K)',
+      shape_template: { input: '[B, S, H, D_h]', output: '[B, S, H, D_h]' } }
+
+  # 5. MLA attention (causal, with paged KV)
+  - { order: 7, op_id: mla-attention, label: 'MLA flash attention',
+      shape_template: { Q: '[B, S, H, D_h]', K_cache: '[B, ctx_len, D_kv]', V_cache: '[B, ctx_len, D_kv]', output: '[B, S, H, D_h]' },
+      notes: 'Decode: Q is single token, K/V are full cache. Compute = O(B * H * D_h * ctx_len).' }
+
+  # 6. Output projection
+  - { order: 8, op_id: matmul, label: 'Attn output projection (W_O)',
+      shape_template: { input: '[B, S, H*D_h]', weight: '[H*D_h, D]', output: '[B, S, D]' } }
+
+  # 7. Residual add (fused with norm typically)
+  - { order: 9, op_id: rmsnorm, label: 'RMSNorm (pre-MoE)',
+      fused_with: [matmul],
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+
+  # 8. MoE gate
+  - { order: 10, op_id: moe-gate, label: 'MoE router (top-K from E experts)',
+      shape_template: { input: '[B, S, D]', weight: '[D, E]', output_indices: '[B, S, K]', output_weights: '[B, S, K]' } }
+
+  # 9. Expert dispatch (permute by expert assignment)
+  - { order: 11, op_id: expert-permute, label: 'Token dispatch to experts',
+      shape_template: { tokens: '[B*S, D]', indices: '[B*S, K]', dispatched: '[B*S*K, D]' } }
+
+  # 10. Grouped-matmul: gate + up projections (fused as SwiGLU)
+  - { order: 12, op_id: grouped-matmul, label: 'Expert gate proj (per active expert)',
+      shape_template: { input: '[B*S*K/E, D]', weight: '[E, D, D_ff]', output: '[B*S*K/E, D_ff]' },
+      repeat_per_layer: 1 }
+
+  - { order: 13, op_id: silu, label: 'SwiGLU activation',
+      fused_with: [grouped-matmul],
+      shape_template: { input: '[B*S*K/E, D_ff]', output: '[B*S*K/E, D_ff]' } }
+
+  - { order: 14, op_id: grouped-matmul, label: 'Expert down proj (per active expert)',
+      shape_template: { input: '[B*S*K/E, D_ff]', weight: '[E, D_ff, D]', output: '[B*S*K/E, D]' } }
+
+  # 11. Reverse permute (collect tokens back to original order, weighted)
+  - { order: 15, op_id: expert-permute, label: 'Expert outputs combine (weighted sum back to seq order)',
+      shape_template: { dispatched: '[B*S*K, D]', weights: '[B*S, K]', combined: '[B*S, D]' } }
+
+  # 12. Tensor parallel allreduce (when TP > 1)
+  - { order: 16, op_id: allreduce, label: 'TP allreduce on MoE output',
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' },
+      notes: 'Fires only when tensor parallelism > 1. Sync point — engineering bottleneck on long context.' }
+
+post_layer_ops:
+  - { order: 100, op_id: rmsnorm, label: 'Final RMSNorm', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', output: '[B, S, D]' } }
+  - { order: 101, op_id: matmul, label: 'LM head', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, D]', weight: '[D, V]', output: '[B, S, V]' } }
+  - { order: 102, op_id: top-k-sampling, label: 'Sampling (top-k / top-p / temperature)', layer_scope: lm-head-only,
+      shape_template: { input: '[B, S, V]', output_token: '[B, S]' } }
+
+notes: |
+  DeepSeek V3 671B decode-phase execution graph. Key characteristics:
+
+  1. **MLA (Multi-head Latent Attention)** replaces standard MHA — KV cache is
+     stored in compressed form (D_kv=512) and decompressed at attention time.
+     This is the biggest architectural diff from Llama-style models.
+     Compressed KV cache = ~6× smaller than fp16 MHA equivalent.
+
+  2. **MoE per layer**: 256 experts, top-8 routed. Decode-phase dispatch is
+     scattered — different tokens go to different experts. EP > 1 critical
+     for throughput at scale.
+
+  3. **Grouped-matmul** for expert FFN — different ops than dense matmul.
+     Engine kernel coverage on this differs across hardware (vLLM has it on
+     Hopper / CDNA3; aclnn coverage experimental on 910C, mature on 910D).
+
+  4. **Per-decode-step compute**: ~5e9 FLOPs/token at batch=1 (MLA + MoE
+     active path). At full ctx_len=128K, attention dominates.
+
+reference_url: https://arxiv.org/abs/2412.19437

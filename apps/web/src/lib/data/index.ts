@@ -4,11 +4,13 @@ import {
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
   PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
   DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema,
+  ModelExecutionGraphSchema,
   type Vendor, type Hardware, type Server, type Interconnect,
   type Operator, type Engine, type Quantization, type ParallelStrategy,
   type Model, type Case, type Pattern, type PipelineStage, type FusedKernel,
   type Playbook, type Citation, type Tour, type KernelLibrary, type IsaPrimitive,
-  type DslExample, type ReferenceImplementation, type ProfilingTool
+  type DslExample, type ReferenceImplementation, type ProfilingTool,
+  type ModelExecutionGraph
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
@@ -91,6 +93,9 @@ export async function getReferenceImpls(): Promise<ReferenceImplementation[]> {
 }
 export async function getProfilingTools(): Promise<ProfilingTool[]> {
   return loadAll('profiling-tools/*.yaml', ProfilingToolSchema);
+}
+export async function getModelGraphs(): Promise<ModelExecutionGraph[]> {
+  return loadAll('model-graphs/*.yaml', ModelExecutionGraphSchema);
 }
 
 export async function getResolvedHardware(): Promise<ResolvedHardware[]> {
