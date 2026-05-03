@@ -17,3 +17,15 @@ agent-deploy-output/
 .cache/
 
 scripts/tests/fixtures/dist-bundle-fixture/
+scripts/tests/fixtures/v3-26-targets/
+
+# v3.26 -- per-pair watch output dir
+agent-watch-output/
+
+# v3.26 -- local SSH targets config. The .example file is committed;
+# the real one (with private host info) lives in ~/.config/evokernel/
+# per docs/SECURITY-NOTES.md and must NEVER be committed to public repo.
+# (Defensive — repo doesn't reference this path, but git-ignore protects
+# any contributor who accidentally drops a real config in the repo tree.)
+**/targets.yaml
+!**/targets.yaml.example

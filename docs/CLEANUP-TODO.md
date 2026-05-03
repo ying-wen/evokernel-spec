@@ -13,22 +13,32 @@
 
 ## v3.24+ "Real productized agent" gaps (HIGH priority)
 
-These are the concrete deliverables for v3.25-v3.27 per the spec at
-[`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md).
-Doing them in this order is what closes the user's north-star scenario
-(port SageAttention to Ascend-C, validate with CogVideoX1.5-5B on a real
-910B SSH host, no Anthropic API key required).
+These are the concrete deliverables for v3.25-v3.30 per the spec at
+[`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md)
++ the v3.27+ extension capturing the broader Ralph-Loop vision (richer
+input types: code, repos, papers, pseudocode + uncertainty resolution).
 
 | Item | Status | Target |
 |---|---|---|
-| Host-LLM execution mode (`--use-host-llm`) — emits prompt+tool-spec instead of API call | TODO | v3.25 |
-| Technique entity (`data/techniques/`) + zod schema + first SageAttention YAML | TODO | v3.25 |
-| Unknown-model HF auto-import (`synthesizeTemporaryBundle`) | TODO | v3.25 |
-| Remote-target SSH executor (`scripts/agent-deploy/remote-target.ts`) + per-vendor build scripts | TODO | v3.26 |
-| `~/.config/evokernel/targets.yaml` schema + dry-run mode | TODO | v3.26 |
-| Cross-arch numerical verify (technique reference vs new impl, side-by-side on real hardware) | TODO | v3.27 |
-| End-to-end on north-star scenario (real run against private Ascend 910B SSH host — host info kept out-of-tree) | TODO | v3.27 |
-| `/agents/runs/` web dashboard (browse past runs from `agent:status` data) | TODO | v3.28 |
+| Host-LLM execution mode (`--use-host-llm`) | ✅ Done | v3.25 |
+| Technique entity (`data/techniques/`) + zod schema + first SageAttention YAML | ✅ Done | v3.25 |
+| Unknown-model HF auto-import (`synthesizeTemporaryBundle`) | ✅ Done | v3.25 |
+| `--technique <id>` CLI flag wired in `index.ts` | ✅ Done | v3.26 |
+| Remote-target SSH executor (`remote-target.ts`) + dry-run plan emission | ✅ Done | v3.26 |
+| `~/.config/evokernel/targets.yaml` schema + .example file + .gitignore protection | ✅ Done | v3.26 |
+| Per-vendor build scripts (nvidia/amd/ascend/cambricon) | ✅ Done | v3.26 |
+| Cross-arch numerical verify scaffold (`verify/cross-arch-compare.ts`) | ✅ Done | v3.26 |
+| `ralph_loop_iterations[]` manifest extension (every step recorded) | ✅ Done | v3.26 |
+| `--execute` for remote-target (SSH connect + build + run + profile + scp back) | TODO | v3.27 |
+| Cross-arch numerical verify EXECUTION (run reference + new impl + diff) | TODO | v3.27 |
+| End-to-end on north-star scenario (real run against private Ascend 910B SSH host) | TODO | v3.27 |
+| `--description "natural language intent"` flag + first clarifying-Q loop | TODO | v3.27 |
+| `--from-repo https://github.com/X/Y` (clone + scan + plan port) | TODO | v3.28 |
+| `--from-code path/to/model.py` (parse + decompose op graph) | TODO | v3.28 |
+| `--from-paper https://arxiv.org/abs/X` (LLM extracts claims + comparisons) | TODO | v3.29 |
+| First-class user requirement flags (`--target-tok-s` / `--target-latency-ms` / `--target-accuracy` / `--dtype`) | TODO | v3.29 |
+| Uncertainty resolution loops + auto-emit `agent-run-summary.md` at end of each deploy | TODO | v3.30 |
+| `/agents/runs/` web dashboard (browse past runs from `agent:status` data) | TODO | v3.31 |
 
 ## Hardware / Model page UI
 

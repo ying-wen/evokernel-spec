@@ -1,0 +1,52 @@
+# EvoKernel SSH remote-target config — example file.
+#
+# Copy this to ~/.config/evokernel/targets.yaml and fill in YOUR
+# actual targets. The real file is git-ignored per docs/SECURITY-NOTES.md
+# (never commit real SSH host IPs / hostnames to the public repo).
+#
+# Best practice: define ssh-config aliases (see ~/.ssh/config) so this
+# file references aliases like "my-h100-cluster" instead of raw IPs.
+
+schema_version: '0.1'
+
+targets:
+  # NVIDIA H100 server example
+  - id: h100-test                       # local id used as --remote argument
+    hardware: h100-sxm5                 # MUST match an entry in data/hardware/
+    ssh: <H100_HOST>                    # ssh-config alias OR user@host[:port]
+    toolchain:
+      cuda_version: '12.6'              # auto-detected on first connect; cached
+      profiler: ncu                     # ncu | rocprof | msprof | cnperf | suprof | instruments
+      work_dir: /tmp/evokernel-work     # where per-deploy sub-dirs go on remote
+    notes: |
+      Shared dev cluster — check `nvidia-smi` before submitting big runs.
+
+  # AMD MI300X server example
+  - id: mi300x-test
+    hardware: mi300x
+    ssh: <MI300X_HOST>
+    toolchain:
+      rocm_version: '6.2'
+      profiler: rocprof
+      work_dir: /tmp/evokernel-work
+
+  # Huawei Ascend 910B server example (the v3.27 north-star target shape)
+  - id: ascend-test
+    hardware: ascend-910b
+    ssh: <ASCEND_910B_HOST>
+    toolchain:
+      cann_version: '8.0.RC1'
+      profiler: msprof
+      work_dir: /root/evokernel-work
+    notes: |
+      Replace <ASCEND_910B_HOST> with your real ssh-config alias.
+      Real host info goes in ~/.config/evokernel/targets.yaml — never here.
+
+  # Cambricon MLU590 server example
+  - id: mlu590-test
+    hardware: mlu590
+    ssh: <MLU590_HOST>
+    toolchain:
+      neuware_version: '3.x'
+      profiler: cnperf
+      work_dir: /tmp/evokernel-work

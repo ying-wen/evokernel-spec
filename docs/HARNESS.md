@@ -1,27 +1,124 @@
 # EvoKernel Productized Agent Harness — End-to-End Guide
 
-> Status: **v3.25+ stable** — 9 release iterations: v3.17 (real harness pivot) → v3.18 (polish + walkthrough) → v3.19 (doctor + 3 MCP tools + landing page) → v3.20 (UI sprint #1 + agent:status) → v3.21 (UI sprint #2 + --profile) → v3.22 (continuous mode + NCU parser + Apple cross-link) → v3.23 (vendor profiler parity: rocprof + msprof + cnperf, zh slash command) → v3.24 (docs cleanup + v3.25-27 spec) → **v3.25 (host-LLM mode + `data/techniques/` entity + HF auto-import for unknown models).**
+> Status: **v3.26+ stable** — 10 release iterations: v3.17 (real harness pivot) → v3.18 (polish + walkthrough) → v3.19 (doctor + 3 MCP tools + landing page) → v3.20 (UI sprint #1 + agent:status) → v3.21 (UI sprint #2 + --profile) → v3.22 (continuous mode + NCU parser + Apple cross-link) → v3.23 (vendor profiler parity: rocprof + msprof + cnperf, zh slash command) → v3.24 (docs cleanup + v3.25-27 spec) → v3.25 (host-LLM mode + `data/techniques/` entity + HF auto-import) → **v3.26 (--technique CLI + SSH remote-target executor + cross-arch verify scaffold + Ralph-Loop step recording).**
 
 This is the operator manual for the **real productized agent harness** — a closed-loop pipeline that takes `(any model, any hardware)` and emits production-grade deployment artifacts plus real generated kernels with verification + retry + corpus feedback.
 
 It is **not** an MCP query service (corpus has one of those too — separate tool). The harness goes one step further: it produces the actual code you ship and the actual provenance you audit.
 
-## ⚠️ Known limits (v3.25 — what doesn't yet work)
+## ⚠️ Known limits (v3.26 — what works, what's dry-run, what's still gap)
 
-3 of the 6 v3.23-era gaps closed in v3.25. Remaining gaps are SSH execution + cross-arch verify + the last 2 profilers:
+5 of the 6 original v3.23 gaps now have working surface (technique entity, host-LLM, HF auto-import, --technique CLI, SSH executor in dry-run, cross-arch scaffold). v3.27 wires `--execute` for real remote runs + full numerical verify. The user's broader Ralph-Loop vision (richer input types: code, repos, papers, pseudocode + uncertainty resolution loops) lands across v3.27-v3.30 — see [the spec extension](superpowers/specs/2026-05-04-real-productized-agent.md#v327-extension-ralph-loop-as-agent-execution-model-added-2026-05-04-mid-iteration).
 
-**✅ Closed in v3.25:**
-- ~~Productized real-mode requires `ANTHROPIC_API_KEY`~~ → **`--use-host-llm` (v3.25)** routes generation through the host LLM (Claude Code / Codex use their own model). Auto-detects via `EVOKERNEL_HOST_LLM=true` / `CLAUDEAGENT` / `CLAUDE_CODE_SESSION` / `CODEX_SESSION_ID` env vars.
-- ~~Unknown models error out~~ → **`synthesizeTemporaryBundle` (v3.25)** in `fetch-bundle.ts` builds an in-memory bundle by fetching HF config + cribbing hardware portion from a sibling bundle on the same hardware. Marked as `synthesized: true` so the agent surfaces caveats.
-- ~~No "technique" entity~~ → **`data/techniques/` (v3.25)** with first SageAttention YAML; CLI `--technique <id>` flag accepted (full wiring in v3.26).
+**✅ Closed in v3.25-v3.26:**
+- ~~`ANTHROPIC_API_KEY` requirement~~ → `--use-host-llm` (v3.25) routes through host LLM
+- ~~Unknown models error out~~ → `synthesizeTemporaryBundle` (v3.25)
+- ~~No "technique" entity~~ → `data/techniques/` (v3.25) + first SageAttention YAML
+- ~~`--technique` CLI not wired~~ → wired in v3.26 (`agent:deploy --technique sageattention --hardware <arch> --use-host-llm` works)
+- ~~No remote-target SSH executor~~ → `remote-target.ts` (v3.26) emits dry-run plan + per-vendor build scripts (`nvidia/build.sh`, `ascend/build.sh`, `amd/build.sh`, `cambricon/build.sh`)
+- ~~No cross-arch verify~~ → `verify/cross-arch-compare.ts` (v3.26) ships scaffold (4 pre-checks + 2 comparison steps); v3.27 wires actual numerical execution
 
-**Still open (v3.26-v3.27):**
-- **No remote-target SSH executor**. V3 perf gate consumes pre-collected profiler CSVs via env vars. v3.26 adds `scripts/agent-deploy/remote-target.ts` with `~/.config/evokernel/targets.yaml` + per-vendor build scripts.
-- **No cross-arch numerical verify**. v3.27 — when porting a technique, V2 compares against the technique's reference impl on the original arch (not just the op's per-library `formal_semantics`).
-- **suprof + instruments parsers**. 4/6 vendors today (NCU + rocprof + msprof + cnperf). 6/6 in v3.24+ (Moore Threads + Apple).
-- **End-to-end on real hardware**. v3.27 milestone: `--technique sageattention --model zai-org/CogVideoX1.5-5B --hardware ascend-910b --remote <host-id> --use-host-llm` against a real 910B SSH target, returns measured tok/s.
+**Still open (v3.27-v3.30):**
+- **`--execute` for remote-target**. v3.26 ships dry-run only (safe default); v3.27 wires actual SSH execution + back-fed profiler CSV.
+- **End-to-end on real hardware**. v3.27 milestone — first real `agent:deploy --technique sageattention --model zai-org/CogVideoX1.5-5B --hardware ascend-910b --remote <ssh-target> --use-host-llm --execute` returning measured tok/s from a live 910B.
+- **suprof + instruments parsers**. 4/6 vendor profilers wired (NCU + rocprof + msprof + cnperf); 6/6 in a follow-up (Moore Threads + Apple).
+- **Richer input types** (v3.27-v3.30). `--from-repo` / `--from-code` / `--from-paper` / `--description` flags for fuzzy intent. Uncertainty resolution loops (clarifying questions via host-LLM exchange).
 
 The full design is at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md). PRs welcome.
+
+## v3.26 --technique walkthrough
+
+`pnpm agent:deploy --technique sageattention --hardware ascend-910b --use-host-llm` now loads `data/techniques/sageattention.yaml`, identifies the per-arch port status, and surfaces a summary like:
+
+```
+🧪 Stage 4.5 — technique loaded: SageAttention (attention-optimization)
+   Technique "SageAttention" → arch "ascend-da-vinci-3": planned port (greenfield).
+   Agent will generate a first-pass kernel from the technique reference impl
+   + corpus DSL examples for ascend-da-vinci-3, then iterate via Layer V verify
+   (target effort: high).
+```
+
+The technique enters the manifest's `ralph_loop_iterations[]` as a `technique-context` step. v3.27 will use the technique's `numerical_rules` to gate cross-arch verify.
+
+## v3.26 --remote walkthrough (dry-run mode)
+
+```bash
+# 1. One-time setup: copy example + fill in YOUR targets
+cp scripts/agent-deploy/remote/targets.yaml.example ~/.config/evokernel/targets.yaml
+$EDITOR ~/.config/evokernel/targets.yaml      # replace <ASCEND_910B_HOST> etc with your real ssh-config aliases
+
+# 2. Run a deploy + emit the SSH execution plan (dry-run by default in v3.26)
+pnpm agent:deploy --use-llm-orchestrator \
+  --model llama-3.3-70b --hardware h100-sxm5 \
+  --remote h100-test
+```
+
+Output (excerpt):
+
+```
+╔═══════════════════════════════════════════════════════════════════════════════
+║ remote-target dry-run: h100-test
+║   hardware: h100-sxm5 (vendor: nvidia)
+║   ssh: <H100_HOST>
+║   work dir: /tmp/evokernel-work/llama-3.3-70b__h100-sxm5__1714680000000
+║   kernel files: matmul_hopper.cu, fused-rope-qkv_hopper.cu
+╚═══════════════════════════════════════════════════════════════════════════════
+
+Plan (each step would run sequentially; halt-on-error):
+
+  [1] Sanity-check SSH + toolchain on remote
+      $ ssh <H100_HOST> 'echo OK && which ncu 2>/dev/null || echo "<no profiler found>"'
+
+  [2] Create work dir /tmp/evokernel-work/llama-3.3-70b__...
+      $ ssh <H100_HOST> 'mkdir -p ...'
+
+  [3] Upload 2 kernel file(s) + build script to remote
+      $ scp <local>/matmul_hopper.cu <local>/fused-rope-qkv_hopper.cu \
+            scripts/agent-deploy/remote/nvidia/build.sh \
+            <H100_HOST>:.../
+
+  [4] Run per-vendor build script on remote
+      $ ssh <H100_HOST> 'cd ... && bash build.sh 2>&1'
+
+  [5] Run the compiled binary (correctness check)
+      $ ssh <H100_HOST> 'cd ... && ./bench --check 2>&1'
+
+  [6] Run ncu and capture metrics
+      $ ssh <H100_HOST> 'cd ... && ncu --csv --metrics ... ./bench > profile.csv 2>&1'
+
+  [7] Pull profiler output back to ./agent-deploy-output/profile.csv
+      $ scp <H100_HOST>:.../profile.csv ./agent-deploy-output/profile.csv
+
+To actually execute: re-run with --execute (omit --dry-run).
+```
+
+**Why dry-run is the v3.26 default**: real-hardware execution allocates GPU memory + writes files on remote. First-time invocation of a new target id deserves user inspection of the plan before any state mutation. v3.27 wires `--execute` once users have validated the plan format + per-vendor build scripts work for their toolchain.
+
+`agent-deploy-output/remote-plan.json` persists the plan for v3.27 `--execute` pickup.
+
+## v3.26 Ralph-Loop step recording (manifest extension)
+
+`evokernel-deploy.json` (the per-deploy manifest, schema v0.1) now includes a `ralph_loop_iterations[]` array recording each major stage's outcome. Example:
+
+```jsonc
+{
+  "schema_version": "0.1",
+  "request": { "model": "llama-3.3-70b", "hardware": "h100-sxm5", ... },
+  "technique": { "id": "sageattention", "port_status": "planned", "summary": "..." },
+  "ralph_loop_iterations": [
+    { "stage": "classify", "status": "ok", "summary": "dense 70.0B params, gqa attention" },
+    { "stage": "feasibility", "status": "ok", "summary": "Fits at TP=2" },
+    { "stage": "plan", "status": "ok", "summary": "vllm, bf16, TP=2" },
+    { "stage": "technique-context", "status": "ok", "summary": "..." },
+    { "stage": "productized-generation", "status": "ok", "summary": "2 shipped, 1 partial, 0 blocked" },
+    { "stage": "remote-target-plan", "status": "dry-run", "summary": "SSH plan emitted for h100-test (run --execute in v3.27)" }
+  ],
+  "productized": { ... },
+  "artifacts": { ... }
+}
+```
+
+This is the "every step recorded" surface the user's broader Ralph-Loop vision requires. v3.27 deepens this with per-step verification details + diagnostic chains; v3.30 emits a final `agent-run-summary.md` that synthesizes this into human-readable form.
 
 ## v3.25 host-LLM mode walkthrough
 

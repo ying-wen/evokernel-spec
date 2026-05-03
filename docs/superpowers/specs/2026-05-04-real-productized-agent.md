@@ -208,6 +208,80 @@ Each version is independently shippable; v3.27 is the milestone that closes the 
 - The 11 existing CLI commands (additive only — `--use-host-llm`, `--technique`, `--remote` flags)
 - Existing tests (must continue passing)
 
+## v3.27+ Extension: Ralph-Loop as agent execution model (added 2026-05-04 mid-iteration)
+
+Mid-v3.26 user feedback (paraphrased):
+
+> Remember you're an agent harness. Each input could be a HuggingFace model, PyTorch / other framework code, a GitHub repo, a paper, pseudocode, or plain text. Plus user requirements: dtype, concurrency, latency, accuracy. Plus uncertainty: unclear specs, hardware limits, unsupported software stack features (CANN doesn't support many things; Ascend has limits; even CPU like ARM has limits). Each step must auto-validate + test + feed back to agent, in **Ralph-Loop form**: close the loop first, then continuously improve. Each step recorded. Final summary. Experience + knowledge feeds back to corpus for controlled extension + future reuse.
+
+This expands the v3.24 spec significantly. The original spec assumed inputs were `(model, hardware, technique?)` triples. The expanded vision accepts **fuzzy intent + open-ended uncertainty** and resolves it iteratively.
+
+### New input matrix (v3.27-v3.30)
+
+| Input kind | Status today | v3.27+ plan |
+|---|---|---|
+| Canonical HF model id | ✅ Works (v3.18 fuzzy-resolve) | unchanged |
+| Unknown HF model | ✅ v3.25 synthesizeTemporaryBundle | deepen archetype inference w/ modeling-code parse |
+| GitHub repo URL | ❌ | Clone + scan for ops + hardware hints + fall back to repo README parse |
+| PyTorch / framework code (file or snippet) | ❌ | Parse + extract op decomposition graph (similar to existing `scripts/decompose-operators.ts`) |
+| Paper (arxiv URL or PDF) | ❌ | LLM extracts: claimed ops + claimed perf + comparison baselines + numerical_rules |
+| Pseudocode / plain text description | ❌ | Treat as natural-language Layer P input; agent asks clarifying Q's via host-LLM exchange |
+| Plus user requirements (dtype, throughput/latency targets, accuracy) | ❌ | First-class `--dtype`, `--target-tok-s`, `--target-latency-ms`, `--target-accuracy` flags; baked into Layer P planning |
+
+### New uncertainty matrix (v3.27-v3.30)
+
+The harness must handle these gracefully (via Ralph-Loop iteration, not crash):
+
+1. **Unclear input** (e.g. just "speed up SageAttention on whatever Huawei has") → host-LLM-guided clarification: agent asks 2-3 sharp questions, user responds, agent re-plans
+2. **Hardware-imposed limits** (e.g. Ascend 910B has no native FP8 → SageAttention's outlier path needs BF16 fallback) → corpus hardware entry's `compute.fp8_tflops: null` flags this; agent surfaces as "this hardware can't do FP8; planning BF16 fallback path; perf will be ~30% lower than reference"
+3. **SW stack gaps** (e.g. CANN doesn't support `aclnnFlashAttention` for all input shapes) → corpus engine `software_support` + `unsupported_ops` fields document this; agent surfaces "this op shape isn't in CANN's coverage matrix; will write Ascend-C kernel from scratch"
+4. **Architecture mismatch** (e.g. "run this CUDA library on ARM CPU") → corpus hardware entry's `architecture.tensor_isa: []` makes the gap explicit; agent surfaces "ARM CPU has no tensor cores; SageAttention's INT8 MMA path can't apply; recommend pivoting to attention-vector-cpu approach OR switching hardware"
+
+Each uncertainty has the same surface: **the corpus encodes the constraint; the agent reads + surfaces + suggests next steps**, never silently fails.
+
+### Ralph-Loop execution model (v3.27+)
+
+```
+USER: <fuzzy input>
+       │
+       ▼
+[1] Resolve inputs into canonical form (model, hw, technique?, requirements?)
+       │  ├─ ✓ Resolved → continue
+       │  └─ ✗ Ambiguous → ask clarifying Q via host-LLM exchange → loop back
+       ▼
+[2] Plan: classify, feasibility, identify gaps, surface uncertainty
+       │  ├─ ✓ Feasible plan → continue
+       │  └─ ✗ Hardware can't fit / SW unsupported → surface + suggest pivots → loop back
+       ▼
+[3] Generate (Layer G via host-LLM mode in CC/Codex)
+       │  ├─ ✓ Real code emitted → continue
+       │  └─ ✗ Generation failed → diagnostic → loop back to [2] or [3]
+       ▼
+[4] Verify: V1 build + V2 cross-arch compare + V3 perf via remote-target
+       │  ├─ ✓ All gates pass → ship
+       │  └─ ✗ Gate failed → diagnostic → loop back to [3] (bounded MAX_RETRIES)
+       ▼
+[5] Record: ralph_loop_iterations[] in manifest captures every step's outcome
+       ▼
+[6] Summarize: final agent-run-summary.md emitted (incl. perf delta, port status update, port_targets[].status update)
+       ▼
+[7] Feedback: agent-learning.yaml lands in data/agent-learnings/; auto-pr clusters into corpus update PRs
+```
+
+Each step has a **structural pre-check** (does this step have what it needs to proceed?) before doing any work. v3.26 ships the `ralph_loop_iterations[]` array in the manifest as the recording surface; v3.27+ wires the per-step verification + feedback loop more deeply.
+
+### Implementation roadmap update
+
+| Version | Theme | Deliverables |
+|---|---|---|
+| v3.26 (just shipped) | SSH remote-target + technique CLI + cross-arch scaffold + `ralph_loop_iterations[]` manifest | as above |
+| v3.27 | --execute on remote-target + cross-arch numerical compare + first input flexibility (`--description "natural language intent"`) | Real run on user's 910B; `--description` triggers host-LLM clarification loop |
+| v3.28 | Repo + PyTorch code as input | `agent:deploy --from-repo https://github.com/X/Y` clones + scans + plans port; `--from-code path/to/model.py` parses + decomposes |
+| v3.29 | Paper as input + user requirements | `--from-paper https://arxiv.org/abs/X` LLM-extracts claims; `--target-tok-s N` / `--target-latency-ms N` / `--target-accuracy N` baked into Layer P |
+| v3.30 | Uncertainty resolution + clarifying-Q loop + summary doc | When ambiguity hits, agent emits structured questions to the user via host-LLM exchange; user response routes back to step [1]; final agent-run-summary.md |
+
+This expands the v3.27 milestone (was "real run on 910B") into v3.27 (real run + first input flexibility) → v3.28-v3.30 (full input + uncertainty matrix). v3.30 closes the user's broader vision.
+
 ## Open questions for v3.25+ implementation
 
 1. **Host-LLM exchange protocol**: write to a file? STDIN/STDOUT? Anthropic Tool Use formats vs OpenAI JSON Schema? The CC vs Codex difference matters here.

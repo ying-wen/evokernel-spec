@@ -6,7 +6,110 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.26** — wire `--technique` flag into `index.ts` CLI (so `agent:deploy --technique sageattention --model X --hardware Y --use-host-llm` actually orchestrates a port end-to-end); SSH remote-target executor (`scripts/agent-deploy/remote-target.ts`) + `~/.config/evokernel/targets.yaml` schema + per-vendor build scripts. Per [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.27** — wire `--execute` flag through to remote-target.ts so the dry-run plan emitted by v3.26 actually runs (SSH + scp + remote build + remote run + remote profile + scp profiler-output back); cross-arch numerical verify EXECUTION (not just scaffold); first input-flexibility flag (`--description "natural language intent"` triggering host-LLM clarification loop); end-to-end on the SageAttention/CogVideoX/910B north-star. Per the v3.27+ spec extension at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md#v327-extension-ralph-loop-as-agent-execution-model-added-2026-05-04-mid-iteration).
+
+---
+
+## [3.26.0] — 2026-05-04 — `--technique` CLI + SSH remote-target executor + cross-arch verify scaffold + Ralph-Loop step recording
+
+**Theme**: Implement v3.24 spec's Change 3 (SSH remote-target) + finish wiring v3.25's `--technique` into the CLI flow + scaffold v3.27's cross-arch verify + capture mid-iteration user feedback ("agent harness should accept richer inputs + handle uncertainty as Ralph-Loop") in the spec for v3.27-v3.30.
+
+### H1 — `--technique` CLI flag wired (small, high-impact)
+
+`scripts/agent-deploy/load-technique.ts` (NEW). Loads `data/techniques/<id>.yaml` + validates against `TechniqueSchema` (v3.25). Exports `loadTechnique`, `listAvailableTechniques`, `describeTechniquePortStatus` (returns plain-English summary based on per-arch port status: reference-impl / production-ready / experimental / planned / blocked / greenfield).
+
+`scripts/agent-deploy/index.ts` extended:
+- `--technique <id>` flag handling — loads YAML, computes port-status context for the `--hardware` arch family, prints summary at Stage 4.5
+- Throws `TechniqueNotFoundError` with available list when slug missing
+- Surfaces technique context in the per-deploy manifest as a `technique` field
+
+### H2 — SSH remote-target executor (the big v3.26 deliverable)
+
+3 new files:
+
+1. **`scripts/agent-deploy/remote-target-schema.ts`** — zod schema for `~/.config/evokernel/targets.yaml`:
+   ```yaml
+   schema_version: '0.1'
+   targets:
+     - id: ascend-test
+       hardware: ascend-910b
+       ssh: <ssh-config alias OR user@host>
+       toolchain:
+         cann_version: '8.0.RC1'
+         profiler: msprof
+         work_dir: /root/evokernel-work
+   ```
+   Plus `vendorFamilyForHardware()` that maps hardware ids to one of `nvidia` / `amd` / `ascend` / `cambricon` / `unknown` for build-script dispatch.
+
+2. **`scripts/agent-deploy/remote-target.ts`** — the executor itself. Two-phase design:
+   - `buildExecutionPlan()` (pure data) returns a 7-step plan: `ssh-check` → `mkdir` → `scp-up` → `remote-build` → `remote-run` → `remote-profile` → `scp-down`. Per-vendor profiler invocation built in (NVIDIA→ncu --csv, AMD→rocprof --hsa-trace, Ascend→msprof, Cambricon→cnperf record).
+   - `executeRemoteRun()` runs the plan via `bash -c` + halts on first error.
+   - `formatPlanForDryRun()` renders the plan as boxed Markdown with each command shown for user inspection.
+   - `resolveTarget(id, hardware)` validates id existence + hardware match (throws `TargetMismatchError` if user passes wrong hardware id).
+
+3. **`scripts/agent-deploy/remote/{nvidia,amd,ascend,cambricon}/build.sh`** (4 NEW executable build scripts):
+   - `nvidia/build.sh` — auto-detects compute capability via `nvidia-smi`, compiles `*.cu` files via `nvcc -arch=sm_<auto> -lcublas -lcudart`
+   - `amd/build.sh` — auto-detects gfx target via `rocminfo`, compiles `*.hip` via `hipcc --offload-arch=<auto> -lrocblas`
+   - `ascend/build.sh` — sources CANN env, auto-detects 910B/910C/910D/950 via `npu-smi info`, compiles `*.cce` via `ccec --target Ascend910B` with `ccel` fallback for older CANN
+   - `cambricon/build.sh` — auto-detects MLU SKU via `cnmon info`, compiles `*.mlu` via `cncc --bang-mlu-arch=MLU590 -lcnnl -lcnrt`
+
+`scripts/agent-deploy/index.ts` extended:
+- `--remote <target-id>` flag handling — resolves target, builds execution plan, prints dry-run output, persists plan to `agent-deploy-output/remote-plan.json` for v3.27 `--execute` pickup
+- Dry-run is the v3.26 default for safety (real-hardware execution allocates GPU memory + writes files on remote; users should validate plan before execute)
+
+### H3 — Cross-arch verify scaffold
+
+`scripts/agent-deploy/verify/cross-arch-compare.ts` (NEW). Pre-v3.26 V2 (correctness) compared against per-op `formal_semantics.reference_impl` — but for technique ports, the numerics that matter are the technique's. Scaffold ships the **plan** (4 pre-checks + 2 comparison steps + tolerance) and marks `ready_to_execute: false` so v3.27 can wire actual numerical execution (run reference on original arch + run new impl on target arch via SSH remote-target + diff tensors).
+
+### H4 — Spec extension for v3.27+ "Ralph-Loop as agent execution model"
+
+Mid-iteration the user expanded the vision (paraphrased): agent should accept HF model / PyTorch code / GitHub repo / paper / pseudocode / plain text + user requirements (dtype, concurrency, latency, accuracy) + handle pervasive uncertainty (unclear specs, hardware limits, unsupported SW stack features) — all as Ralph-Loop with per-step verification + recording + final summary + corpus feedback.
+
+Added 100+ line section to [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md): new input matrix (7 input kinds × today vs v3.27+ plan), new uncertainty matrix (4 uncertainty categories × handling strategy), Ralph-Loop execution diagram (7-step flow with per-step branching for ✓/✗), updated v3.27-v3.30 roadmap.
+
+### H5 — Ralph-Loop step recording in manifest
+
+Per the user's "每步都能记录" (every step recorded) requirement, `evokernel-deploy.json` (manifest schema 0.1) extended with `ralph_loop_iterations[]` array — each major stage (classify / feasibility / plan / technique-context / productized-generation / remote-target-plan) emits an entry with `{ stage, status, summary }`. Foundation for v3.30's auto-emit `agent-run-summary.md`.
+
+### H6 — +32 tests (197 → **229**)
+
+`scripts/tests/v3-26-technique-remote-cross-arch.test.ts`:
+
+- **load-technique** (5 tests): SageAttention loads + matches schema; TechniqueNotFoundError for missing slug; listAvailableTechniques; describeTechniquePortStatus for 4 port-status enum values (planned/reference-impl/experimental + unmatched arch fallback)
+- **vendorFamilyForHardware** (5 tests): each of the 4 vendor families maps correctly + unknown hardware returns 'unknown'
+- **loadTargetsConfig + resolveTarget** (5 tests): empty when missing; parses fixture; validates schema (BAD-ID rejected); TargetNotFoundError; TargetMismatchError when hardware doesn't match target's hardware field
+- **buildExecutionPlan** (6 tests): emits exactly 7 steps in correct order; per-vendor profiler dispatch (NVIDIA→ncu, Ascend→msprof, AMD→rocprof, Cambricon→cnperf); throws on unknown vendor
+- **formatPlanForDryRun** (1 test): contains target id + 7 numbered commands + execute hint
+- **per-vendor build scripts presence** (4 tests): each `remote/<vendor>/build.sh` exists + owner-execute bit set
+- **planCrossArchCompare** (4 tests): SageAttention → Ascend produces 4 pre-checks + 2 comparison steps + tolerance; marks `ready_to_execute: false` (v3.26 ships plan only); fails generated-code-non-empty when stub; warns when target arch not in port_targets
+
+All 229/229 scripts + 49/49 web tests green.
+
+### H7 — Doc updates + .gitignore
+
+- **HARNESS.md**: status v3.25+ → **v3.26+ stable**. Known limits refactored to show 6 ✅ closed (host-llm, synthesize, technique entity, --technique CLI, SSH executor, cross-arch scaffold) + 4 still open (--execute, end-to-end real hw, suprof+instruments, richer input types). 3 new walkthrough sections: `--technique` flow, `--remote` dry-run with copy-pasteable example, `ralph_loop_iterations[]` manifest extension.
+- **CLEANUP-TODO.md**: 9 items now ✅ Done (was 4). Remaining queue restructured under v3.27/v3.28/v3.29/v3.30 targets matching the spec extension.
+- **`scripts/agent-deploy/remote/targets.yaml.example`** (NEW): committed placeholder file with `<H100_HOST>` / `<ASCEND_910B_HOST>` etc. Real `~/.config/evokernel/targets.yaml` is git-ignored.
+- **`.gitignore`**: added `**/targets.yaml` (defensive, with `!**/targets.yaml.example` exception) + `agent-watch-output/` + `scripts/tests/fixtures/v3-26-targets/`.
+
+### Stats
+
+- **TypeScript files in `scripts/agent-deploy/`**: 12 → **15** (+load-technique, +remote-target-schema, +remote-target)
+- **Verify gates files**: 4 → **5** (+cross-arch-compare scaffold)
+- **Per-vendor build scripts**: 0 → **4** (nvidia/amd/ascend/cambricon)
+- **CLI flags**: + `--technique` + `--remote` (5 productized flags total: `--use-llm-orchestrator`, `--profile`, `--use-host-llm`, `--technique`, `--remote`)
+- **Manifest schema**: extends `technique` + `ralph_loop_iterations[]` fields (v0.1 still — additive, no breaking)
+- **Test count**: 197 → **229** (+32 v3.26 tests)
+
+### v3.27 next
+
+Per the spec extension, in priority order:
+- **`--execute` flag** for remote-target (turn the dry-run plan into real SSH execution + halt-on-error)
+- **Cross-arch numerical verify execution** (run reference on original arch via SSH + run new impl on target arch + diff tensors with `tolerance.max_abs_diff` from technique YAML)
+- **End-to-end on user's actual 910B**: `agent:deploy --technique sageattention --model zai-org/CogVideoX1.5-5B --hardware ascend-910b --remote <ssh-target> --use-host-llm --execute`
+- **First input-flexibility**: `--description "natural language intent"` triggers host-LLM clarification loop when input is ambiguous
+
+Test target: 229 → ~260.
 
 ---
 

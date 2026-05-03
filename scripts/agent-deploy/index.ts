@@ -41,6 +41,21 @@ import { generateKernels, type GeneratedKernel } from './kernel-codegen';
 // v3.17 — wire in the v3.x productized loop (Layer R/G/V/F).
 // v3.18 — fuzzy resolveBundleId so users can pass HF ids without exact slug.
 import { fetchBundle, BundleNotFoundError, resolveBundleId } from './fetch-bundle';
+// v3.26 — load + describe a technique entity for "port research lib X to arch Y" flows.
+import {
+  loadTechnique,
+  describeTechniquePortStatus,
+  TechniqueNotFoundError,
+  type TechniquePortContext,
+} from './load-technique';
+// v3.26 — SSH remote-target executor.
+import {
+  resolveTarget,
+  buildExecutionPlan,
+  formatPlanForDryRun,
+  TargetNotFoundError,
+  TargetMismatchError,
+} from './remote-target';
 import { generateAndVerify, type GenerateAndVerifyResult } from './feedback';
 import { pickLanguageForArch } from './llm-orchestrator';
 
@@ -814,6 +829,8 @@ Usage:
     [--use-llm-orchestrator]   # v3.17: real-code productized loop (R/G/V/F)
     [--profile]                # v3.21: V3 execution-mode perf gate (target HW)
     [--use-host-llm]           # v3.25: route generation through host LLM (CC/Codex), no API key needed
+    [--technique <id>]         # v3.26: orchestrate a research technique port (e.g. sageattention)
+    [--remote <target-id>]     # v3.26: SSH to a remote machine, build + run + profile remotely
 
 Example (v2 skeleton mode — fast, no API):
   pnpm tsx scripts/agent-deploy/index.ts \\
@@ -967,6 +984,29 @@ Example (v3 productized real-code mode):
   // explicit.
   if (args['use-host-llm'] === 'true' || args['use-host-llm'] === '') {
     process.env.EVOKERNEL_HOST_LLM = 'true';
+  }
+
+  // v3.26 — --technique <id> loads data/techniques/<id>.yaml and influences
+  // the productized branch: which arch we're targeting (port_targets[]
+  // filtered to user's --hardware), which numerical_rules Layer V inherits,
+  // and which port status the user sees (greenfield port vs running
+  // existing reference impl).
+  let techniqueContext: TechniquePortContext | undefined;
+  if (args['technique']) {
+    try {
+      const technique = await loadTechnique(args['technique']);
+      techniqueContext = describeTechniquePortStatus(technique, arch_family);
+      console.error(`🧪 Stage 4.5 — technique loaded: ${technique.name} (${technique.technique_kind})`);
+      console.error(`   ${techniqueContext.summary}`);
+      console.error('');
+    } catch (e) {
+      if (e instanceof TechniqueNotFoundError) {
+        console.error(`✗ Technique "${args['technique']}" not found in data/techniques/.`);
+        console.error(`  Available: ${e.available.slice(0, 8).join(', ')}${e.available.length > 8 ? ', ...' : ''}\n`);
+        process.exit(1);
+      }
+      throw e;
+    }
   }
 
   if (gapsReport.gaps.length > 0 && useLlmOrchestrator) {
@@ -1150,6 +1190,39 @@ Example (v3 productized real-code mode):
       active_params_b: m.active_params_b,
       attention_variant: m.attention_variant,
     },
+    // v3.26 — surface the technique context (if --technique was passed) so
+    // downstream consumers (CI dashboards, agent-learning emitters) know
+    // whether this run was a greenfield port or an existing-impl run.
+    technique: techniqueContext
+      ? {
+          id: techniqueContext.technique.id,
+          name: techniqueContext.technique.name,
+          kind: techniqueContext.technique.technique_kind,
+          target_arch_family: techniqueContext.target_arch_family,
+          port_status: techniqueContext.matched_port_target?.status ?? 'greenfield',
+          summary: techniqueContext.summary,
+        }
+      : null,
+    // v3.26 — Ralph-Loop-style step record. Each major stage emits an
+    // entry here so the manifest captures "what happened in what order"
+    // beyond just the final outcome. v3.27+ extends this with per-step
+    // verification results + diagnostic chains.
+    ralph_loop_iterations: [
+      { stage: 'classify', status: 'ok', summary: `${m.archetype} ${m.total_params_b.toFixed(1)}B params, ${m.attention_variant} attention` },
+      { stage: 'feasibility', status: feas.fits ? 'ok' : 'fail', summary: feas.fits ? `Fits at TP=${card_count}` : 'Does not fit on this hardware at any TP' },
+      { stage: 'plan', status: 'ok', summary: `${recommended.engine}, ${recommended.quantization}, TP=${recommended.parallelism.tp}` },
+      ...(techniqueContext
+        ? [{ stage: 'technique-context', status: 'ok', summary: techniqueContext.summary }]
+        : []),
+      ...(productizedResults.length > 0
+        ? [{ stage: 'productized-generation', status: 'ok',
+            summary: `${productizedResults.filter((r) => r.outcome === 'shipped').length} shipped, ${productizedResults.filter((r) => r.outcome === 'partial').length} partial, ${productizedResults.filter((r) => r.outcome === 'kernel-gap-blocked').length} blocked` }]
+        : []),
+      ...(args['remote']
+        ? [{ stage: 'remote-target-plan', status: 'dry-run',
+            summary: `SSH execution plan emitted for ${args['remote']} (run --execute in v3.27 to actually run)` }]
+        : []),
+    ],
     recommended,
     feasibility: { fits: feas.fits, card_count, notes: feas.notes },
     kernel_gaps_count: gapsReport.gaps.length,
@@ -1203,6 +1276,58 @@ Example (v3 productized real-code mode):
     // v2.24: knowledge-feedback agent-learning stub
     writeFile(path.join(outputDir, 'agent-learning.yaml'), learningStub),
   ]);
+
+  // v3.26 — --remote <target-id> emits an SSH execution plan (dry-run by
+  // default). Real --execute lands in v3.27 once users have validated the
+  // plan format + per-vendor build scripts work for their toolchain.
+  if (args['remote']) {
+    try {
+      const target = await resolveTarget(args['remote'], args.hardware);
+      // Collect the kernel files we'd ship to remote — productized run
+      // wrote real code, skeleton mode wrote templates. Either way these
+      // are the .cu / .cce / .hip / .mlu artifacts the remote build needs.
+      const kernel_files: Array<{ filename: string; content: string }> = [];
+      for (const r of productizedResults) {
+        kernel_files.push({ filename: r.kernel.filename, content: r.kernel.code });
+      }
+      for (const k of generatedKernels) {
+        kernel_files.push({ filename: k.filename, content: k.code });
+      }
+      if (kernel_files.length === 0) {
+        console.error(`\n⚠ --remote requested but no kernel files generated. Pass --use-llm-orchestrator (or accept skeleton-mode output) first.\n`);
+      } else {
+        const run_id = `${args.model}__${args.hardware}__${Date.now()}`.replace(/[^a-z0-9_-]/gi, '-');
+        const plan = buildExecutionPlan({
+          target,
+          kernel_files,
+          local_output_dir: outputDir,
+          run_id,
+        });
+        process.stderr.write(formatPlanForDryRun(plan));
+        // Persist the plan + kernel-file manifest for v3.27 --execute pickup.
+        await writeFile(path.join(outputDir, 'remote-plan.json'), JSON.stringify({
+          target_id: target.id,
+          hardware: target.hardware,
+          ssh: target.ssh,
+          run_id,
+          remote_work_dir: plan.remote_work_dir,
+          kernel_files: plan.kernel_files.map((f) => ({ filename: f.filename, byte_count: f.content.length })),
+          commands: plan.commands,
+          v3_27_execute_hint: 'Re-run with --execute (lands in v3.27) to actually run the plan.',
+        }, null, 2));
+      }
+    } catch (e) {
+      if (e instanceof TargetNotFoundError) {
+        console.error(`\n✗ Remote target "${args['remote']}" not found.`);
+        console.error(`  Available: ${e.available.join(', ') || '(none)'}`);
+        console.error(`  Hint: copy targets.yaml.example to ~/.config/evokernel/targets.yaml and add a target.\n`);
+      } else if (e instanceof TargetMismatchError) {
+        console.error(`\n✗ ${(e as Error).message}\n`);
+      } else {
+        console.error(`\n✗ Remote target failed: ${(e as Error).message}\n`);
+      }
+    }
+  }
 
   console.error(`✅ Done — outputs in ${outputDir}/\n`);
   console.error('Planning artifacts:');
