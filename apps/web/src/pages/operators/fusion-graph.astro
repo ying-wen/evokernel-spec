@@ -139,8 +139,8 @@ const { nodes: opNodes, categoryAnchors: opCatAnchors } = flattenWithGroups(opsB
 const { nodes: kernelNodes, categoryAnchors: kernelCatAnchors } = flattenWithGroups(kernelsByCategory, RIGHT_X, pathname('/fused-kernels'), kernelDegree);
 
 const SVG_HEIGHT = Math.max(
-  opNodes.length > 0 ? opNodes[opNodes.length - 1].y : 0,
-  kernelNodes.length > 0 ? kernelNodes[kernelNodes.length - 1].y : 0
+  opNodes.at(-1)?.y ?? 0,
+  kernelNodes.at(-1)?.y ?? 0
 ) + 40;
 
 // Build node lookup for edge rendering

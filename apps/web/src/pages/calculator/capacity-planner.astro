@@ -11,7 +11,7 @@
  */
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
-import CapacityPlanner from '~/components/capacity-planner/CapacityPlanner.tsx';
+import CapacityPlannerIsland from '~/components/capacity-planner/CapacityPlanner.tsx';
 import '~/components/capacity-planner/CapacityPlanner.css';
 import { pathname } from '~/lib/i18n';
 import { getModels, getResolvedHardware, getCases } from '~/lib/data';
@@ -39,7 +39,9 @@ function median(arr: number[]): number | undefined {
   if (arr.length === 0) return undefined;
   const sorted = [...arr].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  const current = sorted[mid] ?? sorted[0] ?? 0;
+  const previous = sorted[mid - 1] ?? current;
+  return sorted.length % 2 === 0 ? (previous + current) / 2 : current;
 }
 
 // Trim model + hardware data down to the fields the calculator actually needs.
@@ -98,7 +100,7 @@ const hardwareSummaries = hardware
     </section>
 
     <section class="py-6">
-      <CapacityPlanner client:only="react" models={modelSummaries} hardware={hardwareSummaries} />
+      <CapacityPlannerIsland client:only="react" models={modelSummaries} hardware={hardwareSummaries} />
     </section>
 
     <section class="py-12 border-t" style="border-color: var(--color-border);">

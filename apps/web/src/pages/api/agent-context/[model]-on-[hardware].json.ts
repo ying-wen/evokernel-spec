@@ -94,7 +94,7 @@ export const GET: APIRoute = async ({ params }) => {
   }
 
   // Determine arch_family
-  const archFamily = (hardware.generation as string | undefined) ?? hardwareId.split('-')[0];
+  const archFamily = (hardware.generation as string | undefined) ?? hardwareId.split('-')[0] ?? hardwareId;
 
   // Filter applicable ops (engines support this arch, or universal)
   const applicableOps = operators.filter((op) => {
@@ -129,7 +129,7 @@ export const GET: APIRoute = async ({ params }) => {
   );
 
   const matchingLibs = kernelLibraries.filter((kl) => {
-    const supported = (kl.hardware_arch ?? []) as string[];
+    const supported = kl.target_archs;
     return (
       supported.some((a) => a === archFamily || archFamily.startsWith(a)) ||
       kl.vendor === hardware.vendor.id

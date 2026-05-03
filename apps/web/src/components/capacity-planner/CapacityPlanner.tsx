@@ -159,8 +159,8 @@ function computeSizing(
 
 export default function CapacityPlanner({ models, hardware }: CapacityPlannerProps) {
   // Default to Llama 4 Scout × H200 if available, else first entries
-  const defaultModelId = models.find((m) => m.id === 'llama-4-scout')?.id ?? models[0]?.id;
-  const defaultHwId = hardware.find((h) => h.id === 'h200-sxm')?.id ?? hardware[0]?.id;
+  const defaultModelId = models.find((m) => m.id === 'llama-4-scout')?.id ?? models[0]?.id ?? '';
+  const defaultHwId = hardware.find((h) => h.id === 'h200-sxm')?.id ?? hardware[0]?.id ?? '';
 
   const [modelId, setModelId] = useState(defaultModelId);
   const [hwId, setHwId] = useState(defaultHwId);
@@ -176,9 +176,19 @@ export default function CapacityPlanner({ models, hardware }: CapacityPlannerPro
   const hw = useMemo(() => hardware.find((h) => h.id === hwId) ?? hardware[0], [hardware, hwId]);
 
   const result = useMemo(
-    () => computeSizing(model, hw, precision, qps, avgOutputTokens, maxContext, concurrentSessions, kvPrecision, headroomPct),
+    () => model && hw
+      ? computeSizing(model, hw, precision, qps, avgOutputTokens, maxContext, concurrentSessions, kvPrecision, headroomPct)
+      : null,
     [model, hw, precision, qps, avgOutputTokens, maxContext, concurrentSessions, kvPrecision, headroomPct]
   );
+
+  if (!model || !hw || !result) {
+    return (
+      <div className="cp-warnings">
+        容量规划器缺少可用模型或硬件数据.
+      </div>
+    );
+  }
 
   return (
     <div className="capacity-planner-grid">

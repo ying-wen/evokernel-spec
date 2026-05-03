@@ -52,10 +52,11 @@ const grouped: ByMonth = (() => {
   if (m.size === 0) return [];
   const months = [...m.keys()].sort();
   const first = months[0];
-  const last = months[months.length - 1];
+  const last = months.at(-1);
+  if (!first || !last) return [];
   const out: ByMonth = [];
-  const [fy, fmo] = first.split('-').map(Number);
-  const [ly, lmo] = last.split('-').map(Number);
+  const [fy = 0, fmo = 1] = first.split('-').map(Number);
+  const [ly = fy, lmo = 12] = last.split('-').map(Number);
   for (let y = fy; y <= ly; y++) {
     const startMo = y === fy ? fmo : 1;
     const endMo = y === ly ? lmo : 12;

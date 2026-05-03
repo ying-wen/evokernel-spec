@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getOperators, getKernelLibraries, getIsaPrimitives, getResolvedHardware } from '~/lib/data';
+import { getOperators, getKernelLibraries, getIsaPrimitives } from '~/lib/data';
 
 /**
  * v2.6 / Layer E: Coverage matrix as flat JSON.
@@ -73,11 +73,10 @@ function operatorClassOf(opId: string, opCategory: string): string {
 }
 
 export const GET: APIRoute = async () => {
-  const [operators, libraries, primitives, hardware] = await Promise.all([
+  const [operators, libraries, primitives] = await Promise.all([
     getOperators(),
     getKernelLibraries(),
-    getIsaPrimitives(),
-    getResolvedHardware()
+    getIsaPrimitives()
   ]);
 
   // Build arch_family → libraries map
@@ -104,9 +103,6 @@ export const GET: APIRoute = async () => {
     }
   }
 
-  // For each ISA primitive group its cross_vendor_equivalents into a lookup map
-  const primById = new Map(primitives.map((p) => [p.id, p]));
-
   // Pre-compute hw arch → tensor_isa list (which primitive ids can be used on this arch)
   const archToIsa = new Map<string, Set<string>>();
   for (const p of primitives) {
@@ -127,6 +123,7 @@ export const GET: APIRoute = async () => {
 
     for (const archPair of archPairs) {
       const [vendor, archFamily] = archPair.split('::');
+      if (!vendor || !archFamily) continue;
 
       // Find libraries serving this arch
       const libs = archToLibs.get(archFamily) ?? [];
@@ -157,6 +154,7 @@ export const GET: APIRoute = async () => {
       const order = { full: 0, partial: 1, experimental: 2, missing: 3, deprecated: 4 };
       libCoverages.sort((a, b) => order[a.coverage] - order[b.coverage]);
       const best = libCoverages[0];
+      if (!best) continue;
 
       rows.push({
         operator_id: op.id,

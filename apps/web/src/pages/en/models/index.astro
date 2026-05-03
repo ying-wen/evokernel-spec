@@ -9,6 +9,7 @@ import { t, localePath } from '~/lib/i18n';
 
 const locale = 'en';
 const models = (await getModels()).sort((a, b) => b.release_date.localeCompare(a.release_date));
+const formatContext = (ctx?: number) => ctx != null ? `${(ctx / 1024).toFixed(0)}k` : '—';
 ---
 <BaseLayout title={t(locale, 'page.models.title')} locale={locale}>
   <Container>
@@ -30,7 +31,7 @@ const models = (await getModels()).sort((a, b) => b.release_date.localeCompare(a
               <dl class="grid grid-cols-2 gap-2 mt-3 text-xs">
                 <div><dt style="color: var(--color-text-muted);">Total</dt><dd class="font-mono">{m.architecture.total_params_b}B</dd></div>
                 <div><dt style="color: var(--color-text-muted);">Active</dt><dd class="font-mono">{m.architecture.active_params_b}B</dd></div>
-                <div><dt style="color: var(--color-text-muted);">Context</dt><dd class="font-mono">{(m.architecture.max_context_length / 1024).toFixed(0)}k</dd></div>
+                <div><dt style="color: var(--color-text-muted);">Context</dt><dd class="font-mono">{formatContext(m.architecture.max_context_length)}</dd></div>
                 <div><dt style="color: var(--color-text-muted);">Released</dt><dd class="font-mono">{m.release_date}</dd></div>
               </dl>
               <div class="flex gap-1 mt-3 flex-wrap">

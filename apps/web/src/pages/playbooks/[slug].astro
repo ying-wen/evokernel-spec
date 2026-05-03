@@ -27,8 +27,8 @@ const summaryHtml = await marked.parse(pb.summary_md);
 <BaseLayout title={pb.name}>
   <Container width="wide">
     <Breadcrumbs items={[
-      { label: 'Playbooks', href: pathname('/playbooks/') },
-      { label: pb.name }
+      { name: 'Playbooks', href: pathname('/playbooks/') },
+      { name: pb.name }
     ]} />
 
     <header class="pt-6 pb-6 border-b" style="border-color: var(--color-border);">

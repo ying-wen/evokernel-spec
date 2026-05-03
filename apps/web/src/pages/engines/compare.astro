@@ -125,6 +125,7 @@ const specStats = axisStats(SPEC_DECODE, (e) => e.speculative_decoding);
           { label: '投机解码方法', stats: specStats, total: SPEC_DECODE.length },
         ].map(({ label, stats, total }) => {
           const top = [...stats].sort((a, b) => b.count - a.count)[0];
+          if (!top) return null;
           return (
             <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
               <div class="text-xs font-semibold mb-2" style="color: var(--color-text-muted);">{label}</div>

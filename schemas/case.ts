@@ -7,6 +7,7 @@ const Pct = z.number().min(0).max(100);
 export const BottleneckSchema = z.enum([
   'compute', 'memory-bandwidth', 'interconnect', 'software', 'mixed', 'unknown'
 ]);
+export type Bottleneck = z.infer<typeof BottleneckSchema>;
 
 const StackSchema = z.object({
   hardware: z.object({

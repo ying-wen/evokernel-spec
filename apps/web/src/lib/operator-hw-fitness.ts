@@ -13,10 +13,14 @@
 
 import type { Hardware, Operator } from '@evokernel/schemas';
 
+type HardwareLike = Omit<Hardware, 'vendor'> & {
+  vendor: Hardware['vendor'] | { id?: string };
+};
+
 export type FitnessClass = 'memory-bound' | 'compute-bound' | 'regime-dependent' | 'unknown';
 
 export interface OperatorFitnessCell {
-  hardware: Hardware;
+  hardware: HardwareLike;
   precision: 'bf16' | 'fp16' | 'fp8-e4m3' | 'fp4' | 'int8';
   /** Hardware compute peak at this precision (TFLOPS). */
   peakTflops: number | null;
@@ -38,7 +42,7 @@ export interface OperatorFitnessCell {
  */
 export function classifyOperatorOnHardware(
   op: Operator,
-  hw: Hardware,
+  hw: HardwareLike,
   precision: OperatorFitnessCell['precision']
 ): OperatorFitnessCell | null {
   const aiTypical = op.arithmetic_intensity_typical;
@@ -90,7 +94,7 @@ export function classifyOperatorOnHardware(
  */
 export function buildOperatorFitnessTable(
   op: Operator,
-  hardware: Hardware[]
+  hardware: HardwareLike[]
 ): OperatorFitnessCell[] {
   const cells: OperatorFitnessCell[] = [];
   for (const hw of hardware) {

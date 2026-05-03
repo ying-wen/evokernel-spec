@@ -69,8 +69,10 @@ export function getReleases(): Release[] {
   const matches: Array<{ version: string; date: string | null; start: number; end: number }> = [];
   let m: RegExpExecArray | null;
   while ((m = headerRegex.exec(raw)) !== null) {
+    const version = m[1];
+    if (!version) continue;
     matches.push({
-      version: m[1],
+      version,
       date: m[2] ?? null,
       start: m.index,
       end: m.index + m[0].length
@@ -79,6 +81,7 @@ export function getReleases(): Release[] {
   // For each header, body is from end-of-header to start-of-next-header (or EOF).
   for (let i = 0; i < matches.length; i++) {
     const h = matches[i];
+    if (!h) continue;
     const next = matches[i + 1];
     const body = raw.slice(h.end, next ? next.start : undefined).trim();
     // Skip "Unreleased" — placeholder, no date

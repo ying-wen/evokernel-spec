@@ -13,7 +13,7 @@
 [![Pages](https://img.shields.io/badge/pages-613-blue)](#)
 [![Plugins](https://img.shields.io/badge/plugins-MCP_%2B_Codex_%2B_ClaudeCode_%2B_Cursor-orange)](#)
 [![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
-[![Release](https://img.shields.io/badge/release-v3.31.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
+[![Release](https://img.shields.io/badge/release-v3.31.1-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
 ## TL;DR
 

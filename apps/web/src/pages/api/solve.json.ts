@@ -142,7 +142,7 @@ export const GET: APIRoute = async () => {
       source: 'case',
       source_id: c.id,
       source_url: `/cases/${c.id}/`,
-      model: { id: c.stack.model.id, family: model?.family },
+      model: { id: c.stack.model.id, family: model?.architecture.family },
       hardware: {
         id: c.stack.hardware.id,
         vendor: hw?.vendor.id,

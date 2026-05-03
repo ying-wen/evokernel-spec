@@ -21,6 +21,8 @@ export async function getStaticPaths() {
 }
 
 const { technique } = Astro.props as { technique: Awaited<ReturnType<typeof getTechniques>>[number] };
+const subtitle = technique.notes?.split('\n').find((line) => line.trim().length > 0)
+  ?? `Cross-arch port catalog for the ${technique.name} technique.`;
 
 const port_status_descriptions: Record<string, string> = {
   'reference-impl': 'Original reference implementation; no porting needed.',
@@ -36,7 +38,7 @@ const port_status_descriptions: Record<string, string> = {
       <SectionHeader
         eyebrow={`TECHNIQUE · ${technique.technique_kind}`}
         title={technique.name}
-        subtitle={technique.summary ?? `Cross-arch port catalog for the ${technique.name} technique.`}
+        subtitle={subtitle}
       />
       <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
         {technique.authors_or_org ? `${technique.authors_or_org} · ` : ''}

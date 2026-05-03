@@ -50,7 +50,7 @@ export function contributorStats(): ContributorStats {
     const top = lines.slice(0, 5).map((line) => {
       const match = line.trim().match(/^(\d+)\s+(.+?)(?:\s+<.*>)?$/);
       return match
-        ? { commits: Number(match[1]), name: match[2] }
+        ? { commits: Number(match[1] ?? 0), name: match[2]?.trim() ?? line.trim() }
         : { commits: 0, name: line.trim() };
     });
     const total = lines.reduce((sum, line) => {
@@ -65,23 +65,25 @@ export function contributorStats(): ContributorStats {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore']
     }).trim();
-    cachedContributorStats = {
+    const stats: ContributorStats = {
       contributorCount: lines.length,
       topContributors: top,
       commitCount: total,
       firstCommitDate: firstCommit || null,
       lastCommitDate: lastCommit || null
     };
+    cachedContributorStats = stats;
   } catch {
-    cachedContributorStats = {
+    const stats: ContributorStats = {
       contributorCount: 0,
       topContributors: [],
       commitCount: 0,
       firstCommitDate: null,
       lastCommitDate: null
     };
+    cachedContributorStats = stats;
   }
-  return cachedContributorStats;
+  return cachedContributorStats!;
 }
 
 export function lastUpdatedFor(filePath: string): string {

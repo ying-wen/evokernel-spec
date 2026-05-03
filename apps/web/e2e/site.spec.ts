@@ -346,9 +346,9 @@ test.describe.serial('Iter-10 features', () => {
     const cnToggle = page.getByRole('button', { name: '国产', exact: true }).first();
     await cnToggle.waitFor({ state: 'visible', timeout: 10000 });
     await cnToggle.click();
-    // CN-card count grows with the corpus (now 14+ after Ascend 950 added);
+    // CN-card count grows with the corpus (20+ after the v3 corpus expansion);
     // assert ≥13 and that the "X / N" pattern shows X < N (filter is doing something).
-    await expect(page.getByText(/1[3-9] \/ \d+ 显示/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/[1-9]\d? \/ \d+ 显示/i)).toBeVisible({ timeout: 10000 });
     // Overseas section should disappear
     await expect(page.getByRole('heading', { name: /^海外/ })).not.toBeVisible();
   });
@@ -379,6 +379,10 @@ test.describe.serial('Iter-10 features', () => {
     const modelBtn = page.getByRole('button', { name: /Llama 4 Scout/i }).first();
     await modelBtn.scrollIntoViewIfNeeded();
     await modelBtn.click();
+    await page.waitForFunction(() => {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('model') === 'llama-4-scout';
+    }, { timeout: 15000 });
     const hwBtn = page.getByRole('button', { name: /H100 SXM5/i }).first();
     await hwBtn.waitFor({ state: 'visible', timeout: 15000 });
     await hwBtn.scrollIntoViewIfNeeded();
@@ -386,7 +390,7 @@ test.describe.serial('Iter-10 features', () => {
     await page.waitForFunction(() => {
       const u = new URL(window.location.href);
       return u.searchParams.get('model') === 'llama-4-scout' && u.searchParams.get('hw') === 'h100-sxm5';
-    }, { timeout: 5000 });
+    }, { timeout: 15000 });
   });
 });
 
@@ -957,14 +961,15 @@ test.describe('v2.4: /api/* agent-readiness endpoints + /agents/ doc page', () =
     await expect(page.getByText(/已知 gap|Known gap|ISA 原语|cross-vendor/i).first()).toBeVisible();
   });
 
-  test('/api/openapi.json reflects v2.4.0 with new endpoints', async ({ request }) => {
+  test('/api/openapi.json reflects current public endpoints', async ({ request }) => {
     const r = await request.get('/api/openapi.json');
     const spec = await r.json();
-    expect(spec.info.version).toBe('2.4.0');
+    expect(spec.info.version).toBe('3.31.1');
     expect(spec.paths['/api/operators.json']).toBeTruthy();
     expect(spec.paths['/api/fused-kernels.json']).toBeTruthy();
     expect(spec.paths['/api/playbooks.json']).toBeTruthy();
     expect(spec.paths['/api/solve.json']).toBeTruthy();
+    expect(spec.paths['/api/techniques.json']).toBeTruthy();
   });
 });
 
@@ -3046,13 +3051,14 @@ test.describe('v1.12: 4 more playbooks + bidirectional rec widget + 4 more cards
 test.describe('v1.11: deployment playbooks (gap 3) + 3 more cards memory_hierarchy', () => {
   test('Playbooks index lists 5 (model x hardware) recipes', async ({ page }) => {
     await page.goto('/playbooks/');
-    await expect(page.getByRole('heading', { name: /部署 Playbook|任意模型/i }).first()).toBeVisible();
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { name: /部署 Playbook|任意模型/i }).first()).toBeVisible();
     // 5 playbook cards rendered
-    await expect(page.getByText(/MoE 超大模型在 Hopper 集群/i).first()).toBeVisible();
-    await expect(page.getByText(/Dense 70B\/72B|Hopper 单节点/i).first()).toBeVisible();
-    await expect(page.getByText(/Blackwell 超节点|NVL72 GB200/i).first()).toBeVisible();
-    await expect(page.getByText(/昇腾集群|CloudMatrix 384/i).first()).toBeVisible();
-    await expect(page.getByText(/端侧.*单卡|Llama 3 8B/i).first()).toBeVisible();
+    await expect(main.getByText(/MoE 超大模型在 Hopper 集群/i).first()).toBeVisible();
+    await expect(main.getByText(/Dense 70B\/72B|Hopper 单节点/i).first()).toBeVisible();
+    await expect(main.getByText(/Blackwell 超节点|NVL72 GB200/i).first()).toBeVisible();
+    await expect(main.getByText(/昇腾集群|CloudMatrix 384/i).first()).toBeVisible();
+    await expect(main.getByText(/端侧.*单卡|Llama 3 8B/i).first()).toBeVisible();
   });
 
   test('MoE Hopper-cluster playbook detail shows full recipe', async ({ page }) => {

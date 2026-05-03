@@ -9,6 +9,10 @@
 
 import type { Model, Hardware, Playbook, ModelArchetype, HardwareClass } from '@evokernel/schemas';
 
+type HardwareLike = Omit<Hardware, 'vendor'> & {
+  vendor: Hardware['vendor'] | { id?: string };
+};
+
 /**
  * Infer ModelArchetype from existing model fields. Order matters — more
  * specific matches (reasoning, multi-modal) win over generic family/size.
@@ -35,7 +39,7 @@ export function inferModelArchetype(model: Model): ModelArchetype {
   }
 
   // Long-context overlay — separate dimension; we map very-long-context to long-context archetype
-  if (arch.max_context_length >= 1_000_000) {
+  if ((arch.max_context_length ?? 0) >= 1_000_000) {
     return 'long-context';
   }
 
@@ -53,7 +57,7 @@ export function inferModelArchetype(model: Model): ModelArchetype {
 /**
  * Infer HardwareClass from existing hardware fields.
  */
-export function inferHardwareClass(hw: Hardware): HardwareClass {
+export function inferHardwareClass(hw: HardwareLike): HardwareClass {
   const gen = (hw.generation ?? '').toLowerCase();
   const id = hw.id.toLowerCase();
   const ff = hw.form_factor ?? '';
@@ -117,7 +121,7 @@ export function findPlaybooksForModel(model: Model, allPlaybooks: Playbook[]): P
  * For aggregate types (cluster/superpod): also surface single-node playbooks
  * since many same-vendor recipes apply to either scale.
  */
-export function findPlaybooksForHardware(hw: Hardware, allPlaybooks: Playbook[]): Playbook[] {
+export function findPlaybooksForHardware(hw: HardwareLike, allPlaybooks: Playbook[]): Playbook[] {
   const cls = inferHardwareClass(hw);
   const direct = allPlaybooks.filter((pb) => pb.hardware_class === cls);
 

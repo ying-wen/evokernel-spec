@@ -204,7 +204,7 @@ const lastUpdated = lastUpdatedFor(sourcePath) || meta.builtAt;
           <div>
             <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-muted);">功耗</h4>
             <div class="rounded-lg border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
-              <SpecRow label="TDP">{hw.power.tdp_w.value} W</SpecRow>
+              {hw.power.tdp_w && <SpecRow label="TDP">{hw.power.tdp_w.value} W</SpecRow>}
               {hw.power.sustained_w && <SpecRow label="Sustained (持续)">{hw.power.sustained_w.value} W</SpecRow>}
               {hw.power.peak_w && <SpecRow label="Peak (峰值)">{hw.power.peak_w.value} W</SpecRow>}
               {hw.power.fp16_tflops_per_watt && <SpecRow label="fp16 TFLOPS / W">{hw.power.fp16_tflops_per_watt.value}</SpecRow>}

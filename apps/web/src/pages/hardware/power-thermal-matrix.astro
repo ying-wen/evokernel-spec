@@ -94,7 +94,7 @@ const COOLING_COLOR: Record<string, string> = {
       </div>
       <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
         <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">最高 TDP</div>
-        <div class="text-lg font-semibold">{Math.max(...enriched.map((h) => h.power.tdp_w.value))} W</div>
+        <div class="text-lg font-semibold">{Math.max(0, ...enriched.map((h) => h.power.tdp_w?.value ?? 0))} W</div>
         <div class="text-xs" style="color: var(--color-text-muted);">单卡功耗上限</div>
       </div>
     </section>
@@ -131,7 +131,7 @@ const COOLING_COLOR: Record<string, string> = {
                     <a href={pathname(`/hardware/${h.id}/`)} class="hover:underline" style="color: var(--color-accent); font-weight: 500;">{h.name}</a>
                     <div class="text-xs" style="color: var(--color-text-muted);">{h.vendor.name}</div>
                   </td>
-                  <td class="p-2 text-right font-mono">{h.power.tdp_w.value}</td>
+                  <td class="p-2 text-right font-mono">{h.power.tdp_w?.value ?? '—'}</td>
                   <td class="p-2 text-right font-mono" style="color: var(--color-text-muted);">{h.power.sustained_w?.value ?? '—'}</td>
                   <td class="p-2 text-right font-mono" style="color: var(--color-text-muted);">{h.power.peak_w?.value ?? '—'}</td>
                   <td class="p-2">
@@ -164,7 +164,7 @@ const COOLING_COLOR: Record<string, string> = {
       <div class="grid gap-2">
         {perfPerWatt.slice(0, 10).map((h, idx) => {
           const ppw = h.power.fp16_tflops_per_watt!.value;
-          const max = perfPerWatt[0].power.fp16_tflops_per_watt!.value;
+          const max = perfPerWatt[0]?.power.fp16_tflops_per_watt?.value ?? ppw;
           const widthPct = (ppw / max) * 100;
           return (
             <a href={pathname(`/hardware/${h.id}/`)} class="block rounded p-3 border transition-transform hover:translate-x-0.5" style="background: var(--color-surface-raised); border-color: var(--color-border);">
@@ -203,7 +203,7 @@ const COOLING_COLOR: Record<string, string> = {
             <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {cards.map((h) => (
                 <a href={pathname(`/hardware/${h.id}/`)} class="text-sm hover:underline" style="color: var(--color-accent);">
-                  {h.name} <span style="color: var(--color-text-muted); font-size: 0.7rem;">({h.power.tdp_w.value}W)</span>
+                  {h.name} <span style="color: var(--color-text-muted); font-size: 0.7rem;">({h.power.tdp_w?.value ?? '—'}W)</span>
                 </a>
               ))}
             </div>

@@ -89,7 +89,7 @@ for (const op of operators) {
 const fkMatrix = new Map<string, Map<string, Cell>>();
 for (const fk of fusedKernels) {
   const row = new Map<string, Cell>();
-  for (const impl of fk.engine_implementations ?? []) {
+  for (const impl of fk.implementations ?? []) {
     for (const tok of impl.hardware_arch ?? []) {
       const fam = archFamilyOf(tok);
       if (!fam) continue;
@@ -183,7 +183,7 @@ function cellShade(engineCount: number): { bg: string; fg: string; label: string
               <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 200px;">算子 ↓ × 架构 →</th>
               {ARCHES.map((a) => (
                 <th class="p-2 text-center" style={`border-bottom: 1px solid var(--color-border); min-width: 60px; vertical-align: bottom;`}>
-                  <div style={`font-size: 0.65rem; color: ${a.color}; font-weight: 600; transform: rotate(-15deg); transform-origin: bottom left; white-space: nowrap;`}>{a.label.split('(')[0].trim()}</div>
+                  <div style={`font-size: 0.65rem; color: ${a.color}; font-weight: 600; transform: rotate(-15deg); transform-origin: bottom left; white-space: nowrap;`}>{a.label.replace(/\s*\(.*/, '').trim()}</div>
                 </th>
               ))}
             </tr>
@@ -231,7 +231,7 @@ function cellShade(engineCount: number): { bg: string; fg: string; label: string
               <th class="text-left p-2 sticky left-0" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); min-width: 220px;">Fused kernel ↓ × 架构 →</th>
               {ARCHES.map((a) => (
                 <th class="p-2 text-center" style={`border-bottom: 1px solid var(--color-border); min-width: 60px; vertical-align: bottom;`}>
-                  <div style={`font-size: 0.65rem; color: ${a.color}; font-weight: 600; transform: rotate(-15deg); transform-origin: bottom left; white-space: nowrap;`}>{a.label.split('(')[0].trim()}</div>
+                  <div style={`font-size: 0.65rem; color: ${a.color}; font-weight: 600; transform: rotate(-15deg); transform-origin: bottom left; white-space: nowrap;`}>{a.label.replace(/\s*\(.*/, '').trim()}</div>
                 </th>
               ))}
             </tr>

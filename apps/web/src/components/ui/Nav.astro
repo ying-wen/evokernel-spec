@@ -76,15 +76,15 @@ const themeColor = (theme?: 'accent' | 'china') =>
 
       {navDropdowns.map((g) => (
         <li class="nav-dropdown" data-dropdown-id={g.id}>
-          <button type="button" class="dropdown-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls={`dd-${g.id}`}>
+          <button type="button" class="dropdown-trigger" aria-haspopup="true" aria-expanded="false" aria-controls={`dd-${g.id}`}>
             {g.label}
             <span class="dropdown-caret" aria-hidden="true">▾</span>
           </button>
-          <div id={`dd-${g.id}`} class="dropdown-panel" role="menu">
+          <div id={`dd-${g.id}`} class="dropdown-panel">
             <ul>
               {g.items.map((it) => (
                 <li>
-                  <a href={it.href} role="menuitem" class="dropdown-item"
+                  <a href={it.href} class="dropdown-item"
                      style={it.theme ? `color: ${themeColor(it.theme)};` : ''}>
                     <span class="dropdown-item-label">{it.label}</span>
                     {it.desc && <span class="dropdown-item-desc">{it.desc}</span>}

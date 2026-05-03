@@ -29,6 +29,7 @@ const ldCrumbs = breadcrumbLD([
 const hardware = await getResolvedHardware();
 const hardwareRaw = await getHardware();
 const cases = await getCases();
+const formatContext = (ctx?: number) => ctx != null ? `${(ctx / 1024).toFixed(0)}` : '—';
 
 function statusOnHw(hwId: string): 'measured' | 'claimed' | 'unknown' {
   const has = cases.some((c) => c.stack.hardware.id === hwId && c.stack.model.id === model.id);
@@ -67,7 +68,7 @@ const labelMap = { measured: '🟢 measured', claimed: '🟡 claimed', unknown: 
         <KpiCard label="Total params"><span style="font-size: 1.5rem;">{arch.total_params_b}<span class="text-base opacity-60"> B</span></span></KpiCard>
         <KpiCard label="Active params"><span style="font-size: 1.5rem;">{arch.active_params_b}<span class="text-base opacity-60"> B</span></span></KpiCard>
         <KpiCard label="Layers"><span style="font-size: 1.5rem;">{arch.layers}</span></KpiCard>
-        <KpiCard label="Context"><span style="font-size: 1.5rem;">{(arch.max_context_length / 1024).toFixed(0)}<span class="text-base opacity-60"> k</span></span></KpiCard>
+        <KpiCard label="Context"><span style="font-size: 1.5rem;">{formatContext(arch.max_context_length)}<span class="text-base opacity-60"> k</span></span></KpiCard>
       </div>
     </section>
 

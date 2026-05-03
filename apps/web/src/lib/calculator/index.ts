@@ -129,11 +129,13 @@ export function calculate(input: {
   const tier0 = findSimilarCases(cases, calc);
 
   const bytesPerWeight = BYTES_PER_WEIGHT[calc.precision];
+  const kvHeads = model.architecture.num_kv_heads ?? model.architecture.num_attention_heads ?? 1;
+  const headDim = model.architecture.head_dim ?? Math.max(1, Math.round((model.architecture.hidden_size ?? 128) / Math.max(model.architecture.num_attention_heads ?? 1, 1)));
   // Memory uses TOTAL params (full weights must reside in HBM); EP distributes experts across devices.
   const ep = Math.max(calc.parallel.ep, 1);
   const weightsGb = (model.architecture.total_params_b * 1e9 * bytesPerWeight) / (calc.parallel.tp * calc.parallel.pp * ep) / 1e9;
   const totalCacheTokens = calc.scenario.batchSize * (calc.scenario.prefillSeqLen + calc.scenario.decodeSeqLen);
-  const kvBytes = 2 * model.architecture.layers * model.architecture.num_kv_heads * model.architecture.head_dim * 2 * totalCacheTokens / calc.parallel.tp;
+  const kvBytes = 2 * model.architecture.layers * kvHeads * headDim * 2 * totalCacheTokens / calc.parallel.tp;
   const kvCacheGb = kvBytes / 1e9;
   const totalGb = weightsGb + kvCacheGb + 2;
   const memAvail = hardware.memory.capacity_gb?.value ?? 0;
@@ -182,7 +184,7 @@ export function calculate(input: {
   if (calc.disaggregated.enabled && calc.disaggregated.prefillCards && calc.disaggregated.decodeCards) {
     const perCardUpper = roofline.decodeThroughputUpperBound;
     // KV cache transfer: per token, layers × kv_heads × head_dim × 2 × bytesPerWeight
-    const kvBytesPerToken = 2 * model.architecture.layers * model.architecture.num_kv_heads * model.architecture.head_dim * bytesPerWeight;
+    const kvBytesPerToken = 2 * model.architecture.layers * kvHeads * headDim * bytesPerWeight;
     const interconnectBwBytes = hardware.scale_out.bandwidth_gbps_per_card * 1e9 / 8;
     disagg = {
       enabled: true,

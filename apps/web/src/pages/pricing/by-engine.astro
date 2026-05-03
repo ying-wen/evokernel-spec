@@ -73,6 +73,7 @@ const engineSummaries: EngineSummary[] = engines
     let best: EngineSummary['bestCase'] = null;
     for (const [key, entries] of cellsForEngine) {
       const [, modelId, hwId] = key.split('|');
+      if (!modelId || !hwId) continue;
       for (const e2 of entries) {
         allCosts.push(e2.costPerM);
         if (!best || e2.costPerM < best.costPerM) {
@@ -87,7 +88,7 @@ const engineSummaries: EngineSummary[] = engines
       }
     }
     allCosts.sort((a, b) => a - b);
-    const median = allCosts[Math.floor(allCosts.length / 2)];
+    const median = allCosts[Math.floor(allCosts.length / 2)] ?? 0;
     return {
       engineId: e.id,
       cellCount: cellsForEngine.length,
@@ -104,6 +105,7 @@ type CellKey = string; // "modelId|hwId"
 const cellKeys = new Set<CellKey>();
 for (const k of rawCells.keys()) {
   const [, modelId, hwId] = k.split('|');
+  if (!modelId || !hwId) continue;
   cellKeys.add(`${modelId}|${hwId}`);
 }
 const cellKeyList = Array.from(cellKeys).sort();
@@ -117,8 +119,9 @@ interface Cell {
   cheapestCostPerM: number | null;
 }
 
-const cells: Cell[] = cellKeyList.map((k) => {
+const cells: Cell[] = cellKeyList.flatMap((k) => {
   const [modelId, hwId] = k.split('|');
+  if (!modelId || !hwId) return [];
   const byEngine = new Map<string, CellEntry[]>();
   for (const e of engines) {
     const entries = rawCells.get(`${e.id}|${k}`) ?? [];
@@ -129,13 +132,13 @@ const cells: Cell[] = cellKeyList.map((k) => {
     const minCost = Math.min(...entries.map((x) => x.costPerM));
     if (!cheapest || minCost < cheapest.costPerM) cheapest = { engineId: eid, costPerM: minCost };
   }
-  return {
+  return [{
     modelId,
     hwId,
     byEngine,
     cheapestEngineId: cheapest?.engineId ?? null,
     cheapestCostPerM: cheapest?.costPerM ?? null
-  };
+  }];
 });
 
 // Cells where we have ≥2 engines (most interesting comparison)

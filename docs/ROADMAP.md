@@ -1,7 +1,7 @@
 # EvoKernel Spec — Roadmap
 
 > **Last updated:** 2026-05-04
-> **Current release:** **v3.31.0** (docs/web/API quality sync after the v3.30 technique catalog expansion)
+> **Current release:** **v3.31.1** (CI stabilization for the v3.31 docs/web/API quality sync)
 > **Live:** https://yingwen.io/evokernel-spec/
 > **Historical (archived):** [`docs/archive/`](archive/README.md) — v1.x and v2.x roadmaps + release notes
 
@@ -97,7 +97,7 @@ Current audit state: schema validation passes, but `pnpm audit:data` still repor
 
 | Use case | Version |
 |---|---|
-| Citation in a paper or industry report | Latest stable (v3.31.0) |
+| Citation in a paper or industry report | Latest stable (v3.31.1) |
 | Production deploy planning (no codegen) | Any v3.x — corpus is stable since v3.0 |
 | Real-code generation (productized) | v3.17+ (when the harness was wired) |
 | 4-vendor profiler ingestion | v3.23+ |

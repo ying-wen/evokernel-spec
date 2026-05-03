@@ -56,6 +56,9 @@ export function hardwareLD(h: ResolvedHw, url: string) {
 }
 
 export function modelLD(m: Model, url: string) {
+  const contextK = m.architecture.max_context_length != null
+    ? `${m.architecture.max_context_length / 1024}k`
+    : 'unknown';
   return {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
@@ -68,7 +71,7 @@ export function modelLD(m: Model, url: string) {
     creator: { '@type': 'Organization', name: m.lab },
     datePublished: m.release_date,
     license: m.license,
-    description: `${m.architecture.total_params_b}B params (${m.architecture.active_params_b}B active), ${m.architecture.layers} layers, ${m.architecture.max_context_length / 1024}k context. ${m.architecture.family.toUpperCase()} architecture.`,
+    description: `${m.architecture.total_params_b}B params (${m.architecture.active_params_b}B active), ${m.architecture.layers} layers, ${contextK} context. ${m.architecture.family.toUpperCase()} architecture.`,
     url
   };
 }

@@ -10,6 +10,30 @@ See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.32** — cross-a
 
 ---
 
+## [3.31.1] — 2026-05-04 — CI stabilization for v3.31
+
+**Theme**: make the v3.31 public-surface sync actually pass the full CI gate after v3.30 changed the corpus and navigation shape.
+
+### Fixed
+
+- Restored `pnpm --filter web exec astro check` by tightening page/helper type guards for optional schema fields, resolved hardware vendor objects, sparse arrays, and API route derivations.
+- Fixed Playwright drift from the expanded corpus: China hardware filter counts, OpenAPI version expectations, and hidden duplicate text on `/playbooks/`.
+- Fixed global a11y failures by removing invalid ARIA menu semantics from the nav dropdowns while keeping the same visual and link behavior.
+- Fixed operator detail color contrast for the `Mitigation:` label on formal-semantics panels.
+- Exported the shared `Bottleneck` schema type so bottleneck-aware pages no longer duplicate or mis-import that union.
+
+### Validation
+
+- `pnpm --filter web exec astro check` passes with 0 errors.
+- `pnpm --filter @evokernel/web build` passes: 613 SSG pages and Pagefind index.
+- `pnpm --filter web test` passes: 49/49 web unit tests.
+- `pnpm --filter @evokernel/schemas test` passes: 41/41 schema tests.
+- `pnpm --filter @evokernel/scripts test` passes: 286 passed / 1 skipped harness tests.
+- `pnpm --filter web exec playwright test` passes: 549 passed / 4 skipped browser tests.
+- `pnpm audit:data` still reports the known 3 warnings / 60 info tracked for v3.32 data-quality work.
+
+---
+
 ## [3.31.0] — 2026-05-04 — Docs/web/API quality sync after v3.30
 
 **Theme**: keep the public surface honest after the v3.30 technique-catalog expansion. v3.30 made `/techniques/` real by expanding the catalog from 1 to 4 entries; v3.31 updates the docs, homepage, agents pages, navigation, API descriptors, and security guardrails so users and external agents see the current state instead of stale v3.23/v3.29 language.
