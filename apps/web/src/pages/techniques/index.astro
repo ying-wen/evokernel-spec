@@ -17,7 +17,19 @@ const techniques = (await getTechniques()).sort((a, b) =>
   a.name.localeCompare(b.name),
 );
 
-// Pre-bucket by status for the at-a-glance summary table
+// v3.30 — group techniques by `technique_kind` so the catalog shows the
+// breadth of patterns the harness covers (attention-optimization vs
+// kv-cache-layout vs parallelism vs ...) rather than just an alphabetic list.
+const by_kind = new Map<string, typeof techniques>();
+for (const t of techniques) {
+  if (!by_kind.has(t.technique_kind)) by_kind.set(t.technique_kind, []);
+  by_kind.get(t.technique_kind)!.push(t);
+}
+const kind_rows = Array.from(by_kind.entries()).sort((a, b) =>
+  a[0].localeCompare(b[0]),
+);
+
+// Pre-bucket by status for the at-a-glance arch-family summary table
 const arch_summary = new Map<string, Array<{ technique: string; status: string }>>();
 for (const t of techniques) {
   for (const p of t.port_targets) {
@@ -29,14 +41,18 @@ for (const t of techniques) {
 const arch_rows = Array.from(arch_summary.entries()).sort((a, b) =>
   a[0].localeCompare(b[0]),
 );
+
+// v3.30 — totals for the header callout
+const total_port_targets = techniques.reduce((acc, t) => acc + t.port_targets.length, 0);
+const total_archs = arch_summary.size;
 ---
 <BaseLayout title="Research Techniques · 研究技术">
   <Container>
     <section class="py-12">
       <SectionHeader
-        eyebrow="TECHNIQUES · v3.29"
+        eyebrow="TECHNIQUES · v3.30"
         title="Research-technique entity catalog"
-        subtitle="Cross-arch port-status table for techniques the agent harness can drive (--technique <id> in agent:deploy)."
+        subtitle={`${techniques.length} techniques · ${total_port_targets} port targets across ${total_archs} arch families · drivable from the agent harness via --technique <id>.`}
       />
       <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
         Each technique declares its <code>port_targets[]</code> per arch family
@@ -47,29 +63,36 @@ const arch_rows = Array.from(arch_summary.entries()).sort((a, b) =>
       </p>
     </section>
 
-    <section class="py-6">
-      <h2 class="text-lg font-semibold mb-3">All techniques ({techniques.length})</h2>
-      <ul class="grid gap-4 md:grid-cols-2">
-        {techniques.map((t) => (
-          <li class="border rounded-lg p-4" style="border-color: var(--color-border);">
-            <a href={`/techniques/${t.id}/`} class="text-base font-medium hover:underline">
-              {t.name}
-            </a>
-            <span class="ml-2 text-xs uppercase opacity-70">{t.technique_kind}</span>
-            <p class="text-sm mt-2" style="color: var(--color-text-muted);">
-              {t.summary ?? `${t.applicable_to?.ops?.length ?? 0} applicable ops · ${t.port_targets.length} port targets`}
-            </p>
-            <ul class="text-xs mt-3 flex flex-wrap gap-2">
-              {t.port_targets.map((p) => (
-                <li class="px-2 py-0.5 rounded" style="background: var(--color-surface-2);">
-                  {p.arch_family} · <span class={`status-${p.status}`}>{p.status}</span>
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
-    </section>
+    {/* v3.30 — group by technique_kind so users see the breadth of
+        patterns the catalog covers, not just an alphabetic list. */}
+    {kind_rows.map(([kind, list]) => (
+      <section class="py-6">
+        <h2 class="text-lg font-semibold mb-3">
+          <span class="opacity-50 uppercase tracking-wide text-xs mr-2">{kind}</span>
+          ({list.length})
+        </h2>
+        <ul class="grid gap-4 md:grid-cols-2">
+          {list.map((t) => (
+            <li class="border rounded-lg p-4" style="border-color: var(--color-border);">
+              <a href={`/techniques/${t.id}/`} class="text-base font-medium hover:underline">
+                {t.name}
+              </a>
+              <p class="text-sm mt-2" style="color: var(--color-text-muted);">
+                {`${t.applicable_to?.ops?.length ?? 0} applicable ops · ${t.port_targets.length} port targets`}
+                {t.origin_year ? ` · ${t.origin_year}` : ''}
+              </p>
+              <ul class="text-xs mt-3 flex flex-wrap gap-2">
+                {t.port_targets.map((p) => (
+                  <li class="px-2 py-0.5 rounded" style="background: var(--color-surface-2);">
+                    {p.arch_family} · <span class={`status-${p.status}`}>{p.status}</span>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
 
     <section class="py-12">
       <h2 class="text-lg font-semibold mb-3">Coverage by arch family</h2>

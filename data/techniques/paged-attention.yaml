@@ -1,0 +1,136 @@
+id: paged-attention
+name: PagedAttention
+technique_kind: kv-cache-layout
+
+reference_url: https://github.com/vllm-project/vllm
+reference_paper: https://arxiv.org/abs/2309.06180
+origin_year: 2023
+authors_or_org: Woosuk Kwon et al. (UC Berkeley / vLLM team)
+
+applicable_to:
+  model_archetypes:
+    - transformer-decoder    # All chat/serve LLMs benefit
+    - moe-llm-medium         # MoE models with shared KV cache
+    - long-context           # Especially impactful when KV cache is large
+  ops:
+    - paged-attention-decode
+    - paged-attention-prefill
+    - kv-cache-block-table-lookup
+  hardware_arch_families:
+    - hopper                 # Originally developed for H100
+    - ada
+    - ampere
+
+port_targets:
+  - arch_family: hopper
+    status: reference-impl
+    reference_url: https://github.com/vllm-project/vllm/blob/main/csrc/attention/paged_attention_v2.cu
+    notes: |
+      vLLM ships paged_attention_v1 (single-block) and v2 (multi-block).
+      v2 is the canonical implementation for H100 — uses cp.async for
+      block-fetch + warp-cooperative softmax over discontiguous blocks.
+      Block size: 16 tokens × num_kv_heads × head_dim. Block table is a
+      per-sequence array indexed by logical block id.
+
+  - arch_family: ada
+    status: production-ready
+    reference_url: https://github.com/vllm-project/vllm/blob/main/csrc/attention/paged_attention_v2.cu
+    notes: |
+      Same kernel works on Ada (RTX 4090 / L40). cp.async granularity
+      smaller than Hopper TMA but the access pattern (gather from
+      discontiguous KV blocks) is the bottleneck either way.
+
+  - arch_family: ampere
+    status: production-ready
+    notes: |
+      A100 path. KV cache typically smaller (40 GB or 80 GB HBM vs H100's
+      80 GB), so block table sizing more constrained but the algorithm
+      is unchanged.
+
+  - arch_family: cdna3
+    status: production-ready
+    reference_url: https://github.com/ROCm/vllm
+    notes: |
+      ROCm vLLM fork — paged attention ported via HIP. MI300X has 192 GB
+      HBM3 which makes paged attention especially valuable (huge KV cache
+      → many blocks → block-table indirection cost amortizes well).
+
+  - arch_family: ascend-da-vinci-3
+    status: production-ready
+    reference_url: https://gitee.com/ascend/MindIE
+    notes: |
+      MindIE has its own paged-attention analog (block-based KV cache).
+      Bit-exact agreement with vLLM is NOT expected because MindIE uses
+      a different block size (32 tokens) and a different softmax kernel,
+      but functional behavior matches.
+
+  - arch_family: cambricon-mlu
+    status: experimental
+    notes: |
+      MLU590 — Cambricon's BANG-C has a basic paged attention sample but
+      not a hardened production implementation.
+
+reference_impl:
+  framework: cuda-cpp
+  repo: https://github.com/vllm-project/vllm
+  entry: csrc/attention/paged_attention_v2.cu
+  snippet: |
+    // PagedAttention V2 — non-contiguous KV cache via block table.
+    // Each sequence has a block_table[num_logical_blocks] indexing into a
+    // shared physical KV cache pool. Allocator hands out blocks as
+    // sequences grow; freed when sequence ends.
+    template <typename scalar_t, int HEAD_SIZE, int BLOCK_SIZE, int NUM_THREADS, ...>
+    __global__ void paged_attention_v2_kernel(
+        scalar_t* out,                       // [num_seqs, num_heads, head_size]
+        const scalar_t* q,                   // [num_seqs, num_heads, head_size]
+        const scalar_t* k_cache,             // [num_blocks, num_kv_heads, head_size, block_size]
+        const scalar_t* v_cache,             // [num_blocks, num_kv_heads, head_size, block_size]
+        const int* block_tables,             // [num_seqs, max_num_blocks_per_seq]
+        const int* seq_lens,                 // [num_seqs]
+        ...
+    ) {
+        // 1. For each (seq_idx, kv_head_idx) — read seq_len from seq_lens.
+        // 2. Compute num_blocks = ceil(seq_len / BLOCK_SIZE).
+        // 3. For each logical block — look up physical block via block_tables.
+        // 4. Fetch K_block, V_block from k_cache[phys_idx], v_cache[phys_idx].
+        // 5. Online softmax across all blocks (running max + sum).
+        // 6. Cooperative reduction across warps for final output.
+    }
+
+numerical_rules:
+  - aspect: block_boundary_softmax_continuity
+    per_library:
+      vllm-cuda: 'Running max + running sum maintained across block boundaries; final renormalize at end.'
+      vllm-rocm: 'Bit-exact with cuda for fp16/bf16.'
+      mindie-paged-attn: 'Same algorithm; not bit-exact due to different block size + reduction order.'
+    notes: |
+      The online softmax MUST be continuous across logical block
+      boundaries — treating each block as its own softmax window is a
+      common porting bug that causes ~5% accuracy regression on
+      long-context evals (e.g. RULER).
+
+  - aspect: block_table_indirection_alignment
+    per_library:
+      vllm-cuda: 'block_tables stored row-major; lookup is a single int32 load before fetching the KV block.'
+      mindie-paged-attn: 'Block table is split per device when TP > 1; coordination via HCCL collective.'
+
+port_complexity: medium
+
+notes: |
+  PagedAttention is more an INFRASTRUCTURE technique than a kernel
+  technique — the speedup vs contiguous KV cache comes from avoiding
+  KV-cache fragmentation in serving (especially with continuous batching).
+  The kernel itself is FA-shaped; the win is the block-table allocator
+  + scheduler that runs on the host.
+
+  Port effort by arch:
+    - Hopper / Ada / Ampere: 0 (vLLM upstream)
+    - CDNA3 / CDNA2: 0 (ROCm vLLM fork)
+    - Ascend-DaVinci-3: 0 (MindIE has its own analog; bit-exact verify
+      not expected, functional verify required)
+    - Cambricon MLU: 4-6 weeks for production-grade port
+
+aliases:
+  - paged-attn
+  - paged-attention-v2
+  - vllm-paged-attention

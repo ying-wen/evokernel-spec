@@ -6,7 +6,44 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.30** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; persisting synthesized bundles into `data/models/` so a second run uses the real corpus path (currently the synthesized bundle is in-memory only).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.31** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; persisting synthesized bundles into `data/models/`; plumbing `executeRemoteRun` result back into Stage 8 so `outcome: shipped` actually emits on real `--execute` success.
+
+---
+
+## [3.30.0] — 2026-05-04 — Technique catalog expansion (1 → 4) + /techniques/ polish
+
+**Theme**: Make the catalog feel real. v3.29 shipped the `/techniques/` SSG infrastructure but the catalog had only one entry (sageattention), making the new page look hollow. v3.30 adds three of the most widely-deployed research techniques in the LLM/diffusion stack so the catalog visibly demonstrates the v3.28 resolver + v3.29 wiring across multiple research patterns.
+
+### New techniques
+
+- **flash-attention** (`technique_kind: attention-optimization`) — the de-facto baseline. Reference (Hopper FA-3 + Ampere/Ada FA-2 in upstream); production-ready (CDNA2/CDNA3 via ROCm fork); experimental (ascend-da-vinci-3 via MindIE's analog); planned (cambricon-mlu). 7 port_targets total, including a CDNA2 entry that captures MI250X coverage.
+- **paged-attention** (`technique_kind: kv-cache-layout`) — vLLM's block-based KV cache. Reference on Hopper; production-ready on Ada/Ampere/CDNA3/ascend-da-vinci-3 (MindIE has a non-bit-exact analog); experimental on cambricon-mlu. Captures the "infrastructure technique" shape — the win is host-side scheduling, not the kernel itself.
+- **ring-attention** (`technique_kind: parallelism`) — Berkeley's sequence-parallel distributed attention. Reference on TPU-v4 (where it was designed) and Hopper (via Megatron-LM). Production-ready on Ampere (DeepSpeed-Ulysses). Experimental on CDNA2/CDNA3. Planned on ascend-da-vinci-3 (HCCS-C2C ring topology) and cambricon-mlu. The `numerical_rules` flag the cross-chunk softmax renormalization gotcha and the ring-step-overlap pitfall — both common porting regressions.
+
+Each new technique includes:
+- Provenance (paper URL, repo URL, origin year, authors)
+- `applicable_to.{model_archetypes, ops, hardware_arch_families}`
+- 5–7 `port_targets[]` covering NVIDIA Hopper/Ada/Ampere + AMD CDNA2/CDNA3 + Huawei ascend-da-vinci-3 + Cambricon MLU + (where relevant) TPU-v4
+- A real `reference_impl` (framework + repo + entry path + inline snippet of the canonical kernel/function)
+- 2 `numerical_rules[]` per technique covering the most common porting bugs (online softmax across boundaries, async overlap, etc.)
+- Aliases users might type (`flash-attn`, `fa-3`, `paged-attn`, `ring-attn`, ...)
+
+### `/techniques/` index polish
+
+The index page now groups entries by `technique_kind` (attention-optimization · kv-cache-layout · parallelism · ...) so the catalog's breadth is visible at a glance, instead of an alphabetic list. Header callout shows total counts: "4 techniques · N port targets across M arch families · drivable from the agent harness via `--technique <id>`."
+
+### Build + tests
+
+- 610 → **613 SSG pages** (+`/techniques/flash-attention/`, `/techniques/paged-attention/`, `/techniques/ring-attention/`).
+- `/api/techniques.json` now returns count=4 (was 1).
+- All 376 existing tests still pass; schema validation green; data-validate emits `technique: 4`.
+
+### Out of scope (deferred to v3.31+)
+
+- Cross-arch verify EXECUTION (still scaffold-only).
+- `--serve` flag for closing Steps 9–10 of the runbook.
+- Persisting synthesized bundles into `data/models/`.
+- Plumbing `executeRemoteRun` result into Stage 8 for honest `outcome: shipped`.
 
 ---
 

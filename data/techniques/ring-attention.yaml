@@ -1,0 +1,142 @@
+id: ring-attention
+name: RingAttention
+technique_kind: parallelism
+
+reference_url: https://github.com/forhaoliu/ringattention
+reference_paper: https://arxiv.org/abs/2310.01889
+origin_year: 2023
+authors_or_org: Hao Liu et al. (UC Berkeley)
+
+applicable_to:
+  model_archetypes:
+    - long-context           # The whole point: contexts beyond single-card HBM
+    - transformer-decoder    # Llama / Qwen / DeepSeek long-context training/inference
+    - reasoning-llm          # RL training with long rollouts
+  ops:
+    - attention
+    - sequence-parallel-attention
+    - flash-attention
+  hardware_arch_families:
+    - hopper                 # Reference: H100 NVLink ring
+    - ampere                 # A100 cluster (NVLink or InfiniBand)
+
+port_targets:
+  - arch_family: hopper
+    status: reference-impl
+    reference_url: https://github.com/forhaoliu/ringattention
+    notes: |
+      Original Berkeley impl was JAX/TPU; Hopper port via Megatron-LM
+      and DeepSpeed-Ulysses (a related but distinct sequence-parallel
+      variant). Uses NVLink-ring for K, V tile rotation across N cards;
+      each card holds Q for its sequence shard + iterates K, V from
+      neighbors. Communication overlaps with compute via async send/recv.
+
+  - arch_family: ampere
+    status: production-ready
+    reference_url: https://github.com/microsoft/DeepSpeed
+    notes: |
+      DeepSpeed-Ulysses sequence parallelism on A100 cluster. NVLink-3
+      bandwidth (600 GB/s) sufficient to keep ring overlap >90%.
+      Production-deployed at multiple labs for 128k+ context training.
+
+  - arch_family: cdna3
+    status: experimental
+    notes: |
+      MI300X with Infinity Fabric (~896 GB/s xGMI) has the bandwidth.
+      ROCm Megatron fork has a sequence-parallel path; bit-exact
+      agreement with NVIDIA reference still being characterized as of
+      2025.
+
+  - arch_family: cdna2
+    status: experimental
+    notes: |
+      MI250X — same Infinity Fabric, slightly lower bandwidth. Works
+      via the same ROCm Megatron fork.
+
+  - arch_family: ascend-da-vinci-3
+    status: planned
+    notes: |
+      910B/910C cluster via HCCS. The ring topology maps cleanly to
+      Ascend's HCCS-C2C interconnect (ring or torus). MindSpore has a
+      sequence-parallel analog but it's not exactly RingAttention —
+      different chunk scheduling. Open question: does HCCL all-to-all
+      latency hide compute well enough?
+
+  - arch_family: tpu-v4
+    status: production-ready
+    reference_url: https://github.com/google-research/jax-llm-examples
+    notes: |
+      Original setting. ICI (Inter-Chip Interconnect) ring on TPU pods
+      is what RingAttention was designed for. JAX `pjit` makes the
+      sequence-parallel axis a single-line annotation.
+
+  - arch_family: cambricon-mlu
+    status: planned
+    notes: |
+      MLU590 — Cambricon's CNCL collective library has the primitives
+      needed (send / recv / ring all-reduce). No public port yet.
+
+reference_impl:
+  framework: jax
+  repo: https://github.com/forhaoliu/ringattention
+  entry: ringattention/ringattention.py
+  snippet: |
+    # RingAttention forward — sequence-parallel attention via ring rotation
+    # of K, V chunks across N devices. Each device owns Q[shard] and
+    # iterates K/V chunks from neighbors via NCCL/HCCL/CNCL ring.
+    def ring_attention(q, k, v, axis_name='sp'):
+        # Each device has q of shape [b, h, seq_per_device, d].
+        # k, v initially also sharded; we rotate them through the ring.
+        n_devices = jax.lax.psum(1, axis_name=axis_name)
+        out = jnp.zeros_like(q)
+        for step in range(n_devices):
+            # Compute attention vs current k, v (which started at neighbor `step`).
+            out = out + flash_attention_local(q, k, v)
+            # Rotate k, v one position around the ring (overlapped with next compute).
+            k, v = jax.lax.ppermute(k, axis_name, [(i, (i + 1) % n_devices) for i in range(n_devices)]), \
+                    jax.lax.ppermute(v, axis_name, [(i, (i + 1) % n_devices) for i in range(n_devices)])
+        return out / n_devices  # Final normalization
+
+numerical_rules:
+  - aspect: cross_chunk_softmax_renormalization
+    per_library:
+      ringattention-jax: 'Same online softmax algorithm as FlashAttention; max + sum carried across ring iterations.'
+      megatron-sequence-parallel: 'Ring-uses-FlashAttention-2 underneath; bit-exact at fp16/bf16 vs single-card baseline IF chunk count divides sequence length evenly.'
+      mindspore-sequence-parallel: 'Approximate; pad-to-equal-chunk required, may differ at sequence boundaries.'
+    notes: |
+      Sequence length MUST be divisible by N_devices for bit-exact
+      agreement with single-card baseline. Padding adds a known
+      tolerance (~1e-3 relative for fp16 due to extra padding tokens
+      contributing zeros that get masked).
+
+  - aspect: ring_step_overlap
+    per_library:
+      ringattention-jax: 'ppermute is non-blocking by default — overlap is automatic via JAX scheduler.'
+      megatron-pytorch: 'Explicit non_blocking=True on send/recv; overlap depends on stream scheduling.'
+    notes: |
+      Lack of overlap is the most common porting performance regression.
+      Verify with profiler that compute and communication run on
+      different streams (CUDA: nvlink kernels on stream B, attention on
+      stream A).
+
+port_complexity: high
+
+notes: |
+  RingAttention is the canonical "long context via sequence parallelism"
+  technique. Two related techniques exist with subtle differences:
+    - DeepSpeed-Ulysses: All-to-all on the head axis, then per-card local
+      attention. Different comm pattern, similar end goal.
+    - Context Parallel (Megatron): Ring-style but with a different
+      chunk scheduler.
+
+  Port effort by arch:
+    - TPU / Hopper / Ampere: 0 (production frameworks cover these)
+    - CDNA3 / CDNA2: 0-2 weeks (Megatron ROCm fork is close)
+    - Ascend-DaVinci-3: 4-6 weeks (HCCL primitives sufficient; main
+      effort is verifying overlap behavior on real cluster)
+    - Cambricon MLU: 6-8 weeks
+
+aliases:
+  - ring-attn
+  - sequence-parallel-attention
+  - sp-attention

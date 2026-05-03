@@ -1,0 +1,139 @@
+id: flash-attention
+name: FlashAttention
+technique_kind: attention-optimization
+
+reference_url: https://github.com/Dao-AILab/flash-attention
+reference_paper: https://arxiv.org/abs/2407.08608
+origin_year: 2022
+authors_or_org: Tri Dao et al. (Stanford / Princeton / Together AI)
+
+applicable_to:
+  model_archetypes:
+    - transformer-decoder    # GPT / Llama / Qwen — every chat/serve LLM today
+    - diffusion              # CogVideoX / SD3 / FLUX — long-context attention
+    - vision-transformer     # ViT-class models
+  ops:
+    - attention
+    - scaled-dot-product-attention
+    - flash-attention
+  hardware_arch_families:
+    - hopper                 # FlashAttention-3 (TMA + WGMMA + warp-spec)
+    - ada                    # FlashAttention-2 (RTX 4090 / L40)
+    - ampere                 # FlashAttention-2 (A100)
+
+port_targets:
+  - arch_family: hopper
+    status: reference-impl
+    reference_url: https://github.com/Dao-AILab/flash-attention/tree/main/hopper
+    notes: |
+      FA-3 is the canonical Hopper implementation. Uses:
+      - TMA for asynchronous global ↔ shared memory transfer
+      - WGMMA (warp-group matrix multiply-accumulate) for the GEMMs
+      - Warp specialization (producer / consumer warp groups)
+      - Two-stage pipeline: load tile → compute softmax + matmul → store
+      Achieves 75% of H100 peak FP16 throughput on long-context decode.
+
+  - arch_family: ada
+    status: production-ready
+    reference_url: https://github.com/Dao-AILab/flash-attention
+    notes: |
+      FA-2 covers Ada (RTX 4090 / L40). No TMA, no WGMMA — uses regular MMA
+      via cp.async.bulk for memory transfer. ~70% of Ada peak throughput.
+
+  - arch_family: ampere
+    status: production-ready
+    reference_url: https://github.com/Dao-AILab/flash-attention
+    notes: |
+      FA-2 baseline. A100's HBM bandwidth (2 TB/s) doesn't bottleneck
+      attention as hard as H100, so FA-2 is closer to peak than FA-3 is
+      on H100 — but absolute throughput is lower.
+
+  - arch_family: cdna3
+    status: production-ready
+    reference_url: https://github.com/ROCm/flash-attention
+    notes: |
+      ROCm fork — FA-2 ported via HIP. MFMA replaces WMMA; LDS replaces
+      shared memory. MI300X numerical agreement is strong (within 1e-3
+      relative error vs CUDA reference for fp16).
+
+  - arch_family: ascend-da-vinci-3
+    status: experimental
+    notes: |
+      MindIE ships `aclnnFlashAttention` which is FA-shape but not bit-exact
+      with the upstream. Mapping:
+      - Hopper warp-group → Ascend Cube unit (matmul) + Vector unit (softmax)
+      - cp.async / TMA → Ascend's DMA engines (smaller granularity)
+      - Cooperative tile reuse via UB (Unified Buffer)
+      Open question: TMA-style large-tile async copy is the main FA-3 win
+      on Hopper; Ascend's DMA semantics differ enough that a 1:1 port may
+      not preserve the speedup. Likely needs a re-tiled variant.
+
+  - arch_family: cdna2
+    status: production-ready
+    reference_url: https://github.com/ROCm/flash-attention
+    notes: |
+      MI250X — same fork as cdna3 with smaller WMMA tiles.
+
+  - arch_family: cambricon-mlu
+    status: planned
+    notes: |
+      MLU590 port. NRAM/WRAM tier mapping similar to Ascend approach;
+      MLU MMA primitive covers GEMM. ~6 weeks of work.
+
+reference_impl:
+  framework: cuda-cpp
+  repo: https://github.com/Dao-AILab/flash-attention
+  entry: hopper/flash_fwd_kernel_sm90.h
+  snippet: |
+    // FlashAttention-3 forward kernel — Hopper warp-specialized.
+    // Two warp groups: producer (TMA loads K, V tiles) + consumer (WGMMA
+    // matmul, softmax, output accumulation).
+    template <int kBlockM, int kBlockN, int kHeadDim, int kStages, ...>
+    __global__ void flash_fwd_kernel(Flash_fwd_params params) {
+        // 1. Producer warp group: pipeline TMA loads of K_tile, V_tile
+        //    into shared memory using cp.async.bulk.tensor (TMA).
+        // 2. Consumer warp group: for each (q_tile, k_tile) pair —
+        //    a. WGMMA: S = Q @ K_tile^T (FP16/BF16 accumulator)
+        //    b. Online softmax with running max + sum
+        //    c. WGMMA: O += softmax_normalized @ V_tile
+        // 3. Final scale + write to global memory.
+        // Pipeline depth `kStages` overlaps producer and consumer.
+    }
+
+numerical_rules:
+  - aspect: online_softmax_renormalization
+    per_library:
+      flash-attention-cuda: 'Running max + sum, normalized at end. Per-tile renormalization keeps fp16 in safe range.'
+      flash-attention-rocm: 'Same algorithm; bit-exact on identical inputs at fp16/bf16.'
+      mindie-aclnn-flash-attention: 'Approximated; not bit-exact. Use rtol=1e-2 rather than 1e-3 when verifying.'
+    notes: |
+      The online-softmax renormalization is the single most-load-bearing
+      numerical detail. Skipping it (computing softmax once at end)
+      overflows fp16 on long contexts.
+
+  - aspect: causal_masking
+    per_library:
+      flash-attention-cuda: 'Diagonal-aware tile skip — k_tile_idx > q_tile_idx tiles are skipped entirely.'
+      all_ports: 'MUST replicate tile-skipping; non-skipping ports are correct but 2x slower on causal LM workloads.'
+
+port_complexity: medium
+
+notes: |
+  FlashAttention is the de-facto standard fast attention. The agent harness
+  treats this technique as the BASELINE: any new attention-optimization
+  technique (SageAttention, PagedAttention's attention path, etc.) must
+  match or beat FA-3 on the target arch to be worth porting.
+
+  Port effort by arch (rough):
+    - Hopper / Ada / Ampere: 0 (upstream covers these)
+    - CDNA2 / CDNA3: 0 (ROCm fork covers these)
+    - Ascend-DaVinci-3: 4-6 weeks for a competitive port (MindIE has a
+      working but non-upstream variant)
+    - Cambricon MLU: 6-8 weeks (no existing analog in upstream BANG-C)
+
+aliases:
+  - flash-attn
+  - fa
+  - fa-2
+  - fa-3
+  - flashattn
