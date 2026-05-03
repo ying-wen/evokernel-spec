@@ -1,14 +1,14 @@
 # EvoKernel Productized Agent Harness — End-to-End Guide
 
-> Status: **v3.27+ stable** — 11 release iterations through the productized-agent arc. Latest: **v3.27 (--execute flag for remote-target real SSH execution; tensor-diff utility for cross-arch numerical compare; --description flag for fuzzy-intent host-LLM clarification loop).** Full runbook for the SageAttention/CogVideoX/Ascend-910B north-star scenario at [`docs/RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
+> Status: **v3.31 stable surface** — 15 release iterations through the productized-agent arc. Latest harness depth: **v3.30** expanded the technique catalog from 1 to 4 entries; **v3.31** aligns docs/web/API/security guardrails with that state. Full runbook for the SageAttention/CogVideoX/Ascend-910B north-star scenario at [`docs/RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
 
 This is the operator manual for the **real productized agent harness** — a closed-loop pipeline that takes `(any model, any hardware)` and emits production-grade deployment artifacts plus real generated kernels with verification + retry + corpus feedback.
 
 It is **not** an MCP query service (corpus has one of those too — separate tool). The harness goes one step further: it produces the actual code you ship and the actual provenance you audit.
 
-## ⚠️ Known limits (v3.27 — what works, what's still gap)
+## ⚠️ Known limits (v3.31 — what works, what's still gap)
 
-All 6 of the original v3.23 gaps now have working surface, plus the v3.27 north-star deliverables (`--execute`, tensor-diff, `--description` fuzzy intent). The remaining v3.28-v3.30 work is depth (cross-arch verify execution, richer input types, automated serving + client-test orchestration). Full runbook for the SageAttention/CogVideoX/910B north-star at [`RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
+All 6 of the original v3.23 gaps now have working surface, plus the v3.27 north-star deliverables (`--execute`, tensor-diff, `--description` fuzzy intent), the v3.29 synthesized-bundle productized path, and the v3.30 four-technique catalog. The remaining v3.32+ work is depth: cross-arch verify execution, serving/client-test orchestration, richer input ingestion, and persisting synthesized bundles into the corpus. Full runbook for the SageAttention/CogVideoX/910B north-star at [`RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
 
 **✅ Closed in v3.25-v3.27:**
 - ~~`ANTHROPIC_API_KEY` requirement~~ → `--use-host-llm` (v3.25) routes through host LLM
@@ -16,17 +16,22 @@ All 6 of the original v3.23 gaps now have working surface, plus the v3.27 north-
 - ~~No "technique" entity~~ → `data/techniques/` (v3.25) + first SageAttention YAML
 - ~~`--technique` CLI not wired~~ → wired in v3.26 (`agent:deploy --technique sageattention --hardware <arch> --use-host-llm` works)
 - ~~No remote-target SSH executor~~ → `remote-target.ts` (v3.26) emits dry-run plan + per-vendor build scripts (`nvidia/build.sh`, `ascend/build.sh`, `amd/build.sh`, `cambricon/build.sh`)
-- ~~No cross-arch verify~~ → scaffold (v3.26) + tensor-diff utility (v3.27); cross-arch EXECUTION via remote-target lands in v3.28
+- ~~No cross-arch verify scaffold~~ → scaffold (v3.26) + tensor-diff utility (v3.27); cross-arch EXECUTION via remote-target is still v3.32+ work
 - ~~`--execute` for remote-target~~ → wired in **v3.27** (actual SSH + scp + remote build/run/profile + scp-back). Auto-suggests `EVOKERNEL_<PROFILER>_INPUT_CSV` env after scp-down so V3 perf gate ingests profile.
 - ~~No fuzzy-intent input~~ → `--description "natural language intent"` wired in **v3.27**: routes through host-LLM clarification loop (no API key in CC/Codex), resolves to canonical args or surfaces structured questions.
+- ~~Synthesized bundles stuck on skeleton path~~ → wired in **v3.29**: `--allow-synthesize`, `--technique`, or `--use-host-llm` lets unknown HF models drive productized generation.
+- ~~/techniques/ pages missing~~ → wired in **v3.29**: browsable technique catalog + `/api/techniques.json`.
+- ~~Technique catalog looked empty~~ → expanded in **v3.30** from SageAttention only to SageAttention + FlashAttention + PagedAttention + RingAttention.
+- ~~Docs/web/API understated current capability~~ → aligned in **v3.31**.
 
-**Still open (v3.28-v3.30):**
-- **End-to-end serving on real hardware**. v3.28 will template `--serve` flag wrapping the deployed model in FastAPI/Triton + emit a client test script.
-- **Cross-arch numerical verify EXECUTION**. v3.28 wires "run reference on Hopper via SSH + run new impl on Ascend via SSH + diff tensors with tolerance from technique YAML" using v3.27's tensor-diff utility.
+**Still open (v3.32+):**
+- **End-to-end serving on real hardware**. `--serve` should template FastAPI/Triton serving + emit a client test script.
+- **Cross-arch numerical verify EXECUTION**. Wire "run reference on Hopper via SSH + run new impl on Ascend via SSH + diff tensors with tolerance from technique YAML" using v3.27's tensor-diff utility.
+- **Persist synthesized bundles**. Synthesized bundles are in-memory only; successful deployments should produce PR-ready `data/models/` and `data/model-graphs/` stubs.
 - **suprof + instruments parsers**. 4/6 vendors today (NCU/rocprof/msprof/cnperf); 6/6 in a follow-up (Moore Threads + Apple).
-- **Richer input types**: `--from-repo` / `--from-code` / `--from-paper` flags (v3.28-v3.29).
-- **First-class user requirement flags** (`--target-tok-s` / `--target-latency-ms` / `--target-accuracy` / `--dtype`) — v3.29.
-- **Auto-emit `agent-run-summary.md`** at end of each deploy (v3.30).
+- **Richer input types**: `--from-repo` / `--from-code` / `--from-paper` flags.
+- **First-class user requirement flags** (`--target-tok-s` / `--target-latency-ms` / `--target-accuracy` / `--dtype`).
+- **Auto-emit `agent-run-summary.md`** at end of each deploy.
 
 The full design is at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md). PRs welcome.
 
@@ -265,11 +270,19 @@ pnpm agent:deploy --model llama-3.3-70b --hardware h100-sxm5
 # OR via the installed binary, from any cwd:
 evokernel-deploy --model llama-3.3-70b --hardware h100-sxm5
 
-# Step 5 — deploy productized (real-code generation, requires Anthropic API key)
-ANTHROPIC_API_KEY=sk-ant-... pnpm agent:deploy:productized \
+# Step 5 — deploy productized inside Codex/Claude Code (host LLM; no separate key)
+pnpm agent:deploy:productized \
   --model meta-llama/Llama-3.3-70B-Instruct \
-  --hardware h100-sxm5
+  --hardware h100-sxm5 \
+  --use-host-llm
 # v3.18 fuzzy-match: "meta-llama/Llama-3.3-70B-Instruct" → "llama-3.3-70b" auto-resolved.
+
+# v3.29 unknown-model + technique path:
+pnpm agent:deploy:productized \
+  --technique sageattention \
+  --model zai-org/CogVideoX1.5-5B \
+  --hardware ascend-910b \
+  --use-host-llm --allow-synthesize
 ```
 
 After step 5, inspect `agent-deploy-output/`:
@@ -319,11 +332,12 @@ The auto-PR output is what closes the **knowledge feedback loop**: real deployme
 
 ## Operating modes (for cost + reproducibility control)
 
-The harness has 4 modes for kernel generation, controlled by env vars:
+The harness has 5 modes for kernel generation, controlled by flags/env vars:
 
 | Mode | Trigger | Cost | Determinism | Use case |
 |---|---|---|---|---|
-| **real** | `ANTHROPIC_API_KEY=sk-ant-...` | ~$0.01-0.10 per kernel | Non-det (LLM) | Production deploys |
+| **host-llm** | `--use-host-llm`, Codex/Claude Code env, or `EVOKERNEL_HOST_LLM=true` | host-session cost | Non-det (LLM) | Preferred inside Codex / Claude Code |
+| **real** | `ANTHROPIC_API_KEY=sk-ant-...` | ~$0.01-0.10 per kernel | Non-det (LLM) | Standalone CLI deploys |
 | **cache** | `EVOKERNEL_OFFLINE_ONLY=true` + cache hit | $0 | Deterministic | Repeat deploys / CI |
 | **test** | `EVOKERNEL_TEST_MODE=true` | $0 | Deterministic | Unit tests |
 | **skeleton** | None of the above (default fallback) | $0 | Deterministic | Offline contributors |
@@ -366,7 +380,7 @@ Without override they default to `910b` / `mlu590` (frontier datacenter).
 
 `/agent-deploy` (English) and `/zh:agent-deploy` (中文) ship side-by-side. Both bind to the same underlying `pnpm agent:deploy` pipeline. Pick whichever matches your operator's preferred language; output (verification summary, agent-learning YAML) is identical regardless of which slash command launched the run.
 
-**Default behavior**: if `ANTHROPIC_API_KEY` is unset and `--use-llm-orchestrator` is passed, the harness falls back to skeleton mode and clearly marks the output (`source: 'skeleton-fallback'` in the manifest).
+**Default behavior**: inside Codex / Claude Code, prefer `--use-host-llm` so the harness uses the current host model. Outside those tools, `ANTHROPIC_API_KEY` remains the standalone real-mode fallback; with neither host LLM nor API key, the harness falls back to skeleton mode and clearly marks the output (`source: 'skeleton-fallback'` in the manifest).
 
 ## Bundle slug fuzzy-match (v3.18)
 

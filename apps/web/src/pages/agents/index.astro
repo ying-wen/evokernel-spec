@@ -2,10 +2,8 @@
 /**
  * /agents/ — integration page for agent builders.
  *
- * Explains how to consume EvoKernel Spec as a knowledge base for autonomous
- * deployment agents that compile / optimize models across hardware. v2.4
- * landed the missing JSON endpoints + /api/solve.json constraint solver,
- * making this surface viable for first agent integrations.
+ * v3.31 status: corpus JSON API + MCP + productized CLI + host-LLM +
+ * synthesized unknown-model bundles + 4-entry technique catalog.
  */
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
@@ -16,14 +14,14 @@ import { pathname } from '~/lib/i18n';
   <Container>
     <section class="py-12">
       <SectionHeader
-        eyebrow="AGENTS · v2.4"
+        eyebrow="AGENTS · v3.31"
         title="给智能体的集成入口"
-        subtitle="让任意模型 × 任意硬件部署智能体直接读取此站作为知识库 · JSON API · 约束求解器 · MCP 路线图"
+        subtitle="让任意模型 × 任意硬件部署智能体读取 corpus、agent-context、technique catalog，并进入 productized deploy loop"
       />
       <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
-        EvoKernel Spec 不只是一个给人读的网站. 整个 corpus 通过 6 个 JSON API endpoint + 一个约束求解器 endpoint 暴露,
-        让任何外部智能体 (Claude / Cursor / 自建 agent) 都可以把它当作 <strong>"任意模型 × 任意硬件 编译/优化"</strong> 的结构化知识库.
-        这页介绍如何接入 + 已知 gap + 未来路线图.
+        EvoKernel Spec 不只是给人读的网站。v3.31 以后，corpus 同时通过 24 个 JSON API endpoint、MCP tools、Codex/Claude Code plugin、
+        <code>/api/agent-context/*</code> bundle 和 <code>/techniques/</code> 暴露，让外部智能体可以把它当作
+        <strong>"任意模型 × 任意硬件 编译/优化"</strong> 的结构化知识库和部署执行入口。
       </p>
     </section>
 
@@ -48,16 +46,16 @@ import { pathname } from '~/lib/i18n';
               <td class="p-3 font-mono">1</td>
               <td class="p-3 font-semibold">Model understanding</td>
               <td class="p-3 text-xs" style="color: var(--color-text-muted);">
-                <code>/api/models.json</code> — 20 frontier 模型 · arch / family / params /
+                <code>/api/models.json</code> — 34 frontier / scientific / multimodal 模型 · arch / family / params /
                 operator decomposition
               </td>
-              <td class="p-3"><span style="color: oklch(60% 0.18 145);">●</span> 70%</td>
+              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 70%</td>
             </tr>
             <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
               <td class="p-3 font-mono">2</td>
               <td class="p-3 font-semibold">Hardware understanding</td>
               <td class="p-3 text-xs" style="color: var(--color-text-muted);">
-                <code>/api/hardware.json</code> — 39 张卡 · compute / memory / power-thermal / scale-up / scale-out
+                <code>/api/hardware.json</code> — 64 张卡 · compute / memory / power-thermal / scale-up / scale-out
               </td>
               <td class="p-3"><span style="color: oklch(60% 0.18 145);">●</span> 80%</td>
             </tr>
@@ -65,47 +63,47 @@ import { pathname } from '~/lib/i18n';
               <td class="p-3 font-mono">3</td>
               <td class="p-3 font-semibold">Cross-vendor op equivalence</td>
               <td class="p-3 text-xs" style="color: var(--color-text-muted);">
-                <code>/api/operators.json</code> + <code>/api/fused-kernels.json</code> · per-arch fitness via <a href={pathname('/operators/hardware-fitness/')} class="underline" style="color: var(--color-accent);">/operators/hardware-fitness/</a>
+                <code>/api/operators.json</code> + <code>/api/fused-kernels.json</code> + <code>/api/techniques.json</code> · per-arch fitness via <a href={pathname('/operators/hardware-fitness/')} class="underline" style="color: var(--color-accent);">/operators/hardware-fitness/</a>
               </td>
-              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 40%</td>
+              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 55%</td>
             </tr>
             <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
               <td class="p-3 font-mono">4</td>
               <td class="p-3 font-semibold">Constraint solve / planning</td>
               <td class="p-3 text-xs" style="color: var(--color-text-muted);">
-                <strong>NEW</strong>: <code>/api/solve.json</code> — flat enumeration of all (case + playbook) configs with derived $/M tokens · client-side filter
+                <code>/api/solve.json</code> + <code>/api/agent-context-index.json</code> + <code>/api/agent-context/&lt;model&gt;-on-&lt;hardware&gt;.json</code> — planning prior + bundle context
               </td>
-              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 50%</td>
+              <td class="p-3"><span style="color: oklch(60% 0.18 145);">●</span> 75%</td>
             </tr>
             <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
               <td class="p-3 font-mono">5</td>
               <td class="p-3 font-semibold">Codegen (config + kernel)</td>
               <td class="p-3 text-xs" style="color: var(--color-text-muted);">
-                Cases include <code>reproduction.startup_command</code> + <code>config_files</code> · kernel templates: <em>v2.6 roadmap</em>
+                Productized CLI generates kernels through host-LLM / real / cache / test / skeleton modes; unknown HF models can synthesize temporary bundles.
               </td>
-              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 30%</td>
+              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 65%</td>
             </tr>
             <tr style="border-bottom: 1px solid color-mix(in oklch, var(--color-border) 50%, transparent);">
               <td class="p-3 font-mono">6</td>
               <td class="p-3 font-semibold">Validation</td>
               <td class="p-3 text-xs" style="color: var(--color-text-muted);">
-                <a href={pathname('/learn/migrations/')} class="underline" style="color: var(--color-accent);">迁移 playbook</a> 5-stage canary · per-archetype eval-set mapping <em>v2.5 roadmap</em>
+                V1 structural build · V2 correctness/reference compare · tensor-diff utility · V3 profiler parsers. Cross-arch execution still v3.32+.
               </td>
-              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 50%</td>
+              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 60%</td>
             </tr>
             <tr>
               <td class="p-3 font-mono">7</td>
               <td class="p-3 font-semibold">Deploy + observe</td>
               <td class="p-3 text-xs" style="color: var(--color-text-muted);">
-                <a href={pathname('/learn/observability/')} class="underline" style="color: var(--color-accent);">/learn/observability/</a> 4 metric tiers · Prometheus / Grafana 模板 <em>v2.6 roadmap</em>
+                `--remote` / `--execute` SSH build-run-profile path · emitted Dockerfile/K8s/runbook/SBOM · agent-learning feedback loop.
               </td>
-              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 50%</td>
+              <td class="p-3"><span style="color: oklch(70% 0.18 70);">●</span> 70%</td>
             </tr>
           </tbody>
         </table>
       </div>
       <p class="text-xs mt-3" style="color: var(--color-text-muted);">
-        总体 agent-readiness ~50%. v2.4 解锁了 stage 4 (constraint solve). v2.5 / v2.6 / v2.7 路线图见
+        总体 agent-readiness 已经从 v2.x 的查询型 API 进入 v3.x 的 productized loop。当前最大缺口不是入口能力，而是数据覆盖、cross-arch verify execution、serving/client-test 和 synthesized bundle 持久化。路线图见
         <a href={pathname('/changelog/')} class="underline" style="color: var(--color-accent);">/changelog/</a>
         和 docs/superpowers/specs/2026-05-02-agent-readiness.md (GitHub).
       </p>
@@ -120,17 +118,19 @@ import { pathname } from '~/lib/i18n';
       <div class="grid gap-3">
         {[
           { path: '/api/index.json', desc: '入口 · 计数 · 链接到所有 endpoint' },
-          { path: '/api/hardware.json', desc: '39 张卡 · compute / memory / power-thermal' },
-          { path: '/api/models.json', desc: '20 frontier 模型 · arch / op decomposition' },
+          { path: '/api/hardware.json', desc: '64 张卡 · compute / memory / power-thermal' },
+          { path: '/api/models.json', desc: '34 模型 · arch / op decomposition' },
           { path: '/api/cases.json', desc: '41 个实测 case · stack + scenario + results' },
-          { path: '/api/operators.json', desc: 'NEW v2.4 · 34 算子 · FLOPs / bytes / arith intensity / engine impls' },
-          { path: '/api/fused-kernels.json', desc: 'NEW v2.4 · 24 fused kernels · operators_folded + engine coverage' },
-          { path: '/api/playbooks.json', desc: 'NEW v2.4 · 24 (model × hw class) recipes' },
-          { path: '/api/solve.json', desc: 'NEW v2.4 · 所有配置的 flat enumeration + derived $/M tokens · 客户端 filter' },
-          { path: '/api/openapi.json', desc: 'OpenAPI 3.1 spec · v2.4.0' },
+          { path: '/api/operators.json', desc: '38 算子 · FLOPs / bytes / arith intensity / engine impls' },
+          { path: '/api/fused-kernels.json', desc: '27 fused kernels · operators_folded + engine coverage' },
+          { path: '/api/techniques.json', desc: 'v3.30 · research technique / porting catalog · Sage/Flash/Paged/Ring Attention' },
+          { path: '/api/playbooks.json', desc: '24 (model × hw class) recipes' },
+          { path: '/api/agent-context-index.json', desc: '2176+ model × hardware bundles · static context index' },
+          { path: '/api/solve.json', desc: '所有配置的 flat enumeration + derived $/M tokens · 客户端 filter' },
+          { path: '/api/openapi.json', desc: 'OpenAPI 3.1 spec · v3.31 endpoint parity baseline' },
           { path: '/api/health.json', desc: '健康检查 (body, HTTP 200 due to SSG)' }
         ].map(({ path, desc }) => (
-          <a href={path} class="rounded-lg p-3 border flex items-center gap-3 transition-transform hover:translate-x-0.5"
+          <a href={pathname(path)} class="rounded-lg p-3 border flex items-center gap-3 transition-transform hover:translate-x-0.5"
              style="background: var(--color-surface-raised); border-color: var(--color-border);">
             <code class="font-mono text-sm" style="color: var(--color-accent); font-weight: 500; min-width: 240px;">{path}</code>
             <span class="text-sm" style="color: var(--color-text-muted);">{desc}</span>
@@ -175,10 +175,9 @@ r.configurations.filter(c => (c.metrics.ttft_p99_ms ?? 99999) < 300);
 
     {/* MCP roadmap */}
     <section class="py-8 border-t" style="border-color: var(--color-border);">
-      <h2 class="text-2xl font-semibold mb-3">🗺️ MCP Server 路线图</h2>
+      <h2 class="text-2xl font-semibold mb-3">🗺️ MCP / Plugin surfaces</h2>
       <p class="text-sm mb-4 max-w-3xl" style="color: var(--color-text-muted);">
-        v2.7+ 计划构建 <code>evokernel-spec</code> MCP server, 把 corpus 直接暴露为 Claude / Cursor 等工具的 tools.
-        现在的 JSON API 已经覆盖了 80% 用例 — MCP 是为了让接入 0-friction.
+        MCP server、Codex binary、Claude Code slash command、Cursor rules 都已经存在。JSON API 是静态可缓存的数据面，MCP/plugin 是智能体的交互面。
       </p>
       <div class="grid gap-3 sm:grid-cols-2">
         {[
@@ -186,7 +185,9 @@ r.configurations.filter(c => (c.metrics.ttft_p99_ms ?? 99999) < 300);
           { tool: 'query_operator_fitness(op_id, hw_arch)', desc: '查找 (op, arch) 的 engine implementations + 等价 kernel pointer' },
           { tool: 'solve_config(query)', desc: '同 /api/solve.json 但接受 structured query, 服务端 filter+排名' },
           { tool: 'get_case(id)', desc: '获取完整 reproducible case (含 startup_command + config_files)' },
-          { tool: 'get_kernel_template(op_class, isa)', desc: 'v2.6+: 取 kernel 起点模板 (CUDA/HIP/CCE/MUSA)' },
+          { tool: 'agent_resolve_bundle(model, hardware)', desc: '解析/列出 agent-context bundle，供 planning 和 codegen 使用' },
+          { tool: 'agent_auto_pr()', desc: '聚合 agent-learning，生成 PR-ready corpus update draft' },
+          { tool: 'get_technique(id)', desc: '查询 SageAttention 等 technique 的适用模型/算子/硬件和 port_targets' },
           { tool: 'predict_fit(model, hw, batch, ctx_len)', desc: '在不实际运行的前提下, 预测 OOM / throughput / TTFT 范围' }
         ].map(({ tool, desc }) => (
           <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
@@ -199,37 +200,36 @@ r.configurations.filter(c => (c.metrics.ttft_p99_ms ?? 99999) < 300);
 
     {/* Known gaps */}
     <section class="py-8 border-t" style="border-color: var(--color-border);">
-      <h2 class="text-2xl font-semibold mb-3" style="color: oklch(70% 0.18 70);">⚠️ 已知 gap (v2.5 / v2.6 / v2.7 路线图)</h2>
+      <h2 class="text-2xl font-semibold mb-3" style="color: oklch(70% 0.18 70);">⚠️ 已知 gap (v3.32+)</h2>
       <ol class="space-y-3 max-w-3xl">
         <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
-          <div class="text-sm font-semibold mb-1">公式仍是文本, 不是 evaluable expression</div>
+          <div class="text-sm font-semibold mb-1">API descriptor / OpenAPI 需要测试锁住 parity</div>
           <p class="text-xs" style="color: var(--color-text-muted);">
-            Operator <code>flops_formula</code> / <code>bytes_formula</code> 现在是字符串 ("2 * batch * seq * d_model * conv_kernel_size"). v2.5 计划转为可 eval 的 RPN 或表达式 DSL, 让 agent 直接代入约束求解.
+            v3.31 已把 `/api/index.json`、`/api/health.json`、`/api/openapi.json` 对齐到当前主要 route；下一步要加自动测试，防止后续 endpoint 漂移。
           </p>
         </li>
         <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
-          <div class="text-sm font-semibold mb-1">跨厂商 ISA 原语映射缺失 (最大 gap)</div>
+          <div class="text-sm font-semibold mb-1">数据覆盖仍不足以支撑真正“任意”</div>
           <p class="text-xs" style="color: var(--color-text-muted);">
-            现在 <code>engine_implementations[].hardware_arch</code> 只是 tag 列表. 缺少 NVIDIA WGMMA ↔ AMD MFMA ↔ Ascend Cube ↔ MUSA Tensor 的对照表.
-            没有这个, agent 无法自主把 CUDA kernel 移植到 CANN / ROCm / MUSA. v2.6 计划添加 <code>data/isa-mappings/&lt;op-class&gt;.yaml</code>.
+            schema 通过不等于 agent-ready。当前 audit 仍有硬件数值 WARN、无 case 硬件/模型、model graph 缺口、reference impl 缺口和 engine workflow 缺口。
           </p>
         </li>
         <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
-          <div class="text-sm font-semibold mb-1">Per-workload eval-set mapping 不结构化</div>
+          <div class="text-sm font-semibold mb-1">Cross-arch numerical verify execution 未闭环</div>
           <p class="text-xs" style="color: var(--color-text-muted);">
-            "Code → HumanEval, math → GSM8K" 现在散在 /learn/migrations/ 文字. v2.5 计划添加 <code>data/eval-sets/&lt;archetype&gt;.yaml</code> 给智能体一个可查表.
+            tensor-diff utility 已有，但还要把 reference arch、target arch、technique tolerance、remote-target 输出连接成一条可执行链。
           </p>
         </li>
         <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
-          <div class="text-sm font-semibold mb-1">Replay-able case provenance 不完整</div>
+          <div class="text-sm font-semibold mb-1">Synthesized bundle 还没有持久化回 corpus</div>
           <p class="text-xs" style="color: var(--color-text-muted);">
-            Cases 有 <code>engine.version</code> 但缺 model checkpoint hash / CUDA version / kernel-lib versions. v2.5 / v2.6 计划补全.
+            v3.29+ 能让未知 HF 模型进入 productized loop，但成功后仍应输出 PR-ready `data/models/` / `data/model-graphs/` stub，避免下一次重新 synthesize。
           </p>
         </li>
         <li class="rounded p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
-          <div class="text-sm font-semibold mb-1">Kernel 起点模板缺失</div>
+          <div class="text-sm font-semibold mb-1">网页导航和英文镜像仍需 route parity gate</div>
           <p class="text-xs" style="color: var(--color-text-muted);">
-            Agent 要 codegen 一个新 kernel 时, 现在只能从空白开始. v2.6 计划添加 4 op-class × 4 ISA = 16 起点模板 (CUDA / HIP / CCE / MUSA).
+            中文 canonical 页面覆盖更全；英文镜像是 partial。导航、`hreflang` 和 generated links 需要 build 后检测，不能继续产生隐藏 404。
           </p>
         </li>
       </ol>

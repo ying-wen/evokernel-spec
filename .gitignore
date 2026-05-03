@@ -35,3 +35,6 @@ agent-watch-output/
 # remote-host references plus per-deploy artifacts that should not be
 # checked in. The default RUNBOOK examples use `./out/<name>/`.
 out/
+
+# Local Claude/Codex worktrees are user/session state, not project source.
+.claude/worktrees/

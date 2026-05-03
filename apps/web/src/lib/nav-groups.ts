@@ -44,7 +44,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'browse',
     labelKey: 'home.section.browse',
-    blurb_zh: '从五种实体直接挖数据 — 加速卡 / 超节点 / 模型 / 案例 / Playbook',
+    blurb_zh: '从核心实体直接挖数据 — 加速卡 / 超节点 / 模型 / 案例 / Playbook',
     blurb_en: 'Browse the five entity types directly — cards, super-pods, models, cases, playbooks.',
     items: [
       { path: '/hardware/', labelKey: 'nav.hardware', desc_zh: '加速卡目录 · 多维筛选 · 时间线', desc_en: 'Accelerator catalog · multi-axis filter · timeline' },
@@ -52,19 +52,20 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/models/', labelKey: 'nav.models', desc_zh: 'Frontier 开源模型 · 算子拆解', desc_en: 'Frontier open-source models · operator breakdown' },
       { path: '/cases/', labelKey: 'nav.cases', desc_zh: '实测部署 · 排行榜 · 散点图', desc_en: 'Measured deployments · leaderboard · scatter plot' },
       { path: '/playbooks/', labelKey: 'nav.playbooks', desc_zh: '(model × hardware) 配方', desc_en: '(model × hardware) recipes', theme: 'accent' },
-      { path: '/vendors/', labelKey: 'nav.vendors', desc_zh: '28 个厂商 · 路线图 · 生态', desc_en: '28 vendors · roadmap · ecosystem' }
+      { path: '/vendors/', labelKey: 'nav.vendors', desc_zh: '40 个厂商 · 路线图 · 生态', desc_en: '40 vendors · roadmap · ecosystem' }
     ]
   },
   {
     id: 'optimize',
     labelKey: 'home.section.optimize',
-    blurb_zh: '部署优化的全链路 — 流水线 7 阶段、模式、算子、融合 kernel、量化、引擎',
+    blurb_zh: '部署优化的全链路 — 流水线 7 阶段、模式、算子、融合 kernel、技术、量化、引擎',
     blurb_en: 'Full deployment optimization chain — 7-stage pipeline, patterns, operators, fused kernels, quantization, engines.',
     items: [
       { path: '/pipeline/', labelKey: 'nav.pipeline', desc_zh: '7 阶段部署链路 · 决策点 · 失败模式', desc_en: '7-stage deployment chain · decisions · failure modes' },
-      { path: '/patterns/', labelKey: 'nav.patterns', desc_zh: '21 个优化模式 · 加速倍数 · trade-off', desc_en: '21 optimization patterns · speedup × trade-off' },
-      { path: '/operators/', labelKey: 'nav.operators', desc_zh: '25 个算子 · 模型映射 · 硬件适配度', desc_en: '25 operators · model mapping · hardware fitness' },
-      { path: '/fused-kernels/', labelKey: 'nav.fusedKernels', desc_zh: '24 个融合 kernel · 实现路径 · 引擎支持', desc_en: '24 fused kernels · implementations · engine support' },
+      { path: '/patterns/', labelKey: 'nav.patterns', desc_zh: '23 个优化模式 · 加速倍数 · trade-off', desc_en: '23 optimization patterns · speedup × trade-off' },
+      { path: '/operators/', labelKey: 'nav.operators', desc_zh: '38 个算子 · 模型映射 · 硬件适配度', desc_en: '38 operators · model mapping · hardware fitness' },
+      { path: '/fused-kernels/', labelKey: 'nav.fusedKernels', desc_zh: '27 个融合 kernel · 实现路径 · 引擎支持', desc_en: '27 fused kernels · implementations · engine support' },
+      { path: '/techniques/', labelKey: 'nav.techniques', desc_zh: '研究技术 / porting library · SageAttention 等 · 技术到硬件的迁移状态', desc_en: 'Research techniques / porting libraries · SageAttention · per-architecture port status', theme: 'accent' },
       { path: '/operators/fusion-graph/', labelKey: 'nav.fusionGraph', desc_zh: '算子-Kernel 二分图 · 找 hub / heavy-fusion / 数据漂移', desc_en: 'Operator-Kernel bipartite graph · hubs / heavy-fusion / drift' },
       { path: '/operators/hardware-fitness/', labelKey: 'nav.opHardwareFitness', desc_zh: '算子 × 硬件 适配矩阵 · "我有 hw, 哪些 op 有 native kernel?"', desc_en: 'Op × HW fitness matrix · "I have hw, which ops have native kernels?"', theme: 'accent' },
       { path: '/kernel-libraries/', labelKey: 'nav.kernelLibraries', desc_zh: '算子库目录 · cuBLAS / cuDNN / aclnn / CK / ... · 跨厂商等价对照', desc_en: 'Kernel library catalog · cuBLAS / cuDNN / aclnn / CK / ... · cross-vendor equivalents', theme: 'accent' },
@@ -78,11 +79,11 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'learn',
     labelKey: 'home.section.learn',
-    blurb_zh: '从空白到上线的学习路径 — 7 个实战巡游 + 6 个决策指南',
-    blurb_en: 'From zero to production — 7 hands-on tours + 6 decision-tree guides.',
+    blurb_zh: '从空白到上线的学习路径 — 11 个实战巡游 + 6 个决策指南',
+    blurb_en: 'From zero to production — 11 hands-on tours + 6 decision-tree guides.',
     items: [
       { path: '/learn/', labelKey: 'nav.learn', desc_zh: '学习总览 · 全部巡游与指南', desc_en: 'Overview · all tours and guides', theme: 'accent' },
-      { path: '/learn/tours/', labelKey: 'nav.tours', desc_zh: '7 个实战巡游 · 端侧 → super-pod', desc_en: '7 tours · edge → super-pod' },
+      { path: '/learn/tours/', labelKey: 'nav.tours', desc_zh: '11 个实战巡游 · 端侧 → super-pod', desc_en: '11 tours · edge → super-pod' },
       { path: '/learn/quantization-decision-tree/', labelKey: 'home.entry.quantTree', desc_zh: '量化决策树 · 硬件 × 模型 × 工作负载', desc_en: 'Quantization decision tree · hardware × model × workload' },
       { path: '/learn/parallelism-cheatsheet/', labelKey: 'home.entry.parallelism', desc_zh: 'TP / PP / EP / SP 选择 cheatsheet', desc_en: 'TP / PP / EP / SP cheatsheet' },
       { path: '/learn/picking-engine/', labelKey: 'home.entry.pickEngine', desc_zh: '推理引擎选择 · 硬件 × 任务匹配', desc_en: 'Engine picking · hardware × task fit' },
@@ -128,9 +129,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/contribute/case-form/', labelKey: 'nav.caseForm', desc_zh: '提交部署案例 · 表单生成 PR-ready YAML', desc_en: 'Submit a case · form generates PR-ready YAML' },
       { path: '/about/', labelKey: 'nav.about', desc_zh: '项目设计原则 · evidence tier · 公式', desc_en: 'Design principles · evidence tier · formulas' },
       { path: '/changelog/', labelKey: 'nav.changelog', desc_zh: '版本日志 · RSS 订阅 · 每个版本一个主题', desc_en: 'Release log · RSS feed · single-theme releases' },
-      { path: '/agents/', labelKey: 'nav.agents', desc_zh: '智能体集成入口 · JSON API · /api/solve.json · MCP 路线图', desc_en: 'Agent integration · JSON API · /api/solve.json · MCP roadmap', theme: 'accent' },
+      { path: '/agents/', labelKey: 'nav.agents', desc_zh: '智能体集成入口 · JSON API · agent-context · MCP / plugin surfaces', desc_en: 'Agent integration · JSON API · agent-context · MCP / plugin surfaces', theme: 'accent' },
       { path: '/agents/example/', labelKey: 'nav.agentsExample', desc_zh: 'E2E 工作样例 · HF 模型 → 任意硬件 · 13 个生产级 artifact', desc_en: 'E2E working sample · HF model → any hardware · 13 production-grade artifacts', theme: 'accent' },
-      { path: '/agents/validations/', labelKey: 'nav.agentsValidations', desc_zh: '实测验证矩阵 · 5 模型 × 7 硬件 (含 4 国产) = 35 runs · 100% pass', desc_en: 'Validation matrix · 5 models × 7 hardware (incl 4 Chinese vendors) = 35 runs · 100% pass', theme: 'accent' },
+      { path: '/agents/validations/', labelKey: 'nav.agentsValidations', desc_zh: '实测验证矩阵 · 7 模型 × 7 硬件 (含 4 国产) = 49 runs · 100% pass', desc_en: 'Validation matrix · 7 models × 7 hardware (incl 4 Chinese vendors) = 49 runs · 100% pass', theme: 'accent' },
       { path: '/agents/integrations/', labelKey: 'nav.agentsIntegrations', desc_zh: 'Plugin / Skill 集成 · MCP / Claude Code / Cursor / Codex', desc_en: 'Plugin / skill integrations · MCP / Claude Code / Cursor / Codex', theme: 'accent' },
       { path: '/agents/demo/', labelKey: 'nav.agentsDemo', desc_zh: 'DSV4 Pro 端到端 demo · 实测 Claude Code/MCP 调用 · kernel codegen', desc_en: 'DSV4 Pro E2E demo · live Claude Code/MCP invocation · kernel codegen', theme: 'accent' }
     ]

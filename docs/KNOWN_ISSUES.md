@@ -3,7 +3,7 @@
 > Honest inventory of where the project is rough or constrained. Updated
 > per release. Open issues for fixes via PR.
 >
-> **Last reviewed:** 2026-05-02 against v1.43.0 / 2.0.0-GA candidate
+> **Last reviewed:** 2026-05-04 against v3.31.0
 
 ## Severity legend
 
@@ -12,6 +12,74 @@
 - 🟡 **Workaround exists** — known issue; documented mitigation; on
   roadmap to fix.
 - 🟢 **Minor / cosmetic** — known small papercut; low priority.
+
+---
+
+## Current v3.31 inventory
+
+### 🟡 API descriptor parity needs a regression test
+
+**What:** v3.31 aligns the top-level API descriptor, health snapshot, and
+OpenAPI file with the current major JSON route surface, including
+`/api/techniques.json`, agent-context, DSL examples, reference impls, profiling
+tools, model graphs, and engine workflows.
+
+**Impact:** Without an automated parity test, future endpoint additions can
+silently drift again.
+
+**Fix path:** Treat API descriptor parity as a release gate. Add a test that
+compares `apps/web/src/pages/api/*.ts` against `/api/index.json` and
+`/api/openapi.json`.
+
+### 🔴 Partial English mirrors can produce hidden 404s
+
+**What:** The Chinese canonical site has many more routes than the `/en/`
+mirror. Nav and `hreflang` generation can still point to English paths that do
+not exist.
+
+**Impact:** Users and crawlers can land on broken routes even when unit tests
+and SSG build pass.
+
+**Fix path:** Either add real English mirrors for the linked pages, or make
+locale link generation route-aware so missing mirrors fall back to canonical
+Chinese pages. Add a build-time internal link checker.
+
+### 🟡 Data is schema-valid but not uniformly agent-ready
+
+**What:** `validate-data.ts` passes, but `pnpm audit:data` reports 3 warnings
+and 60 informational coverage gaps. The biggest practical gaps are hardware
+without cases, models without model graphs, sparse reference implementations,
+and missing engine compile workflows.
+
+**Impact:** The harness can synthesize and plan, but the "any model × any
+hardware" claim remains uneven outside well-covered LLM/Hopper/Ascend paths.
+
+**Fix path:** Resolve the 3 warnings first, then prioritize data that directly
+improves the SageAttention/CogVideoX/Ascend north-star path and non-LLM model
+coverage.
+
+### 🟡 Generated run artifacts must stay local-only
+
+**What:** Deploy runs can emit generated kernels, profiler captures, target
+plans, run logs, and remote-host references under output directories.
+
+**Impact:** Accidentally committing those files can leak private target details
+or noisy generated artifacts.
+
+**Fix path:** Keep `out/`, `agent-deploy-output/`, `.claude/worktrees/`, and
+real `targets.yaml` ignored. Commit only sanitized corpus updates such as
+reviewed `data/agent-learnings/*.yaml`.
+
+### 🟡 Markdown rendering assumes reviewed repo content
+
+**What:** Several pages render Markdown through `marked.parse(...); set:html`.
+
+**Impact:** This is acceptable for reviewed repo data, but becomes stored-XSS
+risk if public submissions or agent-generated Markdown are rendered without
+review.
+
+**Fix path:** Add sanitizer coverage or a constrained Markdown renderer before
+accepting unreviewed Markdown into public pages.
 
 ---
 

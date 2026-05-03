@@ -16,16 +16,16 @@ import Container from '~/components/ui/Container.astro';
 import ImpactStrip from '~/components/impact/ImpactStrip.astro';
 import {
   getResolvedHardware, getModels, getCases, getVendors, getPlaybooks,
-  getServers, getOperators, getFusedKernels, getPatterns
+  getServers, getOperators, getFusedKernels, getPatterns, getTours, getTechniques
 } from '~/lib/data';
 import { pathname, t, type Locale } from '~/lib/i18n';
 import { NAV_GROUPS } from '~/lib/nav-groups';
 
 const locale: Locale = 'zh';
 
-const [hardware, models, cases, vendors, playbooks, servers, operators, fusedKernels, patterns] = await Promise.all([
+const [hardware, models, cases, vendors, playbooks, servers, operators, fusedKernels, patterns, tours, techniques] = await Promise.all([
   getResolvedHardware(), getModels(), getCases(), getVendors(),
-  getPlaybooks(), getServers(), getOperators(), getFusedKernels(), getPatterns()
+  getPlaybooks(), getServers(), getOperators(), getFusedKernels(), getPatterns(), getTours(), getTechniques()
 ]);
 
 const cnHardware = hardware.filter((h) => h.vendor.country === 'CN');
@@ -46,8 +46,8 @@ const stats = [
 // Why hand-coded: the group's items come from nav-groups.ts (which doesn't
 // know about data shape); the dynamic count is a homepage-only enrichment.
 const sectionCounts: Record<string, string> = {
-  optimize: `${patterns.length} 模式 · ${operators.length} 算子 · ${fusedKernels.length} 融合`,
-  learn: '7 巡游 · 6 指南'
+  optimize: `${patterns.length} 模式 · ${operators.length} 算子 · ${fusedKernels.length} 融合 · ${techniques.length} 技术`,
+  learn: `${tours.length} 巡游 · 6 指南`
 };
 
 const themeBg = (theme?: 'accent' | 'china') =>
@@ -99,7 +99,7 @@ const themeBg = (theme?: 'accent' | 'china') =>
       <div class="rounded-lg p-6 border" style="border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 4%, var(--color-bg));">
         <div class="flex items-baseline justify-between gap-3 flex-wrap mb-2">
           <h2 class="text-2xl font-semibold" style="color: var(--color-text);">
-            EvoKernel Agent Harness <span class="text-xs font-mono" style="color: var(--color-accent);">v3.23</span>
+            EvoKernel Agent Harness <span class="text-xs font-mono" style="color: var(--color-accent);">v3.31</span>
           </h2>
           <div class="flex gap-2 flex-wrap">
             <a href="https://github.com/ying-wen/evokernel-spec/blob/main/docs/HARNESS.md" target="_blank" rel="noopener noreferrer"
@@ -110,7 +110,7 @@ const themeBg = (theme?: 'accent' | 'china') =>
             <a href="https://github.com/ying-wen/evokernel-spec/blob/main/docs/superpowers/specs/2026-05-04-real-productized-agent.md" target="_blank" rel="noopener noreferrer"
                class="text-xs font-mono px-3 py-1 rounded-md border"
                style="border-color: var(--color-text-muted); color: var(--color-text-muted);">
-              v3.24+ spec →
+              v3.32+ plan →
             </a>
           </div>
         </div>
@@ -133,23 +133,25 @@ pnpm agent:list-bundles \
     -- --hardware h100-sxm5</code></pre>
           </div>
           <div class="p-3 rounded-md border" style="border-color: var(--color-border); background: var(--color-surface-raised);">
-            <div class="text-xs font-mono mb-1" style="color: var(--color-accent);">3 — 部署 (一行)</div>
-            <pre class="text-[11px] overflow-x-auto" style="color: var(--color-text);"><code>ANTHROPIC_API_KEY=sk-ant-... \
-evokernel-deploy \
-  --model meta-llama/Llama-3.3-70B \
-  --hardware h100-sxm5 \
-  --use-llm-orchestrator</code></pre>
+            <div class="text-xs font-mono mb-1" style="color: var(--color-accent);">3 — 部署 / Port (一行)</div>
+            <pre class="text-[11px] overflow-x-auto" style="color: var(--color-text);"><code>evokernel-deploy \
+  --technique sageattention \
+  --model zai-org/CogVideoX1.5-5B \
+  --hardware ascend-910b \
+  --use-host-llm \
+  --allow-synthesize</code></pre>
           </div>
         </div>
         <div class="mt-4 flex gap-3 flex-wrap text-xs">
           <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">11 npm scripts</span>
           <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">12 MCP tools</span>
           <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">2 plugin executables (Codex + Claude Code, en + zh)</span>
+          <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">technique catalog</span>
           <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">4/6 vendor profilers</span>
-          <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">221 tests</span>
+          <span class="px-2 py-1 rounded font-mono" style="background: var(--color-surface-raised); color: var(--color-text-muted);">376 tests</span>
         </div>
         <p class="mt-3 text-xs" style="color: var(--color-text-muted);">
-          ⚠️ <strong>Known limits</strong> (closes in v3.24-v3.27): productized real-mode requires <code>ANTHROPIC_API_KEY</code> today (one-click integration with CC/Codex's own LLM coming in v3.25); unknown models error out (HF auto-import in v3.25); no SSH remote-target executor yet (v3.26). See the v3.24+ spec for the design that closes the SageAttention/CogVideoX/910B north-star scenario.
+          ⚠️ <strong>Known limits</strong>: v3.30 已把 technique catalog 扩到 Sage/Flash/Paged/Ring Attention，v3.31 对齐了文档、导航和 API descriptor；剩余重点是 synthesized bundle 持久化、cross-arch numerical verify execution、serving/client-test 编排、suprof/instruments parser、以及 build-time link/security gate。
         </p>
       </div>
     </section>

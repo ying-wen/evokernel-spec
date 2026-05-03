@@ -1,7 +1,7 @@
 # EvoKernel Spec — Roadmap
 
 > **Last updated:** 2026-05-04
-> **Current release:** **v3.23.0** (vendor profiler parity + zh i18n + DRY refactor)
+> **Current release:** **v3.31.0** (docs/web/API quality sync after the v3.30 technique catalog expansion)
 > **Live:** https://yingwen.io/evokernel-spec/
 > **Historical (archived):** [`docs/archive/`](archive/README.md) — v1.x and v2.x roadmaps + release notes
 
@@ -15,11 +15,11 @@ The project has gone through three major arcs:
 |---|---|---|
 | **v1.x — Corpus** | v1.0 → v1.43 | The 5 base entity types (vendors / hardware / models / cases / playbooks) reach saturation. Public site goes live. JSON APIs ship. |
 | **v2.x — Computable knowledge + agent toolkit foundations** | v2.0 → v2.25 | Tier 1 calculator. 5-layer hw-sw gap framework. ISA primitives, DSL examples, kernel libraries, profiling tools. First agent-deploy CLI (skeleton mode). MCP server. Per-deploy artifacts (Dockerfile, K8s, runbook, SBOM). |
-| **v3.x — Productized agent harness** | v3.0 → v3.23 | The CLI stops emitting skeletons and starts emitting real generated kernels with V1/V2/V3 verification. Plugin install (`agent:install`), self-diagnosis (`agent:doctor`), continuous-mode (`agent:watch`), auto-PR (`agent:auto-pr`), 4-vendor profiler ingestion (NCU/rocprof/msprof/cnperf), zh i18n. |
+| **v3.x — Productized agent harness** | v3.0 → v3.31 | The CLI stops emitting skeletons and starts emitting real generated kernels with V1/V2/V3 verification. Host-LLM mode, unknown-model synthesis, technique entities, remote-target SSH execution, `/techniques/` SSG/API, plugin install, self-diagnosis, continuous-mode, auto-PR, 4-vendor profiler ingestion, zh i18n, and v3.31 docs/web/API alignment. |
 
 The current state is **a working productized agent CLI with a real corpus behind it** — see [`README.md`](../README.md) "What honestly works today" + "Known limits" sections.
 
-## State of the data (v3.23, 2026-05-04)
+## State of the data (v3.31, 2026-05-04)
 
 | Entity | Count | v3.x growth |
 |---|---|---|
@@ -42,71 +42,54 @@ The current state is **a working productized agent CLI with a real corpus behind
 | Engine-compile workflows | 4 | unchanged |
 | Reference impls | 3 | unchanged |
 | Agent-learnings | 3 seed | community PRs welcome |
-| **Total entities** | **419** | from 297 at v2.17 |
+| Techniques | 4 | SageAttention + FlashAttention + PagedAttention + RingAttention |
+| **Total entities** | **424** | from 297 at v2.17 |
 
-## State of the harness (v3.23)
+## State of the harness and site (v3.31)
 
 | Layer | Surface | Status |
 |---|---|---|
-| **Layer R** (Smart context retrieval) | `fetch-bundle.ts` + `resolveBundleId()` (fuzzy: HF id / partial slug / canonical) + `listBundles()` + 2176+ pre-built (model × hardware) JSON bundles | ✅ stable |
+| **Layer R** (Smart context retrieval) | `fetch-bundle.ts` + `resolveBundleId()` + `listBundles()` + 2176+ pre-built bundles + `synthesizeTemporaryBundle()` for unknown HF models | ✅ stable |
 | **Layer P** (Planning) | `index.ts` Stage 1-4 (HF config fetch, classify, feasibility, synthesize plan) | ✅ stable |
-| **Layer G** (Generation) | `llm-orchestrator.ts` 4-mode (real / cache / test / skeleton) | ⚠️ requires `ANTHROPIC_API_KEY` for real mode |
-| **Layer V** (Verification) | V1 build structural · V2 correctness reference compare · V3 perf gate (auto-detect 6 vendors, 4/6 parsers wired) | ⚠️ no kernel-runner yet |
+| **Layer G** (Generation) | `llm-orchestrator.ts` host-LLM / real / cache / test / skeleton modes; productized path now accepts synthesized bundles | ✅ stable surface; generated quality remains workload-dependent |
+| **Layer V** (Verification) | V1 build structural · V2 correctness reference compare · tensor-diff utility · V3 perf gate (auto-detect 6 vendors, 4/6 parsers wired) | ⚠️ cross-arch execution depth still pending |
 | **Layer F** (Feedback) | per-deploy `agent-learning.yaml` + `auto-pr-cli.ts` cluster aggregation + `watch.ts` continuous re-deploy | ✅ stable |
 | **CLI** | 11 commands · `pnpm agent:{deploy,deploy:productized,list-bundles,auto-pr,install,doctor,status,watch,...}` | ✅ stable |
 | **Plugins** | Codex Node binary (`evokernel-deploy`) · CC slash commands (`/agent-deploy` + `/zh:agent-deploy`) · MCP server (12 tools) | ✅ stable |
-| **Tests** | 172 scripts + 49 web = 221 total · all green | ✅ |
+| **Tests** | 41 schemas + 286 scripts + 49 web = 376 passing, 1 skipped network gate | ✅ |
+| **Site/API docs** | 613 SSG pages, `/techniques/` catalog, route-aware EN fallback, API descriptor/OpenAPI/health aligned to current public routes | ✅ baseline; link checker still planned |
 
 ---
 
-## v3.24+ priorities (the "real productized agent" work)
+## v3.32+ priorities
 
-These are the gaps user feedback (May 2026) explicitly called out as
-"too simple to be a real product". Full design at
-[`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md).
+The v3.24-v3.31 arc closed the original "too simple to be a real product" gaps and aligned the public docs/web/API surface. The next releases should now focus on execution depth and corpus accretion. Historical design remains at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md).
 
-### Priority 1: Host-LLM execution (no Anthropic API key)
+### Priority 1: Cross-arch numerical verify execution
 
-**The gap**: today productized real-mode requires `ANTHROPIC_API_KEY`. When the harness runs **inside Claude Code or Codex**, those tools have their own LLM — requiring an external key is friction that breaks one-click integration.
+**The gap**: tensor-diff exists, but the full run-reference-on-native-arch + run-new-impl-on-target + compare tensors with technique tolerance loop is not yet a first-class end-to-end command.
 
-**The plan** (v3.24 → v3.25):
-- Add a `--host-llm` mode to `llm-orchestrator.ts` that **emits a structured prompt + tool-spec instead of calling an API**. The host (CC or Codex) consumes the prompt with its own model and posts back the generated kernel.
-- Claude Code: extend `/agent-deploy` slash command to detect host-LLM mode and route generation through the in-session Claude.
-- Codex: extend `evokernel-deploy` binary to detect Codex execution context and emit a tool plan that Codex's GPT-5 can execute.
-- Standalone (CLI invoked outside CC/Codex): keep current API-key path as fallback.
+**Target**: v3.32. Drive it from the SageAttention/CogVideoX/Ascend-910B scenario and record pass/fail in the deploy manifest + agent-learning stub.
 
-### Priority 2: Unknown model auto-import (HuggingFace + technique entities)
+### Priority 2: Persist synthesized bundles into the corpus
 
-**The gap**: today if your model isn't in `data/models/`, the CLI errors with "BundleNotFoundError". Auto-import from HF config exists but is partial. Plus there's no concept of a *technique* entity (e.g. "SageAttention" is an attention-optimization library, not a model — it's a *technique to apply* to a model running on a hardware target).
+**The gap**: v3.29 synthesis is in-memory. A second run of the same unknown model re-synthesizes instead of using a reviewed `data/models/` entry.
 
-**The plan** (v3.25):
-- Extend `fetch-bundle.ts` to **synthesize a temporary in-memory bundle** for unknown models by fetching HF config + decomposing operator graph.
-- Add a new entity type `data/techniques/` with schema covering: name + reference impl URL + applicable to (model archetypes, ops, hardware) + porting notes.
-- `agent:deploy --technique sageattention --model cogvideox-1.5-5b --hardware ascend-910b` becomes a first-class invocation.
+**Target**: v3.32. Emit PR-ready model/model-graph YAML stubs after successful synthesis, with caveats and source provenance.
 
-### Priority 3: Remote-target SSH executor
+### Priority 3: Serving/client-test orchestration
 
-**The gap**: the V3 perf gate consumes pre-collected profiler CSVs via env vars. There's no integration that **SSHs to a target machine, compiles the generated kernel, runs it, profiles it, and pulls back metrics**.
+**The gap**: generated kernels and deploy artifacts exist, but `--serve` should template the model-serving wrapper and client sanity test so the north-star scenario ends at a user-visible endpoint.
 
-**The plan** (v3.26):
-- New `scripts/agent-deploy/remote-target.ts`: SSH config (`~/.config/evokernel/targets.yaml`) + toolchain detection (`ascend-toolkit`, `cuda`, `rocm`, etc) + remote build + remote run + remote profile + scp back artifacts.
-- `agent:deploy --remote ascend-910b-<host-id> ...` SSHs in, compiles via the right toolchain, runs the verifier, runs the profiler, and returns measured tok/s.
-- The user's concrete scenario: `agent:deploy --technique sageattention --model cogvideox-1.5-5b --hardware ascend-910b --remote root@<ASCEND_910B_HOST> --use-host-llm` should work end-to-end.
+**Target**: v3.32. Generate FastAPI/Triton wrapper templates plus a local/remote client script and record their status in the run summary.
 
-### Priority 4: Per-op-class perf threshold (carried from v3.23)
+### Priority 4: Knowledge base and web/API quality gate
 
-The uniform `perf_score >= 0.5` gate is wrong for memory-bound ops (triangle-mult won't legitimately hit 70% SM throughput). Per-op-class threshold: `matmul: 0.6`, `attention: 0.4`, `reduction: 0.5`.
+Current audit state: schema validation passes, but `pnpm audit:data` still reports 3 warnings and 60 info. Web/API descriptor parity was tightened in v3.31; remaining debt is build-time link checking, sparse model graphs/reference impls, and measured-case coverage. See [`2026-05-04-knowledge-web-quality-plan.md`](superpowers/specs/2026-05-04-knowledge-web-quality-plan.md).
 
 ### Priority 5: Remaining 2/6 vendor profiler parsers
 
 `suprof` (Moore Threads MUSA) + `instruments` (Apple). Same pattern as v3.22 NCU + v3.23 rocprof/msprof/cnperf.
-
-### Priority 6: UI cleanup
-
-See [`docs/CLEANUP-TODO.md`](CLEANUP-TODO.md) for the visual/UX queue:
-- Vendor sub-page generational timelines (Cambricon's 4-gen line in one component, etc.)
-- ROADMAP.md prune (this doc)
-- Pre-v3.x model family audit
 
 ---
 
@@ -114,13 +97,19 @@ See [`docs/CLEANUP-TODO.md`](CLEANUP-TODO.md) for the visual/UX queue:
 
 | Use case | Version |
 |---|---|
-| Citation in a paper or industry report | Latest stable (v3.23.0) |
+| Citation in a paper or industry report | Latest stable (v3.31.0) |
 | Production deploy planning (no codegen) | Any v3.x — corpus is stable since v3.0 |
 | Real-code generation (productized) | v3.17+ (when the harness was wired) |
 | 4-vendor profiler ingestion | v3.23+ |
 | Continuous re-deploy (`agent:watch`) | v3.22+ |
 | Codex CLI binary (`evokernel-deploy`) | v3.18+ (install via `agent:install`) |
 | Claude Code zh slash command | v3.23+ |
+| Host-LLM generation without a standalone API key | v3.25+ |
+| Technique-driven SageAttention-style port attempts | v3.26+ |
+| Remote-target `--execute` SSH build/run/profile | v3.27+ |
+| Unknown HF model synthesis in productized loop | v3.29+ |
+| Technique catalog with Flash/Paged/Ring/Sage attention | v3.30+ |
+| Public docs/web/API alignment for v3.30 state | v3.31+ |
 
 ---
 
@@ -133,7 +122,7 @@ These are not gaps — they're explicit non-goals to keep scope manageable:
 - **GUI frontend for the harness** — CLI + slash command + MCP is enough surface
 - **Real-time monitoring dashboards** — Prometheus rules are emitted; visualization is downstream
 
-If you'd like one of these added, open an issue with the specific use case + concrete user scenario (similar to how the SageAttention/CogVideoX/910B scenario drove v3.24+ priorities).
+If you'd like one of these added, open an issue with the specific use case + concrete user scenario (similar to how the SageAttention/CogVideoX/910B scenario drove the v3.24-v3.31 arc).
 
 ---
 

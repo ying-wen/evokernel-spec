@@ -2,7 +2,11 @@ import type { APIRoute } from 'astro';
 import { buildMeta } from '~/lib/build-meta';
 import {
   getVendors, getHardware, getServers, getOperators, getEngines,
-  getQuantizations, getParallelStrategies, getModels, getCases, getPatterns
+  getQuantizations, getParallelStrategies, getModels, getCases, getPatterns,
+  getInterconnects, getPipelineStages, getFusedKernels, getPlaybooks,
+  getTours, getKernelLibraries, getIsaPrimitives, getDslExamples,
+  getReferenceImpls, getProfilingTools, getModelGraphs,
+  getEngineCompileWorkflows, getAgentLearnings, getTechniques
 } from '~/lib/data';
 
 /**
@@ -24,26 +28,50 @@ export const GET: APIRoute = async () => {
   let degradedReason: string | undefined;
 
   try {
-    const [vendors, hardware, servers, operators, engines, quants, parallel, models, cases, patterns] =
+    const [
+      vendors, hardware, servers, interconnects, operators, engines, quants,
+      parallel, models, cases, patterns, pipelineStages, fusedKernels,
+      playbooks, tours, kernelLibraries, isaPrimitives, dslExamples,
+      referenceImpls, profilingTools, modelGraphs, engineCompileWorkflows,
+      agentLearnings, techniques
+    ] =
       await Promise.all([
-        getVendors(), getHardware(), getServers(), getOperators(), getEngines(),
-        getQuantizations(), getParallelStrategies(), getModels(), getCases(), getPatterns()
+        getVendors(), getHardware(), getServers(), getInterconnects(), getOperators(), getEngines(),
+        getQuantizations(), getParallelStrategies(), getModels(), getCases(), getPatterns(),
+        getPipelineStages(), getFusedKernels(), getPlaybooks(), getTours(),
+        getKernelLibraries(), getIsaPrimitives(), getDslExamples(), getReferenceImpls(),
+        getProfilingTools(), getModelGraphs(), getEngineCompileWorkflows(),
+        getAgentLearnings(), getTechniques()
       ]);
     counts = {
       vendors: vendors.length,
       hardware: hardware.length,
       servers: servers.length,
+      interconnects: interconnects.length,
       operators: operators.length,
       engines: engines.length,
       quantizations: quants.length,
       parallel_strategies: parallel.length,
       models: models.length,
       cases: cases.length,
-      patterns: patterns.length
+      patterns: patterns.length,
+      pipeline_stages: pipelineStages.length,
+      fused_kernels: fusedKernels.length,
+      playbooks: playbooks.length,
+      tours: tours.length,
+      kernel_libraries: kernelLibraries.length,
+      isa_primitives: isaPrimitives.length,
+      dsl_examples: dslExamples.length,
+      reference_impls: referenceImpls.length,
+      profiling_tools: profilingTools.length,
+      model_graphs: modelGraphs.length,
+      engine_compile_workflows: engineCompileWorkflows.length,
+      agent_learnings: agentLearnings.length,
+      techniques: techniques.length
     };
-    if (hardware.length === 0 || models.length === 0) {
+    if (hardware.length === 0 || models.length === 0 || operators.length === 0 || techniques.length === 0) {
       status = 'degraded';
-      degradedReason = 'core corpus (hardware or models) is empty';
+      degradedReason = 'core corpus (hardware, models, operators, or techniques) is empty';
     }
   } catch (err: unknown) {
     status = 'degraded';
@@ -53,7 +81,7 @@ export const GET: APIRoute = async () => {
   const body = {
     status,
     name: 'evokernel-spec',
-    version: 'v1.1',
+    version: 'v3.31',
     build: { sha: meta.sha, built_at: meta.builtAt },
     served_at: new Date().toISOString(),
     data_loaded: counts,

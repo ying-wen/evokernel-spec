@@ -26,6 +26,7 @@ const dict = {
     'nav.patterns': '优化模式',
     'nav.operators': '算子目录',
     'nav.fusedKernels': '融合 Kernel',
+    'nav.techniques': '技术目录',
     'nav.quantizations': '量化方案',
     'nav.engines': '推理引擎',
     'nav.enginesCompare': '引擎对比矩阵',
@@ -145,6 +146,7 @@ const dict = {
     'nav.patterns': 'Patterns',
     'nav.operators': 'Operators',
     'nav.fusedKernels': 'Fused kernels',
+    'nav.techniques': 'Techniques',
     'nav.quantizations': 'Quantizations',
     'nav.engines': 'Engines',
     'nav.enginesCompare': 'Compare matrix',
@@ -286,6 +288,32 @@ export function pathname(path: string): string {
   return BASE + path;
 }
 
+const EN_STATIC_MIRRORS = new Set([
+  '/',
+  '/about',
+  '/china',
+  '/compare',
+  '/contribute',
+  '/learn',
+  '/pricing',
+  '/quality',
+  '/showcase'
+]);
+
+const EN_DYNAMIC_PREFIXES = ['/hardware', '/models', '/cases'];
+
+function normalizeBarePath(path: string): string {
+  let p = path.startsWith('/en/') ? path.replace(/^\/en/, '') : path === '/en' ? '/' : path;
+  if (!p.startsWith('/')) p = '/' + p;
+  if (p.length > 1) p = p.replace(/\/$/, '');
+  return p;
+}
+
+export function hasEnglishMirror(path: string): boolean {
+  const p = normalizeBarePath(path);
+  return EN_STATIC_MIRRORS.has(p) || EN_DYNAMIC_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+}
+
 /**
  * Build a locale-aware path. EN gets a `/en/` prefix; both forms get
  * the deploy base prepended.
@@ -297,8 +325,12 @@ export function pathname(path: string): string {
 export function localePath(locale: Locale, path: string): string {
   let p = path;
   if (locale === 'en') {
-    if (p === '/') p = '/en/';
-    else if (!p.startsWith('/en/')) p = '/en' + p;
+    if (hasEnglishMirror(p)) {
+      if (p === '/') p = '/en/';
+      else if (!p.startsWith('/en/')) p = '/en' + p;
+    } else {
+      p = normalizeBarePath(p);
+    }
   }
   return pathname(p);
 }

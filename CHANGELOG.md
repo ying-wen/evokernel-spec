@@ -6,7 +6,37 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.31** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; persisting synthesized bundles into `data/models/`; plumbing `executeRemoteRun` result back into Stage 8 so `outcome: shipped` actually emits on real `--execute` success.
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.32** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; persisting synthesized bundles into `data/models/`; plumbing `executeRemoteRun` result back into Stage 8 so `outcome: shipped` actually emits on real `--execute` success.
+
+---
+
+## [3.31.0] — 2026-05-04 — Docs/web/API quality sync after v3.30
+
+**Theme**: keep the public surface honest after the v3.30 technique-catalog expansion. v3.30 made `/techniques/` real by expanding the catalog from 1 to 4 entries; v3.31 updates the docs, homepage, agents pages, navigation, API descriptors, and security guardrails so users and external agents see the current state instead of stale v3.23/v3.29 language.
+
+### Public docs and roadmap alignment
+
+- README, ROADMAP, HARNESS, and the homepage now report the current v3.31 state: 424 corpus entities, 613 SSG pages, 24 JSON API routes, and 4 techniques (SageAttention, FlashAttention, PagedAttention, RingAttention).
+- Known-limits language now distinguishes closed productization gaps from the actual v3.32+ queue: cross-arch verify execution, serving/client-test orchestration, synthesized-bundle persistence, suprof/instruments parsers, and link/security gates.
+- Added `docs/superpowers/specs/2026-05-04-knowledge-web-quality-plan.md` as the focused spec for knowledge-base, web, API, and security cleanup work that is separate from agent harness implementation.
+- `docs/KNOWN_ISSUES.md` now has a current v3.31 inventory instead of leading with old v1.x/v2.x issues.
+
+### Web navigation + agents pages
+
+- Nav and homepage discovery now expose `/techniques/`, with counts updated for 40 vendors, 23 patterns, 38 operators, 27 fused kernels, 11 tours, and 4 techniques.
+- Locale path generation now falls back to canonical Chinese routes when an English mirror does not exist, reducing hidden `/en/*` 404s until full English parity is built.
+- `/agents/` and `/agents/validations/` now describe the v3.x productized loop, current API surfaces, 49 validation runs, host-LLM mode, synthesized bundles, and the real v3.32+ gaps instead of old v2.x roadmap text.
+
+### API descriptor and safety guardrails
+
+- `/api/index.json`, `/api/health.json`, and `/api/openapi.json` now include the current major API surfaces: techniques, agent-context index, agent-learnings, DSL examples, reference impls, profiling tools, ISA primitives, kernel libraries, model graphs, engine compile workflows, coverage matrix, solve, health, and OpenAPI.
+- `.gitignore` and `docs/SECURITY-NOTES.md` now explicitly keep generated deploy outputs and `.claude/worktrees/` local-only.
+- `docs/CLEANUP-TODO.md` now tracks remaining v3.32+ quality gates: audit warning fixes, technique cross-reference audit, model graph coverage, engine workflow coverage, build-time link checking, and Markdown rendering hardening.
+
+### Validation
+
+- `pnpm exec tsx scripts/validate-data.ts` passes: 424 entities, including `technique: 4`.
+- `pnpm audit:data` still reports 3 warnings and 60 info; those are intentionally tracked as v3.32 data-quality work, not hidden by this release.
 
 ---
 

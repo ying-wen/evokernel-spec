@@ -12,6 +12,7 @@ import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
 import SectionHeader from '~/components/ui/SectionHeader.astro';
 import { getTechniques } from '~/lib/data';
+import { pathname } from '~/lib/i18n';
 
 const techniques = (await getTechniques()).sort((a, b) =>
   a.name.localeCompare(b.name),
@@ -74,7 +75,7 @@ const total_archs = arch_summary.size;
         <ul class="grid gap-4 md:grid-cols-2">
           {list.map((t) => (
             <li class="border rounded-lg p-4" style="border-color: var(--color-border);">
-              <a href={`/techniques/${t.id}/`} class="text-base font-medium hover:underline">
+              <a href={pathname(`/techniques/${t.id}/`)} class="text-base font-medium hover:underline">
                 {t.name}
               </a>
               <p class="text-sm mt-2" style="color: var(--color-text-muted);">
@@ -114,7 +115,7 @@ const total_archs = arch_summary.size;
                 <td class="py-2">
                   {list.map(({ technique, status }) => (
                     <a
-                      href={`/techniques/${technique}/`}
+                      href={pathname(`/techniques/${technique}/`)}
                       class="inline-block mr-2 mb-1 px-2 py-0.5 rounded text-xs"
                       style="background: var(--color-surface-2);"
                       title={status}
@@ -133,7 +134,7 @@ const total_archs = arch_summary.size;
     <section class="py-6 text-sm" style="color: var(--color-text-muted);">
       <p>
         Use <code>pnpm agent:deploy --technique &lt;id&gt; --model X --hardware Y</code>
-        to drive a port attempt. See <a href="/agents/" class="underline">/agents/</a> for the CLI surface.
+        to drive a port attempt. See <a href={pathname('/agents/')} class="underline">/agents/</a> for the CLI surface.
       </p>
     </section>
   </Container>

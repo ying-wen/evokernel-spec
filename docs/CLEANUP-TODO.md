@@ -13,7 +13,7 @@
 
 ## v3.24+ "Real productized agent" gaps (HIGH priority)
 
-These are the concrete deliverables for v3.25-v3.30 per the spec at
+These are the concrete deliverables for v3.25-v3.32 per the spec at
 [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md)
 + the v3.27+ extension capturing the broader Ralph-Loop vision (richer
 input types: code, repos, papers, pseudocode + uncertainty resolution).
@@ -33,15 +33,40 @@ input types: code, repos, papers, pseudocode + uncertainty resolution).
 | Tensor-diff utility for cross-arch numerical compare (`verify/tensor-diff.ts`) | ✅ Done | v3.27 |
 | `--description "natural language intent"` flag + clarifying-Q host-LLM loop | ✅ Done | v3.27 |
 | `docs/RUNBOOK-SAGEATTENTION-910B.md` (10-step end-to-end walkthrough) | ✅ Done | v3.27 |
-| Cross-arch numerical verify EXECUTION (use tensor-diff via remote-target) | TODO | v3.28 |
-| End-to-end serving on north-star (`--serve` flag + client test template) | TODO | v3.28 |
+| v3.28 real-deployment fixes (HF Diffusers layout, classifier registry, technique arch matching, honest outcomes, executor substitution, Ascend build compatibility) | ✅ Done | v3.28 |
+| Synthesized bundle wired into productized loop (`--allow-synthesize`, technique/host-LLM auto-on) | ✅ Done | v3.29 |
+| `/techniques/` SSG route + `/api/techniques.json` | ✅ Done | v3.29 |
+| Technique catalog expansion 1 → 4 (SageAttention + Flash/Paged/Ring Attention) | ✅ Done | v3.30 |
+| Docs/web/API/security guardrail sync after v3.30 | ✅ Done | v3.31 |
+| Cross-arch numerical verify EXECUTION (use tensor-diff via remote-target) | TODO | v3.32 |
+| End-to-end serving on north-star (`--serve` flag + client test template) | TODO | v3.32 |
 | Real run against private Ascend 910B SSH host (per RUNBOOK) | Awaiting user execution | v3.27 |
-| `--from-repo https://github.com/X/Y` (clone + scan + plan port) | TODO | v3.28 |
-| `--from-code path/to/model.py` (parse + decompose op graph) | TODO | v3.28 |
-| `--from-paper https://arxiv.org/abs/X` (LLM extracts claims + comparisons) | TODO | v3.29 |
-| First-class user requirement flags (`--target-tok-s` / `--target-latency-ms` / `--target-accuracy` / `--dtype`) | TODO | v3.29 |
-| Uncertainty resolution loops + auto-emit `agent-run-summary.md` at end of each deploy | TODO | v3.30 |
-| `/agents/runs/` web dashboard (browse past runs from `agent:status` data) | TODO | v3.31 |
+| Persist synthesized bundles into `data/models/` + `data/model-graphs/` PR-ready stubs | TODO | v3.32 |
+| `--from-repo https://github.com/X/Y` (clone + scan + plan port) | TODO | v3.32 |
+| `--from-code path/to/model.py` (parse + decompose op graph) | TODO | v3.32 |
+| `--from-paper https://arxiv.org/abs/X` (LLM extracts claims + comparisons) | TODO | v3.33 |
+| First-class user requirement flags (`--target-tok-s` / `--target-latency-ms` / `--target-accuracy` / `--dtype`) | TODO | v3.33 |
+| Uncertainty resolution loops + auto-emit `agent-run-summary.md` at end of each deploy | TODO | v3.32 |
+| `/agents/runs/` web dashboard (browse past runs from `agent:status` data) | TODO | v3.33 |
+
+## v3.31 Knowledge / Web / API quality gaps (HIGH priority)
+
+These are deliberately separate from agent harness implementation so they can
+be worked while Claude Code focuses on the harness path.
+
+| Item | Status | Target |
+|---|---|---|
+| `pnpm audit:data` warnings: `mlu220`, `wse-3`, `rk3588-npu` suspicious BF16 figures | TODO | v3.32 |
+| Technique cross-reference audit (`applicable_to.ops`, `port_targets.arch_family`, reference impl links) | TODO | v3.32 |
+| Persisted north-star corpus entry for CogVideoX1.5-5B or explicit synthesized-model policy | TODO | v3.32 |
+| Model graph coverage: 10/34 today; prioritize diffusion/video/scientific/speech models | TODO | v3.32-v3.33 |
+| Hardware case coverage: many of 64 cards have no measured case; tag recruit targets on `/quality/` | TODO | v3.33 |
+| Engine compile workflows missing for `sglang`, `mori`, `hanguang-engine` | TODO | v3.32 |
+| API descriptor parity: `/api/index.json`, `/api/openapi.json`, `/api/health.json` must cover all public API routes | ✅ Baseline aligned; add regression test | v3.31-v3.32 |
+| Build-time internal link checker for generated `dist/` links + `hreflang` targets | TODO | v3.32 |
+| English route strategy: only emit `/en/*` links for real mirrors, or route to zh canonical | ✅ Baseline fallback; add link-check test | v3.31-v3.32 |
+| Markdown rendering security: sanitize `marked.parse(...); set:html` surfaces or constrain allowed Markdown | TODO | v3.32 |
+| Generated artifact safety: ignore `out/` and `.claude/worktrees/`, keep real SSH/API/profile data local-only | ✅ Done | v3.31 |
 
 ## Hardware / Model page UI
 

@@ -1,10 +1,9 @@
 ---
 /**
- * /agents/validations/ — empirical validation matrix (v2.10).
+ * /agents/validations/ — empirical validation matrix.
  *
  * Concrete proof that agent-deploy works end-to-end across (model × hardware).
- * Pre-recorded matrix from running scripts/agent-deploy/index.ts against:
- *   5 frontier models × 3 hardware platforms = 15 production-grade plans.
+ * Pre-recorded matrix from running scripts/agent-deploy/index.ts.
  */
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import Container from '~/components/ui/Container.astro';
@@ -58,13 +57,13 @@ function findRun(model: string, hw: string) {
   <Container>
     <section class="py-12">
       <SectionHeader
-        eyebrow="AGENTS · VALIDATIONS · v2.10"
+        eyebrow="AGENTS · VALIDATIONS · v3.31"
         title="任意模型 × 任意硬件 — 实测验证矩阵"
         subtitle={`${runs.length} runs · ${successCount}/${runs.length} successful · ${totalGaps} kernel gaps detected`}
       />
       <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
         实证 — 不是 hypothetical. 这页的数据是真实运行 <code style="background: color-mix(in oklch, var(--color-surface-raised) 70%, transparent); padding: 1px 6px; border-radius: 3px; font-family: var(--font-mono);">scripts/agent-deploy/</code>
-        端到端 agent 跨 5 个 frontier model × 3 个硬件 (NVIDIA / AMD / Ascend) 生成生产级部署计划的结果. 每行都是一次可重现的 agent 调用.
+        端到端 agent 跨 {models.length} 个 frontier model × {hardware.length} 个硬件生成生产级部署计划的结果。每行都是一次可重现的 agent 调用。
       </p>
     </section>
 
@@ -79,7 +78,7 @@ function findRun(model: string, hw: string) {
         <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
           <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">Hardware</div>
           <div class="text-2xl font-semibold">{hardware.length}</div>
-          <div class="text-xs" style="color: var(--color-text-muted);">3 vendors (NVIDIA/AMD/Huawei)</div>
+          <div class="text-xs" style="color: var(--color-text-muted);">7 hardware targets</div>
         </div>
         <div class="rounded-lg p-4 border" style="background: var(--color-surface-raised); border-color: var(--color-border);">
           <div class="text-xs font-semibold mb-1" style="color: var(--color-text-muted);">Success rate</div>

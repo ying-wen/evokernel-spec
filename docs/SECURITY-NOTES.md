@@ -17,6 +17,7 @@ permanently public**.
 | **Real database/queue/cache URLs** with credentials | `postgres://user:pw@host/db`, `redis://...` | `.env` (git-ignored) |
 | **PII in agent-learnings or test fixtures** | real user emails, real customer kernels, internal-product names | sanitize before committing |
 | **Internal-only doc snippets** that name a private repo or service | "see internal repo X" | extract just the technical content; drop the internal reference |
+| **Generated deploy artifacts / local worktrees** | `out/<run>/`, `agent-deploy-output/<run>/`, `.claude/worktrees/` | Keep local. Commit only reviewed corpus updates such as sanitized `data/agent-learnings/*.yaml`. |
 
 ## Placeholder conventions in docs
 
@@ -33,7 +34,7 @@ When a doc needs to **describe** an SSH/host/target without giving the actual id
 # bad — leaks real IP/host
 - id: ascend-910b-test
   hardware: ascend-910b
-  ssh: root@10.45.67.89             # NEVER
+  ssh: root@<REAL_PRIVATE_IP>       # NEVER
 ```
 
 Common placeholders:
@@ -73,8 +74,8 @@ public issue — see [`SECURITY.md`](../SECURITY.md).
 
 The harness is **client-side only**. It:
 - Does not send your code to any external service except (optionally) the
-  Anthropic API in productized real-mode (you must explicitly set
-  `ANTHROPIC_API_KEY` for that).
+  host LLM inside Codex/Claude Code or the Anthropic API in standalone
+  real-mode (you must explicitly opt into those paths).
 - Does not phone home — no telemetry, no usage analytics.
 - Does not store SSH credentials (it reads `~/.ssh/config` but never copies keys).
 - Does not log API responses to disk by default (cache mode under

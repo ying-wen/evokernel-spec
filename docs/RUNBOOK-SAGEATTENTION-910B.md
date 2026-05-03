@@ -321,12 +321,12 @@ Sanity checks:
 - `npu-smi info` on the 910B during the request should show one Ascend chip at high utilization
 - If you ported SageAttention successfully (or by v3.28+ once cross-arch verify works), the per-step latency should drop ~30-50% vs the baseline
 
-## What this runbook does NOT yet automate (v3.28+)
+## What this runbook does NOT yet automate (v3.32+)
 
-- **Step 9 + 10 fully automated**: serving + local-test orchestration. v3.28 will add `--serve` flag that templates a `serving_pipeline.py` + `client_test.sh` for the deployed model.
-- **Cross-arch numerical verify executed**: v3.27 ships scaffold + tensor-diff utility; v3.28 wires the run-reference-on-Hopper-via-SSH-+-run-new-impl-on-Ascend-via-SSH-+-diff flow.
-- **Iterative re-run on V failure**: v3.27's `feedback.ts:generateAndVerify()` retries up to 3× on Layer V failure but each retry is a fresh kernel generation — v3.29 will add diagnostic-aware iteration where the F-loop also updates the corpus DSL examples between retries.
-- **Throughput / latency target enforcement**: v3.29 wires `--target-tok-s N` / `--target-latency-ms N` gates that fail the deploy if measured perf misses the target.
+- **Step 9 + 10 fully automated**: serving + local-test orchestration. v3.32 should add a `--serve` flag that templates a `serving_pipeline.py` + `client_test.sh` for the deployed model.
+- **Cross-arch numerical verify executed**: v3.27 ships scaffold + tensor-diff utility; v3.32 should wire the run-reference-on-Hopper-via-SSH-+-run-new-impl-on-Ascend-via-SSH-+-diff flow.
+- **Iterative re-run on V failure**: the productized loop retries on Layer V failure, but diagnostic-aware iteration that also proposes corpus DSL/reference updates remains follow-up work.
+- **Throughput / latency target enforcement**: first-class `--target-tok-s N` / `--target-latency-ms N` gates remain follow-up work.
 
 ## Honest expectation summary
 
@@ -342,9 +342,9 @@ For the SageAttention/CogVideoX/910B north-star, v3.27 lets you:
 | Build remotely | ✅ `scripts/agent-deploy/remote/ascend/build.sh` (auto-detects CANN env) |
 | Run remotely + profile remotely | ✅ Per-vendor msprof invocation in plan |
 | Pull profile back + feed V3 perf gate | ✅ `EVOKERNEL_MSPROF_INPUT_CSV` env hook |
-| Cross-arch numerical verify (run reference + new + diff) | ⚠ Scaffold only; **v3.28** wires execution |
-| Serve CogVideoX1.5-5B end-to-end | Manual (Step 9 above); **v3.28** automates via `--serve` |
-| Local test sanity | Manual (Step 10 above); **v3.28** templates client test |
+| Cross-arch numerical verify (run reference + new + diff) | ⚠ Scaffold only; **v3.32** target |
+| Serve CogVideoX1.5-5B end-to-end | Manual (Step 9 above); **v3.32** target via `--serve` |
+| Local test sanity | Manual (Step 10 above); **v3.32** target for client-test template |
 
 **The honest summary**: v3.27 makes the *workflow* runnable end-to-end. The *first run will likely produce a partial port that needs iteration*. That iteration is what the corpus + agent-learnings + auto-PR loop is for. The point isn't that v3.27 ports SageAttention to Ascend perfectly on the first try; the point is that v3.27 makes each iteration cheap and recorded.
 

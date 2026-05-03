@@ -26,13 +26,27 @@ const loaderStubs = {
   getVendors:           vi.fn(async () => [] as unknown[]),
   getHardware:          vi.fn(async () => [] as unknown[]),
   getServers:           vi.fn(async () => [] as unknown[]),
+  getInterconnects:     vi.fn(async () => [] as unknown[]),
   getOperators:         vi.fn(async () => [] as unknown[]),
   getEngines:           vi.fn(async () => [] as unknown[]),
   getQuantizations:     vi.fn(async () => [] as unknown[]),
   getParallelStrategies: vi.fn(async () => [] as unknown[]),
   getModels:            vi.fn(async () => [] as unknown[]),
   getCases:             vi.fn(async () => [] as unknown[]),
-  getPatterns:          vi.fn(async () => [] as unknown[])
+  getPatterns:          vi.fn(async () => [] as unknown[]),
+  getPipelineStages:    vi.fn(async () => [] as unknown[]),
+  getFusedKernels:      vi.fn(async () => [] as unknown[]),
+  getPlaybooks:         vi.fn(async () => [] as unknown[]),
+  getTours:             vi.fn(async () => [] as unknown[]),
+  getKernelLibraries:   vi.fn(async () => [] as unknown[]),
+  getIsaPrimitives:     vi.fn(async () => [] as unknown[]),
+  getDslExamples:       vi.fn(async () => [] as unknown[]),
+  getReferenceImpls:    vi.fn(async () => [] as unknown[]),
+  getProfilingTools:    vi.fn(async () => [] as unknown[]),
+  getModelGraphs:       vi.fn(async () => [] as unknown[]),
+  getEngineCompileWorkflows: vi.fn(async () => [] as unknown[]),
+  getAgentLearnings:    vi.fn(async () => [] as unknown[]),
+  getTechniques:        vi.fn(async () => [] as unknown[])
 };
 
 vi.mock('~/lib/data', () => loaderStubs);
@@ -57,6 +71,8 @@ describe('/api/health.json — happy path', () => {
     loaderStubs.getModels.mockResolvedValue(new Array(17).fill({}));
     loaderStubs.getCases.mockResolvedValue(new Array(22).fill({}));
     loaderStubs.getVendors.mockResolvedValue(new Array(22).fill({}));
+    loaderStubs.getOperators.mockResolvedValue(new Array(38).fill({}));
+    loaderStubs.getTechniques.mockResolvedValue(new Array(4).fill({}));
 
     const { status, body } = await callHealth();
     expect(status).toBe(200);
@@ -65,6 +81,8 @@ describe('/api/health.json — happy path', () => {
     expect((body.build as { sha: string }).sha).toBe('test123');
     expect((body.data_loaded as { hardware: number }).hardware).toBe(31);
     expect((body.data_loaded as { models: number }).models).toBe(17);
+    expect((body.data_loaded as { operators: number }).operators).toBe(38);
+    expect((body.data_loaded as { techniques: number }).techniques).toBe(4);
     expect(body).not.toHaveProperty('degraded_reason');
   });
 });

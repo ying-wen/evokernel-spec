@@ -2,7 +2,7 @@
 
 > **Author:** evokernel-spec maintainers
 > **Date:** 2026-05-04
-> **Status:** Design — implementation across v3.24 → v3.27
+> **Status:** Historical design — the core productization work shipped across v3.24 → v3.31. See `CHANGELOG.md` and `2026-05-04-knowledge-web-quality-plan.md` for the current post-v3.30 quality queue.
 > **Supersedes:** Sections of [`2026-05-03-productized-agent.md`](2026-05-03-productized-agent.md) (which described the v3.6 layer functions; this spec extends them with host-LLM execution, unknown-target handling, technique entities, and remote SSH execution).
 
 ## Context

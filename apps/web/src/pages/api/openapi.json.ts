@@ -10,9 +10,9 @@ export const GET: APIRoute = async ({ site }) => {
     openapi: '3.1.0',
     info: {
       title: 'EvoKernel Spec Open Data API',
-      version: '2.4.0',
+      version: '3.31.0',
       description:
-        'Open data API for AI inference deployment knowledge — hardware, models, cases, operators, fused kernels, playbooks, plus a constraint-solver endpoint for agents (/api/solve.json). Static endpoints regenerated on every site build. Data licensed under CC-BY-SA-4.0.',
+        'Open data API for AI inference deployment knowledge — corpus entities, agent-context bundles, technique catalog, and static solver surfaces. Static endpoints regenerate on every site build. Data licensed under CC-BY-SA-4.0.',
       license: { name: 'CC-BY-SA-4.0', url: 'https://creativecommons.org/licenses/by-sa/4.0/' },
       contact: { url: 'https://github.com/evokernel/evokernel-spec' }
     },
@@ -73,9 +73,9 @@ export const GET: APIRoute = async ({ site }) => {
       },
       '/api/operators.json': {
         get: {
-          summary: 'All operators with FLOPs/byte formulas, arithmetic intensity, and engine implementations (v2.4)',
+          summary: 'All operators with FLOPs/byte formulas, arithmetic intensity, and engine implementations',
           description:
-            'Each operator carries its FLOPs and bytes formulas (currently as text — evolving to evaluable expressions in v2.5), arithmetic intensity range, fusion targets, and per-engine kernel implementations tagged with hardware_arch. Primary input for agent kernel-codegen.',
+            'Each operator carries FLOPs and bytes formulas, arithmetic intensity range, fusion targets, formal semantics, and per-engine kernel implementations tagged with hardware_arch. Primary input for agent kernel-codegen.',
           responses: {
             '200': {
               description: 'List response',
@@ -86,7 +86,7 @@ export const GET: APIRoute = async ({ site }) => {
       },
       '/api/fused-kernels.json': {
         get: {
-          summary: 'All fused kernels (FlashAttention-3, PagedAttention, FusedMoE-DeepEP, etc.) (v2.4)',
+          summary: 'All fused kernels (FlashAttention-3, PagedAttention, FusedMoE-DeepEP, etc.)',
           description:
             'Production-grade kernels that fold multiple atomic ops. Each entry lists the operators folded, engines that ship it, and hardware archs covered.',
           responses: {
@@ -96,7 +96,7 @@ export const GET: APIRoute = async ({ site }) => {
       },
       '/api/playbooks.json': {
         get: {
-          summary: '(model archetype × hardware class) recipes (v2.4)',
+          summary: '(model archetype × hardware class) recipes',
           description:
             'Pre-encoded recipes giving recommended quantization, parallelism, engine, and expected $/M-token range for each (model archetype × hardware class) cell. Use as a prior before constraint solving.',
           responses: {
@@ -104,13 +104,148 @@ export const GET: APIRoute = async ({ site }) => {
           }
         }
       },
+      '/api/engines.json': {
+        get: {
+          summary: 'Inference engine catalog',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/quantizations.json': {
+        get: {
+          summary: 'Quantization scheme catalog',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
       '/api/solve.json': {
         get: {
-          summary: 'Flat enumeration of all configurations (cases + playbooks) for client-side filtering (v2.4)',
+          summary: 'Flat enumeration of all configurations (cases + playbooks) for client-side filtering',
           description:
             'Static endpoint returning every measured case and every playbook recommendation as a unified `Configuration` shape with derived `dollars_per_m_tokens_estimate` and `default_score` fields. Consumers filter client-side. Includes `query_examples` showing common filter idioms. SSG limitation: no query params; clients filter the array.',
           responses: {
             '200': { description: 'Solve response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/techniques.json': {
+        get: {
+          summary: 'Research techniques / porting libraries such as SageAttention',
+          description:
+            'Technique catalog used by the agent when a request is not just model-on-hardware deployment, but porting an algorithm/library to a target architecture.',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/agent-context-index.json': {
+        get: {
+          summary: 'Index of static model × hardware agent-context bundles',
+          responses: {
+            '200': { description: 'Bundle index', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/agent-context/{model}-on-{hardware}.json': {
+        get: {
+          summary: 'Agent-context bundle for one model × hardware pair',
+          parameters: [
+            { name: 'model', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'hardware', in: 'path', required: true, schema: { type: 'string' } }
+          ],
+          responses: {
+            '200': { description: 'Resolved bundle', content: { 'application/json': { schema: { type: 'object' } } } },
+            '404': { description: 'Bundle not found in static corpus' }
+          }
+        }
+      },
+      '/api/agent-learnings.json': {
+        get: {
+          summary: 'Structured agent-learning observations for corpus feedback loop',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/dsl-examples.json': {
+        get: {
+          summary: 'DSL examples used as codegen context',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/reference-impls.json': {
+        get: {
+          summary: 'Reference implementations used by verification and porting workflows',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/profiling-tools.json': {
+        get: {
+          summary: 'Vendor profiler catalog',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/isa-primitives.json': {
+        get: {
+          summary: 'ISA primitives and cross-vendor equivalents',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/kernel-libraries.json': {
+        get: {
+          summary: 'Kernel libraries and vendor-blessed implementation paths',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/model-graphs.json': {
+        get: {
+          summary: 'Model execution graphs',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/engine-compile-workflows.json': {
+        get: {
+          summary: 'Engine compile workflows',
+          responses: {
+            '200': { description: 'List response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/coverage-matrix.json': {
+        get: {
+          summary: 'Coverage matrix for ops / kernels / hardware',
+          responses: {
+            '200': { description: 'Matrix response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/health.json': {
+        get: {
+          summary: 'Health probe and corpus snapshot',
+          responses: {
+            '200': { description: 'Health response', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
+      '/api/healthz': {
+        get: {
+          summary: 'Minimal health probe',
+          responses: {
+            '200': { description: 'Health response', content: { 'application/json': { schema: { type: 'object' } } } }
           }
         }
       }
@@ -124,7 +259,7 @@ export const GET: APIRoute = async ({ site }) => {
             name: { type: 'string' },
             license: { type: 'string', example: 'CC-BY-SA-4.0' },
             code_license: { type: 'string', example: 'Apache-2.0' },
-            version: { type: 'string', example: 'v1' },
+            version: { type: 'string', example: 'v3.31' },
             description: { type: 'string' },
             generated: { type: 'string', format: 'date-time' },
             counts: { type: 'object', additionalProperties: { type: 'integer' } },
