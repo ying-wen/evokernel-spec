@@ -112,45 +112,124 @@ export interface TechniquePortContext {
   technique: Technique;
   target_arch_family: string;
   matched_port_target: Technique['port_targets'][number] | undefined;
+  /**
+   * v3.28 (F4) — every arch label we tried before either matching or
+   * giving up. Surfaced in dry-run output so users with hardware whose
+   * microarchitecture isn't yet annotated can see exactly which alias
+   * to add. e.g. for ascend-910b before the v3.28 schema update this
+   * was `['ascend']` and the technique declared `ascend-da-vinci-3` —
+   * the gap was invisible to the user.
+   */
+  arch_family_candidates: string[];
   /** Plain-English summary the CLI prints to the user. */
   summary: string;
 }
 
+/**
+ * v3.28 (F4) — accept an array of candidate arch_family labels and
+ * return the first technique port_target that matches any of them.
+ *
+ * The candidate list is built upstream from the user's hardware YAML:
+ *   1. `microarchitecture` field (most specific; preferred — e.g.
+ *      `ascend-da-vinci-3`, `hopper`, `cdna3`)
+ *   2. full `generation` field (e.g. `ascend-910-gen2`, `hopper-gen1`)
+ *   3. `generation.split('-')[0]` (heuristic prefix — what pre-v3.28
+ *      used as its only label; kept for backwards compat)
+ *   4. `vendor` (last-resort label — e.g. `huawei`, `nvidia`)
+ *
+ * We try each in order. This covers four scenarios cleanly:
+ *   • Hardware has microarchitecture set + technique uses microarch labels (the
+ *     SageAttention/Ascend case after v3.28 schema update).
+ *   • Hardware lacks microarchitecture but technique uses the truncated
+ *     generation prefix (the pre-v3.28 NVIDIA/Hopper accidental match).
+ *   • Hardware lacks microarchitecture but technique uses the bare vendor name
+ *     (some early techniques in the corpus do this).
+ *   • Brand new vendor where the technique declares e.g. `tenstorrent` and the
+ *     hardware YAML's `vendor: tenstorrent` matches.
+ */
 export function describeTechniquePortStatus(
   technique: Technique,
-  target_arch_family: string,
+  target_arch_family: string | string[],
 ): TechniquePortContext {
-  const matched = technique.port_targets.find((p) => p.arch_family === target_arch_family);
+  const candidates = Array.isArray(target_arch_family)
+    ? Array.from(new Set(target_arch_family.filter(Boolean)))
+    : [target_arch_family];
+
+  let matched: Technique['port_targets'][number] | undefined;
+  let matchedOn: string | undefined;
+  for (const candidate of candidates) {
+    const found = technique.port_targets.find((p) => p.arch_family === candidate);
+    if (found) {
+      matched = found;
+      matchedOn = candidate;
+      break;
+    }
+  }
+  // Use the matched candidate (or the first candidate as fallback) as the
+  // "canonical" target_arch_family in the returned context.
+  const reported_arch_family = matchedOn ?? candidates[0] ?? '';
   let summary: string;
   if (!matched) {
     summary =
-      `Technique "${technique.name}" has no port_target for arch "${target_arch_family}". ` +
+      `Technique "${technique.name}" has no port_target for arch "${reported_arch_family}". ` +
       `Existing port_targets: ${technique.port_targets.map((p) => `${p.arch_family} (${p.status})`).join(', ') || 'none'}. ` +
       `Treating as greenfield port (will write new kernel from reference impl + corpus DSL examples).`;
   } else {
     switch (matched.status) {
       case 'reference-impl':
-        summary = `Technique "${technique.name}" → arch "${target_arch_family}": reference impl (no porting needed; agent will surface the existing reference).`;
+        summary = `Technique "${technique.name}" → arch "${reported_arch_family}": reference impl (no porting needed; agent will surface the existing reference).`;
         break;
       case 'production-ready':
-        summary = `Technique "${technique.name}" → arch "${target_arch_family}": production-ready port already exists. Agent will verify it still works for your model + diff against latest reference.`;
+        summary = `Technique "${technique.name}" → arch "${reported_arch_family}": production-ready port already exists. Agent will verify it still works for your model + diff against latest reference.`;
         break;
       case 'experimental':
-        summary = `Technique "${technique.name}" → arch "${target_arch_family}": experimental port. Agent will iterate on the existing impl + run cross-arch verify.`;
+        summary = `Technique "${technique.name}" → arch "${reported_arch_family}": experimental port. Agent will iterate on the existing impl + run cross-arch verify.`;
         break;
       case 'planned':
         summary =
-          `Technique "${technique.name}" → arch "${target_arch_family}": planned port (greenfield). ` +
-          `Agent will generate a first-pass kernel from the technique reference impl + corpus DSL examples for ${target_arch_family}, ` +
+          `Technique "${technique.name}" → arch "${reported_arch_family}": planned port (greenfield). ` +
+          `Agent will generate a first-pass kernel from the technique reference impl + corpus DSL examples for ${reported_arch_family}, ` +
           `then iterate via Layer V verify (target effort: ${technique.port_complexity}).`;
         break;
       case 'blocked':
         summary =
-          `Technique "${technique.name}" → arch "${target_arch_family}": port BLOCKED. ` +
+          `Technique "${technique.name}" → arch "${reported_arch_family}": port BLOCKED. ` +
           `Notes from prior attempt: ${matched.notes ?? '(none)'}. ` +
           `Agent will surface the blocker and exit; manual investigation required.`;
         break;
     }
   }
-  return { technique, target_arch_family, matched_port_target: matched, summary };
+  return {
+    technique,
+    target_arch_family: reported_arch_family,
+    matched_port_target: matched,
+    arch_family_candidates: candidates,
+    summary,
+  };
+}
+
+/**
+ * v3.28 (F4) — derive the candidate arch_family list for a hardware
+ * record. Caller passes whatever optional fields the hardware YAML
+ * carries (microarchitecture, generation, vendor) and we return them
+ * in the priority order the resolver should try.
+ *
+ * Pure function so it's trivially testable and the agent CLI doesn't
+ * have to know the priority order.
+ */
+export function deriveArchCandidates(input: {
+  microarchitecture?: string;
+  generation?: string;
+  vendor?: string;
+}): string[] {
+  const out: string[] = [];
+  if (input.microarchitecture) out.push(input.microarchitecture);
+  if (input.generation) {
+    out.push(input.generation);
+    const truncated = input.generation.split('-')[0];
+    if (truncated && truncated !== input.generation) out.push(truncated);
+  }
+  if (input.vendor) out.push(input.vendor);
+  // Deduplicate while preserving order.
+  return Array.from(new Set(out));
 }

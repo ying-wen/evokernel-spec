@@ -6,7 +6,54 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.28** — wire cross-arch verify EXECUTION (run technique reference impl on its native arch via SSH remote-target + run new impl on target arch + diff tensors with v3.27's `tensor-diff` utility against the technique's `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts (closes Steps 9-10 of `docs/RUNBOOK-SAGEATTENTION-910B.md`); `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers (closes 4/6 → 6/6 vendor coverage).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.29** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; HF auto-import populating `data/models/` so v3.28's diffusion classifier path can find a real agent-context bundle (currently falls back to skeleton mode for any model not in the corpus).
+
+---
+
+## [3.28.0] — 2026-05-04 — Real-deployment fixes from the v3.27 RUNBOOK runs
+
+**Theme**: stop the harness from silently no-op'ing on the runbook's central scenario. Two independent v3.27 RUNBOOK attempts (Codex + Claude Code) against a real Ascend 910B both produced `outcome: "shipped"` and `kernel_gaps_count: 0` *without generating any Ascend-C kernels* — because the harness misclassified CogVideoX1.5-5B (a video diffusion model) as a dense LLM, missed the SageAttention port_target due to an arch-label mismatch, and hardcoded the agent-learning outcome to `shipped` regardless of whether anything ran. v3.28 closes those eight findings.
+
+See `docs/superpowers/specs/2026-05-03-v3-28-real-deployment-fixes.md` for the full spec.
+
+### F1 — HuggingFace config-layout fallback for Diffusers / multi-component repos
+
+`fetchHFConfig` in `scripts/agent-deploy/index.ts` now probes a priority list of layouts: root `config.json` (transformers), `model_index.json` + component dispatch (Diffusers — follows `transformer` / `unet` / `prior` / `decoder` / `denoiser`), and `model/config.json` / `transformer/config.json` subfolder fallbacks. The returned config carries `_evokernel_layout` + `_evokernel_diffusers_component` annotations so downstream classifiers route correctly. Pre-v3.28 the runbook's Step 3 with `--model zai-org/CogVideoX1.5-5B` 404'd at the first stage.
+
+### F3 — Classifier registry + Diffusers branch (no more `dense-llm-small` for video models)
+
+`detectModelKind` is a registry of detection signals (priority-ordered: `_class_name` patterns → `model_type` → `architectures` regex). Diffusion-video / diffusion-image / Whisper / VLM / encoder-decoder / embedding all route into the right field-extraction branches. `classifyDiffusersModel` reads `attention_head_dim × num_attention_heads` for the real DiT `d_model` instead of using `text_embed_dim` (the *text encoder* dim). CogVideoX1.5-5B now correctly reports `archetype: diffusion`, `head_dim: 64` (was 85 — `4096 / 48`), `num_layers: 42`, `total_params_b ≈ 5`. `model_kind` discriminator on `ParsedModel` lets downstream perf models avoid emitting tok/s for video models.
+
+### F4 — Technique arch_family candidate-list matching
+
+`HardwareSchema` adds an optional `microarchitecture: Slug` field. Hardware YAMLs declare it explicitly: `ascend-910b → ascend-da-vinci-3`, `ascend-910c → ascend-da-vinci-3`, `ascend-910d → ascend-da-vinci-5`, `ascend-950 → ascend-da-vinci-6`. `describeTechniquePortStatus` now accepts an array of candidate arch_family labels (microarch first → generation → truncated prefix → vendor) and returns the first match. `deriveArchCandidates` is the pure helper that builds the list. Pre-v3.28, `arch_family` was `hw.generation.split('-')[0]` (= `ascend` for `ascend-910-gen2`) — missing the `ascend-da-vinci-3` planned port_target on `data/techniques/sageattention.yaml`.
+
+### F6 — `--technique` forces port attempt when port_target.status is `planned` / `experimental`
+
+When `--technique <id>` matches a port_target with status `planned` or `experimental`, the agent injects virtual gaps from `technique.applicable_to.ops` into the productized loop's gap list. Pre-v3.28 the loop was gated on generic coverage-matrix gaps only — for any technique × hardware where the matrix said "library covered" (common on Ascend, since CANN ships `aclnnFlashAttention`), the productized loop never ran even though `--technique sageattention` explicitly asked for a port.
+
+### F8 — Honest agent-learning outcome (no more `shipped` for unrun deployments)
+
+`AgentLearningStubInput` gains an `execution_state` field (`planning-only` | `kernels-generated` | `remote-completed`). `generateAgentLearningStub` derives `outcome` from this. `AgentLearningOutcomeSchema` adds two new enum values; existing `data/agent-learnings/` entries are unaffected. Pre-v3.28 the stub hardcoded `outcome: shipped` for runs where no `--execute` ever happened — a corpus-corruption hazard.
+
+### F9 — Executor `<local>` placeholder substitution
+
+`executeRemoteRun` materializes kernels into a tmpdir and substitutes `<local>` → tmpdir before invoking bash. Pre-v3.28 bash interpreted `<local>` as input redirection, halting scp-up with `bash: local: No such file or directory`. Regression test in `scripts/tests/v3-28-execute-substitution.test.ts`.
+
+### F10 — Ascend `build.sh` CANN-version compatibility
+
+`scripts/agent-deploy/remote/ascend/build.sh` now: parses `npu-smi info` for real chip names like `910B1`; maps to `--cce-aicore-arch=<dav-c220-cube|...>` (the real flag); drops the fictional `ccel` fallback; adds `g++` fallback for plain `.cpp` skeleton kernels and a stub `./bench` last-resort so the pipeline produces a deterministic non-failure for downstream profile/scp-down steps.
+
+### F11 — RUNBOOK Step 9 prose pinning
+
+Step 9 install instructions are now version-pinned. Pre-v3.28 unpinned `pip install torch torch_npu` on aarch64 + Python 3.13 resolved `torch==2.11.0` and pulled NVIDIA CUDA dependencies — wrong for Ascend. v3.28 pins Python 3.9 + a matched torch / torch_npu pair per CANN version.
+
+### Tests + acceptance
+
+- 22 new unit tests in `scripts/tests/v3-28-real-deployment-fixes.test.ts` covering F1, F3, F4, F6, F8 (network test gated on `EVOKERNEL_NET_TEST=1`).
+- 7 new tests in `scripts/tests/v3-28-execute-substitution.test.ts` for F9.
+- All v3.28-spec acceptance assertions pass against the runbook's Step 3: `archetype: diffusion`, `target_arch_family: ascend-da-vinci-3`, `kernel_gaps_count: 3`, `kernels-generated/*_ascend-da-vinci-3.cce` present, `outcome: kernels-generated` (not `shipped`).
+- Test suite total: schemas 41 + scripts 275 + web 49 = **365 tests passing**, 1 skipped (network gate).
 
 ---
 

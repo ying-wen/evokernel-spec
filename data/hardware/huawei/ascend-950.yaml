@@ -2,6 +2,7 @@ id: ascend-950
 name: 昇腾 950
 vendor: huawei
 generation: ascend-950-gen1
+microarchitecture: ascend-da-vinci-6   # v3.28 (F4): announced next-gen DaVinci variant
 status: announced
 release_year: 2026
 form_factor: oam

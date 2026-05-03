@@ -273,24 +273,34 @@ export function formatPlanForDryRun(plan: RemoteExecutionPlan): string {
 
 /**
  * Real execution. Runs each plan step in order, halts on first error.
- * NOT yet wired into index.ts CLI by default — v3.26 ships with dry-run
- * as the only public entry to give users time to validate target.yaml
- * config + per-vendor build scripts before destructive remote runs.
  *
- * v3.27 will wire `--execute` through to index.ts for end-to-end flows.
+ * v3.28 fix (Finding #9): materialize kernel `content` into a real local
+ * tmpdir at exec time, then substitute the `<local>` placeholder in each
+ * command with that tmpdir before invoking bash. Pre-v3.28 the executor
+ * passed `<local>` verbatim to bash → bash interpreted it as input
+ * redirection → scp-up always failed with "bash: local: No such file or
+ * directory". The plan's `<local>` is kept as a placeholder for clean
+ * dry-run output; substitution happens here.
  */
 export async function executeRemoteRun(plan: RemoteExecutionPlan): Promise<{
   exit_code: number;
   step: string;
   output: string;
 }> {
-  // Ensure local output dir exists
   await mkdir(path.dirname(plan.local_profile_output), { recursive: true });
 
+  const kernelTmpDir = await mkdtempSafe(path.join(os.tmpdir(), 'evokernel-kernels-'));
+  for (const f of plan.kernel_files) {
+    await writeFile(path.join(kernelTmpDir, f.filename), f.content);
+  }
+
+  const substitute = (raw: string): string => raw.replace(/<local>/g, kernelTmpDir);
+
   for (const cmd of plan.commands) {
+    const expanded = substitute(cmd.cmd);
     process.stderr.write(`[remote-target] ${cmd.description}\n`);
-    process.stderr.write(`  $ ${cmd.cmd}\n`);
-    const result = spawnSync('bash', ['-c', cmd.cmd], {
+    process.stderr.write(`  $ ${expanded}\n`);
+    const result = spawnSync('bash', ['-c', expanded], {
       stdio: ['ignore', 'pipe', 'pipe'],
       encoding: 'utf-8',
       timeout: 5 * 60 * 1000,
@@ -304,6 +314,15 @@ export async function executeRemoteRun(plan: RemoteExecutionPlan): Promise<{
     }
   }
   return { exit_code: 0, step: 'all', output: 'All steps completed successfully.' };
+}
+
+/**
+ * Tiny `mkdtemp` wrapper. We don't import `mkdtemp` at module scope to keep
+ * the surface narrow; this matches the file's prefer-explicit-imports style.
+ */
+async function mkdtempSafe(prefix: string): Promise<string> {
+  const { mkdtemp } = await import('node:fs/promises');
+  return mkdtemp(prefix);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

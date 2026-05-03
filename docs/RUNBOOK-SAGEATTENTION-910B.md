@@ -234,20 +234,45 @@ The auto-PR clusters identify emergent patterns (e.g. "Ascend Cube unit underuti
 
 This is the "actually use the model" step. Even if Step 6's port has issues, you can still serve CogVideoX1.5-5B with the *baseline* attention (CANN's built-in `aclnnFlashAttention` or PyTorch fallback) and have a working serving baseline to A/B against future SageAttention port iterations.
 
+**v3.28 (F11)**: previous unpinned `pip install torch torch_npu ...` on aarch64 default Python 3.13 resolved `torch==2.11.0` and pulled NVIDIA CUDA wheels — completely wrong for Ascend. Use pinned Python 3.9 (the CANN-tested version) and a matched torch / torch_npu pair.
+
 ```bash
 # SSH to the 910B
 ssh my-ascend-910b
 
-# (on the 910B) Set up a Python venv + install torch_npu + diffusers
-python -m venv ~/cogvx-venv
+# (on the 910B) — find your CANN version first
+cat /usr/local/Ascend/ascend-toolkit/latest/version.info 2>/dev/null | head -3
+#   Output like: Version=8.0.RC1.alpha003
+
+# Pick torch / torch_npu versions per the CANN compatibility matrix:
+#   CANN 7.0.x        → torch==2.1.0 torch_npu==2.1.0.post3
+#   CANN 8.0.RC1+     → torch==2.4.0 torch_npu==2.4.0.post2
+#   CANN 8.0.0.alpha+ → torch==2.5.1 torch_npu==2.5.1
+#   (See https://gitee.com/ascend/pytorch for the official table.)
+
+# Use Python 3.9 explicitly — torch_npu wheels are not built for 3.13.
+python3.9 -m venv ~/cogvx-venv
 source ~/cogvx-venv/bin/activate
-pip install torch torch_npu diffusers accelerate transformers
-# (Adjust torch versions per your CANN version's compatibility matrix)
+python -m pip install --upgrade pip
+
+# Install — pin both torch and torch_npu together. Use a CN-region mirror
+# if your 910B is in mainland China.
+PIP_INDEX="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"  # or pypi.org
+pip install -i "$PIP_INDEX" \
+  "torch==2.4.0" \
+  "torch_npu==2.4.0.post2" \
+  "diffusers>=0.32" \
+  "accelerate>=1.0" \
+  "transformers>=4.46"
+
+# Verify torch_npu actually loaded
+python -c "import torch, torch_npu; print(torch.__version__); print(torch.npu.is_available())"
+#   Expected: 2.4.0  /  True
 
 # (on the 910B) Download + run CogVideoX1.5-5B
 python -c "
 from diffusers import CogVideoXPipeline
-import torch
+import torch, torch_npu
 pipe = CogVideoXPipeline.from_pretrained(
     'zai-org/CogVideoX1.5-5B',
     torch_dtype=torch.bfloat16
@@ -258,9 +283,10 @@ print(f'Generated {len(video)} frames')
 ```
 
 Expected first-run challenges (Ascend-specific):
-- `torch_npu` version mismatch with `diffusers` — pin compatible versions per your CANN
-- Some diffusers ops may fall back to CPU on Ascend — `npu-smi info` and check utilization during inference
-- Memory pressure: CogVideoX1.5-5B is 5B params + a video has many timesteps; 64GB HBM may be tight at fp16 + long video
+- `torch_npu` wheels are Python-version-specific (3.9 / 3.10 / 3.11 only as of 2026-05). Default-system Python 3.12+ will fail to find a wheel.
+- Some diffusers ops may fall back to CPU on Ascend — `npu-smi info` and check utilization during inference.
+- Memory pressure: CogVideoX1.5-5B at bf16 + 81 frames + 50 steps fits in 64 GB HBM but tightly; reduce `sample_frames` (config) or `num_inference_steps` if you OOM.
+- China-region 910Bs without internet: pre-bake a wheelhouse on a build host with `pip download -d wheelhouse torch==2.4.0 torch_npu==2.4.0.post2 ...` then `pip install --no-index --find-links wheelhouse <pkgs>` on the 910B.
 
 ## Step 10 — Test from local
 

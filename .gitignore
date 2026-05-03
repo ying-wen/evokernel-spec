@@ -29,3 +29,9 @@ agent-watch-output/
 # any contributor who accidentally drops a real config in the repo tree.)
 **/targets.yaml
 !**/targets.yaml.example
+
+# v3.28 -- per-deploy output directories created by `agent:deploy --output`.
+# These contain run logs that may include redacted-but-not-redacted-enough
+# remote-host references plus per-deploy artifacts that should not be
+# checked in. The default RUNBOOK examples use `./out/<name>/`.
+out/

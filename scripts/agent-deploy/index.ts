@@ -45,6 +45,7 @@ import { fetchBundle, BundleNotFoundError, resolveBundleId } from './fetch-bundl
 import {
   loadTechnique,
   describeTechniquePortStatus,
+  deriveArchCandidates,
   TechniqueNotFoundError,
   type TechniquePortContext,
 } from './load-technique';
@@ -65,8 +66,8 @@ import { pickLanguageForArch } from './llm-orchestrator';
 // Types
 // ============================================================
 
-interface HFConfig {
-  architectures: string[];
+export interface HFConfig {
+  architectures?: string[];
   hidden_size?: number;
   num_attention_heads?: number;
   num_key_value_heads?: number;
@@ -82,6 +83,20 @@ interface HFConfig {
   // DeepSeek-specific
   q_lora_rank?: number;
   kv_lora_rank?: number;
+  // Diffusers-specific (v3.28 / F3)
+  _class_name?: string;
+  _diffusers_version?: string;
+  // Diffusers transformer fields (CogVideoX, FluxTransformer, SD3, etc.)
+  attention_head_dim?: number;
+  num_layers?: number;
+  num_attention_heads_diffusers?: number;
+  text_embed_dim?: number;
+  sample_frames?: number;
+  // v3.28 — annotations stamped by fetchHFConfig describing where the
+  // config came from. Not raw HF fields.
+  _evokernel_layout?: 'transformers-root' | 'diffusers-component' | 'transformers-subfolder';
+  _evokernel_diffusers_component?: string;
+  _evokernel_diffusers_root?: unknown;
   // Misc
   [k: string]: unknown;
 }
@@ -109,7 +124,50 @@ interface ParsedModel {
   vocab_size: number;
   max_context: number;
   raw: HFConfig;
+  /**
+   * v3.28 (F3) — populated when the model is a non-LLM type so the
+   * planner / perf model knows it can't use tok/s arithmetic. The kind
+   * registry (`detectModelKind`) picks the value.
+   *
+   * `unknown` is the safe default for anything we don't recognise yet —
+   * downstream code treats it like 'llm-causal' but logs a warning so
+   * future detector additions are guided by real data.
+   */
+  model_kind: ModelKind;
+  /**
+   * v3.28 (F3) — diffusion-specific metadata. Only set when
+   * `model_kind` ∈ {'diffusion-video','diffusion-image','diffusion-3d'}.
+   * Lets the perf model emit frames/s instead of tok/s and the plan
+   * synthesizer pick a diffusion-aware engine (CogVideoXPipeline,
+   * FluxPipeline, etc.) instead of an LLM serving engine.
+   */
+  diffusion_meta?: {
+    class_name: string;
+    diffusers_version?: string;
+    sample_frames?: number;
+    sample_height?: number;
+    sample_width?: number;
+    in_channels?: number;
+    text_embed_dim?: number;
+  };
 }
+
+/**
+ * v3.28 (F3) — model-kind discriminator. Drives the classifier into
+ * the right field-extraction branch. Adding a new model family means
+ * adding a new entry to `MODEL_KIND_DETECTORS` + (if needed) extending
+ * the union type — both in this file.
+ */
+type ModelKind =
+  | 'llm-causal'
+  | 'llm-encoder-decoder'
+  | 'diffusion-video'
+  | 'diffusion-image'
+  | 'diffusion-3d'
+  | 'asr-whisper'
+  | 'vlm'
+  | 'embedding'
+  | 'unknown';
 
 interface DeploymentPlan {
   input: {
@@ -211,21 +269,106 @@ function profilerEnvVarFor(vendor: string): string | null {
   }
 }
 
-async function fetchHFConfig(hfId: string, localPath?: string): Promise<HFConfig> {
+/**
+ * v3.28 (F1) — HuggingFace repo layouts vary:
+ *
+ *   • Standard transformers (LLMs, encoders, ViT): `config.json` at root.
+ *   • Diffusers (CogVideoX, FLUX, SD3, Mochi, etc.): no root `config.json`;
+ *     `model_index.json` at root + per-component subfolder configs
+ *     (`transformer/config.json`, `unet/config.json`, `vae/config.json`,
+ *     `text_encoder/config.json`).
+ *   • Sentence-Transformers / TIMM / GGUF / MLX: their own conventions
+ *     not yet covered here, but the function logs which layouts were
+ *     attempted so users know what to fall back to.
+ *
+ * Strategy: probe the repo in priority order, return the first hit, and
+ * stamp the result with `_evokernel_layout_source` so the classifier can
+ * route into the right archetype branch (F3).
+ */
+const HF_LAYOUT_PROBES: ReadonlyArray<{
+  /** Path within the repo to GET (with optional component dispatch). */
+  path: string;
+  /** Layout signal stamped on the returned config. */
+  layout: 'transformers-root' | 'diffusers-component' | 'transformers-subfolder';
+  /** Diffusers component to follow when this is `model_index.json`. */
+  follow_components?: ReadonlyArray<string>;
+}> = [
+  { path: 'config.json', layout: 'transformers-root' },
+  // Diffusers: read model_index then follow `transformer` (DiTs / video),
+  // `unet` (SD-style image), or other component classes for first hit.
+  { path: 'model_index.json', layout: 'diffusers-component',
+    follow_components: ['transformer', 'unet', 'prior', 'decoder', 'denoiser'] },
+  // Last-ditch: some repos place an LLM-style config in a subfolder
+  { path: 'model/config.json', layout: 'transformers-subfolder' },
+  { path: 'transformer/config.json', layout: 'transformers-subfolder' },
+];
+
+async function fetchUrlAsJson(url: string): Promise<unknown | null> {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchHFConfig(hfId: string, localPath?: string): Promise<HFConfig> {
   if (localPath && existsSync(localPath)) {
     console.error(`  Reading config from ${localPath}`);
-    return JSON.parse(await readFile(localPath, 'utf-8'));
+    const cfg = JSON.parse(await readFile(localPath, 'utf-8'));
+    // Treat local files as opaque — caller already knows what they passed.
+    return cfg;
   }
-  const url = `https://huggingface.co/${hfId}/raw/main/config.json`;
-  console.error(`  Fetching ${url}`);
-  const r = await fetch(url);
-  if (!r.ok) {
-    throw new Error(
-      `Failed to fetch HF config (HTTP ${r.status}). Provide --config /path/to/config.json for offline mode, ` +
-      `or check that the model is public and the id is correct.`
-    );
+
+  const tried: string[] = [];
+  const baseUrl = `https://huggingface.co/${hfId}/raw/main`;
+
+  for (const probe of HF_LAYOUT_PROBES) {
+    const url = `${baseUrl}/${probe.path}`;
+    tried.push(probe.path);
+    const json = await fetchUrlAsJson(url);
+    if (!json) continue;
+    console.error(`  Fetched ${url} (layout: ${probe.layout})`);
+
+    if (probe.layout === 'diffusers-component' && probe.follow_components) {
+      // model_index.json maps component name → [class, version_or_path]. Pick
+      // the first present component from our priority list and follow to
+      // its config.json. Stamp the resulting config with the diffusers
+      // class so F3 can route correctly.
+      const idx = json as Record<string, unknown>;
+      for (const comp of probe.follow_components) {
+        if (!(comp in idx)) continue;
+        const compUrl = `${baseUrl}/${comp}/config.json`;
+        tried.push(`${comp}/config.json`);
+        const compCfg = await fetchUrlAsJson(compUrl);
+        if (!compCfg) continue;
+        console.error(`  Fetched ${compUrl} (diffusers ${comp})`);
+        return {
+          ...(compCfg as Record<string, unknown>),
+          // Annotations the classifier reads (F3); not present in the raw
+          // file but useful for routing without re-fetching.
+          _evokernel_layout: 'diffusers-component',
+          _evokernel_diffusers_component: comp,
+          _evokernel_diffusers_root: idx,
+        } as HFConfig;
+      }
+      // model_index found but no follow-component existed; keep probing
+      continue;
+    }
+
+    return {
+      ...(json as Record<string, unknown>),
+      _evokernel_layout: probe.layout,
+    } as HFConfig;
   }
-  return await r.json();
+
+  throw new Error(
+    `Failed to fetch HF config for "${hfId}". Tried layouts: ${tried.join(', ')}.\n` +
+    `  • For Diffusers repos: ensure model_index.json + transformer/unet/prior/config.json exist.\n` +
+    `  • For private/gated repos: pass --config /path/to/local-config.json.\n` +
+    `  • For non-HF or custom repos: download config.json locally and pass --config.`
+  );
 }
 
 /**
@@ -271,7 +414,141 @@ async function loadLocalModelConfig(localDir: string): Promise<{ id: string; cfg
   );
 }
 
-function classifyModel(hfId: string, cfg: HFConfig): ParsedModel {
+/**
+ * v3.28 (F3) — registry of detection signals → model kinds. Order matters:
+ * earlier entries win on ambiguous configs. Each entry returns true when
+ * the config matches; the registry's first-match-wins design keeps the
+ * extension cost low (one `match` function per new family).
+ *
+ * Why a registry instead of nested if/else:
+ *   • F3 root cause was a single hardcoded LLM branch with no extension
+ *     point. Adding Diffusers / Whisper / VLM each required reading +
+ *     modifying classifyModel(). With a registry, a new model family is
+ *     one block of localised code.
+ *   • The order encodes priority: stronger signals (`_class_name`) checked
+ *     before weaker ones (`architectures` regex) to avoid false positives.
+ */
+const MODEL_KIND_DETECTORS: ReadonlyArray<{
+  match: (cfg: HFConfig) => boolean;
+  kind: ModelKind;
+  reason: string;
+}> = [
+  // Diffusers — strongest signal first
+  {
+    match: (c) => /Transformer3D|CogVideoX|HunyuanVideo|Mochi|Wan|StepVideo|LTXVideo/i.test(String(c._class_name ?? '')),
+    kind: 'diffusion-video',
+    reason: '_class_name matches video diffusion pattern',
+  },
+  {
+    match: (c) => /FluxTransformer|StableDiffusion[1-9]?|SD3|PixArt|Hidream|Lumina|AuraFlow|Sana/i.test(String(c._class_name ?? '')),
+    kind: 'diffusion-image',
+    reason: '_class_name matches image diffusion pattern',
+  },
+  {
+    match: (c) => Boolean(c._diffusers_version) && !c.architectures,
+    kind: 'diffusion-image',
+    reason: '_diffusers_version present without LLM architectures (fallback diffuser)',
+  },
+  // Whisper / ASR
+  {
+    match: (c) => c.model_type === 'whisper',
+    kind: 'asr-whisper',
+    reason: 'model_type === "whisper"',
+  },
+  // VLMs
+  {
+    match: (c) => Array.isArray(c.architectures) && c.architectures.some((a) => /Vision|VLM|MultiModal|Llava|Qwen.*VL/i.test(a)),
+    kind: 'vlm',
+    reason: 'architectures includes vision/multimodal class',
+  },
+  // Encoder-decoder LLMs
+  {
+    match: (c) => Array.isArray(c.architectures) && c.architectures.some((a) => /Seq2SeqLM|EncoderDecoder|T5|Bart/i.test(a)),
+    kind: 'llm-encoder-decoder',
+    reason: 'architectures includes seq2seq class',
+  },
+  // Embedding models
+  {
+    match: (c) => Array.isArray(c.architectures) && c.architectures.some((a) => /SentenceEmbedding|XLMRoberta.*Sentence|BgeM3/i.test(a)),
+    kind: 'embedding',
+    reason: 'architectures includes embedding class',
+  },
+  // Default LLM (causal) — last resort match for any architectures field
+  {
+    match: (c) => Array.isArray(c.architectures) && c.architectures.length > 0,
+    kind: 'llm-causal',
+    reason: 'architectures non-empty (default LLM-causal)',
+  },
+];
+
+export function detectModelKind(cfg: HFConfig): { kind: ModelKind; reason: string } {
+  for (const d of MODEL_KIND_DETECTORS) {
+    if (d.match(cfg)) return { kind: d.kind, reason: d.reason };
+  }
+  return { kind: 'unknown', reason: 'no detector matched (config has no _class_name, model_type, or architectures field)' };
+}
+
+/**
+ * v3.28 (F3) — Diffusers config field extraction. Diffusers configs use
+ * `attention_head_dim × num_attention_heads` for the transformer's
+ * d_model, NOT `hidden_size`. The pre-v3.28 classifier was reading
+ * `hidden_size` (often `text_embed_dim`, which is the *text encoder*'s
+ * dim) and dividing by `num_attention_heads`, producing fake head_dims
+ * like 85 for CogVideoX (real: 64).
+ */
+function classifyDiffusersModel(hfId: string, cfg: HFConfig, kind: ModelKind): ParsedModel {
+  const head_dim = (cfg.attention_head_dim as number | undefined) ?? 64;
+  const num_heads = (cfg.num_attention_heads as number | undefined) ?? 16;
+  const d_model = head_dim * num_heads;
+  const num_layers = (cfg.num_layers as number | undefined) ?? 28;
+  // Diffusion DiTs typically have ffn ~ 4×d_model
+  const ffn_intermediate = d_model * 4;
+  // Param count: roughly 12 × d_model² × num_layers + text-encoder + VAE
+  // (we approximate; the exact figure isn't load-bearing for feasibility,
+  // and the planner emits a `diffusion_meta` so the perf model can do better)
+  const params_per_layer = 12 * d_model * d_model;
+  const total_params = params_per_layer * num_layers;
+  const total_b = total_params / 1e9;
+
+  return {
+    hf_id: hfId,
+    archetype: 'diffusion',
+    total_params_b: total_b,
+    active_params_b: total_b,
+    attention_variant: 'mha',
+    num_layers,
+    d_model,
+    num_heads,
+    num_kv_heads: num_heads,
+    head_dim,
+    ffn_intermediate,
+    num_experts: 1,
+    top_k_experts: 1,
+    vocab_size: 0, // Diffusers don't have a token vocab
+    max_context: (cfg.max_text_seq_length as number | undefined) ?? 0,
+    raw: cfg,
+    model_kind: kind,
+    diffusion_meta: {
+      class_name: String(cfg._class_name ?? 'UnknownDiffuser'),
+      diffusers_version: cfg._diffusers_version,
+      sample_frames: cfg.sample_frames as number | undefined,
+      sample_height: cfg.sample_height as number | undefined,
+      sample_width: cfg.sample_width as number | undefined,
+      in_channels: cfg.in_channels as number | undefined,
+      text_embed_dim: cfg.text_embed_dim as number | undefined,
+    },
+  };
+}
+
+export function classifyModel(hfId: string, cfg: HFConfig): ParsedModel {
+  // v3.28 (F3) — route on detected kind. Diffusion / non-LLM paths get
+  // their own field extractors so we don't compute fake `head_dim` from
+  // an LLM-shaped config layout.
+  const detection = detectModelKind(cfg);
+  if (detection.kind === 'diffusion-video' || detection.kind === 'diffusion-image' || detection.kind === 'diffusion-3d') {
+    return classifyDiffusersModel(hfId, cfg, detection.kind);
+  }
+  // Existing LLM path below.
   const d_model = cfg.hidden_size ?? 4096;
   const num_heads = cfg.num_attention_heads ?? 32;
   const num_kv_heads = cfg.num_key_value_heads ?? num_heads;
@@ -336,7 +613,11 @@ function classifyModel(hfId: string, cfg: HFConfig): ParsedModel {
     top_k_experts: top_k,
     vocab_size: vocab,
     max_context: max_ctx,
-    raw: cfg
+    raw: cfg,
+    // v3.28 (F3) — record the detected model kind so downstream consumers
+    // (perf model, plan synthesizer, agent-learning emitter) know they're
+    // dealing with a real LLM and not a misclassified diffuser.
+    model_kind: detection.kind === 'unknown' ? 'llm-causal' : detection.kind,
   };
 }
 
@@ -731,6 +1012,23 @@ interface AgentLearningStubInput {
   kernel_gaps: Array<{ op: string; missing_on: string; suggestion: string }>;
   predicted_decode_tok_s: number;
   predicted_cost_per_m: number;
+  /**
+   * v3.28 (F8) — execution_state captures whether the run actually
+   * deployed anything. Pre-v3.28 the stub hardcoded `outcome: shipped`
+   * which falsely claimed success on planning-only runs. The runbook
+   * now writes one of these values based on what actually happened:
+   *
+   *   'planning-only'     — Stages 1-5 ran, no kernels generated (no
+   *                         --use-llm-orchestrator or no gaps detected),
+   *                         no remote attempt
+   *   'kernels-generated' — productized loop emitted kernels-generated/
+   *                         but --execute did not run or halted pre-build
+   *   'remote-completed'  — --execute completed all 7 SSH steps green
+   *
+   * Only `remote-completed` produces `outcome: shipped`. The first two
+   * map to the new enum values added in schemas/agent-learning.ts.
+   */
+  execution_state?: 'planning-only' | 'kernels-generated' | 'remote-completed';
 }
 
 /**
@@ -762,12 +1060,24 @@ function generateAgentLearningStub(input: AgentLearningStubInput): string {
   const hwSlug = input.hardware_id.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   const id = `${modelSlug}-on-${hwSlug}-${date}`;
 
+  // v3.28 (F8) — only claim "success-pattern" when the run actually
+  // succeeded end-to-end. Planning-only and kernels-generated runs get a
+  // neutral observation that flags them as "deployment not attempted yet".
+  const state = input.execution_state ?? 'planning-only';
   const observations = input.kernel_gaps.length === 0
-    ? `  - kind: success-pattern
+    ? (state === 'remote-completed'
+        ? `  - kind: success-pattern
     description: |
       All required ops have library coverage on ${input.arch_family}. Agent
       planning succeeded without kernel-codegen. Update with post-deploy
       perf numbers to either confirm prediction or add a perf-cliff observation.`
+        : `  - kind: config-drift
+    description: |
+      Planning stage ran but no kernel-codegen was triggered and no remote
+      --execute completed. This stub is informational only; do NOT move into
+      data/agent-learnings/ until the deployment actually ran. If the user
+      passed --technique <id> and this still shows zero gaps, that's likely
+      a F4/F6 misroute (technique arch mismatch / port-target not honored).`)
     : input.kernel_gaps
         .map(
           (g) => `  - kind: kernel-gap
@@ -783,14 +1093,28 @@ function generateAgentLearningStub(input: AgentLearningStubInput): string {
         )
         .join('\n');
 
+  // v3.28 (F8) — derive `outcome` from execution_state. The pre-v3.28
+  // hardcoded `outcome: shipped` was a corpus-corruption hazard: every
+  // run looked successful regardless of whether anything ran on a real
+  // device. The new mapping is honest about partial states.
+  const outcomeFromState: Record<NonNullable<typeof input.execution_state>, string> = {
+    'planning-only': 'planning-only',
+    'kernels-generated': 'kernels-generated',
+    'remote-completed': 'shipped',
+  };
+  const outcome = outcomeFromState[state];
+
   return `id: ${id}
 agent_run_at: '${new Date().toISOString()}'
 model_id: ${input.model_id}
 hardware_id: ${input.hardware_id}
 engine_id: ${input.engine_id}
-# TODO(reviewer): set outcome after running the deployment
-# Options: shipped | partial | kernel-gap-blocked | compile-failed | precision-regression | oom-or-fits-failure
-outcome: shipped
+# v3.28: outcome reflects actual execution_state ("${state}").
+# Before moving to data/agent-learnings/, run the deployment + update to
+# one of: shipped | partial | kernel-gap-blocked | compile-failed |
+# precision-regression | oom-or-fits-failure | planning-only |
+# kernels-generated
+outcome: ${outcome}
 
 observations:
 ${observations}
@@ -1007,10 +1331,20 @@ Example (v3 productized real-code mode):
   console.error(`  Cards: ${recommended.card_count}`);
   console.error(`  Expected: ${recommended.expected_decode_tok_s_per_card.toFixed(0)} tok/s/card decode, ~$${recommended.estimated_dollars_per_m_tokens.toFixed(3)}/M tok\n`);
 
-  // Compose plan
-  const arch_family = hw.generation
-    ? (hw.generation.split('-')[0])
-    : args.hardware.split('-')[0];
+  // v3.28 (F4) — derive a candidate list of arch_family labels rather
+  // than committing to a single string. The resolver below tries each
+  // in order so technique YAMLs that use microarchitecture-level labels
+  // (`ascend-da-vinci-3`, `cdna3`) still match hardware that carries
+  // generation-level labels (`ascend-910-gen2`, `cdna3-mi300`).
+  const arch_candidates = deriveArchCandidates({
+    microarchitecture: (hw as { microarchitecture?: string }).microarchitecture,
+    generation: hw.generation,
+    vendor: (hw as { vendor?: string }).vendor,
+  });
+  // For codepaths that still expect a single string (coverage matrix
+  // lookups, kernel-codegen), use the first candidate. Microarch is
+  // preferred when present; falls back to truncated generation.
+  const arch_family = arch_candidates[0] ?? args.hardware.split('-')[0];
   const plan: DeploymentPlan = {
     input: {
       model: args.model,
@@ -1079,7 +1413,10 @@ Example (v3 productized real-code mode):
   if (args['technique']) {
     try {
       const technique = await loadTechnique(args['technique']);
-      techniqueContext = describeTechniquePortStatus(technique, arch_family);
+      // v3.28 (F4) — pass the full candidate list so techniques that label
+      // their port_targets at microarchitecture granularity match hardware
+      // labeled at generation granularity, and vice versa.
+      techniqueContext = describeTechniquePortStatus(technique, arch_candidates);
       console.error(`🧪 Stage 4.5 — technique loaded: ${technique.name} (${technique.technique_kind})`);
       console.error(`   ${techniqueContext.summary}`);
       console.error('');
@@ -1090,6 +1427,47 @@ Example (v3 productized real-code mode):
         process.exit(1);
       }
       throw e;
+    }
+  }
+
+  // v3.28 (F6) — when `--technique <id>` is passed AND the matched
+  // port_target has status `planned` or `experimental`, synthesize virtual
+  // gaps from the technique's `applicable_to.ops` so the productized
+  // loop runs even if generic coverage matrix says "all ops covered by
+  // libraries". Pre-v3.28 the runbook's central scenario silently
+  // no-op'd here when CogVideoX × Ascend reported zero gaps.
+  //
+  // Generality: works for ANY technique × ANY hardware whose port_target
+  // status is `planned`/`experimental`. Doesn't trigger for techniques
+  // that already have a `production-ready` port (no need to re-generate)
+  // or `reference-impl` (existing impl is the reference).
+  if (
+    techniqueContext?.matched_port_target &&
+    (techniqueContext.matched_port_target.status === 'planned' ||
+      techniqueContext.matched_port_target.status === 'experimental') &&
+    techniqueContext.technique.applicable_to?.ops?.length
+  ) {
+    const techniqueOps = techniqueContext.technique.applicable_to.ops;
+    const existingGapOps = new Set(gapsReport.gaps.map((g) => g.op));
+    let injected = 0;
+    for (const op of techniqueOps) {
+      if (existingGapOps.has(op)) continue;
+      gapsReport.gaps.push({
+        op,
+        missing_on: techniqueContext.target_arch_family,
+        suggestion:
+          `Technique-driven port: ${techniqueContext.technique.name} on ${techniqueContext.target_arch_family} ` +
+          `(port_target.status=${techniqueContext.matched_port_target.status}). ` +
+          `Generate from technique reference impl + corpus DSL examples.`,
+      });
+      injected++;
+    }
+    if (injected > 0) {
+      console.error(
+        `   ➕ Injected ${injected} virtual gap${injected === 1 ? '' : 's'} from technique.applicable_to.ops ` +
+          `(F6: --technique forcing port attempt for ${techniqueContext.matched_port_target.status} target)`,
+      );
+      plan.kernel_gaps = gapsReport.gaps;
     }
   }
 
@@ -1207,6 +1585,16 @@ Example (v3 productized real-code mode):
   // observations, then (c) move the YAML into data/agent-learnings/ to land in
   // the corpus. This closes the spec → plan → dev → test → feedback → spec cycle.
   console.error('📚 Stage 8 — emitting agent-learning stub for knowledge feedback...');
+  // v3.28 (F8) — derive execution_state from what actually happened in
+  // the previous stages. `--execute` end-to-end success is recorded
+  // separately in remote-target.ts and isn't yet plumbed back here, so
+  // for now Stage 8 distinguishes "no kernels" vs "kernels generated".
+  // (`remote-completed` is reserved for v3.29 when we plumb the
+  // executeRemoteRun result back into this code path.)
+  const execution_state: AgentLearningStubInput['execution_state'] =
+    productizedResults.length > 0 || generatedKernels.length > 0
+      ? 'kernels-generated'
+      : 'planning-only';
   const learningStub = generateAgentLearningStub({
     model_id: args.model,
     hardware_id: args.hardware,
@@ -1215,6 +1603,7 @@ Example (v3 productized real-code mode):
     kernel_gaps: gapsReport.gaps,
     predicted_decode_tok_s: recommended.expected_decode_tok_s_per_card,
     predicted_cost_per_m: recommended.estimated_dollars_per_m_tokens,
+    execution_state,
   });
   console.error('  agent-learning stub ready (1 entry)\n');
 
@@ -1496,7 +1885,21 @@ Example (v3 productized real-code mode):
   }
 }
 
-main().catch((err) => {
-  console.error('\n✗ agent-deploy failed:', err.message);
-  process.exit(1);
-});
+// v3.28 — only run main() when this file is the entry point. Tests
+// import classifyModel/detectModelKind/fetchHFConfig directly and would
+// previously trigger main() (which calls process.exit on missing args).
+//
+// The check tolerates both `tsx scripts/agent-deploy/index.ts ...`
+// (process.argv[1] is the .ts path) and the compiled .js path.
+const _entryPath = process.argv[1] ?? '';
+const _isEntry =
+  _entryPath.endsWith('agent-deploy/index.ts') ||
+  _entryPath.endsWith('agent-deploy/index.js') ||
+  _entryPath.endsWith('agent-deploy\\index.ts') ||
+  _entryPath.endsWith('agent-deploy\\index.js');
+if (_isEntry) {
+  main().catch((err) => {
+    console.error('\n✗ agent-deploy failed:', err.message);
+    process.exit(1);
+  });
+}

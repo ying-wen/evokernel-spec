@@ -2,6 +2,8 @@ id: ascend-910b
 name: 昇腾 910B
 vendor: huawei
 generation: ascend-910-gen2
+# v3.28 (F4): microarchitecture matches data/techniques/*.yaml port_targets[].arch_family
+microarchitecture: ascend-da-vinci-3
 status: in-production
 release_year: 2023
 form_factor: oam

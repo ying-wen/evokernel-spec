@@ -2,6 +2,7 @@ id: ascend-910d
 name: Huawei Ascend 910D
 vendor: huawei
 generation: ascend-da-vinci-5
+microarchitecture: ascend-da-vinci-5   # v3.28 (F4)
 status: in-production
 release_year: 2025
 form_factor: oam

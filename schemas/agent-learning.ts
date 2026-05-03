@@ -26,6 +26,13 @@ export const AgentLearningOutcomeSchema = z.enum([
   'precision-regression',      // Output quality regressed vs reference
   'oom-or-fits-failure',       // Memory budget exceeded
   'partial',                   // Worked but with caveats (perf cliff, fallback path used)
+  // v3.28 — honest reporting for runs that didn't reach a real deploy.
+  // The pre-v3.28 stub generator wrote `outcome: shipped` for *every* run
+  // including ones where no kernel was generated and no remote --execute
+  // happened. That false-positive corrupted the corpus on import. The two
+  // values below cover the runbook's most common partial-outcome states.
+  'planning-only',             // Stages 1-5 ran (plan + perf prediction); no kernels generated, no remote attempt
+  'kernels-generated',         // Productized loop ran + emitted kernels-generated/, but --execute never ran (or failed pre-build)
 ]);
 
 export const AgentLearningObservationKindSchema = z.enum([

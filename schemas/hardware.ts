@@ -171,6 +171,24 @@ export const HardwareSchema = z.object({
   name: z.string().min(1),
   vendor: Slug,
   generation: z.string().min(1),
+  /**
+   * v3.28 (F4) — microarchitecture slug used by `data/techniques/*.yaml`
+   * `port_targets[].arch_family`. Distinct from `generation` because
+   * generations are vendor-internal product timelines (`ascend-910-gen2`,
+   * `cdna3-mi300`) while microarchitectures are the cross-vendor labels
+   * a kernel author uses (`ascend-da-vinci-3`, `cdna3`, `hopper`).
+   *
+   * Optional during migration. When present, the agent CLI prefers this
+   * over `generation.split('-')[0]` for technique port_target lookups.
+   *
+   * Examples:
+   *   h100-sxm5  → microarchitecture: hopper
+   *   b200       → microarchitecture: blackwell
+   *   ascend-910b→ microarchitecture: ascend-da-vinci-3
+   *   mi300x     → microarchitecture: cdna3
+   *   mlu590     → microarchitecture: cambricon-mlu
+   */
+  microarchitecture: Slug.optional(),
   status: HardwareStatusSchema,
   release_year: z.number().int().min(2010).max(2035),
   form_factor: FormFactorSchema,
