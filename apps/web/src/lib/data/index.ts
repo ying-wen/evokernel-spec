@@ -5,12 +5,14 @@ import {
   PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
   DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema,
   ModelExecutionGraphSchema, EngineCompileWorkflowSchema, AgentLearningSchema,
+  TechniqueSchema,
   type Vendor, type Hardware, type Server, type Interconnect,
   type Operator, type Engine, type Quantization, type ParallelStrategy,
   type Model, type Case, type Pattern, type PipelineStage, type FusedKernel,
   type Playbook, type Citation, type Tour, type KernelLibrary, type IsaPrimitive,
   type DslExample, type ReferenceImplementation, type ProfilingTool,
-  type ModelExecutionGraph, type EngineCompileWorkflow, type AgentLearning
+  type ModelExecutionGraph, type EngineCompileWorkflow, type AgentLearning,
+  type Technique
 } from '@evokernel/schemas';
 import { loadAll } from './loader.ts';
 
@@ -102,6 +104,11 @@ export async function getEngineCompileWorkflows(): Promise<EngineCompileWorkflow
 }
 export async function getAgentLearnings(): Promise<AgentLearning[]> {
   return loadAll('agent-learnings/*.yaml', AgentLearningSchema);
+}
+// v3.29 — Technique entity (introduced corpus-side in v3.25, web-loadable here).
+// Drives the new /techniques/ index + per-slug pages.
+export async function getTechniques(): Promise<Technique[]> {
+  return loadAll('techniques/*.yaml', TechniqueSchema);
 }
 
 export async function getResolvedHardware(): Promise<ResolvedHardware[]> {

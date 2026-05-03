@@ -1,0 +1,125 @@
+---
+/**
+ * /techniques/ — index of research-technique entities.
+ *
+ * v3.29 added this route. Pre-v3.29 the corpus had `data/techniques/`
+ * but no SSG pages, so users couldn't discover what techniques the
+ * agent harness knows about. The agent CLI references it via
+ * `--technique <id>` (v3.26+), so making it browsable closes the
+ * spec → CLI → docs loop.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { getTechniques } from '~/lib/data';
+
+const techniques = (await getTechniques()).sort((a, b) =>
+  a.name.localeCompare(b.name),
+);
+
+// Pre-bucket by status for the at-a-glance summary table
+const arch_summary = new Map<string, Array<{ technique: string; status: string }>>();
+for (const t of techniques) {
+  for (const p of t.port_targets) {
+    const key = p.arch_family;
+    if (!arch_summary.has(key)) arch_summary.set(key, []);
+    arch_summary.get(key)!.push({ technique: t.id, status: p.status });
+  }
+}
+const arch_rows = Array.from(arch_summary.entries()).sort((a, b) =>
+  a[0].localeCompare(b[0]),
+);
+---
+<BaseLayout title="Research Techniques · 研究技术">
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow="TECHNIQUES · v3.29"
+        title="Research-technique entity catalog"
+        subtitle="Cross-arch port-status table for techniques the agent harness can drive (--technique <id> in agent:deploy)."
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        Each technique declares its <code>port_targets[]</code> per arch family
+        (hopper, ada, ampere, ascend-da-vinci-3, cdna3, cambricon-mlu, ...).
+        The harness uses these declarations to decide whether to surface an
+        existing reference impl, run a production-ready port, iterate on an
+        experimental one, or generate a greenfield port from scratch.
+      </p>
+    </section>
+
+    <section class="py-6">
+      <h2 class="text-lg font-semibold mb-3">All techniques ({techniques.length})</h2>
+      <ul class="grid gap-4 md:grid-cols-2">
+        {techniques.map((t) => (
+          <li class="border rounded-lg p-4" style="border-color: var(--color-border);">
+            <a href={`/techniques/${t.id}/`} class="text-base font-medium hover:underline">
+              {t.name}
+            </a>
+            <span class="ml-2 text-xs uppercase opacity-70">{t.technique_kind}</span>
+            <p class="text-sm mt-2" style="color: var(--color-text-muted);">
+              {t.summary ?? `${t.applicable_to?.ops?.length ?? 0} applicable ops · ${t.port_targets.length} port targets`}
+            </p>
+            <ul class="text-xs mt-3 flex flex-wrap gap-2">
+              {t.port_targets.map((p) => (
+                <li class="px-2 py-0.5 rounded" style="background: var(--color-surface-2);">
+                  {p.arch_family} · <span class={`status-${p.status}`}>{p.status}</span>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="py-12">
+      <h2 class="text-lg font-semibold mb-3">Coverage by arch family</h2>
+      <p class="text-sm mb-3" style="color: var(--color-text-muted);">
+        Quick scan: which research techniques have a port (any status) on a given microarchitecture.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-sm w-full border-collapse">
+          <thead>
+            <tr class="text-left">
+              <th class="py-2 pr-4">arch_family</th>
+              <th class="py-2">techniques</th>
+            </tr>
+          </thead>
+          <tbody>
+            {arch_rows.map(([arch, list]) => (
+              <tr style="border-top: 1px solid var(--color-border);">
+                <td class="py-2 pr-4 font-mono">{arch}</td>
+                <td class="py-2">
+                  {list.map(({ technique, status }) => (
+                    <a
+                      href={`/techniques/${technique}/`}
+                      class="inline-block mr-2 mb-1 px-2 py-0.5 rounded text-xs"
+                      style="background: var(--color-surface-2);"
+                      title={status}
+                    >
+                      {technique} <span class="opacity-60">({status})</span>
+                    </a>
+                  ))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="py-6 text-sm" style="color: var(--color-text-muted);">
+      <p>
+        Use <code>pnpm agent:deploy --technique &lt;id&gt; --model X --hardware Y</code>
+        to drive a port attempt. See <a href="/agents/" class="underline">/agents/</a> for the CLI surface.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>
+
+<style>
+  .status-reference-impl  { color: var(--color-success); }
+  .status-production-ready { color: var(--color-success); }
+  .status-experimental    { color: var(--color-warning); }
+  .status-planned         { color: var(--color-text-muted); }
+  .status-blocked         { color: var(--color-danger); }
+</style>

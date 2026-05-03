@@ -1,0 +1,155 @@
+---
+/**
+ * /techniques/<slug>/ — per-technique detail page.
+ *
+ * Shows the full port_targets[] table, applicable_to.ops list, the
+ * reference URL/paper, and the agent CLI invocation to drive a port.
+ *
+ * v3.29.
+ */
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Container from '~/components/ui/Container.astro';
+import SectionHeader from '~/components/ui/SectionHeader.astro';
+import { getTechniques } from '~/lib/data';
+
+export async function getStaticPaths() {
+  const techniques = await getTechniques();
+  return techniques.map((t) => ({
+    params: { slug: t.id },
+    props: { technique: t },
+  }));
+}
+
+const { technique } = Astro.props as { technique: Awaited<ReturnType<typeof getTechniques>>[number] };
+
+const port_status_descriptions: Record<string, string> = {
+  'reference-impl': 'Original reference implementation; no porting needed.',
+  'production-ready': 'Production-quality port; verified against reference.',
+  'experimental': 'Experimental port; works in some shapes but not fully verified.',
+  'planned': 'Greenfield port — agent will generate from technique reference + corpus DSL examples.',
+  'blocked': 'Port attempted but blocked. See notes for the obstacle.',
+};
+---
+<BaseLayout title={`${technique.name} · Technique`}>
+  <Container>
+    <section class="py-12">
+      <SectionHeader
+        eyebrow={`TECHNIQUE · ${technique.technique_kind}`}
+        title={technique.name}
+        subtitle={technique.summary ?? `Cross-arch port catalog for the ${technique.name} technique.`}
+      />
+      <p class="text-sm mt-4 max-w-3xl" style="color: var(--color-text-muted);">
+        {technique.authors_or_org ? `${technique.authors_or_org} · ` : ''}
+        {technique.origin_year ?? ''}
+      </p>
+      <ul class="text-sm mt-3 space-x-4">
+        {technique.reference_url && (
+          <li class="inline">
+            <a class="underline" href={technique.reference_url} target="_blank" rel="noopener">
+              Reference repo
+            </a>
+          </li>
+        )}
+        {technique.reference_paper && (
+          <li class="inline">
+            <a class="underline" href={technique.reference_paper} target="_blank" rel="noopener">
+              Paper
+            </a>
+          </li>
+        )}
+      </ul>
+    </section>
+
+    <section class="py-6">
+      <h2 class="text-lg font-semibold mb-3">Applicable to</h2>
+      <dl class="grid gap-3 md:grid-cols-3 text-sm">
+        <div>
+          <dt class="opacity-70">Model archetypes</dt>
+          <dd class="mt-1">
+            {technique.applicable_to?.model_archetypes?.length
+              ? technique.applicable_to.model_archetypes.join(', ')
+              : '—'}
+          </dd>
+        </div>
+        <div>
+          <dt class="opacity-70">Ops</dt>
+          <dd class="mt-1">
+            {technique.applicable_to?.ops?.length ? (
+              <ul class="space-y-1">
+                {technique.applicable_to.ops.map((op) => (
+                  <li><code>{op}</code></li>
+                ))}
+              </ul>
+            ) : '—'}
+          </dd>
+        </div>
+        <div>
+          <dt class="opacity-70">Hardware arch families</dt>
+          <dd class="mt-1">
+            {technique.applicable_to?.hardware_arch_families?.length
+              ? technique.applicable_to.hardware_arch_families.join(', ')
+              : '—'}
+          </dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="py-6">
+      <h2 class="text-lg font-semibold mb-3">Port targets</h2>
+      <table class="text-sm w-full border-collapse">
+        <thead>
+          <tr class="text-left">
+            <th class="py-2 pr-4">arch_family</th>
+            <th class="py-2 pr-4">status</th>
+            <th class="py-2">notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {technique.port_targets.map((p) => (
+            <tr style="border-top: 1px solid var(--color-border);">
+              <td class="py-2 pr-4 font-mono">{p.arch_family}</td>
+              <td class="py-2 pr-4">
+                <span class={`status-${p.status}`}>{p.status}</span>
+                <p class="text-xs opacity-60 mt-0.5">{port_status_descriptions[p.status]}</p>
+              </td>
+              <td class="py-2 text-xs opacity-80">
+                {p.notes ?? '—'}
+                {p.reference_url && (
+                  <div class="mt-1">
+                    <a class="underline" href={p.reference_url} target="_blank" rel="noopener">
+                      reference
+                    </a>
+                  </div>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="py-6">
+      <h2 class="text-lg font-semibold mb-3">Drive a port via the agent CLI</h2>
+      <pre class="text-xs p-4 rounded overflow-x-auto" style="background: var(--color-surface-2);">
+pnpm agent:deploy:productized \
+  --use-host-llm \
+  --technique {technique.id} \
+  --model &lt;your-model-id&gt; \
+  --hardware &lt;target-hw-id&gt; \
+  --output ./out/{technique.id}-port</pre>
+      <p class="text-xs mt-2" style="color: var(--color-text-muted);">
+        v3.28+ matches arch_family via candidate list (microarchitecture →
+        generation → vendor); v3.29 auto-synthesizes a bundle from HF
+        config when the model isn't in <code>data/models/</code>.
+      </p>
+    </section>
+  </Container>
+</BaseLayout>
+
+<style>
+  .status-reference-impl  { color: var(--color-success); }
+  .status-production-ready { color: var(--color-success); }
+  .status-experimental    { color: var(--color-warning); }
+  .status-planned         { color: var(--color-text-muted); }
+  .status-blocked         { color: var(--color-danger); }
+</style>

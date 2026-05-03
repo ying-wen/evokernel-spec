@@ -6,7 +6,48 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.29** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; HF auto-import populating `data/models/` so v3.28's diffusion classifier path can find a real agent-context bundle (currently falls back to skeleton mode for any model not in the corpus).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.30** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; persisting synthesized bundles into `data/models/` so a second run uses the real corpus path (currently the synthesized bundle is in-memory only).
+
+---
+
+## [3.29.0] — 2026-05-04 — Synthesizer wired + /techniques/ surfaces
+
+**Theme**: close the v3.28 follow-up. v3.28 made the harness *correctly classify* CogVideoX as `archetype: diffusion` and inject technique-driven gaps, but the productized loop still fell back to skeleton mode because `data/models/` had no entry. v3.29 wires `synthesizeTemporaryBundle` into the productized path so any HF model can drive a real generation loop, and adds the `/techniques/` SSG route + JSON API so the technique catalog is actually browsable.
+
+### Synthesizer wiring (closes v3.28's biggest follow-up)
+
+- New `--allow-synthesize` flag on `pnpm agent:deploy`; auto-on when `--use-host-llm` or `--technique` is passed (user clearly wants real kernels).
+- When `resolveBundleId` returns no match AND synthesis is allowed, `synthesizeTemporaryBundle` is called instead of falling through to skeleton mode. The synthesized bundle then drives `generateAndVerify` (the productized R/G/V/F loop) just like a real bundle.
+- `SynthesizeBundleInput` gains two new optional fields:
+  - `hf_config_override` — the v3.28-fetched HF config (Diffusers-aware via the layout-probe registry). Lets the synthesizer skip a duplicate fetch and reuse the v3.28 layout result.
+  - `archetype_hint` — the caller's already-classified model kind (e.g. `diffusion`), used to pick a sensible template bundle.
+- `pickTemplateModelForArchetype` is the new pure helper that scores hardware bundles by archetype keyword match (diffusion → `cogvideo|flux|stable-diffusion|...`, transformer-decoder → `llama|qwen|deepseek|...`, etc.). Pre-v3.29 the synthesizer blindly grabbed `for_hw[0]`, which often produced a chat-shaped template (deepseek-r1) when synthesizing for a diffusion model. Now diffusion models get a diffusion-shaped template.
+- `FetchBundleResult.source` adds `'synthesized'` (additive — backwards compat).
+- Caveats from `SynthesizedBundle.caveats[]` are surfaced prominently in the CLI output ("Operator graph is heuristic", "Consider landing in data/models/", etc.) so users know the synthesis is best-effort.
+
+### `/techniques/` SSG route + JSON API
+
+- New `apps/web/src/pages/techniques/index.astro` — sortable list of all corpus techniques with port_targets[] summary table grouped by arch_family.
+- New `apps/web/src/pages/techniques/[slug].astro` — per-technique detail page with full port_targets[] table, applicable_to.ops, reference URLs, and the agent CLI invocation snippet to drive a port.
+- New `apps/web/src/pages/api/techniques.json.ts` — machine-readable technique catalog for external agents.
+- `apps/web/src/lib/data/index.ts` adds `getTechniques()` loader following the existing `getOperators()` / `getDslExamples()` pattern.
+- Pre-v3.29 these routes 404'd even though `data/techniques/sageattention.yaml` existed in corpus.
+
+### Tests
+
+- 11 new unit tests in `scripts/tests/v3-29-synthesize-wiring.test.ts` covering:
+  - `pickTemplateModelForArchetype` for all 4 archetypes + empty input + no-match fallback
+  - `inferArchetypeFromHfConfig` regression coverage (CogVideoX class name + Llama architectures + unknown fallback)
+- All v3.28 spec acceptance assertions still pass against the runbook's Step 3.
+- End-to-end: `EVOKERNEL_TEST_MODE=true pnpm agent:deploy:productized --allow-synthesize --technique sageattention --model zai-org/CogVideoX1.5-5B --hardware ascend-910b` now produces synthesized bundle → 3 real-code kernels in `kernels-generated/` (not skeletons), `Mode: test` (not `cache/skeleton-fallback`).
+- Test suite total: schemas 41 + scripts 286 + web 49 = **376 tests passing**, 1 skipped (network gate), 0 failing.
+- Build: 608 → 610 SSG pages (added `/techniques/index.html` + `/techniques/sageattention/index.html`).
+
+### Known follow-ups (for v3.30+)
+
+- **Persisting synthesized bundles into `data/models/`**: today the synthesized bundle is in-memory only, so the second `agent:deploy` against the same model re-synthesizes. v3.30 should write a stub `data/models/<slug>.yaml` after a successful synthesis so the corpus accretes models from real deployments.
+- **Plumbing `executeRemoteRun` result back into Stage 8**: still pending from v3.28's spec — `outcome: remote-completed` / `outcome: shipped` stub-emission still needs the data plumbing.
+- **Cross-arch verify execution**: scaffold-only; v3.30 wires the run-reference-on-native + run-new-on-target + diff flow.
 
 ---
 

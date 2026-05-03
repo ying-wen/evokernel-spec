@@ -40,7 +40,13 @@ import {
 import { generateKernels, type GeneratedKernel } from './kernel-codegen';
 // v3.17 — wire in the v3.x productized loop (Layer R/G/V/F).
 // v3.18 — fuzzy resolveBundleId so users can pass HF ids without exact slug.
-import { fetchBundle, BundleNotFoundError, resolveBundleId } from './fetch-bundle';
+import {
+  fetchBundle,
+  BundleNotFoundError,
+  resolveBundleId,
+  synthesizeTemporaryBundle,
+  type SynthesizedBundle,
+} from './fetch-bundle';
 // v3.26 — load + describe a technique entity for "port research lib X to arch Y" flows.
 import {
   loadTechnique,
@@ -1478,11 +1484,57 @@ Example (v3 productized real-code mode):
     try {
       // v3.18 — fuzzy resolution: accept HF ids ("meta-llama/Llama-3.3-70B-Instruct"),
       // partial slugs, or exact canonical slugs. Surface ambiguity to the user.
+      // v3.29 — when bundle resolution fails AND `--allow-synthesize` is set
+      // (or implicit via `--use-host-llm` / `--technique`), call
+      // `synthesizeTemporaryBundle` instead of falling through to skeleton
+      // mode. This unblocks productized kernel generation for any HF model
+      // not yet in `data/models/`. Caveats are surfaced prominently.
+      const allowSynthesize =
+        args['allow-synthesize'] === 'true' ||
+        args['allow-synthesize'] === '' ||
+        args['use-host-llm'] === 'true' ||
+        args['use-host-llm'] === '' ||
+        Boolean(args['technique']);
+
       const resolution = await resolveBundleId({
         model: args.model,
         hardware: args.hardware,
       });
-      if (!resolution.resolved) {
+
+      let fetchResult: Awaited<ReturnType<typeof fetchBundle>>;
+      let synthesizedFrom: SynthesizedBundle | undefined;
+
+      if (!resolution.resolved && allowSynthesize) {
+        // v3.29 synthesis path
+        console.error(`   ⚙ "${args.model}" not in corpus — synthesizing bundle from HF config (v3.29)...`);
+        // Map our richer model_kind → the synthesizer's archetype string.
+        const archetype_hint =
+          m.model_kind === 'diffusion-video' || m.model_kind === 'diffusion-image' || m.model_kind === 'diffusion-3d'
+            ? 'diffusion'
+            : m.model_kind === 'asr-whisper'
+            ? 'encoder-decoder-asr'
+            : m.model_kind === 'vlm'
+            ? 'vision-transformer'
+            : 'transformer-decoder';
+        synthesizedFrom = await synthesizeTemporaryBundle({
+          model: args.model,
+          hardware: args.hardware,
+          // Reuse the v3.28 fetched config so the synthesizer doesn't re-do
+          // the network call (and benefits from the diffusers-component
+          // layout probe).
+          hf_config_override: m.raw as Record<string, unknown>,
+          archetype_hint,
+        });
+        fetchResult = {
+          bundle: synthesizedFrom.bundle,
+          source: 'synthesized',
+          resolved_from: `synthesized (${synthesizedFrom.source}; archetype=${synthesizedFrom.inferred_archetype})`,
+        };
+        console.error(`   ✓ Synthesized bundle (template archetype: ${synthesizedFrom.inferred_archetype})`);
+        for (const caveat of synthesizedFrom.caveats) {
+          console.error(`     • ${caveat}`);
+        }
+      } else if (!resolution.resolved) {
         console.error(`   ✗ Could not resolve "${args.model}" to a bundle for ${args.hardware}.`);
         console.error(`     Normalized form: "${resolution.normalized_model}"`);
         if (resolution.candidates.length > 0) {
@@ -1491,20 +1543,22 @@ Example (v3 productized real-code mode):
             console.error(`       - ${c.model} on ${c.hardware}`)
           );
         }
-        console.error(`     Hint: pnpm agent:list-bundles --hardware ${args.hardware}\n`);
+        console.error(`     Hint: pnpm agent:list-bundles --hardware ${args.hardware}`);
+        console.error(`     Or: pass --allow-synthesize to bundle-from-HF-config (v3.29)\n`);
         throw new BundleNotFoundError(
           { model: args.model, hardware: args.hardware },
           'see candidates above'
         );
+      } else {
+        if (resolution.strategy !== 'exact') {
+          console.error(`   ✓ Resolved "${args.model}" → "${resolution.resolved.model}" (strategy: ${resolution.strategy})`);
+        }
+        fetchResult = await fetchBundle({
+          model: resolution.resolved.model,
+          hardware: resolution.resolved.hardware,
+        });
+        console.error(`   ✓ Bundle from ${fetchResult.source}: ${fetchResult.resolved_from}`);
       }
-      if (resolution.strategy !== 'exact') {
-        console.error(`   ✓ Resolved "${args.model}" → "${resolution.resolved.model}" (strategy: ${resolution.strategy})`);
-      }
-      const fetchResult = await fetchBundle({
-        model: resolution.resolved.model,
-        hardware: resolution.resolved.hardware,
-      });
-      console.error(`   ✓ Bundle from ${fetchResult.source}: ${fetchResult.resolved_from}`);
 
       for (const gap of gapsReport.gaps) {
         console.error(`   → ${gap.op}: generating + verifying...`);

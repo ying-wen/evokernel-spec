@@ -46,14 +46,18 @@ export interface FetchBundleInput {
 }
 
 export interface FetchBundleResult {
-  /** Where the bundle came from — useful for logging + debugging. */
-  source: 'local-dist' | 'dev-server' | 'remote';
+  /**
+   * Where the bundle came from — useful for logging + debugging.
+   * v3.29 adds `synthesized` for bundles built by `synthesizeTemporaryBundle`
+   * when the (model, hardware) pair is not yet in `data/models/`.
+   */
+  source: 'local-dist' | 'dev-server' | 'remote' | 'synthesized';
   /** Resolved URL or filesystem path. */
   resolved_from: string;
   /** The typed bundle ready to feed into llm-orchestrator. */
   bundle: AgentContextBundle;
   /** Raw envelope (license, generated_at, etc.) — useful for provenance. */
-  envelope: BundleEnvelope;
+  envelope?: BundleEnvelope;
 }
 
 interface BundleEnvelope {
@@ -283,6 +287,24 @@ export interface SynthesizeBundleInput {
   dist_path?: string;
   /** Override HF API base (default: https://huggingface.co). */
   hf_base?: string;
+  /**
+   * v3.29 — pre-fetched HF config (e.g. from v3.28's `fetchHFConfig` which
+   * supports Diffusers `model_index.json` + component layouts).
+   *
+   * Pre-v3.29 the synthesizer fetched `${hf_base}/${model}/raw/main/config.json`
+   * directly, which 404'd on Diffusers repos exactly like v3.28 F1. Passing
+   * the pre-fetched config from index.ts avoids a duplicate fetch and reuses
+   * the v3.28 layout-probe logic.
+   */
+  hf_config_override?: Record<string, unknown>;
+  /**
+   * v3.29 — preferred template-bundle archetype hint. The pre-v3.29 template
+   * picker grabs `for_hw[0]` blindly, which for ascend-910b means using
+   * (e.g.) `deepseek-r1`'s bundle as a template even when synthesizing for
+   * a diffusion model. With this hint the picker prefers a bundle whose
+   * applicable_ops better match the target archetype.
+   */
+  archetype_hint?: string;
 }
 
 export interface SynthesizedBundle {
@@ -304,9 +326,11 @@ const HF_BASE_DEFAULT = 'https://huggingface.co';
 export async function synthesizeTemporaryBundle(
   input: SynthesizeBundleInput,
 ): Promise<SynthesizedBundle> {
-  // 1. Try to fetch the hardware bundle for ANY model — we use it to
-  // crib the hardware/vendor portion of the bundle. We pick the first
-  // available bundle on this hardware as a template.
+  // 1. Pick a hardware bundle to crib the hardware/vendor/isa_primitives/
+  // dsl_examples sections from. Pre-v3.29 picked `for_hw[0]` blindly,
+  // which often produced a chat-shaped template (e.g. deepseek-r1) when
+  // synthesizing for a diffusion model. v3.29 prefers a bundle whose
+  // model id keyword-matches the archetype hint when one is given.
   const all = await listBundles(input.dist_path);
   const for_hw = all.filter((p) => p.hardware === input.hardware);
   if (for_hw.length === 0) {
@@ -315,18 +339,23 @@ export async function synthesizeTemporaryBundle(
         `Add the hardware to data/hardware/ + rebuild before synthesizing.`,
     );
   }
-  // Use the first bundle as a hardware-info template
+  // Score template candidates: keyword match on archetype gets priority.
+  const templateModel = pickTemplateModelForArchetype(for_hw, input.archetype_hint) ?? for_hw[0]!.model;
   const template = await fetchBundle({
-    model: for_hw[0].model,
+    model: templateModel,
     hardware: input.hardware,
     dist_path: input.dist_path,
   });
 
   // 2. Fetch HF config (best-effort; degrade if unreachable / offline)
+  // v3.29 — prefer pre-fetched config (which supports Diffusers
+  // `model_index.json` + component layouts via index.ts's `fetchHFConfig`).
+  // Falls back to a direct root-config.json fetch only when no override was
+  // passed, preserving the pre-v3.29 standalone path.
   const hf_base = input.hf_base ?? HF_BASE_DEFAULT;
   const slug = normalizeModelId(input.model);
-  let hf_config: Record<string, unknown> | undefined;
-  if (process.env.EVOKERNEL_OFFLINE_ONLY !== 'true') {
+  let hf_config: Record<string, unknown> | undefined = input.hf_config_override;
+  if (!hf_config && process.env.EVOKERNEL_OFFLINE_ONLY !== 'true') {
     try {
       const url = `${hf_base}/${input.model}/raw/main/config.json`;
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -339,8 +368,8 @@ export async function synthesizeTemporaryBundle(
     }
   }
 
-  // 3. Heuristically classify the archetype.
-  const archetype = inferArchetypeFromHfConfig(hf_config, input.model);
+  // 3. Heuristically classify the archetype. Override hint wins if given.
+  const archetype = input.archetype_hint ?? inferArchetypeFromHfConfig(hf_config, input.model);
 
   // 4. Build the synthesized bundle. Reuse the template's hardware/vendor
   // /isa_primitives/dsl_examples (those are arch-specific, not model-specific)
@@ -373,6 +402,32 @@ export async function synthesizeTemporaryBundle(
       `Consider landing "${input.model}" in data/models/ for a real bundle (run \`pnpm --filter @evokernel/web build\` after).`,
     ],
   };
+}
+
+/**
+ * v3.29 — pick a hardware bundle whose model id is closest to the target
+ * archetype. Used by `synthesizeTemporaryBundle` to avoid using a
+ * chat-shaped template when the user is synthesizing for diffusion (or
+ * vice versa).
+ *
+ * Returns the model id of the best match, or `undefined` if no candidate
+ * matches the archetype heuristic (caller falls back to the first listed).
+ */
+export function pickTemplateModelForArchetype(
+  candidates: ReadonlyArray<{ model: string; hardware: string; slug: string }>,
+  archetype: string | undefined,
+): string | undefined {
+  if (!archetype || candidates.length === 0) return undefined;
+  const PATTERNS: Record<string, RegExp> = {
+    'diffusion': /flux|cog(video)?|stable-diffusion|sdxl|sd3|mochi|hunyuan-video|wan|pixart/i,
+    'transformer-decoder': /llama|qwen|deepseek|mistral|phi|gemma|kimi|glm|yi/i,
+    'encoder-decoder-asr': /whisper|parakeet/i,
+    'vision-transformer': /vit|clip|dino/i,
+  };
+  const re = PATTERNS[archetype];
+  if (!re) return undefined;
+  const match = candidates.find((c) => re.test(c.model));
+  return match?.model;
 }
 
 /**
