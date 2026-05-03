@@ -6,7 +6,70 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.23** — kernel-runner harness for actual NCU invocation (auto-produce CSV from generated kernel), rocprof + msprof + cnperf output parsers (mirroring v3.22 NCU pattern), zh i18n for `/agent-deploy` slash command, agent:watch test that exercises real fs-watch event delivery.
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.24** — suprof (Moore Threads) + instruments (Apple) parsers (6/6 vendors), vendor sub-page generational timelines (cambricon: 4-gen edge→datacenter→frontier in one component), pre-v3.x model family audit, ROADMAP.md prune.
+
+---
+
+## [3.23.0] — 2026-05-04 — Vendor profiler parity (rocprof + msprof + cnperf) + zh i18n + DRY refactor
+
+**Theme**: Bring the Layer V execution-mode perf gate from "1/6 vendors (NCU)" to "4/6 vendors" (NVIDIA + AMD + Huawei + Cambricon) by following the v3.22 NCU pattern. Refactor for DRY (shared `ProfilerParseResult` shape, vendor-agnostic dispatch in `perf.ts`). Ship the long-deferred zh i18n for `/agent-deploy`. Doc updates capture the new state across HARNESS.md + CLEANUP-TODO.md.
+
+### H1-H3 — 3 new vendor profiler parsers
+
+`scripts/agent-deploy/verify/profiler-shared.ts` (NEW): shared `ProfilerParseResult` shape + `assessPct` + `weightedScore` + `parseCsvRow` helpers. Every parser produces the same output structure so `perf.ts` can dispatch uniformly.
+
+`scripts/agent-deploy/verify/rocprof-parser.ts` (NEW, AMD CDNA / RDNA): parses ROCm Profiler CSV. Extracts `VALUUtilization` + `SALUUtilization` (compute) and `MemUnitBusy` (bandwidth). `compute_throughput = max(VALU, SALU)` heuristic captures both vector-heavy and scalar-control kernels. perf_score weighted (compute 0.5 + mem 0.35 + VALU 0.15).
+
+`scripts/agent-deploy/verify/msprof-parser.ts` (NEW, Huawei Ascend / Da Vinci): parses CANN Profiler CSV. Extracts `Cube Utilization` + `Vector Utilization` + `GM Read Bandwidth(GB/s)` + `UB Read Bandwidth(GB/s)`. **Bandwidth normalization**: GB/s readings divided by hardcoded peaks per Ascend gen (910b/910c/910d/950) — exposes `ascend_gen` option for SKU-aware scoring.
+
+`scripts/agent-deploy/verify/cnperf-parser.ts` (NEW, Cambricon MLU / BANG-C): parses Neuware Profiler CSV. Extracts `IpuUtilization` + `NramReadBW` + `GdramReadBW`. **Per-SKU peak normalization** (mlu220 LPDDR4X 26 GB/s edge / mlu290 HBM2 1.23 TB/s / mlu370 HBM2e 0.614 TB/s / mlu590 HBM3 2.4 TB/s). Exposes `cambricon_sku` option; defaults to `mlu590` (frontier datacenter).
+
+### H4 — Refactor `ncu-parser.ts` + vendor-agnostic dispatch
+
+NCU parser refactored to return the unified `ProfilerParseResult` shape (was the original NCU-specific dict). Old `NcuParseResult` type kept as deprecated alias for backward compat — v3.22 callers don't break, v3.23+ should consume `ProfilerParseResult`.
+
+`scripts/agent-deploy/verify/perf.ts` extended: single dispatch path `parseProfilerOutput(binary, csv)` switches on profiler binary, dynamic-imports the right parser, returns the unified shape. New `PROFILER_ENV_VARS` map per-vendor (`EVOKERNEL_NCU_INPUT_CSV` / `EVOKERNEL_ROCPROF_INPUT_CSV` / `EVOKERNEL_MSPROF_INPUT_CSV` / `EVOKERNEL_CNPERF_INPUT_CSV`). Adding suprof + instruments in v3.24+ is one parser file + one switch case + one env var.
+
+### H5 — `zh:agent-deploy` slash command
+
+`.claude/commands/zh/agent-deploy.md` (NEW) + mirror in `plugins/claude-code-productized/commands/zh/`. Auto-registers as `zh:agent-deploy` slash command via Claude Code's nested-folder convention. Same 4-step protocol as the English version, in zh-CN. Docs explicit re env-var hooks for the new vendor parsers.
+
+### H6 — Tests
+
+`scripts/tests/v3-23-vendor-parsers.test.ts` (+19 tests, 153 → **172**):
+- 6 parser tests (2 per parser × 3 vendors): realistic CSV → averaged metrics + perf_score + per-metric assessment thresholds; `parseMsprofCsv` / `parseCnperfCsv` SKU/gen override pivots assessment from "good" to "ok"; empty-result on missing header
+- 4 shared-helper tests: `weightedScore` all-null, partial-null, real average; `assessPct` thresholds + null
+- 4 dispatch tests: each `EVOKERNEL_<PROFILER>_INPUT_CSV` env var routes to its parser, env vars don't leak across vendors (NCU env on Cambricon target = ignored)
+- 3 zh i18n existence tests: `.claude/commands/zh/agent-deploy.md` exists, plugin mirror exists, frontmatter has `description: 通过` + `argument-hint` + `--use-llm-orchestrator`
+
+Plus migrated 4 v3.22 NCU tests to query the unified `r.per_metric.find(...)` shape instead of the old `r.metrics.sm_throughput_pct` dict.
+
+### H7 — Doc updates (HARNESS.md + CLEANUP-TODO.md)
+
+- **HARNESS.md** status bumped to "v3.23+ stable" with full release-iteration history.
+- New "V3 perf gate: vendor profiler ingestion" section: 6-row table mapping vendor → arch → binary → env var → parser-shipped status; ProfilerParseResult shape spec; SKU-override examples for msprof/cnperf.
+- New "i18n: zh-CN slash command" section.
+- **CLEANUP-TODO.md** status table refreshed: 8 items now ✅ Done across v3.17-v3.23 (was 2). Remaining queue restructured under v3.24/v3.25 targets (vendor sub-page timelines, suprof + instruments parsers, kernel-runner auto-invoke).
+
+### Stats
+
+- **Vendor profiler parsers**: 1 (NVIDIA NCU, v3.22) → **4** (+rocprof, msprof, cnperf)
+- **Test count**: 153 → **172** (+19 vendor parsers + dispatch + i18n existence)
+- **TypeScript files in `scripts/agent-deploy/verify/`**: 4 (build/correctness/perf/index + ncu) → **8** (+ profiler-shared, rocprof, msprof, cnperf)
+- **Slash commands**: 1 (`/agent-deploy`) → **2** (+ `/zh:agent-deploy`)
+- **Layer V execution-mode coverage**: 1/6 vendors (NVIDIA only) → **4/6 vendors** (NVIDIA + AMD + Huawei + Cambricon); suprof + instruments land in v3.24+.
+
+### Open design question for v3.24+
+
+The perf gate currently passes at `perf_score >= 0.5` uniformly across vendors. **Compute-bound and memory-bound ops have different "good" thresholds** — a memory-bound triangle-mult kernel won't legitimately hit 70% SM throughput because compute isn't the bottleneck. v3.24+ candidate: per-op-class thresholds (`matmul: 0.6`, `attention: 0.4`, `reduction: 0.5`) so the gate doesn't false-positive memory-bound kernels.
+
+### v3.24 next
+
+- **suprof (Moore Threads MUSA) + instruments (Apple) parsers** — closes the vendor parser fleet to 6/6.
+- **Vendor sub-page generational timelines** — Cambricon's 4-gen line (MLU220 edge / MLU290 / MLU370 / MLU590 frontier) deserves an in-page bento like the corpus-wide hardware timeline.
+- **Pre-v3.x model family audit** — `pnpm exec tsx scripts/audit-data.ts` for stale `family: hybrid` entries that should be more specific now that v3.10 added 4 new enums.
+- **ROADMAP.md prune** — drop completed v2.x items, point future at v3.24+.
+- **Per-op-class perf threshold** — see "Open design question" above.
 
 ---
 

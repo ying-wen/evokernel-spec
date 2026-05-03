@@ -137,12 +137,15 @@ Chinese users can use the slash command in their preferred language.
 |---|---|---|
 | changelog.ts regex fix | ✅ Done | v3.17.0 |
 | changelog regression test | ✅ Done | v3.17.0 |
-| Timeline overlapping labels | TODO | v3.18.0 |
-| Filter panel — classification | TODO | v3.18.0 |
-| Hardware card metadata richness | TODO | v3.18.0 |
-| Vendor sub-page timelines | TODO | v3.19.0 |
-| Apple m4-max-npu dedup | TODO | v3.19.0 |
-| ROADMAP.md prune | TODO | v3.19.0 |
-| `agent:deploy` landing-page link | TODO | v3.18.0 |
-| zh i18n for agent-deploy command | TODO | v3.20.0 |
-| Pre-v3.x model family audit | TODO | v3.18.0 |
+| Timeline overlapping labels (hardware) | ✅ Done | v3.20.0 |
+| Filter panel — classification (4 new dims) | ✅ Done | v3.20.0 |
+| `agent:deploy` landing-page link | ✅ Done | v3.19.0 |
+| Hardware card metadata richness | ✅ Done | v3.21.0 |
+| Model timeline bento rebuild | ✅ Done | v3.21.0 |
+| Apple m4-max-npu visible cross-link | ✅ Done | v3.22.0 |
+| zh i18n for agent-deploy command | ✅ Done | v3.23.0 |
+| Vendor sub-page timelines | TODO | v3.24.0 |
+| ROADMAP.md prune | TODO | v3.24.0 |
+| Pre-v3.x model family audit | TODO | v3.24.0 |
+| suprof + instruments parsers (Moore Threads + Apple) | TODO | v3.24.0 |
+| Kernel-runner harness (auto-invoke profilers, no env hook needed) | TODO | v3.25.0 |

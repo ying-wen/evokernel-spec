@@ -114,14 +114,16 @@ const SAMPLE_NCU_CSV = `==PROF== Connected to process 12345
 "1","12345","./bench","host","gemm_kernel","256","[1024,1,1]","0","sm__warps_active.avg.pct_of_peak_sustained_elapsed","%","53.4"
 `;
 
-describe('parseNcuCsv (v3.22)', () => {
+describe('parseNcuCsv (v3.22 / refactored to unified shape in v3.23)', () => {
   it('extracts SM throughput / DRAM throughput / occupancy from realistic CSV', () => {
     const r = parseNcuCsv(SAMPLE_NCU_CSV);
-    expect(r.metrics.sm_throughput_pct).not.toBeNull();
-    expect(r.metrics.sm_throughput_pct!).toBeCloseTo(78.75, 0); // (78.4 + 79.1)/2
-    expect(r.metrics.dram_throughput_pct!).toBeCloseTo(66.5, 0);
-    expect(r.metrics.warp_occupancy_pct!).toBeCloseTo(52.75, 0);
-    expect(r.metrics.launches_captured).toBe(2);
+    const findMetric = (name: string) => r.per_metric.find((m) => m.name === name);
+    expect(findMetric('sm_throughput')?.value).not.toBeNull();
+    expect(findMetric('sm_throughput')?.value!).toBeCloseTo(78.75, 0); // (78.4 + 79.1)/2
+    expect(findMetric('dram_throughput')?.value!).toBeCloseTo(66.5, 0);
+    expect(findMetric('warp_occupancy')?.value!).toBeCloseTo(52.75, 0);
+    expect(r.launches_captured).toBe(2);
+    expect(r.vendor).toBe('ncu');
   });
 
   it('computes a perf_score in [0, 1] reflecting weighted metrics', () => {
@@ -151,7 +153,8 @@ describe('parseNcuCsv (v3.22)', () => {
 
   it('returns empty result with reason when CSV header is missing', () => {
     const r = parseNcuCsv('this is not a real ncu csv\nrandom text');
-    expect(r.metrics.sm_throughput_pct).toBeNull();
+    // empty result: per_metric is empty array (no metrics found)
+    expect(r.per_metric).toEqual([]);
     expect(r.perf_score).toBe(0);
     expect(r.summary).toMatch(/No NCU CSV header/);
   });
@@ -168,10 +171,11 @@ describe('parseNcuCsv (v3.22)', () => {
       '"0","sm__throughput.avg.pct_of_peak_sustained_elapsed","%","45.0"\n' +
       '"0","dram__throughput.avg.pct_of_peak_sustained_elapsed","%","30.0"\n';
     const r = parseNcuCsv(csv);
-    expect(r.metrics.launches_captured).toBe(1);
-    expect(r.metrics.sm_throughput_pct).toBe(45);
-    expect(r.metrics.dram_throughput_pct).toBe(30);
-    expect(r.metrics.warp_occupancy_pct).toBeNull();
+    const findMetric = (name: string) => r.per_metric.find((m) => m.name === name);
+    expect(r.launches_captured).toBe(1);
+    expect(findMetric('sm_throughput')?.value).toBe(45);
+    expect(findMetric('dram_throughput')?.value).toBe(30);
+    expect(findMetric('warp_occupancy')?.value).toBeNull();
   });
 });
 
@@ -196,7 +200,8 @@ describe('runPerfGate -- NCU CSV ingestion (v3.22)', () => {
     });
 
     expect(result.status).toBe('pass');
-    expect(result.message).toMatch(/NCU CSV parsed/);
+    // v3.23 -- vendor-agnostic message form: "<binary> output parsed (...)"
+    expect(result.message).toMatch(/ncu output parsed/);
     // expect metric checks added
     const ncuChecks = result.checks.filter((c) => c.name.startsWith('ncu_'));
     expect(ncuChecks.length).toBeGreaterThanOrEqual(3);

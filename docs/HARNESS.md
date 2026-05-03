@@ -1,6 +1,7 @@
 # EvoKernel Productized Agent Harness — End-to-End Guide
 
-> Status: **v3.18+ stable** (the v3.17 release shipped the missing pieces; v3.18 added fuzzy-matching, auto-PR, plugin install, and per-deploy manifest).
+> Status: **v3.23+ stable** — surface area through 7 release iterations:
+> v3.17 (real harness pivot), v3.18 (polish: fuzzy + auto-PR + install + manifest + walkthrough), v3.19 (discoverable: doctor + 3 MCP tools + landing page), v3.20 (UI sprint #1 + agent:status), v3.21 (UI sprint #2 + --profile), v3.22 (continuous mode + NCU CSV parser + Apple cross-link), **v3.23 (vendor profiler parity: rocprof + msprof + cnperf, `zh:agent-deploy` slash command).**
 
 This is the operator manual for the **real productized agent harness** — a closed-loop pipeline that takes `(any model, any hardware)` and emits production-grade deployment artifacts plus real generated kernels with verification + retry + corpus feedback.
 
@@ -121,6 +122,44 @@ The harness has 4 modes for kernel generation, controlled by env vars:
 | **cache** | `EVOKERNEL_OFFLINE_ONLY=true` + cache hit | $0 | Deterministic | Repeat deploys / CI |
 | **test** | `EVOKERNEL_TEST_MODE=true` | $0 | Deterministic | Unit tests |
 | **skeleton** | None of the above (default fallback) | $0 | Deterministic | Offline contributors |
+
+## V3 perf gate: vendor profiler ingestion (v3.21-v3.23)
+
+When you pass `--profile`, the V3 perf gate runs in **execution mode** instead of structural-only. It auto-detects the profiler binary for the target arch family (v3.21), then either invokes it or consumes a pre-collected output via env vars (v3.22-v3.23).
+
+| Vendor | Arch family | Profiler | Env var (consume existing capture) | Parser shipped |
+|---|---|---|---|---|
+| NVIDIA | hopper / blackwell / ampere / ada | `ncu` | `EVOKERNEL_NCU_INPUT_CSV` | ✓ v3.22 |
+| AMD | cdna / rdna | `rocprof` | `EVOKERNEL_ROCPROF_INPUT_CSV` | ✓ v3.23 |
+| Huawei | ascend / da-vinci | `msprof` | `EVOKERNEL_MSPROF_INPUT_CSV` | ✓ v3.23 |
+| Cambricon | mlu / bang-c | `cnperf` | `EVOKERNEL_CNPERF_INPUT_CSV` | ✓ v3.23 |
+| Moore Threads | musa / mtt | `suprof` | (v3.24+) | — |
+| Apple | m-series / neural-engine | `instruments` | (v3.24+) | — |
+
+**All parsers share the unified `ProfilerParseResult` shape** (`scripts/agent-deploy/verify/profiler-shared.ts`):
+- `vendor`: which profiler produced this
+- `per_metric[]`: array of `{ name, value, assessment: good|ok|warn|unknown }`
+- `perf_score ∈ [0, 1]`: weighted average across present metrics; **gate passes at >=0.5**
+- `summary`: single-line human-readable
+- `launches_captured`: post-`--launch-skip` count
+
+The dispatch in `runPerfGate` is one switch keyed on `profiler.binary` — adding a new vendor (suprof / instruments) is one parser file plus one switch case, no shape negotiation.
+
+**Bandwidth normalization for non-pct metrics**: msprof + cnperf report bandwidth in GB/s (not pct of peak). Each parser ships a hardcoded peak table per SKU/gen and exposes a `cambricon_sku` / `ascend_gen` option to override:
+
+```ts
+import { parseMsprofCsv } from './scripts/agent-deploy/verify/msprof-parser';
+parseMsprofCsv(csv, { ascend_gen: '950' });   // 2400 GB/s peak
+
+import { parseCnperfCsv } from './scripts/agent-deploy/verify/cnperf-parser';
+parseCnperfCsv(csv, { cambricon_sku: 'mlu220' });  // 26 GB/s peak (LPDDR4X edge)
+```
+
+Without override they default to `910b` / `mlu590` (frontier datacenter).
+
+## i18n: zh-CN slash command
+
+`/agent-deploy` (English) and `/zh:agent-deploy` (中文) ship side-by-side. Both bind to the same underlying `pnpm agent:deploy` pipeline. Pick whichever matches your operator's preferred language; output (verification summary, agent-learning YAML) is identical regardless of which slash command launched the run.
 
 **Default behavior**: if `ANTHROPIC_API_KEY` is unset and `--use-llm-orchestrator` is passed, the harness falls back to skeleton mode and clearly marks the output (`source: 'skeleton-fallback'` in the manifest).
 
