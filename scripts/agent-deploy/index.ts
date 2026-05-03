@@ -813,6 +813,7 @@ Usage:
     [--config /path/to/local/config.json] \\
     [--use-llm-orchestrator]   # v3.17: real-code productized loop (R/G/V/F)
     [--profile]                # v3.21: V3 execution-mode perf gate (target HW)
+    [--use-host-llm]           # v3.25: route generation through host LLM (CC/Codex), no API key needed
 
 Example (v2 skeleton mode — fast, no API):
   pnpm tsx scripts/agent-deploy/index.ts \\
@@ -958,6 +959,15 @@ Example (v3 productized real-code mode):
   // suprof / instruments) for the target arch. Without --profile, V3 runs
   // structural-only checks (no target HW required).
   const profileMode = args['profile'] === 'true' || args['profile'] === '';
+
+  // v3.25 — --use-host-llm activates the host-LLM mode in llm-orchestrator.
+  // No external API key needed; works inside Claude Code / Codex sessions.
+  // We set EVOKERNEL_HOST_LLM=true so selectMode() in llm-orchestrator picks
+  // it up — same surface as auto-detection from CC/Codex env vars, just
+  // explicit.
+  if (args['use-host-llm'] === 'true' || args['use-host-llm'] === '') {
+    process.env.EVOKERNEL_HOST_LLM = 'true';
+  }
 
   if (gapsReport.gaps.length > 0 && useLlmOrchestrator) {
     // v3.17 productized path — Layer R/G/V/F end-to-end.

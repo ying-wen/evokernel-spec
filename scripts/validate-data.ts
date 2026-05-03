@@ -7,7 +7,8 @@ import {
   ModelSchema, CaseSchema, PatternSchema, PipelineStageSchema, FusedKernelSchema,
   PlaybookSchema, CitationSchema, TourSchema, KernelLibrarySchema, IsaPrimitiveSchema,
   DslExampleSchema, ReferenceImplementationSchema, ProfilingToolSchema,
-  ModelExecutionGraphSchema, EngineCompileWorkflowSchema, AgentLearningSchema
+  ModelExecutionGraphSchema, EngineCompileWorkflowSchema, AgentLearningSchema,
+  TechniqueSchema  // v3.25 -- new entity type
 } from '@evokernel/schemas';
 import { loadYaml } from './lib/load-yaml.ts';
 
@@ -47,6 +48,7 @@ const ENTITY_GLOBS: Array<{ name: string; glob: string; schema: ZodSchema }> = [
   { name: 'model-graph', glob: 'model-graphs/*.yaml', schema: ModelExecutionGraphSchema },
   { name: 'engine-compile-workflow', glob: 'engine-compile-workflows/*.yaml', schema: EngineCompileWorkflowSchema },
   { name: 'agent-learning', glob: 'agent-learnings/*.yaml', schema: AgentLearningSchema },
+  { name: 'technique', glob: 'techniques/*.yaml', schema: TechniqueSchema },  // v3.25
 ];
 
 export async function validateAll(opts: { dataDir: string }): Promise<ValidationReport> {

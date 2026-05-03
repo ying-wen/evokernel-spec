@@ -125,10 +125,24 @@ export interface ProductionKernelOutput {
 // Mode selection
 // ─────────────────────────────────────────────────────────────────────────
 
-type OperatingMode = 'real' | 'cache' | 'test' | 'skeleton';
+type OperatingMode = 'real' | 'cache' | 'test' | 'skeleton' | 'host-llm';
 
-function selectMode(input: ProductionKernelInput): OperatingMode {
+// v3.25 -- shouldUseHostLlm pattern matches selectMode order. Inlined here
+// to avoid a circular import with host-llm-adapter (which depends on the
+// ProductionKernelInput / Output types from this file).
+function shouldUseHostLlmInline(): boolean {
+  if (process.env.EVOKERNEL_HOST_LLM === 'true') return true;
+  if (process.env.CLAUDEAGENT) return true;
+  if (process.env.CLAUDE_CODE_SESSION) return true;
+  if (process.env.CODEX_SESSION_ID) return true;
+  return false;
+}
+
+function selectMode(_input: ProductionKernelInput): OperatingMode {
+  // Test mode wins first to keep CI deterministic. Even if a CC/Codex env
+  // var leaked in, EVOKERNEL_TEST_MODE=true keeps host-llm exchange dormant.
   if (process.env.EVOKERNEL_TEST_MODE === 'true') return 'test';
+  if (shouldUseHostLlmInline()) return 'host-llm';
   if (process.env.EVOKERNEL_OFFLINE_ONLY === 'true') return 'cache';
   if (process.env.ANTHROPIC_API_KEY) return 'real';
   return 'skeleton';
@@ -171,6 +185,20 @@ export async function generateProductionKernel(
       return result;
     } catch (err) {
       console.error(`[llm-orchestrator] LLM call failed, falling back to skeleton: ${(err as Error).message}`);
+      return skeletonFallback(input, promptHash);
+    }
+  }
+
+  // v3.25: Host-LLM path — emit prompt to a file, wait for the host
+  // (CC slash command, Codex tool, or test fixture) to write back the
+  // kernel response. No external API call; works without ANTHROPIC_API_KEY.
+  if (mode === 'host-llm') {
+    try {
+      const result = await callHostLlm(input, promptHash);
+      await writeCacheEntry(cachePath, result);
+      return result;
+    } catch (err) {
+      console.error(`[llm-orchestrator] host-llm exchange failed, falling back to skeleton: ${(err as Error).message}`);
       return skeletonFallback(input, promptHash);
     }
   }
@@ -235,6 +263,32 @@ async function callLLM(input: ProductionKernelInput, promptHash: string): Promis
       'BEFORE shipping: run Layer V verify (v3.5) — build + correctness vs PyTorch reference + perf profile.',
     ],
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// v3.25: Mode "host-llm" — emit prompt to file, wait for host's response.
+// ─────────────────────────────────────────────────────────────────────────
+
+async function callHostLlm(
+  input: ProductionKernelInput,
+  promptHash: string,
+): Promise<ProductionKernelOutput> {
+  // Lazy import to keep startup cheap when host-llm mode is unused.
+  const adapter = await import('./host-llm-adapter');
+  const language = pickLanguageForArch(input.target_arch);
+  const prompt = buildPrompt(input, language);
+  const request = adapter.buildHostLlmRequest(input, prompt, promptHash, language);
+  const filePath = await adapter.writeHostLlmRequest(request);
+  console.error(
+    `[llm-orchestrator] host-llm request written: ${filePath}\n` +
+      `  Waiting for response file (timeout: 5min). The host LLM (CC slash command, Codex tool, or test fixture) must read the request and write a sibling .response.json.`,
+  );
+  const response = await adapter.awaitHostLlmResponse(request.request_id);
+  return adapter.responseToOutput(
+    request,
+    response,
+    `${input.op}_${input.target_arch}.${extensionForLanguage(language)}`,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────

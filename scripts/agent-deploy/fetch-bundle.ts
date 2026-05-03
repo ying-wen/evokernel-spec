@@ -247,6 +247,207 @@ export async function listBundles(
 // resolveBundleId — fuzzy-match user input to canonical bundle slug
 // ─────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────
+// v3.25 — synthesizeTemporaryBundle for unknown HF models
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * When `resolveBundleId` returns `none` and the user explicitly opts in
+ * (via `--allow-synthesize` flag), `synthesizeTemporaryBundle` builds an
+ * AgentContextBundle in memory by:
+ *
+ *   1. Fetching the model's HuggingFace `config.json`
+ *   2. Heuristically classifying the architecture (transformer-decoder,
+ *      diffusion, etc.) from `architectures[]` field
+ *   3. Picking applicable_ops from corpus by archetype
+ *   4. Combining with the corpus hardware entry (must already exist —
+ *      hardware bundles are still real corpus entities, only the model
+ *      is unknown)
+ *
+ * Returns a bundle marked `synthesized: true` so the agent surfaces a
+ * "this is best-effort, landing the model in corpus would improve
+ * recommendations" notice in deploy output.
+ *
+ * What this is NOT: it doesn't run model inference, doesn't decompose the
+ * actual operator graph (existing `scripts/decompose-operators.ts` does
+ * that for known model archetypes). It's the v3.25 first step toward
+ * "unknown models work without manual corpus PR" — v3.26+ will deepen
+ * the operator graph synthesis.
+ */
+export interface SynthesizeBundleInput {
+  /** HF id or kebab slug of an unknown model. */
+  model: string;
+  /** Hardware id — MUST exist in corpus. */
+  hardware: string;
+  /** Override dist path for hardware bundle lookup. */
+  dist_path?: string;
+  /** Override HF API base (default: https://huggingface.co). */
+  hf_base?: string;
+}
+
+export interface SynthesizedBundle {
+  /** The synthesized AgentContextBundle (subset of full bundle that
+   * llm-orchestrator consumes). */
+  bundle: import('./llm-orchestrator').AgentContextBundle;
+  /** Source of the synthesis — useful for provenance + debugging. */
+  source: 'hf-config-only';
+  /** What HF returned. */
+  hf_config?: Record<string, unknown>;
+  /** Heuristic classification used. */
+  inferred_archetype: string;
+  /** Caveats the agent should surface to the user. */
+  caveats: string[];
+}
+
+const HF_BASE_DEFAULT = 'https://huggingface.co';
+
+export async function synthesizeTemporaryBundle(
+  input: SynthesizeBundleInput,
+): Promise<SynthesizedBundle> {
+  // 1. Try to fetch the hardware bundle for ANY model — we use it to
+  // crib the hardware/vendor portion of the bundle. We pick the first
+  // available bundle on this hardware as a template.
+  const all = await listBundles(input.dist_path);
+  const for_hw = all.filter((p) => p.hardware === input.hardware);
+  if (for_hw.length === 0) {
+    throw new Error(
+      `[synthesizeTemporaryBundle] Hardware "${input.hardware}" has no bundles. ` +
+        `Add the hardware to data/hardware/ + rebuild before synthesizing.`,
+    );
+  }
+  // Use the first bundle as a hardware-info template
+  const template = await fetchBundle({
+    model: for_hw[0].model,
+    hardware: input.hardware,
+    dist_path: input.dist_path,
+  });
+
+  // 2. Fetch HF config (best-effort; degrade if unreachable / offline)
+  const hf_base = input.hf_base ?? HF_BASE_DEFAULT;
+  const slug = normalizeModelId(input.model);
+  let hf_config: Record<string, unknown> | undefined;
+  if (process.env.EVOKERNEL_OFFLINE_ONLY !== 'true') {
+    try {
+      const url = `${hf_base}/${input.model}/raw/main/config.json`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (res.ok) {
+        hf_config = (await res.json()) as Record<string, unknown>;
+      }
+    } catch {
+      // Network failure — degrade gracefully; bundle synthesis still works
+      // with archetype-only inference.
+    }
+  }
+
+  // 3. Heuristically classify the archetype.
+  const archetype = inferArchetypeFromHfConfig(hf_config, input.model);
+
+  // 4. Build the synthesized bundle. Reuse the template's hardware/vendor
+  // /isa_primitives/dsl_examples (those are arch-specific, not model-specific)
+  // and substitute in a placeholder model entry derived from HF config.
+  const bundle = {
+    ...template.bundle,
+    model: {
+      id: slug,
+      name: (hf_config?.['_name_or_path'] as string | undefined) ?? input.model,
+    },
+    // Filter applicable_ops to ones likely relevant given the archetype
+    applicable_ops: filterOpsForArchetype(template.bundle.applicable_ops, archetype),
+    applicable_fused_kernels: filterFusedForArchetype(
+      template.bundle.applicable_fused_kernels ?? [],
+      archetype,
+    ),
+    // Prior learnings don't apply to an unknown model
+    prior_learnings: [],
+  };
+
+  return {
+    bundle,
+    source: 'hf-config-only',
+    hf_config,
+    inferred_archetype: archetype,
+    caveats: [
+      `Bundle for "${input.model}" was SYNTHESIZED from HuggingFace config + ${input.hardware} corpus hardware entry.`,
+      `Inferred archetype: ${archetype}.`,
+      `Operator graph is heuristic (not decomposed from model code) — generated kernels may target the wrong ops.`,
+      `Consider landing "${input.model}" in data/models/ for a real bundle (run \`pnpm --filter @evokernel/web build\` after).`,
+    ],
+  };
+}
+
+/**
+ * Heuristic: classify a HF config into a corpus archetype string. Reads
+ * `architectures` (HF convention), then falls back to model id substring
+ * heuristics.
+ *
+ * Returns one of: transformer-decoder | diffusion | encoder-decoder-asr |
+ * vision-transformer | unknown.
+ *
+ * This is intentionally simple — the v3.25 scope is "unknown models don't
+ * crash"; v3.26+ will deepen with operator-graph synthesis from modeling
+ * code.
+ */
+export function inferArchetypeFromHfConfig(
+  config: Record<string, unknown> | undefined,
+  model_id: string,
+): string {
+  const archs = ((config?.['architectures'] as unknown[] | undefined) ?? []).map(String);
+  const lower_id = model_id.toLowerCase();
+  const probe = (s: string) => archs.some((a) => a.toLowerCase().includes(s)) || lower_id.includes(s);
+
+  if (probe('cogvideo') || probe('mochi') || probe('flux') || probe('stable-diffusion') || probe('sdxl')) {
+    return 'diffusion';
+  }
+  if (probe('whisper') || probe('parakeet') || probe('asr')) {
+    return 'encoder-decoder-asr';
+  }
+  if (probe('vit') || probe('clip')) {
+    return 'vision-transformer';
+  }
+  if (probe('llama') || probe('qwen') || probe('mistral') || probe('phi') || probe('gemma') ||
+      probe('deepseek') || probe('kimi') || probe('glm') || probe('yi') ||
+      probe('forcausallm') || probe('formaskedlm')) {
+    return 'transformer-decoder';
+  }
+  return 'unknown';
+}
+
+/**
+ * Filter the applicable_ops list to ops likely relevant given the inferred
+ * archetype. For unknown archetype, return all ops (don't over-filter).
+ */
+function filterOpsForArchetype<T extends { id: string; category?: string }>(
+  ops: T[],
+  archetype: string,
+): T[] {
+  if (archetype === 'unknown') return ops;
+  const KEEP: Record<string, RegExp> = {
+    'diffusion': /attention|matmul|norm|activation|sampler|flow-matching|mel-spec/i,
+    'transformer-decoder': /attention|matmul|norm|activation|moe|embedding/i,
+    'encoder-decoder-asr': /attention|matmul|norm|audio|mel-spec/i,
+    'vision-transformer': /attention|matmul|norm|activation/i,
+  };
+  const re = KEEP[archetype];
+  if (!re) return ops;
+  return ops.filter((o) => re.test(o.id) || (o.category && re.test(o.category)));
+}
+
+function filterFusedForArchetype<T extends { id: string }>(
+  fused: T[],
+  archetype: string,
+): T[] {
+  if (archetype === 'unknown') return fused;
+  const KEEP: Record<string, RegExp> = {
+    'diffusion': /attention|flow-matching|sampler|mel-spec/i,
+    'transformer-decoder': /attention|rope|qkv|moe|kv|spec-decode/i,
+    'encoder-decoder-asr': /attention|mel-spec|spec-decode/i,
+    'vision-transformer': /attention|matmul/i,
+  };
+  const re = KEEP[archetype];
+  if (!re) return fused;
+  return fused.filter((f) => re.test(f.id));
+}
+
 /**
  * v3.18 — resolve user input (HF id / partial slug / canonical slug) to the
  * canonical (model, hardware) ids that match a bundle in dist/.

@@ -6,7 +6,134 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.25** — host-LLM execution mode (`--use-host-llm` — no `ANTHROPIC_API_KEY` needed inside CC/Codex), `data/techniques/` entity type + first SageAttention YAML, HF unknown-model auto-import (`synthesizeTemporaryBundle`). Per [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.26** — wire `--technique` flag into `index.ts` CLI (so `agent:deploy --technique sageattention --model X --hardware Y --use-host-llm` actually orchestrates a port end-to-end); SSH remote-target executor (`scripts/agent-deploy/remote-target.ts`) + `~/.config/evokernel/targets.yaml` schema + per-vendor build scripts. Per [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md).
+
+---
+
+## [3.25.0] — 2026-05-04 — Host-LLM execution mode + technique entity + HF auto-import (3 of 6 v3.24-spec gaps closed)
+
+**Theme**: First implementation release after the v3.24 docs/spec iteration. Closes 3 of the 6 "real productized agent" gaps the user called out: no API key needed inside CC/Codex, technique entity for porting research libraries, HF auto-import for unknown models. Two more (SSH remote-target + cross-arch verify) land in v3.26-v3.27 to complete the SageAttention/CogVideoX/910B north-star.
+
+### H1 — Host-LLM execution mode
+
+`scripts/agent-deploy/host-llm-adapter.ts` (NEW, ~290 LOC). 5th operating mode in `llm-orchestrator.ts` alongside `real`/`cache`/`test`/`skeleton`. Pre-v3.25 productized real-mode required `ANTHROPIC_API_KEY` — friction when running inside Claude Code or Codex (which already have first-class LLMs). v3.25 routes generation through the host LLM via a file-based exchange protocol.
+
+**Wire protocol**:
+1. Harness writes `<exchange_dir>/<request_id>.request.json` with prompt + op-relevant bundle excerpt (≤ 5 DSL examples + ≤ 5 ISA primitives, each capped at 1500 chars to control prompt cost — full bundle can be 50KB+, excerpt stays under 5KB)
+2. Harness blocks on `awaitHostLlmResponse(request_id)` polling for the sibling `.response.json` (5-min timeout, 500ms poll)
+3. Host (CC slash command, Codex tool, test fixture) reads request, runs LLM, writes `{ code, references_used, review_notes, llm_model_used }` to response.json
+4. Harness picks up response, returns `ProductionKernelOutput` with `source: 'llm-generated'`
+
+**Detection** (auto-routes to host-llm mode):
+- `EVOKERNEL_HOST_LLM=true` (set by `--use-host-llm` CLI flag)
+- `CLAUDEAGENT` / `CLAUDE_CODE_SESSION` env vars (CC context)
+- `CODEX_SESSION_ID` env var (Codex context)
+
+**Why files vs sockets/stdio**: file exchange decouples harness lifetime from host LLM invocation, preserves request for replay debugging, works identically across CC slash command + Codex tool exec + test fixtures (which can write the response.json ahead of time). The 500ms poll latency is negligible when kernel generation takes 5-30s.
+
+`scripts/agent-deploy/llm-orchestrator.ts` `selectMode` extended with `host-llm` branch + inlined `shouldUseHostLlmInline()` to avoid circular imports. `index.ts` CLI gains `--use-host-llm` flag that sets `EVOKERNEL_HOST_LLM=true` in the env.
+
+### H2 — `data/techniques/` entity type
+
+`schemas/technique.ts` (NEW). Net-new entity type for "research method to apply" — distinct from models / ops / fused-kernels. Schema:
+
+```yaml
+id: <slug>
+name: <display name>
+technique_kind: attention-optimization | quantization | fused-kernel | scheduling | parallelism | kv-cache-layout | mixed
+reference_url: <upstream repo>
+reference_paper: <arxiv> # optional
+applicable_to:
+  model_archetypes: [diffusion, transformer-decoder, ...]
+  ops: [attention, ...]
+  hardware_arch_families: [hopper, ada, ...]   # where it ORIGINALLY works
+port_targets:
+  - { arch_family, status: reference-impl|production-ready|experimental|planned|blocked, reference_url?, notes?, agent_learning_ids[] }
+reference_impl: { framework, repo, entry?, snippet? }
+numerical_rules: [{ aspect, per_library: { lib_id: rule }, notes? }]
+port_complexity: low|medium|high|research-grade
+```
+
+`data/techniques/sageattention.yaml` (NEW) — first technique entry, real enough to drive v3.26-v3.27. Documents 6 arch families with port status (Hopper reference, Ada production, Ampere experimental, Ascend/CDNA/Cambricon planned), per-arch porting effort estimates (e.g. "Ascend port: 6-8 weeks"), numerical rules (INT8 per-head per-token quantization; outlier threshold = 4σ; INT32 accumulator for QK^T, FP32 for SV).
+
+`scripts/validate-data.ts` extended to validate `data/techniques/*.yaml` against `TechniqueSchema`. `schemas/index.ts` re-exports `Technique`/`TechniqueSchema` types.
+
+### H3 — `synthesizeTemporaryBundle` for unknown models
+
+`scripts/agent-deploy/fetch-bundle.ts` extended with:
+- `synthesizeTemporaryBundle(input)` — when an unknown model is requested, build an in-memory bundle by:
+  1. Picking any existing bundle on the target hardware as a hardware/vendor/ISA/DSL template (these are arch-specific, not model-specific, so the template's hardware portion is reusable)
+  2. Fetching HF `config.json` (best-effort; `EVOKERNEL_OFFLINE_ONLY=true` skips network)
+  3. Heuristically classifying archetype via `inferArchetypeFromHfConfig` (substring match on `architectures[]` + model id — covers Llama / Qwen / DeepSeek / CogVideoX / Mochi / FLUX / Whisper / Parakeet / ViT / CLIP)
+  4. Filtering `applicable_ops` + `applicable_fused_kernels` to archetype-relevant entries
+  5. Returning `SynthesizedBundle { bundle, source, hf_config, inferred_archetype, caveats }`
+- `inferArchetypeFromHfConfig(config, model_id)` — exported helper. Returns `transformer-decoder` | `diffusion` | `encoder-decoder-asr` | `vision-transformer` | `unknown`
+
+Caveats explicitly surface "best-effort, land in `data/models/` for a real bundle" so users know the limits.
+
+### H4 — Tests (172 → **197** scripts + 49 web)
+
+`scripts/tests/v3-25-host-llm-and-techniques.test.ts` (+25 tests):
+
+**Host-LLM exchange (8 tests)**:
+- `shouldUseHostLlm` env detection: 6 cases (each env var + default false + 'false' string doesn't trigger)
+- `buildHostLlmRequest` produces valid request with op-relevant bundle excerpt
+- DSL examples + ISA primitives capped at 5 each, code excerpts capped at 1500 chars (cost control)
+- `prior_attempt_diagnostic` preserved on retry
+- Round-trip: write request → fixture writes response → harness reads it
+- `HostLlmTimeoutError` on missing response file
+- Response file with `error` field rejects properly
+- `responseToOutput` converts to `ProductionKernelOutput` with proper review_notes
+
+**Technique schema (4 tests)**:
+- SageAttention YAML parses + validates
+- 6 port_targets (hopper / ada / ampere / ascend / cdna / cambricon) all present
+- Reference impl points to upstream `thu-ml/sageattention`
+- Schema rejects malformed entries (invalid port status enum)
+
+**Archetype inference (5 tests)**:
+- CogVideoX → diffusion
+- Llama → transformer-decoder
+- Whisper → encoder-decoder-asr
+- Mochi → diffusion (via id-substring fallback when config absent)
+- Random unknown id → "unknown"
+
+**synthesizeTemporaryBundle (3 tests)**:
+- Synthesize works in offline mode (EVOKERNEL_OFFLINE_ONLY=true)
+- Diffusion archetype filters ops to attention/matmul/sampler/etc
+- Throws when hardware has no bundles (no template available)
+- Caveats include "SYNTHESIZED" + "data/models/" guidance
+
+**Bug fixes during test write**:
+- `selectMode` initially used `require('./host-llm-adapter')` — Vitest's ESM transform doesn't support relative require. Changed to inlined `shouldUseHostLlmInline()` (avoids circular import).
+- Tests initially imported `loadYaml` from `scripts/lib` — that helper takes a path, not raw YAML. Switched to `parseYaml` from `yaml` package.
+
+### H5 — HARNESS.md walkthrough
+
+Status bumped to `v3.25+ stable`. New sections:
+- "**Known limits (v3.25)**" — 3 ✅ closed (host-llm, synthesize, technique entity) + 4 still open (SSH remote, cross-arch verify, suprof+instruments parsers, end-to-end real-hardware test)
+- "**v3.25 host-LLM mode walkthrough**" — usage examples, mode-selection precedence, exchange protocol with file paths
+- "**v3.25 technique entity walkthrough**" — schema example, how the planner reads `port_targets`
+- "**v3.25 unknown-model auto-import walkthrough**" — synthesizeTemporaryBundle 5-step flow + caveat behavior
+
+### Stats
+
+- **Operating modes in `llm-orchestrator.ts`**: 4 (real/cache/test/skeleton) → **5** (+host-llm)
+- **Entity types in corpus**: 24 → **25** (+technique)
+- **Total entities**: 419 → **420** (+sageattention)
+- **CLI flags**: `--use-llm-orchestrator` + `--profile` + `--use-host-llm` (3 productized opt-ins)
+- **Test count**: 172 → **197** (+25 new v3.25 tests)
+- **TypeScript files in scripts/agent-deploy/**: 11 → **12** (+host-llm-adapter)
+- **Doc walkthrough sections in HARNESS.md**: +3 (host-llm + technique + synthesize)
+
+### v3.26 next
+
+Per the spec, in priority order:
+- **Wire `--technique` flag into `index.ts` CLI** so `agent:deploy --technique sageattention --model X --hardware Y --use-host-llm` actually orchestrates an end-to-end port (technique → applicable ops → planner picks gaps → host-llm generates per-arch kernel → V verifies against technique reference impl)
+- **SSH remote-target executor** (`scripts/agent-deploy/remote-target.ts`) + `~/.config/evokernel/targets.yaml` schema + per-vendor build scripts (nvidia/build.sh, ascend/build.sh, amd/build.sh, cambricon/build.sh)
+- **Cross-arch verify scaffold** — V2 reads technique's `reference_impl` + runs side-by-side with newly-generated impl on (model, batch, seq_len) inputs
+
+Test target: 197 → ~225.
 
 ---
 

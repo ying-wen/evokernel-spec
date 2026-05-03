@@ -1,0 +1,149 @@
+id: sageattention
+name: SageAttention
+technique_kind: attention-optimization
+
+reference_url: https://github.com/thu-ml/sageattention
+reference_paper: https://arxiv.org/abs/2410.02367
+origin_year: 2024
+authors_or_org: THU-ML (Tsinghua University ML Group)
+
+applicable_to:
+  model_archetypes:
+    - diffusion              # CogVideoX, Mochi, FLUX — long-context attention dominant
+    - transformer-decoder    # LLM decode attention
+    - vision-transformer     # ViT-style models
+  ops:
+    - attention
+    - scaled-dot-product-attention
+    - flash-attention
+  hardware_arch_families:
+    - hopper                 # Where SageAttention was originally developed (H100/H200)
+    - ada                    # RTX 4090 supported in v2 release
+    - ampere                 # A100 supported (slower)
+
+# Per-arch port status. The agent's planner reads this to decide
+# "which kernels do I need to synthesize for this technique on this arch?"
+port_targets:
+  - arch_family: hopper
+    status: reference-impl
+    reference_url: https://github.com/thu-ml/sageattention/tree/main/csrc
+    notes: |
+      Hopper is the baseline. WGMMA + INT8 path dominates; FP8 fallback for
+      outliers. ~2x speedup vs FlashAttention-3 on long-context decoding.
+
+  - arch_family: ada
+    status: production-ready
+    reference_url: https://github.com/thu-ml/sageattention/blob/main/README.md
+    notes: |
+      RTX 4090 — uses MMA (not WGMMA, no async TMA on Ada). Slightly less
+      headroom than Hopper but still meaningfully faster than FA-3.
+
+  - arch_family: ampere
+    status: experimental
+    notes: |
+      A100 supported but missing FP8 path (Ampere has no FP8 tensor cores).
+      Falls back to FP16 for the outlier path; speedup is 1.3-1.5x vs FA-3
+      instead of the 2x seen on Hopper/Ada.
+
+  - arch_family: ascend-da-vinci-3
+    status: planned
+    notes: |
+      v3.27 north-star scenario. Porting requires:
+      - Ascend Cube unit for the INT8 matmul path (mfma → cube)
+      - Ascend Vector unit for outlier softmax (sm → vector)
+      - UB (Unified Buffer) for working state (vs SMEM on NVIDIA)
+      - msprof for verification + per-shape tuning
+      Open question: how does the FP8 outlier path map without native FP8
+      Cube support? Likely BF16 fallback with widened accumulator.
+
+  - arch_family: cdna3
+    status: planned
+    notes: |
+      MI300X port. MFMA covers INT8; LDS for working state. AMD ROCm
+      ecosystem maturity (rocBLAS / rocWMMA) makes this a less-risky port
+      than Ascend, but still net-new work.
+
+  - arch_family: cambricon-mlu
+    status: planned
+    notes: |
+      MLU590 port. NRAM + WRAM 3-tier hierarchy maps reasonably to
+      SageAttention's working state; INT8 MMA via MLU MMA primitive.
+
+reference_impl:
+  framework: cuda-cpp
+  repo: https://github.com/thu-ml/sageattention
+  entry: csrc/qattn/qk_int_sv_f16_cuda_sm89.cu
+  snippet: |
+    // SageAttention Hopper kernel — INT8 attention with FP16 outlier
+    // values (the "S" path = sage outlier-aware).
+    // Full source at csrc/qattn/qk_int_sv_f16_cuda_sm89.cu in upstream.
+    template<int CTA_Q, int CTA_K, int WARP_Q, int WARP_K, ...>
+    __global__ void qk_int_sv_f16_attn_kernel(
+        int8_t* Q, int8_t* K, half* V,           // INT8 Q/K, FP16 V
+        half* O, half* S, int* lse,              // FP16 out + softmax + lse
+        float scale_q, float scale_k,            // dequant scales
+        int batch, int heads, int seq_q, int seq_k, int dim
+    ) {
+        // 1. WGMMA INT8 GEMM: S = Q @ K^T (INT8 inputs, INT32 accumulator)
+        // 2. Dequantize + mask + scale: S = (S * scale_q * scale_k) + mask
+        // 3. Softmax with online normalization (FA-3 style)
+        // 4. WGMMA FP16 GEMM: O = softmax(S) @ V (FP16 path)
+        // 5. Outlier handling: detect |x| > threshold, use FP16 path for
+        //    those query positions instead of INT8
+    }
+
+numerical_rules:
+  - aspect: q_k_quantization
+    per_library:
+      sageattention-cuda: 'INT8 per-head per-token quantization for Q and K'
+      sageattention-port-ascend-c: 'Same quantization, but Ascend Cube unit needs explicit dtype= ; verify scale propagation'
+    notes: |
+      The INT8 quantization scales (scale_q, scale_k) MUST be per-head
+      per-token and computed online. Static per-head scales lose 1-2% on
+      CogVideoX-style long-context attention.
+
+  - aspect: outlier_threshold
+    per_library:
+      sageattention-cuda: 'Hardcoded threshold: 4 * std(attention_scores). Outliers re-routed through FP16 path.'
+      all_ports: 'MUST keep this threshold consistent — changing it changes accuracy'
+    notes: |
+      Outlier detection happens in registers post-softmax; cheap to compute.
+      Skipping it gives ~10% extra throughput but breaks numerical agreement
+      with the reference impl by ~3% MSE on long-context heads.
+
+  - aspect: accumulator_dtype
+    per_library:
+      sageattention-cuda: 'INT32 for QK^T (INT8 inputs), FP32 for SV (FP16 inputs)'
+      sageattention-port-ascend-c: 'INT32 cube accumulator -> FP32 vector accumulator via cube-vector handoff'
+
+port_complexity: high
+
+notes: |
+  SageAttention is the canonical "INT8 attention with outlier handling"
+  technique. Port effort breakdown:
+    - Hopper baseline: 0 (reference impl)
+    - Ada: ~2 weeks (no async TMA, but mostly mechanical)
+    - Ampere: ~3 weeks (no FP8, BF16 fallback path)
+    - Ascend-C: ~6-8 weeks (different programming model, Cube/Vector split,
+      no FP8, msprof rather than ncu — full new toolchain learning curve)
+    - CDNA3: ~3-4 weeks (rocWMMA mostly mirrors WMMA, but no async copy)
+    - Cambricon: ~6-8 weeks (similar to Ascend in effort, BANG-C learning curve)
+
+  The agent harness's job is to compress these timelines by:
+    1. Generating a plausible first-pass kernel from the reference + corpus
+       DSL examples for the target arch
+    2. Running cross-arch numerical verify (V2) against the CUDA reference
+    3. Iterating with diagnostic feedback when verify fails
+    4. Profiling on real hardware (V3) and surfacing perf gaps
+    5. Emitting agent-learning.yaml that lands as a port_target update
+
+  v3.27's end-to-end test: `agent:deploy --technique sageattention
+  --model zai-org/CogVideoX1.5-5B --hardware ascend-910b
+  --remote <ASCEND_910B_HOST> --use-host-llm` runs against a real 910B
+  and emits a verified Ascend-C port with measured tok/s.
+
+aliases:
+  - sage-attention
+  - sage-attn
+  - sageattn
+  - SAGE
