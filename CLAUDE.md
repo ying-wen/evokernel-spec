@@ -6,12 +6,24 @@
 
 ---
 
-## Project shape (2026-05-02, v2.24)
+## Project shape (2026-05-04, v3.23 — see [README.md](README.md) + [docs/ROADMAP.md](docs/ROADMAP.md) for full state)
+
+EvoKernel Spec has two parts:
+
+1. **Structured knowledge base** — 419 entities across 24 entity types covering AI inference hardware × models × ops × DSL examples × deployment cases. 608 SSG pages + 21 JSON API endpoints. Stable since v3.0.
+
+2. **Productized agent harness** (v3.17 → v3.23, 7 release iterations) — 11 CLI commands (`agent:deploy`, `:productized`, `list-bundles`, `auto-pr`, `install`, `doctor`, `status`, `watch`, ...), 12 MCP tools, 2 plugin executables (Codex `evokernel-deploy` Node binary + Claude Code `/agent-deploy` slash command in en + zh), 4/6 vendor profiler parsers wired (NCU + rocprof + msprof + cnperf). 172 harness tests + 49 web tests = 221 total, all green.
+
+**v3.24+ direction**: see [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md) — closes the gaps user feedback called out (host-LLM mode so no `ANTHROPIC_API_KEY` needed inside CC/Codex; HF auto-import for unknown models; `data/techniques/` entity for porting research libraries; SSH remote-target executor; cross-arch numerical verify).
+
+**🔒 Security note for AI agents working here**: see [`docs/SECURITY-NOTES.md`](docs/SECURITY-NOTES.md). Never commit real API keys, real SSH host IPs, or real credentials. Use placeholders (`<ASCEND_910B_HOST>`, `sk-ant-...`) in docs and config files.
+
+### Original project description (kept for context)
 
 EvoKernel Spec is a **structured knowledge base** that lets an AI agent take
-**any model** and ship it on **any hardware** — by combining 360+ data entities,
-a 7-stage agent pipeline, and a feedback loop that grows the corpus from real
-deployment runs.
+**any model** and ship it on **any hardware** — by combining 419+ data entities,
+a productized agent CLI (v3.17+), and a feedback loop that grows the corpus
+from real deployment runs.
 
 ### Three layers
 

@@ -6,7 +6,97 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.24** — suprof (Moore Threads) + instruments (Apple) parsers (6/6 vendors), vendor sub-page generational timelines (cambricon: 4-gen edge→datacenter→frontier in one component), pre-v3.x model family audit, ROADMAP.md prune.
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.25** — host-LLM execution mode (`--use-host-llm` — no `ANTHROPIC_API_KEY` needed inside CC/Codex), `data/techniques/` entity type + first SageAttention YAML, HF unknown-model auto-import (`synthesizeTemporaryBundle`). Per [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md).
+
+---
+
+## [3.24.0] — 2026-05-04 — Docs cleanup + v3.24+ "real productized agent" spec + security scrub
+
+**Theme**: User feedback — "current implementation is too simple to be a real product" — drives a docs-first iteration. Honest current-state README, rewritten ROADMAP, new architecture spec for v3.25-v3.27 using the **SageAttention/CogVideoX1.5-5B/Ascend-910B SSH** north-star scenario as the forcing function. Plus security scrub + `SECURITY-NOTES.md` after I caught myself about to commit a private SSH host IP.
+
+### Critical security fix (caught pre-commit)
+
+Mid-iteration the user warned: **"注意，一些API KEY， IP不要暴露推送到公网"** (don't leak API keys / IPs to public push). I had just written the user's actual SSH host IP `1.95.x.x.x` into 4 docs (README, ROADMAP, spec, CLEANUP-TODO). Scrubbed all 8 occurrences before any commit landed:
+
+- Replaced with `<ASCEND_910B_HOST>` placeholder
+- Verified zero matches in working tree, staged diff, OR git history (`git log --all -S "<ip>"`)
+- Wrote new [`docs/SECURITY-NOTES.md`](docs/SECURITY-NOTES.md) — convention for contributors: never commit real keys/IPs; placeholder shapes (`<HOST>` / `sk-ant-...`) only; pre-commit grep recipe; "what NOT to collect" reassurance section
+
+This is the kind of bug that's catastrophic if it lands (rotating SSH access on a private machine + scrubbing forks + Wayback Machine + GH search) and nearly free to fix before staging — exact reason for the **scrub-before-stage** convention now codified in SECURITY-NOTES.md.
+
+### H1 — Archived 5 stale docs
+
+Moved to [`docs/archive/`](docs/archive/README.md):
+- `V1.2-VISION.md` — v1.2 era vision
+- `RELEASE-v1.2.3.md` + `RELEASE-v2.0.md` — pre-v3 release notes
+- `ROADMAP.archived-v1.5.1.md` — was already labelled "archived"
+- `2026-04-28-evokernel-spec-design.md` — original v0 schema design (mostly superseded; kept for schema-rationale context)
+
+New `docs/archive/README.md` indexes them with **why each is archived** so future contributors don't waste time reading them as authoritative.
+
+### H2 — Rewrote README.md (228 lines → ~180 lines, all v3.23-current)
+
+Replaced the v2.17-stale README. New sections:
+- **TL;DR**: 8 commands that actually work today, copy-paste runnable
+- **Project state (v3.23)** table — 7 capabilities × 3 status columns (✅ stable / ⚠️ partial / ❌ TODO)
+- **What honestly works today** — 9 bullet-point capabilities
+- **⚠️ Known limits** — 6 explicit gaps with v3.24+ resolution targets, linking to the new spec
+- Updated stats throughout: 419 entities (was 297), 64 hardware (was 39), 172+49 tests (was 470 e2e claim — wrong number was inflated), 11 CLI commands, 12 MCP tools
+
+### H3 — Rewrote ROADMAP.md (430 lines → ~150 lines)
+
+- New **3-arc framing** (v1: corpus, v2: computable knowledge + agent toolkit, v3: productized harness)
+- v3.x state table: harness layers × status (Layer R/P stable, Layer G needs `--use-host-llm`, Layer V needs kernel-runner, Layer F stable)
+- **v3.24+ priorities** = the 6 gaps from user feedback, each with version target and link to the spec
+- Explicit **deliberately deferred** section (closed-source proxying, cloud CLI integration, GUI, dashboards) so ambitious-but-out-of-scope ideas don't accumulate
+
+### H4 — NEW spec: `docs/superpowers/specs/2026-05-04-real-productized-agent.md`
+
+The architecture forcing-function: every gap user identified is exercised by **one concrete scenario** — port SageAttention to Ascend-C, validate with CogVideoX1.5-5B on a real 910B SSH host, no Anthropic API key. Sections:
+
+- **North-star user story** — one command, the harness does 10 things end-to-end
+- **4 architectural changes** with target versions:
+  - Change 1 (v3.24-v3.25): Host-LLM execution mode (`host-llm-adapter.ts` + `--use-host-llm`)
+  - Change 2 (v3.25): Unknown-model HF auto-import + new `data/techniques/` entity type
+  - Change 3 (v3.26): Remote-target SSH executor (`remote-target.ts` + `~/.config/evokernel/targets.yaml`)
+  - Change 4 (v3.27): Cross-arch numerical verify (technique reference vs new impl, side-by-side on real hardware)
+- **Concrete v3.24-v3.28 roadmap table** with deliverables and test-count targets per release
+- **Why this design (vs current)** — 5 design decisions defended explicitly
+- **What it does NOT change** — preserves Layer R/P/F architecture, corpus schema, 5-layer hw-sw gap mental model
+- **4 open questions** for v3.25+ implementation surfaced upfront (host-LLM exchange protocol, technique YAML schema specifics, remote-target permission model, cross-arch comparison floor)
+
+### H5 — Supporting doc updates
+
+- **`CLEANUP-TODO.md`**: top section now lists the 8 v3.24+ "real productized agent" gaps with target versions, linking to the new spec
+- **`HARNESS.md`**: new "⚠️ Known limits (v3.23)" section right after the "What the harness does" paragraph — 6 explicit gaps with v3.24+ resolution links
+- **`CLAUDE.md`**: refreshed Project shape header from "v2.24, 2026-05-02, 360+ entities" to current "v3.23, 2026-05-04, 419 entities, 11 CLI commands, 12 MCP tools, 221 tests"; new explicit security-note section pointing to SECURITY-NOTES.md
+- **`docs/SECURITY-NOTES.md`** (NEW) — see "Critical security fix" above
+
+### H6 — Homepage Agent Harness section
+
+`apps/web/src/pages/index.astro` updated:
+- Version badge v3.19 → v3.23
+- Added second link to v3.24+ spec next to HARNESS.md link
+- Capability badges refreshed (8 → 11 npm scripts; 105 → 221 tests; 4/6 vendor profilers added; "en + zh" added)
+- New "⚠️ Known limits" line below the badges, with explicit `ANTHROPIC_API_KEY` + unknown-model + SSH gaps and v3.24+ resolution
+
+### Stats
+
+- **Doc files changed**: 6 (README, ROADMAP, CLEANUP-TODO, HARNESS, CLAUDE.md, homepage)
+- **Doc files archived**: 5
+- **Doc files added**: 2 (`docs/archive/README.md`, `docs/SECURITY-NOTES.md`)
+- **New spec**: 1 (`2026-05-04-real-productized-agent.md`, ~225 lines)
+- **Sensitive data scrubbed**: 8 IP occurrences across 4 docs (zero made it to a commit)
+- **Tests**: 172/172 scripts + 49/49 web — unchanged (docs-only release)
+- **Site pages**: 608 (unchanged; docs land on `/docs/` not page routes)
+
+### v3.25 next
+
+Per the spec, in priority order:
+- **Host-LLM execution mode** (`--use-host-llm` flag) — closes the "no API key needed" gap
+- **`data/techniques/` entity type** + zod schema + first SageAttention YAML
+- **`synthesizeTemporaryBundle`** for unknown HF models
+- Test target: 172 → ~190
 
 ---
 

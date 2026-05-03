@@ -7,6 +7,19 @@ This is the operator manual for the **real productized agent harness** — a clo
 
 It is **not** an MCP query service (corpus has one of those too — separate tool). The harness goes one step further: it produces the actual code you ship and the actual provenance you audit.
 
+## ⚠️ Known limits (v3.23 — what doesn't yet work)
+
+These were called out by users as "harness is too simple to be a real product". The full design for closing them is at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md):
+
+- **Productized real-mode requires `ANTHROPIC_API_KEY`**. When invoking from inside Claude Code or Codex (which have their own LLMs), the external key requirement is friction. The v3.25 `--use-host-llm` flag closes this.
+- **Unknown models error out**. If your model isn't in `data/models/`, `BundleNotFoundError` fires. v3.25 adds HF auto-import via `synthesizeTemporaryBundle`.
+- **No "technique" entity**. Porting research libraries (e.g. SageAttention) to a new arch isn't expressible — corpus has models, hardware, ops, fused-kernels, but no entity for "research technique to port to a new ISA". v3.25 adds `data/techniques/`.
+- **No remote-target SSH executor**. V3 perf gate consumes pre-collected profiler CSVs via env vars; can't yet SSH to a target machine, compile, run, profile, and pull back metrics. v3.26 adds `scripts/agent-deploy/remote-target.ts`.
+- **No cross-arch numerical verify**. V2 compares to a per-op `formal_semantics.reference_impl`. When porting a *technique*, the numerics that matter are the technique's (e.g. SageAttention's INT8+FP8 outliers), not the underlying op's. v3.27 adds cross-arch comparison.
+- **suprof + instruments parsers missing**. 4/6 vendors today (NCU + rocprof + msprof + cnperf as of v3.23). 6/6 in v3.24.
+
+If your use case hits one of these limits, the v3.24-v3.27 plan addresses it; PRs welcome.
+
 ## What the harness does (one paragraph)
 
 ```

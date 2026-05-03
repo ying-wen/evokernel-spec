@@ -1,7 +1,8 @@
-# Site Cleanup + UI Optimization TODO
+# Site Cleanup + UI Optimization + Productized-Agent Gaps
 
-> Tracking incremental fixes for stale content, duplicated pages, and
-> UX issues called out by the user (May 2026).
+> Tracking incremental fixes for stale content, duplicated pages, UX issues,
+> AND the v3.24+ "real productized agent" gaps called out by the user
+> (May 2026 — see [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md)).
 >
 > Each item is independently shippable in a v3.x patch release. Group by
 > theme so each release has a coherent narrative. Triage tags:
@@ -9,6 +10,25 @@
 > - **HIGH** — affects core UX, target within 2 releases
 > - **MED**  — quality-of-life, opportunistic
 > - **LOW**  — nice-to-have, no rush
+
+## v3.24+ "Real productized agent" gaps (HIGH priority)
+
+These are the concrete deliverables for v3.25-v3.27 per the spec at
+[`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md).
+Doing them in this order is what closes the user's north-star scenario
+(port SageAttention to Ascend-C, validate with CogVideoX1.5-5B on a real
+910B SSH host, no Anthropic API key required).
+
+| Item | Status | Target |
+|---|---|---|
+| Host-LLM execution mode (`--use-host-llm`) — emits prompt+tool-spec instead of API call | TODO | v3.25 |
+| Technique entity (`data/techniques/`) + zod schema + first SageAttention YAML | TODO | v3.25 |
+| Unknown-model HF auto-import (`synthesizeTemporaryBundle`) | TODO | v3.25 |
+| Remote-target SSH executor (`scripts/agent-deploy/remote-target.ts`) + per-vendor build scripts | TODO | v3.26 |
+| `~/.config/evokernel/targets.yaml` schema + dry-run mode | TODO | v3.26 |
+| Cross-arch numerical verify (technique reference vs new impl, side-by-side on real hardware) | TODO | v3.27 |
+| End-to-end on north-star scenario (real run against private Ascend 910B SSH host — host info kept out-of-tree) | TODO | v3.27 |
+| `/agents/runs/` web dashboard (browse past runs from `agent:status` data) | TODO | v3.28 |
 
 ## Hardware / Model page UI
 

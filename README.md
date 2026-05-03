@@ -1,228 +1,179 @@
 # EvoKernel Spec
 
-> AI 推理硬件 × 模型 × 部署 + **任意模型 → 任意硬件 agent toolkit** 的开源知识库 — 国产芯片覆盖最全 / formal_semantics 可形式化 / kernel skeleton 可生成 / MCP+plugin 可调用
+> **Open knowledge base + productized agent harness for "any model → any hardware" deployment + optimization.**
 >
-> 🎉 **v2.0.0 GA** (2026-05-02) · 🔧 **v2.17.0** post-GA quality fill (2026-05-02) — formal_semantics depth + agent toolkit · 📐 详见 [ROADMAP](docs/ROADMAP.md) / [RELEASE-v2.0](docs/RELEASE-v2.0.md) / [CHANGELOG](CHANGELOG.md)
+> Two parts: (1) a structured corpus of AI inference hardware × models × ops × DSL examples × deployment cases; (2) a productized agent CLI that takes (model, hardware) → real generated kernels + verification + corpus feedback.
 
-**🌐 在线访问 / Live site: [yingwen.io/evokernel-spec](https://yingwen.io/evokernel-spec/)** · [📖 /contribute 贡献入口](https://yingwen.io/evokernel-spec/contribute/) · [📊 /pricing TCO 排名](https://yingwen.io/evokernel-spec/pricing/) · [🤖 /agents/ Agent toolkit](https://yingwen.io/evokernel-spec/agents/) · [🔌 /api/ JSON API](https://yingwen.io/evokernel-spec/api/)
+**🌐 Live: [yingwen.io/evokernel-spec](https://yingwen.io/evokernel-spec/)** · [📖 Contribute](https://yingwen.io/evokernel-spec/contribute/) · [📊 TCO Pricing](https://yingwen.io/evokernel-spec/pricing/) · [🤖 Agent toolkit](https://yingwen.io/evokernel-spec/agents/) · [🔌 JSON API](https://yingwen.io/evokernel-spec/api/)
 
 [![Live](https://img.shields.io/badge/live-yingwen.io%2Fevokernel--spec-success)](https://yingwen.io/evokernel-spec/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Data: CC-BY-SA 4.0](https://img.shields.io/badge/Data-CC--BY--SA_4.0-green.svg)](DATA_LICENSE)
-[![E2E](https://img.shields.io/badge/e2e-470%2B_passing-success)](#)
-[![Pages](https://img.shields.io/badge/pages-494-blue)](#)
-[![API](https://img.shields.io/badge/JSON_API-20_endpoints-blueviolet)](#)
-[![Plugins](https://img.shields.io/badge/plugins-MCP_%2B_Claude_%2B_Cursor_%2B_Codex-orange)](#)
+[![Tests](https://img.shields.io/badge/tests-172_scripts_%2B_49_web-success)](#)
+[![Pages](https://img.shields.io/badge/pages-608-blue)](#)
+[![Plugins](https://img.shields.io/badge/plugins-MCP_%2B_Codex_%2B_ClaudeCode_%2B_Cursor-orange)](#)
 [![Pages Deploy](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml/badge.svg)](https://github.com/ying-wen/evokernel-spec/actions/workflows/pages.yml)
-[![Release](https://img.shields.io/badge/release-v2.17.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
+[![Release](https://img.shields.io/badge/release-v3.23.0-blue)](https://github.com/ying-wen/evokernel-spec/releases/latest)
 
-![Home](docs/screenshots/home.png)
+## TL;DR
+
+```bash
+git clone https://github.com/ying-wen/evokernel-spec.git
+cd evokernel-spec && pnpm install && pnpm --filter @evokernel/web build
+
+pnpm agent:install -- --target both     # one-time; symlinks Codex bin + CC slash command
+pnpm agent:doctor                        # 12-check setup health
+pnpm agent:list-bundles -- --hardware h100-sxm5
+
+# Deploy (skeleton mode — no API key required)
+pnpm agent:deploy --model llama-3.3-70b --hardware h100-sxm5
+
+# Or productized real-code mode (requires ANTHROPIC_API_KEY today; see "Known limits" below)
+ANTHROPIC_API_KEY=sk-ant-... pnpm agent:deploy:productized \
+  --model meta-llama/Llama-3.3-70B-Instruct \
+  --hardware h100-sxm5 \
+  --use-llm-orchestrator --profile
+
+pnpm agent:status                        # what did I deploy lately?
+pnpm agent:auto-pr -- --output ./pr.md   # F-loop closure (cluster learnings → PR drafts)
+pnpm agent:watch -- --pairs <pairs>      # continuous re-deploy on corpus change
+```
+
+Full guide: [`docs/HARNESS.md`](docs/HARNESS.md). Cleanup queue: [`docs/CLEANUP-TODO.md`](docs/CLEANUP-TODO.md).
+
+## Project state (v3.23, 2026-05-04)
+
+| Layer | Capability | Status |
+|---|---|---|
+| **Data corpus** | 419 entities across 24 entity types · 64 hardware (24 国产) · 34 models · 38 ops · 27 fused-kernels · 15 DSL examples (5 platforms × triangle-mult) · 16 ISA primitives · 7 engines | ✅ stable |
+| **Site** | 608 SSG pages · 21 JSON API endpoints · WCAG 2 AA · zh + en | ✅ stable |
+| **Agent CLI** | 11 commands (`deploy`, `:productized`, `list-bundles`, `auto-pr`, `install`, `doctor`, `status`, `watch`, ...) · 2 plugin executables (Codex bin + CC slash command) | ✅ stable |
+| **MCP server** | 12 tools (9 query + 3 productized: `agent_resolve_bundle` / `agent_list_bundles` / `agent_auto_pr`) | ✅ stable |
+| **V3 perf gate** | 4/6 vendor profiler parsers (NCU + rocprof + msprof + cnperf via env hook); auto-detect for all 6 vendors | ⚠️ env-hook only (kernel-runner v3.25+) |
+| **Closed-loop F→corpus** | per-deploy `agent-learning.yaml` + cluster aggregation via `agent:auto-pr` + continuous re-deploy via `agent:watch` | ✅ stable |
+| **Real production code** | LLM-orchestrator generates compilable code citing corpus refs; V1+V2 structural verification; retry-on-fail | ⚠️ requires `ANTHROPIC_API_KEY` |
+| **Tests** | 172 scripts (Vitest) + 49 web (Vitest) = 221 total · all green | ✅ |
+
+## What honestly works today (v3.23)
+
+- ✅ **One-command deploy** for any (model, hardware) pair already in corpus → produces real kernels (productized mode) + planning artifacts (Dockerfile / K8s manifests / runbook / SBOM / agent-learning YAML)
+- ✅ **Discoverability**: `agent:list-bundles` enumerates all 2176+ pre-built (model × hardware) bundles
+- ✅ **Self-diagnosis**: `agent:doctor` reports 12 setup checks with actionable fixes
+- ✅ **Continuous re-deploy** on corpus changes (`agent:watch` with bounded concurrency)
+- ✅ **Closed-loop knowledge feedback** via `agent:auto-pr` clustering
+- ✅ **4-vendor profiler ingestion** (NVIDIA NCU / AMD rocprof / Huawei msprof / Cambricon cnperf) into a unified `ProfilerParseResult` shape
+- ✅ **Codex CLI integration**: real `evokernel-deploy` Node binary symlinked into `~/.local/bin/`
+- ✅ **Claude Code slash commands**: `/agent-deploy` (English) + `/zh:agent-deploy` (中文)
+- ✅ **MCP server** with 12 tools for any LLM IDE that speaks MCP
+
+## Known limits (the honest gaps v3.24+ closes)
+
+These were called out by users as "harness is too simple to be a real product":
+
+- ❌ **Productized mode requires `ANTHROPIC_API_KEY`** — should use the host LLM (Codex's GPT-5 or Claude Code's Claude) directly when running inside those tools. **One-click integration broken today.** ([planned: v3.24-25](docs/superpowers/specs/2026-05-04-real-productized-agent.md))
+- ❌ **Unknown models not auto-imported** — if your model isn't in `data/models/`, the CLI errors. Auto-import from HuggingFace config is partial. (planned: v3.25)
+- ❌ **No remote-target executor** — V3 perf gate consumes pre-collected profiler CSVs via env vars; can't yet SSH to a target machine, compile, run, profile, and pull back metrics. (planned: v3.26)
+- ❌ **"Algorithm/technique" entity missing** — porting *SageAttention* (an attention optimization library) to Ascend-C isn't expressible today; corpus has models, hardware, ops, fused-kernels, but no entity for "research technique to port". (planned: v3.25)
+- ❌ **No end-to-end verification on real hardware** — V1 structural checks pass, V2 reference comparison runs, V3 perf parsing exists, but the integration that runs your generated code on a real GPU and reports back a tok/s number doesn't yet exist. (planned: v3.26-27)
+- ❌ **suprof + instruments parsers** (Moore Threads + Apple) — 4/6 vendors today, 6/6 in v3.24
+
+The v3.24+ design spec is at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md) — uses the user's concrete scenario (port SageAttention to Ascend-C, validate with CogVideoX1.5-5B on a real 910B SSH host) as the architecture forcing function.
+
+## The 5-layer hw-sw gap framework
+
+Every op/kernel in the corpus maps to 5 layers (see [`docs/superpowers/specs/2026-05-02-hw-sw-gap.md`](docs/superpowers/specs/2026-05-02-hw-sw-gap.md)):
+
+| Layer | What | Example |
+|---|---|---|
+| A — ISA primitive | Silicon instruction | `nvidia-hopper-wgmma`, `huawei-ascend-cube`, `cambricon-mlu-mma`, `amd-cdna3-mfma` |
+| B — DSL | How you write a kernel | CUDA C++, Triton, Ascend-C, HIP, BANG-C, MLX |
+| C — Kernel library | Vendor-blessed packaged path | cuBLAS, CUTLASS, aclnn, rocBLAS, cuDNN, MIOpen |
+| D — Formal semantics | Correctness rules across vendors | Per-op `formal_semantics.numerical_rules` |
+| E — Coverage matrix | Which (op × arch) cells are filled | `data/coverage-matrix.ts` |
+
+Every harness recommendation chains through all 5 layers — that's why the corpus has ~420 entities (not because more is better, because each layer needs separate facts to make the chain work).
 
 ## Highlights
 
-**📦 16 类实体 / 297 数据条目**:
-- **39 加速卡** 跨 28 家厂商 — 含 **18 张深填 memory hierarchy (46% coverage)** (NVIDIA A100/H100/H200/B200/B300/L40s, AMD MI300X/MI325X/MI355X, Intel Gaudi 3, AWS Trainium 2, Google TPU v5p/Trillium, Cambricon MLU590, Hygon DCU Z100, MTT S4000, Ascend 910B/910C 都有 RF→SMEM→L2→Infinity-Cache→HBM 完整层级)
-- **14 服务器/超节点** — **8 个完整 cluster internals (57% coverage)** (NVL72, GB300 NVL72, HGX H100, HGX H200, CloudMatrix 384, Atlas 900 SuperPoD A2, Atlas 800T A3, Trn2 UltraServer) 含 switch-chip 详情 + 持续/峰值功耗 + cabinet 布局 markdown + **SwitchFabric SVG 拓扑可视化**. 三轴矩阵全填: host_cpu / network_topology / storage_architecture 14/14
-- **20 frontier 模型**: LLM (DeepSeek V4 Pro / Kimi K2.6 / Qwen 3.6 / Llama 4 / GLM-5 / MiniMax M2.7) + **scientific (AlphaFold 3 / GraphCast)** + diffusion + 算子 FLOP/byte 拆解
-- **41 部署案例**: 含 CloudMatrix 384 超节点 / disaggregated 部署 / 9 家国产卡 / Blackwell FP4 / Ascend 910C
-- **34 算子 + 24 fused kernels**: rich operator schema (arith intensity 分类 / fusion graph / engine impls) · FlashAttention-3 / FusedMLP / FusedRoPE / PagedAttention / Mooncake KV-disagg / DeepEP MoE / FusedAllReduce / **FusedSelectiveScan (Mamba) / FusedSpecDecode (Medusa+EAGLE) / FusedQuantizedAttention (Blackwell+ FP4) / FusedKVQuant / LoRA-BGMV / Online-Softmax / Block-Quantize / Index-Put / Mamba-Conv1d**
-- **23 patterns + 7-stage deployment pipeline**: acquire→convert→quantize→compile→shard→serve→observe (26 decisions / 32 tools / 21 failure modes 文档化)
-- **24 playbooks** (model archetype × hardware class) recipes · **11 tours** (edge → super-pod 全谱)
-- **7 推理引擎** with full capability matrix (60+ features × 6 axes: quant/parallelism/serving/spec-decode/frontend/deployment)
+**📦 Data corpus (v3.23)**:
 
-**🧠 计算闭环 / Computable knowledge**:
-- **Tier 0 实测查表 + Tier 1 透明 Roofline 计算器**: per-operator breakdown / concurrency sweep / TCO ($/M tokens) / disaggregated mode
-- **🎯 模型 ↔ 硬件 双向推荐** (v1.5+v1.6): 每个 /models/<slug>/ 自动生成"推荐硬件"3 轴排行榜，每个 /hardware/<slug>/ 自动生成"推荐模型"3 轴排行榜——双向 throughput / cost / verified leaderboard，深链 calculator 预设 (用 operator decomposition × memory hierarchy × cases × pricing 多源数据计算)
-- **/pricing TCO 排行榜**: 公式公开 · 18 张卡 best/median/worst $/M tokens
-- **/showcase 自动洞察**: 8 个从全语料库自动计算的 insight (每次 build 刷新)
+- **64 加速卡** — including v3.x additions: `mi355x` (CDNA4) · `b300-sxm` · `gb300-nvl72` · `mtt-s5000` · `apple-m5-pro/max` · `ascend-910d` · `ascend-950` · `iluvatar-bi-150` · `cambricon-mlu220/mlu290/mlu590` · `black-sesame/a1000` · `horizon-robotics/journey-5` (24 国产 across edge / consumer / datacenter / auto)
+- **34 models** including v3.8/v3.10/v3.14 breadth: AlphaFold 3 · Boltz-1 · ESMFold · GraphCast · MACE-MP-0 · Whisper · Parakeet · F5-TTS · FLUX · SD 3.5 · Mochi 1 · OpenSora 2 · HunyuanVideo · Kimi K2.6 · DeepSeek V4 Pro · Qwen 3.5/3.6 · GLM-5 reasoning
+- **15 DSL examples** with **5-platform parity for triangle-mult**: Triton · CUDA C++ · Ascend-C · MLX · HIP rocWMMA — first non-LLM op with full cross-ISA coverage
+- **16 ISA primitives** (8 vendors, all with `cross_vendor_equivalents` mapping ratios)
+- **27 fused kernels** including `fused-pairformer-block` (Boltz/AlphaFold) · `fused-mace-message-pass` (equivariant GNN MD) · `fused-flow-matching-with-cache` (Mochi/FLUX) · `fused-mel-spec-with-cufft`
+
+**🤖 Productized agent harness (v3.17 → v3.23)**:
+
+- **5-layer architecture**: Layer R (smart context retrieval) → Layer P (planning) → Layer G (LLM-orchestrated real-code generation) → Layer V (V1 build + V2 correctness + V3 perf gates) → Layer F (auto-emit `agent-learning.yaml` + retry on V failure + cluster into PR drafts)
+- **11 CLI commands** wrapping the 5 layers (see TL;DR above)
+- **2 plugin executables**: Codex `evokernel-deploy` Node binary + Claude Code `/agent-deploy` slash command (zh + en)
+- **12 MCP tools**: 9 query + 3 productized (`agent_resolve_bundle` + `agent_list_bundles` + `agent_auto_pr`)
+- **Per-deploy manifest** (`evokernel-deploy.json` v0.1) — single canonical record CI consumers read instead of scraping 14 output files
 
 **🌍 国产 + 可信度**:
-- **国产芯片专题**: 矩阵热力图 + 代际谱系 + 软件生态对照
-- **数据可信度三档**: 📄 官方声称 · ✅ 实测验证 · ⚠️ 社区估算
 
-**🤖 Agent toolkit (v2.4 → v2.17) — 任意模型 → 任意硬件**:
-- **5-layer hw-sw gap framework** ([`docs/superpowers/specs/2026-05-02-hw-sw-gap.md`](docs/superpowers/specs/2026-05-02-hw-sw-gap.md)) — Layer A ISA primitives · Layer B DSL · Layer C kernel libraries · Layer D formal_semantics · Layer E coverage matrix
-- **15 ISA primitives** (8 vendors, all with `cross_vendor_equivalents` mapping ratios) — WGMMA / TMA / MFMA / Cube / MMA / Vance-MMA / DCU-MMA, etc. (`/isa-primitives/`)
-- **5 DSL examples** — CUDA-Hopper · Ascend-C · HIP-CDNA3 · Triton · BANG-C (Cambricon) — all GEMM-shape, attention/norm next (`/dev-toolkit/dsl-examples/`)
-- **8 kernel libraries** + **3 reference impls** + **6 profiling tools** + **4 engine compile workflows** (`/kernel-libraries/`, `/dev-toolkit/`)
-- **20/34 ops** with `formal_semantics` (signature + edge_cases + numerical_rules + reference_impl) — biggest remaining gap is fused-kernels at 5/24
-- **`/operators/coverage-matrix/`** — op × arch fitness heatmap shows where the kernel exists vs where the agent needs to port it
-- **`scripts/agent-deploy/`** (2,177 LOC) — 7-stage CLI agent: detect kernel gaps → plan ports → **generate actual CUDA/Ascend-C/HIP skeleton code** → emit production artifacts (Dockerfile / K8s / runbook / SBOM / license-audit) → 49-cell validation matrix. Verified end-to-end on DeepSeek V4 Pro across 7 hardware archs.
+- **24 国产 cards** spanning edge (MLU220, J5, A1000) · consumer (RK3588) · datacenter (910B/910C/910D, MLU290/370/590, BI-100/V150, DCU-Z100/K100, BR100/104, MTT S4000/S5000) · automotive (Journey 5, A1000)
+- **Ascend-C non-LLM DSL** (v3.15): first public Ascend-C reference for OpenFold/Boltz triangle-multiplicative-update — documents 3-5× perf gap vs CUDA H100 honestly (Vector vs Tensor Core gap)
+- **数据可信度三档**: 📄 official-claim · ✅ measured · ⚠️ community-estimated
 
-**🔌 Plugins — call this from any LLM IDE (v2.11)**:
-- **`plugins/mcp-server/`** — MCP server with 6 tools: `query_hardware`, `query_operator`, `query_isa`, `solve`, `coverage_matrix`, `plan_deployment`. Verified end-to-end via stdio JSON-RPC.
-- **`plugins/claude-code-skill/`** — Claude Code skill for in-IDE deployment planning
-- **`plugins/cursor-rules/`** — Cursor MDC rules for evokernel-spec-aware code completion
-- **`plugins/codex/`** — OpenAI Codex prompt presets
+## Repo shape
 
-**🔌 外部接口 + 部署**:
-- **20 个 JSON API**: `/api/{hardware,models,operators,fused-kernels,isa-primitives,dsl-examples,kernel-libraries,engines,engine-compile-workflows,model-graphs,profiling-tools,reference-impls,playbooks,coverage-matrix,cases,solve,index,openapi,health,healthz}.json` (CC-BY-SA 4.0)
-- **生产级本地部署**: `./launch.sh` 一键 build+health-poll+17 路由 smoke / `pack:dist` 离线 tar.gz + sha256 sidecar
-- **WCAG 2 AA 兼容**, 中文+英文双语, 支持深色主题
-- **完整 CI 6 jobs**: validate · type-check · unit · build · e2e (470 测试, axe a11y, Lighthouse) · deployment-smoke · 周度 evidence 链接健康检查
+```
+data/                  # YAML corpus (419 entities, 24 entity types)
+schemas/               # zod schemas (TypeScript) — single source of truth
+apps/web/              # Astro SSG site (608 pages, 21 JSON endpoints)
+scripts/agent-deploy/  # 11 CLI commands + 4 vendor profiler parsers + verify gates
+plugins/
+├── mcp-server/                    # 12 MCP tools
+├── claude-code-productized/       # /agent-deploy + /zh:agent-deploy slash commands
+├── codex-productized/             # evokernel-deploy Node binary
+├── claude-code-skill/             # legacy v2.x skill (kept for compat)
+├── codex/                         # legacy Codex prompt presets
+└── cursor-rules/                  # Cursor MDC rules
+docs/
+├── HARNESS.md                     # productized agent end-to-end guide
+├── ROADMAP.md                     # v1→v2→v3 arc + v3.24+ plan
+├── CLEANUP-TODO.md                # tracking incremental fixes
+├── DEVELOPMENT.md                 # contributor workflow
+├── DATA-TIERING.md                # how the data is organized
+├── KNOWN_ISSUES.md                # current bugs + workarounds
+├── superpowers/specs/             # current architecture specs (v3.x)
+├── archive/                       # historical docs (v1.x, v2.x)
+└── plans/                         # implementation plans
+```
 
-**📚 学习路径完整**:
-- **6 决策指南**: picking-engine · quantization-decision-tree · parallelism-cheatsheet · attention-variants · capacity-planning · picking-quantization-format
-- **3 故障维度**: deployment-failures (按阶段) · observability (按指标) · troubleshooting (按症状)
-- **生产生命周期**: rollout / A/B / migration / rollback playbook
-- **NEW 迁移指南** (v1.43): 4 类常见演进路径 × 7 步 playbook (engine-swap · hardware-swap · quant-downcast · scaling)
-
-## 截图
-
-### 首页 + 计算器
-| | |
-|---|---|
-| ![Home](docs/screenshots/home.png) | ![Calculator](docs/screenshots/calculator.png) |
-| **首页** — 数据规模 + 入口 + 最新案例 | **计算器** — Tier 0 + Tier 1 + Roofline + 算子拆解 + concurrency + TCO |
-
-### 国产专题 + 硬件对比
-| | |
-|---|---|
-| ![China Hub](docs/screenshots/china-hub.png) | ![Compare](docs/screenshots/compare-roofline.png) |
-| **国产专题** — 矩阵热力图 + 代际谱系 + 生态对照 | **对比** — 雷达图 / 柱状图 / Roofline 叠加 / 表格 |
-
-### 案例库 + 数据质量
-| | |
-|---|---|
-| ![Cases](docs/screenshots/cases.png) | ![Quality](docs/screenshots/quality.png) |
-| **案例排行榜** — 多维筛选 + 排序 | **数据质量** — 实时审计 + 覆盖缺口 |
-
-## 快速上线 (Quick start)
-
-一行命令生产级本地部署 — 自动 install · validate · build · 启动 · health-poll · 12 路由 smoke check:
+## Build commands
 
 ```bash
-git clone https://github.com/evokernel/evokernel-spec
-cd evokernel-spec
-./launch.sh                # 或者: pnpm launch
+pnpm install                                    # Install
+pnpm exec tsx scripts/validate-data.ts          # Schema check (~3s)
+pnpm --filter @evokernel/scripts test           # 172 harness tests
+pnpm --filter @evokernel/web test               # 49 web tests
+pnpm --filter @evokernel/web build              # SSG build (~7s, 608 pages)
+pnpm --filter @evokernel/web dev                # Dev server (localhost:4321)
+
+# Agent harness (v3.17+)
+pnpm agent:doctor                               # 12-check setup health
+pnpm agent:list-bundles -- --hardware h100-sxm5
+pnpm agent:deploy --model <id> --hardware <id>
+pnpm agent:status
+pnpm agent:auto-pr -- --output ./pr.md
+pnpm agent:watch -- --pairs <pairs>
 ```
 
-成功后控制台打印:
-```
-  ✓  evokernel-spec is LIVE
-  URL:        http://127.0.0.1:4321/
-  Health:     http://127.0.0.1:4321/api/health.json
-  Build SHA:  774ba71
-  Pages:      237 page(s) built
-  Hardware:   31 cards loaded
-```
+## Contributing
 
-```bash
-pnpm launch:fast          # 跳过 build/validate, 用现有 dist (秒级重启)
-pnpm launch:stop          # 干净关停
-pnpm health               # 查看健康端点 JSON
-curl http://127.0.0.1:4321/api/healthz   # K8s 风格 plain "ok" 探针
-```
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). The fastest contribution paths:
 
-systemd 单元 / launchd plist 详见 [DEPLOYMENT.md](DEPLOYMENT.md#local-production-one-command-launch)。
-
-## 本地开发
-
-```bash
-pnpm install
-
-# Development
-pnpm dev          # http://localhost:4321 (HMR)
-pnpm build        # static build to apps/web/dist (505 pages, < 8s)
-pnpm preview      # serve dist locally
-pnpm test:e2e     # full Playwright sweep
-
-# Data quality
-pnpm validate                                       # zod schema + cross-references (~3s)
-pnpm check-links                                    # evidence URL reachability
-pnpm audit:data                                     # outliers + coverage gaps
-
-# Testing
-pnpm --filter @evokernel/schemas test               # schema unit tests
-pnpm --filter @evokernel/scripts test               # agent dispatch tests (11 assertions, v2.18+)
-pnpm --filter @evokernel/web test                   # web vitest
-pnpm --filter web exec playwright test              # e2e + a11y + perf
-
-# Agent CLI (v2.9+)
-pnpm exec tsx scripts/agent-deploy/index.ts \
-  --model deepseek-ai/DeepSeek-V4-Pro \
-  --hardware h100-sxm5 \
-  --workload chat
-# Output: agent-deploy-output/{deployment_plan.json, launch.sh, kernel_gaps.md,
-#         verification_plan.md, Dockerfile, kubernetes/, monitoring/, runbook.md,
-#         rollback-plan.md, provenance.json, license-audit.md, sbom.json,
-#         agent-learning.yaml (v2.24+, knowledge feedback stub)}
-```
-
-### 贡献者必读 (Contributor required reading)
-
-| 你想做什么 | 读什么 |
-|---|---|
-| 修数据 / 加新硬件 / 加新模型 / 加 case | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
-| 用 Claude Code 在本仓库工作 | [`CLAUDE.md`](CLAUDE.md) — 项目专属 Claude 指南 (v2.25) |
-| 理解架构 / 调试 / 加 page | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) |
-| 添加 `formal_semantics` (Layer D) | [`docs/DEVELOPMENT.md § Adding formal_semantics`](docs/DEVELOPMENT.md#adding-formal_semantics-to-an-op-or-fused-kernel) |
-| 提交 agent-learning (反馈回路) | [`CONTRIBUTING.md § 5. agent-learning`](CONTRIBUTING.md) + [`/agents/learnings/`](https://yingwen.io/evokernel-spec/agents/learnings/) |
-| 部署到生产 | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
-| 看下一步规划 | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
-
-## 数据 API
-
-所有数据通过静态 JSON API 提供 (CC-BY-SA 4.0):
-
-```bash
-curl https://evokernel.dev/api/hardware.json | jq '.items[] | select(.vendor.country=="CN") | .id'
-# ascend-910b, ascend-910c, mlu370-x8, mlu590, dcu-z100, dcu-k100, ...
-
-curl https://evokernel.dev/api/openapi.json | jq '.info.version'
-# "1.0.0"
-```
-
-完整 OpenAPI 3.1 规范: [`/api/openapi.json`](https://evokernel.dev/api/openapi.json)
-
-## 文档导航 / Documentation Map
-
-| 文件 | 内容 |
-|---|---|
-| [README.md](README.md) | 项目概览、快速上线、API、贡献入口（你在看的） |
-| [/contribute](https://github.com/ying-wen/evokernel-spec/blob/main/apps/web/src/pages/contribute.astro) | **3 条贡献者赛道（厂商 / 社区 / 实测）+ 闭环流程** |
-| [docs/DATA-TIERING.md](docs/DATA-TIERING.md) | **数据可信度三档政策、source-type → tier 矩阵、争议处理** |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 架构图、目录结构、添加新硬件/模型/案例的流程、调试技巧 |
-| [docs/V1.2-VISION.md](docs/V1.2-VISION.md) | "任意模型 × 任意硬件 编译/优化平台" 战略转向 |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | 本地一键部署、Cloudflare Pages、nginx、systemd、Release 工作流 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | DCO 签署规范、双语贡献指南 |
-| [CONTRIBUTORS.md](CONTRIBUTORS.md) | **贡献者署名榜** |
-| [SECURITY.md](SECURITY.md) | 安全漏洞披露政策、tarball 校验流程 |
-| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | 已知问题、限制、变通方案（按严重度分级） |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | v1.2 / v1.3 / v2.0 路线图，欢迎 PR |
-| [CHANGELOG.md](CHANGELOG.md) | 版本变更日志（Keep-a-Changelog 格式） |
-
-## 贡献
-
-每个数字都需要 evidence 引证。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-最高优先级贡献机会:
-- **数据**：[实时 /quality 数据质量页](https://evokernel.dev/quality/) 中标记的国产硬件无 case 的卡
-- **代码**：[ROADMAP.md](docs/ROADMAP.md) v1.2 中 high-priority 项均欢迎 PR
-
-## 部署
-
-- **本地一键部署**: `./launch.sh`（见上方"快速上线"）
-- **生产部署**: Cloudflare Pages / Vercel / nginx / systemd 等详见 [DEPLOYMENT.md](DEPLOYMENT.md)
-- **离线分发**: `pnpm pack:dist` 生成 2.6 MB tar.gz + sha256
-
-## 已知问题与下一步
-
-完整列表见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) 和 [docs/ROADMAP.md](docs/ROADMAP.md)。当前关注:
-
-- 🟡 `/api/health.json` SSG 限制：body 正确但 HTTP 状态码恒为 200（修复需 hybrid runtime, 静态部署目标取舍）
-- 🟡 21/39 张卡的 memory_hierarchy 数据为 `tier: estimated`，等待 vendor 白皮书或 Tier 0 测量
-- 🟡 6/14 super-pod 的 cluster_internals (switch_chips / cabinet_layout) 待填
-- 🟡 EN 翻译滞后于 ZH（i18n fallback 防止 404，但部分页面文案仍为中文）
-- 🟡 Lighthouse CI 是周度 cron，不是 PR-time gate（计划改为 path-filter PR gate）
-- 🟢 Compare > 8 张卡 radar/bar 可读性下降（已有软警告 + 自动建议切表格视图）
-- 🟢 仅 1 条 citation 种子条目，等社区贡献
-
-## English
-
-Open-source knowledge base for AI inference deployment across hardware (incl. 9 Chinese vendors) and frontier open-source models, with transparent Tier 0/1 calculator. Inspired by [SemiAnalysis InferenceX](https://inferencex.semianalysis.com/), differentiated by Chinese accelerator coverage + evidence-backed data + open API.
+1. **Add a hardware/model/op YAML** under `data/` → automatic site page + JSON API + bundle generation
+2. **Add a DSL example** under `data/dsl-examples/` → goes into agent's Layer R bundle
+3. **Land an `agent-learning.yaml`** in `data/agent-learnings/` → feeds the F-loop, eventually auto-clustered into PR drafts
 
 ## License
 
-- 代码 / Code: [Apache 2.0](LICENSE)
-- 数据 / Data: [CC-BY-SA 4.0](DATA_LICENSE)
+Code: Apache-2.0 ([LICENSE](LICENSE)). Data: CC-BY-SA 4.0 ([DATA_LICENSE](DATA_LICENSE)).
+
+## Acknowledgements
+
+Built across ~30 release iterations using Anthropic Claude (Sonnet 4.5+) in autonomous Ralph-loop mode. The full release history is in [`CHANGELOG.md`](CHANGELOG.md); the historical design docs are in [`docs/archive/`](docs/archive/README.md).
