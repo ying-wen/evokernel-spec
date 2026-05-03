@@ -3,7 +3,7 @@
 > Honest inventory of where the project is rough or constrained. Updated
 > per release. Open issues for fixes via PR.
 >
-> **Last reviewed:** 2026-05-04 against v3.31.1
+> **Last reviewed:** 2026-05-04 against v3.31.2
 
 ## Severity legend
 

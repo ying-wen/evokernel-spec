@@ -10,6 +10,24 @@ See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.32** — cross-a
 
 ---
 
+## [3.31.2] — 2026-05-04 — CI E2E locator stabilization
+
+**Theme**: finish the v3.31 CI recovery after the remote E2E runner exposed one remaining hidden-text selector collision on `/playbooks/`, then harden nearby hydrated-island smoke tests under parallel Playwright load.
+
+### Fixed
+
+- Scoped the legacy playbook-card smoke assertions to visible playbook links, avoiding hidden coverage-matrix labels that can win `.first()` on CI.
+- Stabilized compare/calculator interaction smoke tests by retrying until the URL state and rendered chart/table state actually change, instead of treating SSR-visible buttons as already hydrated.
+- Bumped the public patch version and OpenAPI version to `3.31.2` so the latest stable release reflects the green CI patch.
+
+### Validation
+
+- Remote CI for v3.31.1 passed build, schema validation, agent regression, Astro type check, unit tests, deployment smoke, release, and Pages before failing only the one Playwright locator above.
+- Local targeted Playwright passes for the fixed playbook index/OpenAPI checks, compare view toggles, calculator share URL, and compare no-card-cap interaction group.
+- Local full Playwright passes after the hardening: 549 passed, 4 skipped.
+
+---
+
 ## [3.31.1] — 2026-05-04 — CI stabilization for v3.31
 
 **Theme**: make the v3.31 public-surface sync actually pass the full CI gate after v3.30 changed the corpus and navigation shape.

@@ -377,20 +377,24 @@ test.describe.serial('Iter-10 features', () => {
     await page.goto('/calculator/');
     await page.waitForSelector('button[type="button"]', { state: 'visible' });
     const modelBtn = page.getByRole('button', { name: /Llama 4 Scout/i }).first();
-    await modelBtn.scrollIntoViewIfNeeded();
-    await modelBtn.click();
-    await page.waitForFunction(() => {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('model') === 'llama-4-scout';
-    }, { timeout: 15000 });
+    await expect(async () => {
+      await modelBtn.scrollIntoViewIfNeeded();
+      await modelBtn.click();
+      await page.waitForFunction(() => {
+        const u = new URL(window.location.href);
+        return u.searchParams.get('model') === 'llama-4-scout';
+      }, { timeout: 3000 });
+    }).toPass({ timeout: 15000 });
     const hwBtn = page.getByRole('button', { name: /H100 SXM5/i }).first();
     await hwBtn.waitFor({ state: 'visible', timeout: 15000 });
-    await hwBtn.scrollIntoViewIfNeeded();
-    await hwBtn.click();
-    await page.waitForFunction(() => {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('model') === 'llama-4-scout' && u.searchParams.get('hw') === 'h100-sxm5';
-    }, { timeout: 15000 });
+    await expect(async () => {
+      await hwBtn.scrollIntoViewIfNeeded();
+      await hwBtn.click();
+      await page.waitForFunction(() => {
+        const u = new URL(window.location.href);
+        return u.searchParams.get('model') === 'llama-4-scout' && u.searchParams.get('hw') === 'h100-sxm5';
+      }, { timeout: 3000 });
+    }).toPass({ timeout: 15000 });
   });
 });
 
@@ -964,7 +968,7 @@ test.describe('v2.4: /api/* agent-readiness endpoints + /agents/ doc page', () =
   test('/api/openapi.json reflects current public endpoints', async ({ request }) => {
     const r = await request.get('/api/openapi.json');
     const spec = await r.json();
-    expect(spec.info.version).toBe('3.31.1');
+    expect(spec.info.version).toBe('3.31.2');
     expect(spec.paths['/api/operators.json']).toBeTruthy();
     expect(spec.paths['/api/fused-kernels.json']).toBeTruthy();
     expect(spec.paths['/api/playbooks.json']).toBeTruthy();
@@ -3053,12 +3057,14 @@ test.describe('v1.11: deployment playbooks (gap 3) + 3 more cards memory_hierarc
     await page.goto('/playbooks/');
     const main = page.locator('main');
     await expect(main.getByRole('heading', { name: /部署 Playbook|任意模型/i }).first()).toBeVisible();
-    // 5 playbook cards rendered
-    await expect(main.getByText(/MoE 超大模型在 Hopper 集群/i).first()).toBeVisible();
-    await expect(main.getByText(/Dense 70B\/72B|Hopper 单节点/i).first()).toBeVisible();
-    await expect(main.getByText(/Blackwell 超节点|NVL72 GB200/i).first()).toBeVisible();
-    await expect(main.getByText(/昇腾集群|CloudMatrix 384/i).first()).toBeVisible();
-    await expect(main.getByText(/端侧.*单卡|Llama 3 8B/i).first()).toBeVisible();
+    // Historical smoke samples still render as visible cards; scope to links so
+    // hidden matrix labels do not win the locator race on CI.
+    const cards = main.locator('a[href*="/playbooks/"]');
+    await expect(cards.filter({ hasText: /MoE 超大模型在 Hopper 集群/i }).first()).toBeVisible();
+    await expect(cards.filter({ hasText: /Dense 70B\/72B|Hopper 单节点/i }).first()).toBeVisible();
+    await expect(cards.filter({ hasText: /Blackwell 超节点|NVL72 GB200/i }).first()).toBeVisible();
+    await expect(cards.filter({ hasText: /昇腾集群|CloudMatrix 384/i }).first()).toBeVisible();
+    await expect(cards.filter({ hasText: /端侧.*单卡|Llama 3 8B/i }).first()).toBeVisible();
   });
 
   test('MoE Hopper-cluster playbook detail shows full recipe', async ({ page }) => {
@@ -3766,22 +3772,27 @@ test.describe('Compare with no card cap', () => {
     await page.goto('/compare/');
     await page.waitForSelector('input[type="text"]', { state: 'visible' });
     // Click "全选" to select all hardware
-    await page.getByRole('button', { name: /全选|^all$/, exact: true }).first().click();
-    // Selection count badge should show at least 20 (we have 28 cards)
-    await expect(page.getByText(/已选 \d{2,}/).first()).toBeVisible();
+    const selectAll = page.getByRole('button', { name: /全选|^all$/, exact: true }).first();
+    await expect(async () => {
+      await selectAll.click();
+      // Selection count badge should show at least 20 (we have 28 cards)
+      await expect(page.getByText(/已选 \d{2,}/).first()).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: 15000 });
   });
 
   test('selecting >8 cards in radar view auto-switches to table', async ({ page }) => {
     await page.goto('/compare/?view=radar&ids=h100-sxm5,h200-sxm,b200-sxm');
     await page.waitForSelector('input[type="text"]', { state: 'visible' });
-    await page.waitForTimeout(300); // let URL hydration settle (chartType -> radar)
+    await expect(page.locator('svg.recharts-surface').first()).toBeVisible({ timeout: 10000 });
     // Click "全选" — pushes selection past 8
-    await page.getByRole('button', { name: '全选', exact: true }).first().click();
-    await page.waitForTimeout(500);
-    // After auto-switch the URL no longer has view=radar (table is default, so param dropped)
-    await page.waitForFunction(() => !new URL(window.location.href).searchParams.get('view'), { timeout: 3000 });
-    // And the flipped table renders with ★ markers
-    await expect(page.locator('text=/★/').first()).toBeVisible();
+    const selectAll = page.getByRole('button', { name: '全选', exact: true }).first();
+    await expect(async () => {
+      await selectAll.click();
+      // After auto-switch the URL no longer has view=radar (table is default, so param dropped)
+      await page.waitForFunction(() => !new URL(window.location.href).searchParams.get('view'), { timeout: 3000 });
+      // And the flipped table renders with ★ markers
+      await expect(page.locator('text=/★/').first()).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: 15000 });
   });
 
   test('flipped compare table: hardware-as-rows with sort + filter + ★ best marker', async ({ page }) => {

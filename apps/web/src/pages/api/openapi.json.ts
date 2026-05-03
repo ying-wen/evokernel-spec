@@ -10,7 +10,7 @@ export const GET: APIRoute = async ({ site }) => {
     openapi: '3.1.0',
     info: {
       title: 'EvoKernel Spec Open Data API',
-      version: '3.31.1',
+      version: '3.31.2',
       description:
         'Open data API for AI inference deployment knowledge — corpus entities, agent-context bundles, technique catalog, and static solver surfaces. Static endpoints regenerate on every site build. Data licensed under CC-BY-SA-4.0.',
       license: { name: 'CC-BY-SA-4.0', url: 'https://creativecommons.org/licenses/by-sa/4.0/' },
