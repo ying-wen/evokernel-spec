@@ -40,10 +40,13 @@ const cases = await loadCases(dataDir);
 
 // === Hardware audits ===
 for (const h of hardware) {
-  // Outlier compute (above any reasonable bf16 ceiling for 2025/2026)
+  // Outlier compute. Edge SoCs legitimately sit below 10 BF16 TFLOPS, while
+  // wafer-scale systems publish aggregate chip-wide peaks far above GPU cards.
   const bf16 = h.compute.bf16_tflops?.value;
-  if (bf16 !== undefined && bf16 > 10000) w('warn', 'hardware', h.id, `BF16 ${bf16} TFLOPS exceeds 10k — likely typo`);
-  if (bf16 !== undefined && bf16 < 10) w('warn', 'hardware', h.id, `BF16 ${bf16} TFLOPS suspiciously low`);
+  const isWaferScale = h.form_factor === 'wafer-scale' || h.architecture.wafer_scale === true || h.memory.type === 'on-die-sram';
+  const isEdgeTier = h.form_factor === 'edge-m2' || h.form_factor === 'embedded-soc' || h.memory.type.startsWith('LPDDR');
+  if (bf16 !== undefined && bf16 > 10000 && !isWaferScale) w('warn', 'hardware', h.id, `BF16 ${bf16} TFLOPS exceeds 10k — likely typo`);
+  if (bf16 !== undefined && bf16 < 10 && !isEdgeTier) w('warn', 'hardware', h.id, `BF16 ${bf16} TFLOPS suspiciously low`);
 
   // FP8 should usually be ~2× BF16; flag big mismatches
   const fp8 = h.compute.fp8_tflops?.value;

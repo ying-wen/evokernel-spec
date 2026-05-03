@@ -81,7 +81,7 @@ export const GET: APIRoute = async () => {
   const body = {
     status,
     name: 'evokernel-spec',
-    version: 'v3.31',
+    version: 'v3.32.0',
     build: { sha: meta.sha, built_at: meta.builtAt },
     served_at: new Date().toISOString(),
     data_loaded: counts,

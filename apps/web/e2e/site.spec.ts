@@ -968,7 +968,7 @@ test.describe('v2.4: /api/* agent-readiness endpoints + /agents/ doc page', () =
   test('/api/openapi.json reflects current public endpoints', async ({ request }) => {
     const r = await request.get('/api/openapi.json');
     const spec = await r.json();
-    expect(spec.info.version).toBe('3.31.2');
+    expect(spec.info.version).toBe('3.32.0');
     expect(spec.paths['/api/operators.json']).toBeTruthy();
     expect(spec.paths['/api/fused-kernels.json']).toBeTruthy();
     expect(spec.paths['/api/playbooks.json']).toBeTruthy();

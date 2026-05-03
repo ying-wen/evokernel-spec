@@ -10,11 +10,11 @@ export const GET: APIRoute = async ({ site }) => {
     openapi: '3.1.0',
     info: {
       title: 'EvoKernel Spec Open Data API',
-      version: '3.31.2',
+      version: '3.32.0',
       description:
         'Open data API for AI inference deployment knowledge — corpus entities, agent-context bundles, technique catalog, and static solver surfaces. Static endpoints regenerate on every site build. Data licensed under CC-BY-SA-4.0.',
       license: { name: 'CC-BY-SA-4.0', url: 'https://creativecommons.org/licenses/by-sa/4.0/' },
-      contact: { url: 'https://github.com/evokernel/evokernel-spec' }
+      contact: { url: 'https://github.com/ying-wen/evokernel-spec' }
     },
     servers: [{ url: base }],
     paths: {
@@ -233,6 +233,14 @@ export const GET: APIRoute = async ({ site }) => {
           }
         }
       },
+      '/api/openapi.json': {
+        get: {
+          summary: 'OpenAPI descriptor for the static JSON API',
+          responses: {
+            '200': { description: 'OpenAPI 3.1 document', content: { 'application/json': { schema: { type: 'object' } } } }
+          }
+        }
+      },
       '/api/health.json': {
         get: {
           summary: 'Health probe and corpus snapshot',
@@ -259,11 +267,15 @@ export const GET: APIRoute = async ({ site }) => {
             name: { type: 'string' },
             license: { type: 'string', example: 'CC-BY-SA-4.0' },
             code_license: { type: 'string', example: 'Apache-2.0' },
-            version: { type: 'string', example: 'v3.31' },
+            version: { type: 'string', example: 'v3.32.0' },
             description: { type: 'string' },
             generated: { type: 'string', format: 'date-time' },
             counts: { type: 'object', additionalProperties: { type: 'integer' } },
-            endpoints: { type: 'object', additionalProperties: { type: 'string', format: 'uri' } },
+            endpoints: {
+              type: 'object',
+              additionalProperties: { type: 'string' },
+              description: 'Absolute URLs plus URI-template entries such as /api/agent-context/{model}-on-{hardware}.json'
+            },
             contribution: { type: 'string', format: 'uri' }
           }
         },
@@ -314,7 +326,10 @@ export const GET: APIRoute = async ({ site }) => {
             generation: { type: 'string' },
             status: { type: 'string', enum: ['in-production', 'discontinued', 'taping-out', 'announced'] },
             release_year: { type: 'integer' },
-            form_factor: { type: 'string', enum: ['sxm', 'oam', 'pcie', 'nvl', 'proprietary'] },
+            form_factor: {
+              type: 'string',
+              enum: ['sxm', 'oam', 'pcie', 'nvl', 'proprietary', 'wafer-scale', 'edge-m2', 'embedded-soc', 'apu', 'vector-card', 'reconfigurable']
+            },
             compute: {
               type: 'object',
               properties: {

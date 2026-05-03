@@ -321,7 +321,7 @@ Sanity checks:
 - `npu-smi info` on the 910B during the request should show one Ascend chip at high utilization
 - If you ported SageAttention successfully (or by v3.28+ once cross-arch verify works), the per-step latency should drop ~30-50% vs the baseline
 
-## What this runbook does NOT yet automate (v3.32+)
+## What this runbook does NOT yet automate (v3.33+)
 
 - **Step 9 + 10 fully automated**: serving + local-test orchestration. v3.32 should add a `--serve` flag that templates a `serving_pipeline.py` + `client_test.sh` for the deployed model.
 - **Cross-arch numerical verify executed**: v3.27 ships scaffold + tensor-diff utility; v3.32 should wire the run-reference-on-Hopper-via-SSH-+-run-new-impl-on-Ascend-via-SSH-+-diff flow.

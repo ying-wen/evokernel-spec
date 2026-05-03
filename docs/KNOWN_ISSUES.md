@@ -3,7 +3,7 @@
 > Honest inventory of where the project is rough or constrained. Updated
 > per release. Open issues for fixes via PR.
 >
-> **Last reviewed:** 2026-05-04 against v3.31.2
+> **Last reviewed:** 2026-05-04 against v3.32.0
 
 ## Severity legend
 
@@ -15,21 +15,7 @@
 
 ---
 
-## Current v3.31 inventory
-
-### 🟡 API descriptor parity needs a regression test
-
-**What:** v3.31 aligns the top-level API descriptor, health snapshot, and
-OpenAPI file with the current major JSON route surface, including
-`/api/techniques.json`, agent-context, DSL examples, reference impls, profiling
-tools, model graphs, and engine workflows.
-
-**Impact:** Without an automated parity test, future endpoint additions can
-silently drift again.
-
-**Fix path:** Treat API descriptor parity as a release gate. Add a test that
-compares `apps/web/src/pages/api/*.ts` against `/api/index.json` and
-`/api/openapi.json`.
+## Current v3.32 inventory
 
 ### 🔴 Partial English mirrors can produce hidden 404s
 
@@ -46,17 +32,16 @@ Chinese pages. Add a build-time internal link checker.
 
 ### 🟡 Data is schema-valid but not uniformly agent-ready
 
-**What:** `validate-data.ts` passes, but `pnpm audit:data` reports 3 warnings
-and 60 informational coverage gaps. The biggest practical gaps are hardware
-without cases, models without model graphs, sparse reference implementations,
-and missing engine compile workflows.
+**What:** `validate-data.ts` passes, and `pnpm audit:data` now reports 0
+warnings. It still reports 60 informational coverage gaps. The biggest
+practical gaps are hardware without cases, models without model graphs, sparse
+reference implementations, and missing engine compile workflows.
 
 **Impact:** The harness can synthesize and plan, but the "any model × any
 hardware" claim remains uneven outside well-covered LLM/Hopper/Ascend paths.
 
-**Fix path:** Resolve the 3 warnings first, then prioritize data that directly
-improves the SageAttention/CogVideoX/Ascend north-star path and non-LLM model
-coverage.
+**Fix path:** Prioritize data that directly improves the
+SageAttention/CogVideoX/Ascend north-star path and non-LLM model coverage.
 
 ### 🟡 Generated run artifacts must stay local-only
 
@@ -84,6 +69,12 @@ accepting unreviewed Markdown into public pages.
 ---
 
 ## Recently fixed
+
+### ✅ API descriptor parity regression gate (v3.32)
+
+`/api/index.json` and `/api/openapi.json` are now tested against the actual
+`apps/web/src/pages/api/` route inventory. v3.32 also restored the missing
+`/api/quantizations.json` route that the descriptors already advertised.
 
 ### ✅ Reverse recommendations (hardware → models) wired (v1.5+ / v1.6)
 

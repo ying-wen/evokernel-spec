@@ -1,7 +1,7 @@
 # EvoKernel Spec — Roadmap
 
 > **Last updated:** 2026-05-04
-> **Current release:** **v3.31.2** (CI stabilization for the v3.31 docs/web/API quality sync)
+> **Current release:** **v3.32.0** (knowledge/web/API quality gates: API parity + strict audit warnings)
 > **Live:** https://yingwen.io/evokernel-spec/
 > **Historical (archived):** [`docs/archive/`](archive/README.md) — v1.x and v2.x roadmaps + release notes
 
@@ -15,11 +15,11 @@ The project has gone through three major arcs:
 |---|---|---|
 | **v1.x — Corpus** | v1.0 → v1.43 | The 5 base entity types (vendors / hardware / models / cases / playbooks) reach saturation. Public site goes live. JSON APIs ship. |
 | **v2.x — Computable knowledge + agent toolkit foundations** | v2.0 → v2.25 | Tier 1 calculator. 5-layer hw-sw gap framework. ISA primitives, DSL examples, kernel libraries, profiling tools. First agent-deploy CLI (skeleton mode). MCP server. Per-deploy artifacts (Dockerfile, K8s, runbook, SBOM). |
-| **v3.x — Productized agent harness** | v3.0 → v3.31 | The CLI stops emitting skeletons and starts emitting real generated kernels with V1/V2/V3 verification. Host-LLM mode, unknown-model synthesis, technique entities, remote-target SSH execution, `/techniques/` SSG/API, plugin install, self-diagnosis, continuous-mode, auto-PR, 4-vendor profiler ingestion, zh i18n, and v3.31 docs/web/API alignment. |
+| **v3.x — Productized agent harness** | v3.0 → v3.32 | The CLI stops emitting skeletons and starts emitting real generated kernels with V1/V2/V3 verification. Host-LLM mode, unknown-model synthesis, technique entities, remote-target SSH execution, `/techniques/` SSG/API, plugin install, self-diagnosis, continuous-mode, auto-PR, 4-vendor profiler ingestion, zh i18n, v3.31 docs/web/API alignment, and v3.32 knowledge/API quality gates. |
 
 The current state is **a working productized agent CLI with a real corpus behind it** — see [`README.md`](../README.md) "What honestly works today" + "Known limits" sections.
 
-## State of the data (v3.31, 2026-05-04)
+## State of the data (v3.32, 2026-05-04)
 
 | Entity | Count | v3.x growth |
 |---|---|---|
@@ -45,7 +45,7 @@ The current state is **a working productized agent CLI with a real corpus behind
 | Techniques | 4 | SageAttention + FlashAttention + PagedAttention + RingAttention |
 | **Total entities** | **424** | from 297 at v2.17 |
 
-## State of the harness and site (v3.31)
+## State of the harness and site (v3.32)
 
 | Layer | Surface | Status |
 |---|---|---|
@@ -56,36 +56,36 @@ The current state is **a working productized agent CLI with a real corpus behind
 | **Layer F** (Feedback) | per-deploy `agent-learning.yaml` + `auto-pr-cli.ts` cluster aggregation + `watch.ts` continuous re-deploy | ✅ stable |
 | **CLI** | 11 commands · `pnpm agent:{deploy,deploy:productized,list-bundles,auto-pr,install,doctor,status,watch,...}` | ✅ stable |
 | **Plugins** | Codex Node binary (`evokernel-deploy`) · CC slash commands (`/agent-deploy` + `/zh:agent-deploy`) · MCP server (12 tools) | ✅ stable |
-| **Tests** | 41 schemas + 286 scripts + 49 web = 376 passing, 1 skipped network gate | ✅ |
-| **Site/API docs** | 613 SSG pages, `/techniques/` catalog, route-aware EN fallback, API descriptor/OpenAPI/health aligned to current public routes | ✅ baseline; link checker still planned |
+| **Tests** | 41 schemas + 287 scripts + 51 web = 379 passing, 1 skipped network gate | ✅ |
+| **Site/API docs** | 613 SSG pages, `/techniques/` catalog, route-aware EN fallback, 25 API route templates, descriptor/OpenAPI parity regression test, strict audit warning gate | ✅ baseline; link checker still planned |
 
 ---
 
-## v3.32+ priorities
+## v3.33+ priorities
 
-The v3.24-v3.31 arc closed the original "too simple to be a real product" gaps and aligned the public docs/web/API surface. The next releases should now focus on execution depth and corpus accretion. Historical design remains at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md).
+The v3.24-v3.32 arc closed the original "too simple to be a real product" gaps, aligned the public docs/web/API surface, and added automated API/audit quality gates. The next releases should now focus on execution depth and corpus accretion. Historical design remains at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md).
 
 ### Priority 1: Cross-arch numerical verify execution
 
 **The gap**: tensor-diff exists, but the full run-reference-on-native-arch + run-new-impl-on-target + compare tensors with technique tolerance loop is not yet a first-class end-to-end command.
 
-**Target**: v3.32. Drive it from the SageAttention/CogVideoX/Ascend-910B scenario and record pass/fail in the deploy manifest + agent-learning stub.
+**Target**: v3.33. Drive it from the SageAttention/CogVideoX/Ascend-910B scenario and record pass/fail in the deploy manifest + agent-learning stub.
 
 ### Priority 2: Persist synthesized bundles into the corpus
 
 **The gap**: v3.29 synthesis is in-memory. A second run of the same unknown model re-synthesizes instead of using a reviewed `data/models/` entry.
 
-**Target**: v3.32. Emit PR-ready model/model-graph YAML stubs after successful synthesis, with caveats and source provenance.
+**Target**: v3.33. Emit PR-ready model/model-graph YAML stubs after successful synthesis, with caveats and source provenance.
 
 ### Priority 3: Serving/client-test orchestration
 
 **The gap**: generated kernels and deploy artifacts exist, but `--serve` should template the model-serving wrapper and client sanity test so the north-star scenario ends at a user-visible endpoint.
 
-**Target**: v3.32. Generate FastAPI/Triton wrapper templates plus a local/remote client script and record their status in the run summary.
+**Target**: v3.33. Generate FastAPI/Triton wrapper templates plus a local/remote client script and record their status in the run summary.
 
 ### Priority 4: Knowledge base and web/API quality gate
 
-Current audit state: schema validation passes, but `pnpm audit:data` still reports 3 warnings and 60 info. Web/API descriptor parity was tightened in v3.31; remaining debt is build-time link checking, sparse model graphs/reference impls, and measured-case coverage. See [`2026-05-04-knowledge-web-quality-plan.md`](superpowers/specs/2026-05-04-knowledge-web-quality-plan.md).
+Current audit state: schema validation passes and `pnpm audit:data` reports 0 warnings / 60 info. Web/API descriptor parity is now a web unit-test gate; remaining debt is build-time link checking, sparse model graphs/reference impls, and measured-case coverage. See [`2026-05-04-knowledge-web-quality-plan.md`](superpowers/specs/2026-05-04-knowledge-web-quality-plan.md).
 
 ### Priority 5: Remaining 2/6 vendor profiler parsers
 
@@ -97,7 +97,7 @@ Current audit state: schema validation passes, but `pnpm audit:data` still repor
 
 | Use case | Version |
 |---|---|
-| Citation in a paper or industry report | Latest stable (v3.31.2) |
+| Citation in a paper or industry report | Latest stable (v3.32.0) |
 | Production deploy planning (no codegen) | Any v3.x — corpus is stable since v3.0 |
 | Real-code generation (productized) | v3.17+ (when the harness was wired) |
 | 4-vendor profiler ingestion | v3.23+ |
@@ -110,6 +110,7 @@ Current audit state: schema validation passes, but `pnpm audit:data` still repor
 | Unknown HF model synthesis in productized loop | v3.29+ |
 | Technique catalog with Flash/Paged/Ring/Sage attention | v3.30+ |
 | Public docs/web/API alignment for v3.30 state | v3.31+ |
+| API descriptor parity + strict data-audit warning gate | v3.32+ |
 
 ---
 

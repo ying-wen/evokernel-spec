@@ -1,14 +1,14 @@
 # EvoKernel Productized Agent Harness — End-to-End Guide
 
-> Status: **v3.31 stable surface** — 15 release iterations through the productized-agent arc. Latest harness depth: **v3.30** expanded the technique catalog from 1 to 4 entries; **v3.31** aligns docs/web/API/security guardrails with that state. Full runbook for the SageAttention/CogVideoX/Ascend-910B north-star scenario at [`docs/RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
+> Status: **v3.32 stable surface** — 16 release iterations through the productized-agent arc. Latest harness depth: **v3.30** expanded the technique catalog from 1 to 4 entries; **v3.31-v3.32** align docs/web/API/security guardrails and add API/audit quality gates. Full runbook for the SageAttention/CogVideoX/Ascend-910B north-star scenario at [`docs/RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
 
 This is the operator manual for the **real productized agent harness** — a closed-loop pipeline that takes `(any model, any hardware)` and emits production-grade deployment artifacts plus real generated kernels with verification + retry + corpus feedback.
 
 It is **not** an MCP query service (corpus has one of those too — separate tool). The harness goes one step further: it produces the actual code you ship and the actual provenance you audit.
 
-## ⚠️ Known limits (v3.31 — what works, what's still gap)
+## ⚠️ Known limits (v3.32 — what works, what's still gap)
 
-All 6 of the original v3.23 gaps now have working surface, plus the v3.27 north-star deliverables (`--execute`, tensor-diff, `--description` fuzzy intent), the v3.29 synthesized-bundle productized path, and the v3.30 four-technique catalog. The remaining v3.32+ work is depth: cross-arch verify execution, serving/client-test orchestration, richer input ingestion, and persisting synthesized bundles into the corpus. Full runbook for the SageAttention/CogVideoX/910B north-star at [`RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
+All 6 of the original v3.23 gaps now have working surface, plus the v3.27 north-star deliverables (`--execute`, tensor-diff, `--description` fuzzy intent), the v3.29 synthesized-bundle productized path, the v3.30 four-technique catalog, and the v3.32 public API/audit gates. The remaining v3.33+ work is depth: cross-arch verify execution, serving/client-test orchestration, richer input ingestion, and persisting synthesized bundles into the corpus. Full runbook for the SageAttention/CogVideoX/910B north-star at [`RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
 
 **✅ Closed in v3.25-v3.27:**
 - ~~`ANTHROPIC_API_KEY` requirement~~ → `--use-host-llm` (v3.25) routes through host LLM
@@ -16,15 +16,15 @@ All 6 of the original v3.23 gaps now have working surface, plus the v3.27 north-
 - ~~No "technique" entity~~ → `data/techniques/` (v3.25) + first SageAttention YAML
 - ~~`--technique` CLI not wired~~ → wired in v3.26 (`agent:deploy --technique sageattention --hardware <arch> --use-host-llm` works)
 - ~~No remote-target SSH executor~~ → `remote-target.ts` (v3.26) emits dry-run plan + per-vendor build scripts (`nvidia/build.sh`, `ascend/build.sh`, `amd/build.sh`, `cambricon/build.sh`)
-- ~~No cross-arch verify scaffold~~ → scaffold (v3.26) + tensor-diff utility (v3.27); cross-arch EXECUTION via remote-target is still v3.32+ work
+- ~~No cross-arch verify scaffold~~ → scaffold (v3.26) + tensor-diff utility (v3.27); cross-arch EXECUTION via remote-target is still v3.33+ work
 - ~~`--execute` for remote-target~~ → wired in **v3.27** (actual SSH + scp + remote build/run/profile + scp-back). Auto-suggests `EVOKERNEL_<PROFILER>_INPUT_CSV` env after scp-down so V3 perf gate ingests profile.
 - ~~No fuzzy-intent input~~ → `--description "natural language intent"` wired in **v3.27**: routes through host-LLM clarification loop (no API key in CC/Codex), resolves to canonical args or surfaces structured questions.
 - ~~Synthesized bundles stuck on skeleton path~~ → wired in **v3.29**: `--allow-synthesize`, `--technique`, or `--use-host-llm` lets unknown HF models drive productized generation.
 - ~~/techniques/ pages missing~~ → wired in **v3.29**: browsable technique catalog + `/api/techniques.json`.
 - ~~Technique catalog looked empty~~ → expanded in **v3.30** from SageAttention only to SageAttention + FlashAttention + PagedAttention + RingAttention.
-- ~~Docs/web/API understated current capability~~ → aligned in **v3.31**.
+- ~~Docs/web/API understated current capability~~ → aligned in **v3.31**; v3.32 adds API/audit regression gates.
 
-**Still open (v3.32+):**
+**Still open (v3.33+):**
 - **End-to-end serving on real hardware**. `--serve` should template FastAPI/Triton serving + emit a client test script.
 - **Cross-arch numerical verify EXECUTION**. Wire "run reference on Hopper via SSH + run new impl on Ascend via SSH + diff tensors with tolerance from technique YAML" using v3.27's tensor-diff utility.
 - **Persist synthesized bundles**. Synthesized bundles are in-memory only; successful deployments should produce PR-ready `data/models/` and `data/model-graphs/` stubs.

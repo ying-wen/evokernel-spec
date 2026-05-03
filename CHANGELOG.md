@@ -6,7 +6,30 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.32** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; persisting synthesized bundles into `data/models/`; plumbing `executeRemoteRun` result back into Stage 8 so `outcome: shipped` actually emits on real `--execute` success.
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.33** — cross-arch verify EXECUTION (run reference impl on native arch via SSH remote-target + diff tensors against `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts; `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers; persisting synthesized bundles into `data/models/`; plumbing `executeRemoteRun` result back into Stage 8 so `outcome: shipped` actually emits on real `--execute` success.
+
+---
+
+## [3.32.0] — 2026-05-04 — Knowledge/API quality gates
+
+**Theme**: turn the v3.31 knowledge/web quality findings into automated gates. The public API descriptors now match the actual Astro API route inventory, the missing quantization endpoint exists, and `audit:data --strict` fails future warning-level data drift.
+
+### Fixed
+
+- Restored `/api/quantizations.json`, which `/api/index.json` and OpenAPI advertised but the site did not actually generate.
+- Added an API parity web unit test that compares `apps/web/src/pages/api/` against `/api/index.json` and `/api/openapi.json`, including the dynamic agent-context template and `/api/healthz`.
+- Added a strict data-audit regression test. Edge-tier low BF16 values (`mlu220`, `rk3588-npu`) and wafer-scale aggregate BF16 (`wse-3`) are now modeled as expected architectural classes instead of warning-level findings.
+- Bumped API descriptor, health, OpenAPI, README, ROADMAP, HARNESS, and known-issues state to v3.32.0.
+
+### Validation
+
+- `pnpm exec tsx scripts/validate-data.ts` passes: 424 entities.
+- `pnpm audit:data` reports 0 warnings / 60 info.
+- `pnpm --filter web test` passes: 51/51 web unit tests.
+- `pnpm --filter @evokernel/scripts test` passes: 287 passed / 1 skipped harness tests.
+- `pnpm --filter web exec astro check` passes: 0 errors / 0 warnings / 40 hints.
+- `pnpm --filter @evokernel/web build` passes: 613 SSG pages, Pagefind indexed 613 pages.
+- Targeted Playwright OpenAPI smoke passes: 1/1.
 
 ---
 
