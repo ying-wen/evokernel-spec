@@ -6,7 +6,100 @@ The release workflow (`.github/workflows/release.yml`) auto-publishes a GitHub R
 
 ## [Unreleased]
 
-See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.27** — wire `--execute` flag through to remote-target.ts so the dry-run plan emitted by v3.26 actually runs (SSH + scp + remote build + remote run + remote profile + scp profiler-output back); cross-arch numerical verify EXECUTION (not just scaffold); first input-flexibility flag (`--description "natural language intent"` triggering host-LLM clarification loop); end-to-end on the SageAttention/CogVideoX/910B north-star. Per the v3.27+ spec extension at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](docs/superpowers/specs/2026-05-04-real-productized-agent.md#v327-extension-ralph-loop-as-agent-execution-model-added-2026-05-04-mid-iteration).
+See [docs/CLEANUP-TODO.md](docs/CLEANUP-TODO.md). Next up: **v3.28** — wire cross-arch verify EXECUTION (run technique reference impl on its native arch via SSH remote-target + run new impl on target arch + diff tensors with v3.27's `tensor-diff` utility against the technique's `numerical_rules` tolerance); `--serve` flag templating FastAPI/Triton serving + client test scripts (closes Steps 9-10 of `docs/RUNBOOK-SAGEATTENTION-910B.md`); `--from-repo https://github.com/X/Y` (clone + scan + plan port); `suprof` + `instruments` parsers (closes 4/6 → 6/6 vendor coverage).
+
+---
+
+## [3.27.0] — 2026-05-04 — North-star release: --execute remote-target + tensor-diff + --description fuzzy intent + RUNBOOK
+
+**Theme**: The v3.24 spec's north-star release. Three new product surfaces close the v3.26-still-open gaps (`--execute`, tensor-diff utility, `--description` fuzzy intent). Plus `docs/RUNBOOK-SAGEATTENTION-910B.md` — the 10-step user-facing walkthrough that takes the SageAttention/CogVideoX/910B scenario from "spec promise" to "any fresh CC/Codex session can execute it."
+
+### H1 — `--execute` flag for remote-target (real SSH execution)
+
+`scripts/agent-deploy/index.ts` `--remote` block extended with `--execute` opt-in. Pre-v3.27 the flag emitted a dry-run plan only; v3.27 wires actual execution:
+
+1. Writes kernel files locally to `agent-deploy-output/<run>/kernels-to-upload/`
+2. Rewrites the `scp-up` command to use real on-disk paths
+3. Calls `executeRemoteRun(plan)` from v3.26 — runs each of the 7 steps via `bash -c` with halt-on-error
+4. On success: prints `Hint: set EVOKERNEL_<PROFILER>_INPUT_CSV=<path> to feed this into V3 perf gate`
+5. On failure: prints the failed step + first 8 lines of stderr; persisted `remote-plan.json` lets user re-run just the failed step manually
+
+`profilerEnvVarFor(vendor)` helper added to `index.ts` so the success hint shows the correct env var per target arch (NVIDIA → `EVOKERNEL_NCU_INPUT_CSV`, Ascend → `EVOKERNEL_MSPROF_INPUT_CSV`, etc).
+
+### H2 — Tensor-diff utility for cross-arch numerical compare
+
+`scripts/agent-deploy/verify/tensor-diff.ts` (NEW, ~140 LOC). Takes two FP32 binary tensor files (one from technique reference impl on its native arch, one from new impl on target arch) and computes:
+
+- `max_abs_diff` (with offending element index for diagnostic)
+- `max_rel_diff` (using `|a-b| / max(|a|, |b|, eps=1e-12)` to handle tiny values)
+- `mean_abs_error`
+- `n_outliers_abs` (count of elements exceeding `tolerance.max_abs_diff`)
+- Pass/fail verdict + diagnostic prose
+
+Format expected: raw FP32 binary (header-less) — lowest-common-denominator across CUDA/Ascend/HIP/BANG-C kernel runners. Each test harness writes via `fwrite(data, sizeof(float), n_elements, fp)`. Layer V's per-arch test harness (v3.28+) dequantizes to FP32 before writing.
+
+`writeTensorBinary(path, Float32Array)` convenience helper for tests + future kernel-runner scaffolds.
+
+This works locally (no remote execution required); the END-TO-END "pull tensor from remote → diff → verdict" flow lands in v3.28 once the kernel-runner scaffolds for each vendor exist.
+
+### H3 — `--description "fuzzy intent"` flag + host-LLM clarification scaffold
+
+`scripts/agent-deploy/clarify-intent.ts` (NEW, ~200 LOC). The first input-flexibility surface from the v3.24 spec extension:
+
+1. `buildClarifyIntentRequest(input)` produces a structured prompt for the host LLM, asking it to extract `{ model, hardware, technique?, workload? }` from the user's natural-language description, OR list 1-3 sharp clarifying questions when ambiguous. Includes context (available hardware ids, available techniques, bundle count) so the LLM grounds its extraction.
+2. `parseClarifyResponse(text)` handles common LLM response shapes: bare JSON, JSON in ```` ```json ```` fences, JSON with preamble despite "no preamble" instruction. Returns structured `ClarifiedIntent` with `confidence ∈ [0, 1]`. Marks resolved only when `confidence >= 0.5` AND both `model` + `hardware` extracted.
+3. `formatClarificationOutput(intent)` returns terminal-friendly text + exit code (0 if resolved, 2 if questions).
+
+`index.ts` early-branch: when `--description` set + (`!model || !hardware`), forces host-llm mode, builds clarify request, awaits response, exits with either canonical-args suggestion or numbered questions. v3.28 will auto-route resolved intent through the main flow in a single call.
+
+### H4 — `docs/RUNBOOK-SAGEATTENTION-910B.md` (NEW, ~250 lines)
+
+The user-facing 10-step walkthrough for the v3.24 north-star scenario:
+
+1. One-time install + agent:doctor health check
+2. Configure SSH target in `~/.config/evokernel/targets.yaml` (with `~/.ssh/config` alias pattern so real IPs stay in user's local SSH config, NOT in any harness file)
+3. Verify SageAttention technique loads
+4. Generate first-pass Ascend-C port via host-LLM mode
+5. Inspect generated kernel
+6. Dry-run SSH execution plan
+7. Execute on real 910B via `--execute`
+8. Feed pulled msprof CSV into V3 perf gate
+9. Land agent-learning back in corpus + auto-PR clustering
+10. Serve CogVideoX1.5-5B end-to-end + local-test sanity
+
+**Honest expectation summary table** at the end: which steps are v3.27 fully-automated vs which still need manual work or land in v3.28+. Calls out that the FIRST run will likely produce a partial port — that's exactly what the Ralph-Loop architecture is FOR.
+
+### H5 — Tests (229 → **246**)
+
+`scripts/tests/v3-27-execute-tensor-diff-clarify.test.ts` (+17 tests):
+
+**tensor-diff** (8 tests): identical tensors pass; within tolerance pass; abs-diff exceeded fail with element-index diagnostic; rel-diff exceeded with tiny absolute values; size mismatch detection; expected_elements mismatch; non-multiple-of-4 file size (corrupt binary); outlier counting (10 outliers in 1000 elements).
+
+**clarify-intent** (9 tests): `buildClarifyIntentRequest` includes description + partial args + bundled context + Shape A/B examples; double-quote escaping (prompt injection guard); `parseClarifyResponse` parses Shape A → resolved canonical, Shape B → questions, strips ```` ```json ```` fences, falls back gracefully on invalid JSON, doesn't mark resolved when `confidence < 0.5`; `formatClarificationOutput` exit 0 for resolved + exit 2 for ambiguous with numbered questions.
+
+### Stats
+
+- **CLI flags**: 5 → **7** (+`--execute`, +`--description`)
+- **Verify gates files**: 5 → **6** (+tensor-diff)
+- **TypeScript files in scripts/agent-deploy/**: 15 → **17** (+clarify-intent, +verify/tensor-diff)
+- **Test count**: 229 → **246** (+17 v3.27 tests)
+- **Doc artifacts**: + `docs/RUNBOOK-SAGEATTENTION-910B.md` (the user-asked-for walkthrough)
+
+### Note on the user's directive ("start a new CC session and run the runbook")
+
+The user asked me to start a fresh Claude Code session and walk through the actual SageAttention/CogVideoX/910B deployment on their 910B. **I cannot programmatically spawn a new CC session from inside this one** (CC's architecture; sessions are user-initiated). What I can — and did — do: ship `docs/RUNBOOK-SAGEATTENTION-910B.md` as the executable artifact that any fresh CC/Codex session OR the user can run as 10 step-by-step commands. The runbook is *itself a piece of v3.27* — it codifies "what does the harness do end-to-end on the north-star scenario", honestly distinguishing the v3.27 fully-automated steps from the v3.28+ still-manual steps.
+
+For the actual 910B run: open a fresh CC session, paste the runbook URL or contents, ask the session to execute Steps 1-8 (or all 10 if you want serving + test). The session will use its own LLM (no API key needed thanks to `--use-host-llm`), and `--execute` will SSH to your 910B using the alias from your `~/.ssh/config`. Real SSH credentials never leave your machine.
+
+### v3.28 next
+
+Per the spec extension, in priority order:
+- **Cross-arch verify EXECUTION** — wire v3.27's `tensor-diff` utility through `remote-target.ts` so V2 actually runs reference + new impl on real hardware + diffs the outputs with technique tolerance
+- **`--serve` flag** — templates FastAPI/Triton serving wrapper + client test script for the deployed model (closes Runbook Steps 9-10)
+- **`--from-repo`** — clone GitHub repo, scan for ops + hardware hints, auto-plan port
+- **`suprof` + `instruments` parsers** (Moore Threads + Apple, closing 4/6 → 6/6 vendor coverage)
+
+Test target: 246 → ~270.
 
 ---
 

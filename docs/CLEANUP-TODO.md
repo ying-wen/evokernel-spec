@@ -29,10 +29,13 @@ input types: code, repos, papers, pseudocode + uncertainty resolution).
 | Per-vendor build scripts (nvidia/amd/ascend/cambricon) | ✅ Done | v3.26 |
 | Cross-arch numerical verify scaffold (`verify/cross-arch-compare.ts`) | ✅ Done | v3.26 |
 | `ralph_loop_iterations[]` manifest extension (every step recorded) | ✅ Done | v3.26 |
-| `--execute` for remote-target (SSH connect + build + run + profile + scp back) | TODO | v3.27 |
-| Cross-arch numerical verify EXECUTION (run reference + new impl + diff) | TODO | v3.27 |
-| End-to-end on north-star scenario (real run against private Ascend 910B SSH host) | TODO | v3.27 |
-| `--description "natural language intent"` flag + first clarifying-Q loop | TODO | v3.27 |
+| `--execute` for remote-target (SSH connect + build + run + profile + scp back) | ✅ Done | v3.27 |
+| Tensor-diff utility for cross-arch numerical compare (`verify/tensor-diff.ts`) | ✅ Done | v3.27 |
+| `--description "natural language intent"` flag + clarifying-Q host-LLM loop | ✅ Done | v3.27 |
+| `docs/RUNBOOK-SAGEATTENTION-910B.md` (10-step end-to-end walkthrough) | ✅ Done | v3.27 |
+| Cross-arch numerical verify EXECUTION (use tensor-diff via remote-target) | TODO | v3.28 |
+| End-to-end serving on north-star (`--serve` flag + client test template) | TODO | v3.28 |
+| Real run against private Ascend 910B SSH host (per RUNBOOK) | Awaiting user execution | v3.27 |
 | `--from-repo https://github.com/X/Y` (clone + scan + plan port) | TODO | v3.28 |
 | `--from-code path/to/model.py` (parse + decompose op graph) | TODO | v3.28 |
 | `--from-paper https://arxiv.org/abs/X` (LLM extracts claims + comparisons) | TODO | v3.29 |

@@ -49,10 +49,12 @@ import {
   type TechniquePortContext,
 } from './load-technique';
 // v3.26 — SSH remote-target executor.
+// v3.27 — adds executeRemoteRun for actual SSH execution.
 import {
   resolveTarget,
   buildExecutionPlan,
   formatPlanForDryRun,
+  executeRemoteRun,
   TargetNotFoundError,
   TargetMismatchError,
 } from './remote-target';
@@ -186,6 +188,27 @@ function deriveBundleSlug(model_arg: string): string {
     .replace(/-chat$/i, '')
     .replace(/-base$/i, '');
   return cleaned;
+}
+
+/**
+ * v3.27 — map a vendor family (from remote-target-schema.ts:vendorFamilyForHardware)
+ * to the env var name that V3 perf gate watches for pre-collected profiler
+ * output. Used by the --execute path to surface "set this env var to feed
+ * the just-pulled CSV into the next agent:deploy --profile run".
+ */
+function profilerEnvVarFor(vendor: string): string | null {
+  switch (vendor) {
+    case 'nvidia':
+      return 'EVOKERNEL_NCU_INPUT_CSV';
+    case 'amd':
+      return 'EVOKERNEL_ROCPROF_INPUT_CSV';
+    case 'ascend':
+      return 'EVOKERNEL_MSPROF_INPUT_CSV';
+    case 'cambricon':
+      return 'EVOKERNEL_CNPERF_INPUT_CSV';
+    default:
+      return null;
+  }
 }
 
 async function fetchHFConfig(hfId: string, localPath?: string): Promise<HFConfig> {
@@ -816,6 +839,65 @@ notes: |
 async function main() {
   const args = parseArgs(process.argv);
 
+  // v3.27 — --description "<fuzzy intent>" routes through the host LLM
+  // for clarification BEFORE the canonical-args check. If extraction
+  // succeeds with high confidence, we exit with the suggested canonical
+  // args (v3.28 will auto-route this in a single call). If ambiguous,
+  // we exit with clarifying questions.
+  if (args['description'] && (!args.model || !args.hardware)) {
+    const { listAvailableTechniques } = await import('./load-technique');
+    const { listBundles } = await import('./fetch-bundle');
+    const { buildClarifyIntentRequest, parseClarifyResponse, formatClarificationOutput } =
+      await import('./clarify-intent');
+    const adapter = await import('./host-llm-adapter');
+
+    // Force host-llm mode for clarification (no API key required).
+    process.env.EVOKERNEL_HOST_LLM = 'true';
+
+    console.error('🧭 Stage 0 — fuzzy-intent clarification via host-LLM exchange...');
+    const techs = await listAvailableTechniques();
+    const bundles = await listBundles();
+    const hardware_set = new Set(bundles.map((b) => b.hardware));
+    const clarifyReq = buildClarifyIntentRequest({
+      description: args['description'],
+      partial_args: { model: args.model, hardware: args.hardware, technique: args['technique'], workload: args.workload },
+      context: {
+        available_hardware: [...hardware_set].sort(),
+        available_techniques: techs,
+        bundle_count: bundles.length,
+      },
+    });
+    // Use a synthetic ProductionKernelInput-shaped object so the host-llm
+    // adapter's request_id derivation works.
+    const synthetic_input = {
+      bundle: {
+        model: { id: 'fuzzy-intent', name: 'Fuzzy Intent' },
+        hardware: { id: 'fuzzy-intent', name: 'Fuzzy Intent' },
+        vendor: { id: 'fuzzy-intent', name: 'Fuzzy Intent' },
+        applicable_ops: [],
+        dsl_examples: [],
+        isa_primitives: [],
+        prior_learnings: [],
+      } as any,
+      op: 'clarify-intent',
+      target_arch: 'fuzzy-intent',
+    };
+    const promptHash = `clarify-${Date.now().toString(36)}`;
+    const request = adapter.buildHostLlmRequest(synthetic_input, clarifyReq.prompt, promptHash, 'json');
+    await adapter.writeHostLlmRequest(request);
+    try {
+      const response = await adapter.awaitHostLlmResponse(request.request_id, { timeout_ms: 5 * 60 * 1000 });
+      const intent = parseClarifyResponse(response.code);
+      const out = formatClarificationOutput(intent);
+      process.stderr.write(out.text);
+      process.exit(out.exit_code);
+    } catch (e) {
+      console.error(`\n✗ Fuzzy-intent clarification failed: ${(e as Error).message}\n`);
+      console.error(`Hint: when running outside Claude Code / Codex, the host-LLM exchange has no consumer. Pass --model and --hardware directly instead.\n`);
+      process.exit(1);
+    }
+  }
+
   if (!args.model || !args.hardware) {
     console.error(`
 Usage:
@@ -830,7 +912,9 @@ Usage:
     [--profile]                # v3.21: V3 execution-mode perf gate (target HW)
     [--use-host-llm]           # v3.25: route generation through host LLM (CC/Codex), no API key needed
     [--technique <id>]         # v3.26: orchestrate a research technique port (e.g. sageattention)
-    [--remote <target-id>]     # v3.26: SSH to a remote machine, build + run + profile remotely
+    [--remote <target-id>]     # v3.26: SSH to a remote machine (dry-run by default)
+    [--execute]                # v3.27: actually run the remote-target plan (vs dry-run)
+    [--description "intent"]   # v3.27: fuzzy natural-language intent (triggers host-LLM clarification)
 
 Example (v2 skeleton mode — fast, no API):
   pnpm tsx scripts/agent-deploy/index.ts \\
@@ -1303,8 +1387,12 @@ Example (v3 productized real-code mode):
           local_output_dir: outputDir,
           run_id,
         });
-        process.stderr.write(formatPlanForDryRun(plan));
-        // Persist the plan + kernel-file manifest for v3.27 --execute pickup.
+        // v3.27 — --execute opt-in: when set, actually run the plan via
+        // SSH/scp + halt-on-error. Without --execute, dry-run as before
+        // (v3.26 default for safety; real-hardware execution is destructive).
+        const shouldExecute = args['execute'] === 'true' || args['execute'] === '';
+
+        // Persist the plan + kernel-file manifest for inspection / replay.
         await writeFile(path.join(outputDir, 'remote-plan.json'), JSON.stringify({
           target_id: target.id,
           hardware: target.hardware,
@@ -1313,8 +1401,54 @@ Example (v3 productized real-code mode):
           remote_work_dir: plan.remote_work_dir,
           kernel_files: plan.kernel_files.map((f) => ({ filename: f.filename, byte_count: f.content.length })),
           commands: plan.commands,
-          v3_27_execute_hint: 'Re-run with --execute (lands in v3.27) to actually run the plan.',
+          execute_mode: shouldExecute ? 'execute' : 'dry-run',
         }, null, 2));
+
+        if (!shouldExecute) {
+          process.stderr.write(formatPlanForDryRun(plan));
+        } else {
+          // v3.27 — write kernel files locally first so the scp-up step has
+          // them on disk to upload. Plan's scp-up command references
+          // <local>/<filename> placeholders; we write the actual files into
+          // outputDir/kernels-generated/ where the plan expects them.
+          const kernels_dir = path.join(outputDir, 'kernels-to-upload');
+          await mkdir(kernels_dir, { recursive: true });
+          for (const f of plan.kernel_files) {
+            await writeFile(path.join(kernels_dir, f.filename), f.content);
+          }
+          // Rewrite the scp-up command to use the on-disk paths.
+          plan.commands = plan.commands.map((c) => {
+            if (c.kind !== 'scp-up') return c;
+            const sources = plan.kernel_files
+              .map((f) => path.join(kernels_dir, f.filename))
+              .concat(plan.build_script_local);
+            return {
+              ...c,
+              cmd: `scp ${sources.map((s) => `'${s.replace(/'/g, `'\\''`)}'`).join(' ')} ${target.ssh}:${plan.remote_work_dir}/`,
+            };
+          });
+
+          console.error(`\n🚀 Stage 9 — executing remote run plan (--execute)...`);
+          console.error(`   Steps: ${plan.commands.length}; halt-on-error.`);
+          const result = await executeRemoteRun(plan);
+
+          if (result.exit_code === 0) {
+            console.error(`\n   ✓ All ${plan.commands.length} steps succeeded.`);
+            console.error(`   Profiler output: ${plan.local_profile_output}`);
+            // v3.27 — auto-set EVOKERNEL_<PROFILER>_INPUT_CSV so a follow-up
+            // V3 perf gate run picks up the just-pulled profile data.
+            const env_var = profilerEnvVarFor(plan.vendor);
+            if (env_var) {
+              console.error(`\n   Hint: set ${env_var}=${plan.local_profile_output} to feed this into V3 perf gate, e.g.:`);
+              console.error(`     ${env_var}=${plan.local_profile_output} pnpm agent:deploy --use-llm-orchestrator --profile --model ${args.model} --hardware ${args.hardware}`);
+            }
+          } else {
+            console.error(`\n   ✗ Step "${result.step}" failed (exit ${result.exit_code}).`);
+            console.error(`   ${result.output.split('\n').slice(0, 8).join('\n   ')}`);
+            console.error(`\n   Persisted plan + first failure at ${path.join(outputDir, 'remote-plan.json')}`);
+            console.error(`   To retry just the failed step manually, copy the command from the persisted plan.\n`);
+          }
+        }
       }
     } catch (e) {
       if (e instanceof TargetNotFoundError) {

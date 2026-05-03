@@ -1,28 +1,32 @@
 # EvoKernel Productized Agent Harness — End-to-End Guide
 
-> Status: **v3.26+ stable** — 10 release iterations: v3.17 (real harness pivot) → v3.18 (polish + walkthrough) → v3.19 (doctor + 3 MCP tools + landing page) → v3.20 (UI sprint #1 + agent:status) → v3.21 (UI sprint #2 + --profile) → v3.22 (continuous mode + NCU parser + Apple cross-link) → v3.23 (vendor profiler parity: rocprof + msprof + cnperf, zh slash command) → v3.24 (docs cleanup + v3.25-27 spec) → v3.25 (host-LLM mode + `data/techniques/` entity + HF auto-import) → **v3.26 (--technique CLI + SSH remote-target executor + cross-arch verify scaffold + Ralph-Loop step recording).**
+> Status: **v3.27+ stable** — 11 release iterations through the productized-agent arc. Latest: **v3.27 (--execute flag for remote-target real SSH execution; tensor-diff utility for cross-arch numerical compare; --description flag for fuzzy-intent host-LLM clarification loop).** Full runbook for the SageAttention/CogVideoX/Ascend-910B north-star scenario at [`docs/RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
 
 This is the operator manual for the **real productized agent harness** — a closed-loop pipeline that takes `(any model, any hardware)` and emits production-grade deployment artifacts plus real generated kernels with verification + retry + corpus feedback.
 
 It is **not** an MCP query service (corpus has one of those too — separate tool). The harness goes one step further: it produces the actual code you ship and the actual provenance you audit.
 
-## ⚠️ Known limits (v3.26 — what works, what's dry-run, what's still gap)
+## ⚠️ Known limits (v3.27 — what works, what's still gap)
 
-5 of the 6 original v3.23 gaps now have working surface (technique entity, host-LLM, HF auto-import, --technique CLI, SSH executor in dry-run, cross-arch scaffold). v3.27 wires `--execute` for real remote runs + full numerical verify. The user's broader Ralph-Loop vision (richer input types: code, repos, papers, pseudocode + uncertainty resolution loops) lands across v3.27-v3.30 — see [the spec extension](superpowers/specs/2026-05-04-real-productized-agent.md#v327-extension-ralph-loop-as-agent-execution-model-added-2026-05-04-mid-iteration).
+All 6 of the original v3.23 gaps now have working surface, plus the v3.27 north-star deliverables (`--execute`, tensor-diff, `--description` fuzzy intent). The remaining v3.28-v3.30 work is depth (cross-arch verify execution, richer input types, automated serving + client-test orchestration). Full runbook for the SageAttention/CogVideoX/910B north-star at [`RUNBOOK-SAGEATTENTION-910B.md`](RUNBOOK-SAGEATTENTION-910B.md).
 
-**✅ Closed in v3.25-v3.26:**
+**✅ Closed in v3.25-v3.27:**
 - ~~`ANTHROPIC_API_KEY` requirement~~ → `--use-host-llm` (v3.25) routes through host LLM
 - ~~Unknown models error out~~ → `synthesizeTemporaryBundle` (v3.25)
 - ~~No "technique" entity~~ → `data/techniques/` (v3.25) + first SageAttention YAML
 - ~~`--technique` CLI not wired~~ → wired in v3.26 (`agent:deploy --technique sageattention --hardware <arch> --use-host-llm` works)
 - ~~No remote-target SSH executor~~ → `remote-target.ts` (v3.26) emits dry-run plan + per-vendor build scripts (`nvidia/build.sh`, `ascend/build.sh`, `amd/build.sh`, `cambricon/build.sh`)
-- ~~No cross-arch verify~~ → `verify/cross-arch-compare.ts` (v3.26) ships scaffold (4 pre-checks + 2 comparison steps); v3.27 wires actual numerical execution
+- ~~No cross-arch verify~~ → scaffold (v3.26) + tensor-diff utility (v3.27); cross-arch EXECUTION via remote-target lands in v3.28
+- ~~`--execute` for remote-target~~ → wired in **v3.27** (actual SSH + scp + remote build/run/profile + scp-back). Auto-suggests `EVOKERNEL_<PROFILER>_INPUT_CSV` env after scp-down so V3 perf gate ingests profile.
+- ~~No fuzzy-intent input~~ → `--description "natural language intent"` wired in **v3.27**: routes through host-LLM clarification loop (no API key in CC/Codex), resolves to canonical args or surfaces structured questions.
 
-**Still open (v3.27-v3.30):**
-- **`--execute` for remote-target**. v3.26 ships dry-run only (safe default); v3.27 wires actual SSH execution + back-fed profiler CSV.
-- **End-to-end on real hardware**. v3.27 milestone — first real `agent:deploy --technique sageattention --model zai-org/CogVideoX1.5-5B --hardware ascend-910b --remote <ssh-target> --use-host-llm --execute` returning measured tok/s from a live 910B.
-- **suprof + instruments parsers**. 4/6 vendor profilers wired (NCU + rocprof + msprof + cnperf); 6/6 in a follow-up (Moore Threads + Apple).
-- **Richer input types** (v3.27-v3.30). `--from-repo` / `--from-code` / `--from-paper` / `--description` flags for fuzzy intent. Uncertainty resolution loops (clarifying questions via host-LLM exchange).
+**Still open (v3.28-v3.30):**
+- **End-to-end serving on real hardware**. v3.28 will template `--serve` flag wrapping the deployed model in FastAPI/Triton + emit a client test script.
+- **Cross-arch numerical verify EXECUTION**. v3.28 wires "run reference on Hopper via SSH + run new impl on Ascend via SSH + diff tensors with tolerance from technique YAML" using v3.27's tensor-diff utility.
+- **suprof + instruments parsers**. 4/6 vendors today (NCU/rocprof/msprof/cnperf); 6/6 in a follow-up (Moore Threads + Apple).
+- **Richer input types**: `--from-repo` / `--from-code` / `--from-paper` flags (v3.28-v3.29).
+- **First-class user requirement flags** (`--target-tok-s` / `--target-latency-ms` / `--target-accuracy` / `--dtype`) — v3.29.
+- **Auto-emit `agent-run-summary.md`** at end of each deploy (v3.30).
 
 The full design is at [`docs/superpowers/specs/2026-05-04-real-productized-agent.md`](superpowers/specs/2026-05-04-real-productized-agent.md). PRs welcome.
 
